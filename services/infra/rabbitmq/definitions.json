@@ -1,0 +1,118 @@
+{
+    "rabbit_version": "3.13.0",
+    "rabbitmq_version": "3.13.0",
+    "users": [],
+    "vhosts": [
+        {
+            "name": "/"
+        }
+    ],
+    "permissions": [],
+    "topic_permissions": [],
+    "parameters": [],
+    "global_parameters": [],
+    "policies": [
+        {
+            "vhost": "/",
+            "name": "ha-all",
+            "pattern": ".*",
+            "apply-to": "all",
+            "definition": {
+                "ha-mode": "all"
+            },
+            "priority": 0
+        }
+    ],
+    "queues": [
+        {
+            "name": "whatsapp.messages",
+            "vhost": "/",
+            "durable": true,
+            "auto_delete": false,
+            "arguments": {
+                "x-queue-type": "quorum"
+            }
+        },
+        {
+            "name": "payment.webhooks",
+            "vhost": "/",
+            "durable": true,
+            "auto_delete": false,
+            "arguments": {
+                "x-queue-type": "quorum"
+            }
+        },
+        {
+            "name": "notifications.send",
+            "vhost": "/",
+            "durable": true,
+            "auto_delete": false,
+            "arguments": {
+                "x-queue-type": "quorum"
+            }
+        },
+        {
+            "name": "orders.dlq",
+            "vhost": "/",
+            "durable": true,
+            "auto_delete": false,
+            "arguments": {
+                "x-queue-type": "classic"
+            }
+        }
+    ],
+    "exchanges": [
+        {
+            "name": "clickgarcom.events",
+            "vhost": "/",
+            "type": "topic",
+            "durable": true,
+            "auto_delete": false,
+            "internal": false,
+            "arguments": {}
+        },
+        {
+            "name": "clickgarcom.dlx",
+            "vhost": "/",
+            "type": "fanout",
+            "durable": true,
+            "auto_delete": false,
+            "internal": false,
+            "arguments": {}
+        }
+    ],
+    "bindings": [
+        {
+            "source": "clickgarcom.events",
+            "vhost": "/",
+            "destination": "whatsapp.messages",
+            "destination_type": "queue",
+            "routing_key": "whatsapp.message.received",
+            "arguments": {}
+        },
+        {
+            "source": "clickgarcom.events",
+            "vhost": "/",
+            "destination": "payment.webhooks",
+            "destination_type": "queue",
+            "routing_key": "payment.webhook.received",
+            "arguments": {}
+        },
+        {
+            "source": "clickgarcom.events",
+            "vhost": "/",
+            "destination": "notifications.send",
+            "destination_type": "queue",
+            "routing_key": "notification.*",
+            "arguments": {}
+        },
+        {
+            "source": "clickgarcom.dlx",
+            "vhost": "/",
+            "destination": "orders.dlq",
+            "destination_type": "queue",
+            "routing_key": "",
+            "arguments": {}
+        }
+    ]
+}
