@@ -101,6 +101,16 @@ install-tools: ## Instala ferramentas de desenvolvimento
 	go install github.com/golang-migrate/migrate/v4/cmd/migrate@latest
 	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 
+clean-all: ## Limpa TUDO (banco + filas)
+	@echo "🧹 Limpando banco de dados..."
+	docker exec -it clickgarcom-postgres psql -U postgres -d clickgarcom_db -c "DELETE FROM inbox_events; DELETE FROM outbox_messages;"
+	@echo "🧹 Limpando filas RabbitMQ..."
+	docker exec clickgarcom-rabbitmq rabbitmqctl purge_queue whatsapp.messages
+	docker exec clickgarcom-rabbitmq rabbitmqctl purge_queue payment.webhooks
+	docker exec clickgarcom-rabbitmq rabbitmqctl purge_queue notifications.send
+	docker exec clickgarcom-rabbitmq rabbitmqctl purge_queue orders.dlq
+	@echo "✅ Tudo limpo!"
+
 # ============ PRODUCTION ============
 build-api: ## Builda API para produção
 	cd services/go-core && CGO_ENABLED=0 GOOS=linux go build -o bin/api cmd/api/main.go
