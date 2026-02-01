@@ -6,6 +6,7 @@ import (
 
     "github.com/google/uuid"
     "gorm.io/gorm"
+    "gorm.io/gorm/clause"
 
     "github.com/anbernal11041983/clickgarcom/internal/domain/inbox"
 )
@@ -26,7 +27,7 @@ func (r *InboxRepository) Store(ctx context.Context, event *inbox.InboxEvent) er
     
     // INSERT ... ON CONFLICT DO NOTHING (idempotência)
     return r.db.WithContext(ctx).
-        Clauses(gorm.Clause{}).
+        Clauses(clause.OnConflict{DoNothing: true}).
         Create(event).Error
 }
 

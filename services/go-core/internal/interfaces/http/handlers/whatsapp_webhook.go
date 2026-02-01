@@ -1,6 +1,7 @@
 package handlers
 
 import (
+    "context"
     "encoding/json"
     "time"
 
@@ -18,7 +19,7 @@ type WhatsAppWebhookHandler struct {
 }
 
 type RabbitMQPublisher interface {
-    Publish(exchange, routingKey string, body []byte) error
+    Publish(ctx context.Context, exchange, routingKey string, body []byte) error
 }
 
 func NewWhatsAppWebhookHandler(
@@ -93,7 +94,7 @@ func (h *WhatsAppWebhookHandler) HandleWebhook(c *fiber.Ctx) error {
             "wamid":    wamid,
         })
         
-        if err := h.rabbitMQ.Publish(
+        if err := h.rabbitMQ.Publish(context.Background(),
             "clickgarcom.events",
             "whatsapp.message.received",
             message,
