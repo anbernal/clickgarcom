@@ -335,7 +335,7 @@ CREATE TABLE outbox_messages (
     recipient VARCHAR(255) NOT NULL,
     
     -- Payload
-    payload JSONB NOT NULL,
+    payload TEXT NOT NULL,
     
     -- Template ID (se aplicável)
     template_id VARCHAR(100),

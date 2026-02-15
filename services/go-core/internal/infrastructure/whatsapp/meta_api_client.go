@@ -1,0 +1,121 @@
+package whatsapp
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"time"
+
+	"go.uber.org/zap"
+)
+
+type MetaAPIClient struct {
+	apiToken      string
+	phoneNumberID string
+	httpClient    *http.Client
+	logger        *zap.Logger
+}
+
+func NewMetaAPIClient(apiToken, phoneNumberID string, logger *zap.Logger) *MetaAPIClient {
+	return &MetaAPIClient{
+		apiToken:      apiToken,
+		phoneNumberID: phoneNumberID,
+		httpClient: &http.Client{
+			Timeout: 30 * time.Second,
+		},
+		logger: logger,
+	}
+}
+
+type SendTextMessageRequest struct {
+	MessagingProduct string `json:"messaging_product"`
+	RecipientType    string `json:"recipient_type"`
+	To               string `json:"to"`
+	Type             string `json:"type"`
+	Text             struct {
+		PreviewURL bool   `json:"preview_url"`
+		Body       string `json:"body"`
+	} `json:"text"`
+}
+
+type SendMessageResponse struct {
+	MessagingProduct string `json:"messaging_product"`
+	Contacts         []struct {
+		Input string `json:"input"`
+		WaID  string `json:"wa_id"`
+	} `json:"contacts"`
+	Messages []struct {
+		ID string `json:"id"`
+	} `json:"messages"`
+}
+
+func (c *MetaAPIClient) SendTextMessage(ctx context.Context, to, message string) (string, error) {
+	url := fmt.Sprintf("https://graph.facebook.com/v18.0/%s/messages", c.phoneNumberID)
+
+	reqBody := SendTextMessageRequest{
+		MessagingProduct: "whatsapp",
+		RecipientType:    "individual",
+		To:               to,
+		Type:             "text",
+	}
+	reqBody.Text.PreviewURL = false
+	reqBody.Text.Body = message
+
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+c.apiToken)
+	req.Header.Set("Content-Type", "application/json")
+
+	c.logger.Debug("sending whatsapp message",
+		zap.String("to", to),
+		zap.String("message", message),
+	)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		c.logger.Error("whatsapp api error",
+			zap.Int("status", resp.StatusCode),
+			zap.String("response", string(body)),
+		)
+		return "", fmt.Errorf("api error: %d - %s", resp.StatusCode, string(body))
+	}
+
+	var apiResp SendMessageResponse
+	if err := json.Unmarshal(body, &apiResp); err != nil {
+		return "", fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+
+	if len(apiResp.Messages) == 0 {
+		return "", fmt.Errorf("no message id in response")
+	}
+
+	messageID := apiResp.Messages[0].ID
+
+	c.logger.Info("whatsapp message sent",
+		zap.String("to", to),
+		zap.String("message_id", messageID),
+	)
+
+	return messageID, nil
+}

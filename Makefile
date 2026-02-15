@@ -74,6 +74,9 @@ run-api: ## Roda API localmente
 run-worker: ## Roda Worker localmente
 	cd services/go-core && go run cmd/worker/main.go
 
+run-outbox: ## Roda Outbox Worker localmente
+	cd services/go-core && go run cmd/outbox-worker/main.go
+
 run-realtime: ## Roda servidor WebSocket
 	cd services/go-core && go run cmd/realtime/main.go
 
