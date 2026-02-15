@@ -8,7 +8,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/anbernal11041983/clickgarcom/internal/domain/inbox/session"
+	"github.com/anbernal/clickgarcom/internal/domain/inbox/session"
 )
 
 type SessionRepository struct {

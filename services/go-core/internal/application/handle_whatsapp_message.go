@@ -8,9 +8,9 @@ import (
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 
-	"github.com/anbernal11041983/clickgarcom/internal/domain/inbox/session"
-	"github.com/anbernal11041983/clickgarcom/internal/domain/tenant"
-	"github.com/anbernal11041983/clickgarcom/internal/domain/whatsapp"
+	"github.com/anbernal/clickgarcom/internal/domain/inbox/session"
+	"github.com/anbernal/clickgarcom/internal/domain/tenant"
+	"github.com/anbernal/clickgarcom/internal/domain/whatsapp"
 )
 
 type HandleWhatsAppMessageUseCase struct {

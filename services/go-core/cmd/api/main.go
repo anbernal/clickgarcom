@@ -13,10 +13,10 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"go.uber.org/zap"
 
-	"github.com/anbernal11041983/clickgarcom/internal/config"
-	"github.com/anbernal11041983/clickgarcom/internal/interfaces/http/routes"
-	"github.com/anbernal11041983/clickgarcom/pkg/database"
-	"github.com/anbernal11041983/clickgarcom/pkg/logger"
+	"github.com/anbernal/clickgarcom/internal/config"
+	"github.com/anbernal/clickgarcom/internal/interfaces/http/routes"
+	"github.com/anbernal/clickgarcom/pkg/database"
+	"github.com/anbernal/clickgarcom/pkg/logger"
 )
 
 func main() {

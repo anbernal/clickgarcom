@@ -1,4 +1,4 @@
-module github.com/anbernal11041983/clickgarcom
+module github.com/anbernal/clickgarcom
 
 go 1.25.6
 

@@ -11,15 +11,15 @@ import (
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 
-	"github.com/anbernal11041983/clickgarcom/internal/application"
-	"github.com/anbernal11041983/clickgarcom/internal/config"
-	"github.com/anbernal11041983/clickgarcom/internal/infrastructure/persistence/postgres"
-	"github.com/anbernal11041983/clickgarcom/internal/infrastructure/queue/rabbitmq"
-	"github.com/anbernal11041983/clickgarcom/pkg/database"
-	"github.com/anbernal11041983/clickgarcom/pkg/logger"
+	"github.com/anbernal/clickgarcom/internal/application"
+	"github.com/anbernal/clickgarcom/internal/config"
+	"github.com/anbernal/clickgarcom/internal/infrastructure/persistence/postgres"
+	"github.com/anbernal/clickgarcom/internal/infrastructure/queue/rabbitmq"
+	"github.com/anbernal/clickgarcom/pkg/database"
+	"github.com/anbernal/clickgarcom/pkg/logger"
 
-	"github.com/anbernal11041983/clickgarcom/internal/domain/whatsapp"
-	redisRepo "github.com/anbernal11041983/clickgarcom/internal/infrastructure/persistence/redis"
+	"github.com/anbernal/clickgarcom/internal/domain/whatsapp"
+	redisRepo "github.com/anbernal/clickgarcom/internal/infrastructure/persistence/redis"
 )
 
 func main() {
