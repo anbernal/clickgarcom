@@ -44,3 +44,5 @@ docker-compose.override.yml
 node_modules/
 npm-debug.log
 yarn-error.log
+/services/go-core/test_create_order
+/services/go-core/worker

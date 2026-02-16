@@ -9,15 +9,20 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/anbernal/clickgarcom/internal/domain/inbox/session"
+	"github.com/anbernal/clickgarcom/internal/domain/menu"
+	"github.com/anbernal/clickgarcom/internal/domain/tab"
 	"github.com/anbernal/clickgarcom/internal/domain/tenant"
 	"github.com/anbernal/clickgarcom/internal/domain/whatsapp"
 )
 
 type HandleWhatsAppMessageUseCase struct {
-	sessionRepo session.Repository
-	tenantRepo  tenant.Repository
-	sender      WhatsAppSender
-	logger      *zap.Logger
+	sessionRepo   session.Repository
+	tenantRepo    tenant.Repository
+	menuRepo      menu.Repository
+	tabRepo       tab.Repository
+	createOrderUC *CreateOrderUseCase
+	sender        WhatsAppSender
+	logger        *zap.Logger
 }
 
 type WhatsAppSender interface {
@@ -27,14 +32,20 @@ type WhatsAppSender interface {
 func NewHandleWhatsAppMessageUseCase(
 	sessionRepo session.Repository,
 	tenantRepo tenant.Repository,
+	menuRepo menu.Repository,
+	tabRepo tab.Repository,
+	createOrderUC *CreateOrderUseCase,
 	sender WhatsAppSender,
 	logger *zap.Logger,
 ) *HandleWhatsAppMessageUseCase {
 	return &HandleWhatsAppMessageUseCase{
-		sessionRepo: sessionRepo,
-		tenantRepo:  tenantRepo,
-		sender:      sender,
-		logger:      logger,
+		sessionRepo:   sessionRepo,
+		tenantRepo:    tenantRepo,
+		menuRepo:      menuRepo,
+		tabRepo:       tabRepo,
+		createOrderUC: createOrderUC,
+		sender:        sender,
+		logger:        logger,
 	}
 }
 
@@ -115,10 +126,10 @@ func (uc *HandleWhatsAppMessageUseCase) processMessage(
 
 	switch sess.State {
 	case session.StateMainMenu:
-		return uc.handleMainMenu(ctx, sess, text)
+		return uc.handleMainMenuSimplified(ctx, sess, text)
 
 	case session.StateOrdering:
-		return uc.handleOrdering(ctx, sess, text)
+		return uc.handleOrderingSimplified(ctx, sess, text)
 
 	case session.StateSelectingQty:
 		return uc.handleQuantitySelection(ctx, sess, text)
