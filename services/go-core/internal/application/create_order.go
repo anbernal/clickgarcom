@@ -14,6 +14,11 @@ import (
 	"github.com/anbernal/clickgarcom/internal/domain/tab"
 )
 
+const (
+	// ServiceFeePercent é a taxa de serviço padrão (10%)
+	ServiceFeePercent = 10.0
+)
+
 var (
 	ErrTabNotFound      = errors.New("tab not found")
 	ErrTabNotOpen       = errors.New("tab is not open")
@@ -175,12 +180,30 @@ func (uc *CreateOrderUseCase) Execute(ctx context.Context, input CreateOrderInpu
 		return nil, fmt.Errorf("failed to create order: %w", err)
 	}
 
+	// 8. Atualizar totais da tab
+	orderTotal := newOrder.CalculateTotal()
+	existingTab.AddOrderTotal(orderTotal)
+	existingTab.CalculateTotal(ServiceFeePercent)
+
+	if err := uc.tabRepo.Update(ctx, existingTab); err != nil {
+		uc.logger.Error("failed to update tab totals", zap.Error(err))
+		// Não retorna erro pois o pedido já foi criado
+		// TODO: considerar usar transação no futuro
+	} else {
+		uc.logger.Info("tab totals updated",
+			zap.String("tab_id", existingTab.ID.String()),
+			zap.Float64("subtotal", existingTab.Subtotal),
+			zap.Float64("service_fee", existingTab.ServiceFee),
+			zap.Float64("total", existingTab.Total),
+		)
+	}
+
 	uc.logger.Info("order created successfully",
 		zap.String("order_id", newOrder.ID.String()),
 		zap.String("tab_id", input.TabID.String()),
 		zap.String("destination", string(newOrder.Destination)),
 		zap.Int("items_count", len(orderItems)),
-		zap.Float64("total", newOrder.CalculateTotal()),
+		zap.Float64("order_total", orderTotal),
 	)
 
 	return newOrder, nil
