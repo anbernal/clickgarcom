@@ -14,6 +14,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/anbernal/clickgarcom/internal/config"
+	"github.com/anbernal/clickgarcom/internal/infrastructure/websocket"
 	"github.com/anbernal/clickgarcom/internal/interfaces/http/routes"
 	"github.com/anbernal/clickgarcom/pkg/database"
 	"github.com/anbernal/clickgarcom/pkg/logger"
@@ -87,11 +88,17 @@ func main() {
 	app.Use(recover.New())
 	app.Use(cors.New())
 
-	// 8) Setup routes (NOVO)
+	// 8) Inicializar WebSocket Hub (NOVO)
+	wsHub := websocket.NewHub()
+	go wsHub.Run() // Rodar hub em goroutine
+	logger.Info("WebSocket Hub initialized and running")
+
+	// 9) Setup routes
 	routes.SetupRoutes(
 		app,
 		db,
 		rabbitMQ,
+		wsHub,
 		logger.Log,
 		cfg.WhatsApp.VerifyToken,
 	)

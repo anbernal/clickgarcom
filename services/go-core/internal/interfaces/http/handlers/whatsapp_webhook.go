@@ -95,8 +95,8 @@ func (h *WhatsAppWebhookHandler) HandleWebhook(c *fiber.Ctx) error {
 		})
 
 		if err := h.rabbitMQ.Publish(context.Background(),
-			"clickgarcom.events",
-			"whatsapp.message.received",
+			"",                  // Exchange (default)
+			"whatsapp.messages", // Routing Key (queue name)
 			message,
 		); err != nil {
 			h.logger.Error("failed to publish to rabbitmq",

@@ -8,7 +8,9 @@ import (
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 
+	"github.com/anbernal/clickgarcom/internal/domain/events"
 	"github.com/anbernal/clickgarcom/internal/domain/order"
+	"github.com/anbernal/clickgarcom/internal/infrastructure/websocket"
 )
 
 var (
@@ -27,17 +29,20 @@ type UpdateOrderStatusInput struct {
 type UpdateOrderStatusUseCase struct {
 	orderRepo      order.Repository
 	whatsappSender WhatsAppSender
+	wsHub          *websocket.Hub
 	logger         *zap.Logger
 }
 
 func NewUpdateOrderStatusUseCase(
 	orderRepo order.Repository,
 	whatsappSender WhatsAppSender,
+	wsHub *websocket.Hub,
 	logger *zap.Logger,
 ) *UpdateOrderStatusUseCase {
 	return &UpdateOrderStatusUseCase{
 		orderRepo:      orderRepo,
 		whatsappSender: whatsappSender,
+		wsHub:          wsHub,
 		logger:         logger,
 	}
 }
@@ -83,7 +88,17 @@ func (uc *UpdateOrderStatusUseCase) Execute(ctx context.Context, input UpdateOrd
 		zap.String("new_status", string(input.NewStatus)),
 	)
 
-	// 6. Enviar notificação WhatsApp (assíncrono, não bloqueia)
+	// 6. Broadcast evento WebSocket
+	if uc.wsHub != nil {
+		event := events.NewOrderStatusChangedEvent(existingOrder)
+		uc.wsHub.BroadcastToTenant(existingOrder.TenantID, event)
+		uc.logger.Info("order.status_changed event broadcast",
+			zap.String("order_id", existingOrder.ID.String()),
+			zap.String("status", string(existingOrder.Status)),
+		)
+	}
+
+	// 7. Enviar notificação WhatsApp (assíncrono, não bloqueia)
 	go uc.sendStatusNotification(existingOrder)
 
 	return existingOrder, nil

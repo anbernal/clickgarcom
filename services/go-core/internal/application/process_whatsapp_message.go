@@ -72,6 +72,8 @@ func (uc *ProcessWhatsAppMessageUseCase) Execute(ctx context.Context, inboxID uu
 	}
 
 	// 3. Parse do payload
+	uc.logger.Debug("raw payload from db", zap.String("payload", string(event.Payload)))
+
 	var payload WhatsAppWebhookPayload
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		uc.inboxRepo.MarkAsFailed(ctx, inboxID, fmt.Sprintf("invalid payload: %v", err))

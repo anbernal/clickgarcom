@@ -2,10 +2,12 @@ package routes
 
 import (
 	"github.com/gofiber/fiber/v2"
+	fiberws "github.com/gofiber/websocket/v2"
 	"go.uber.org/zap"
 
 	"github.com/anbernal/clickgarcom/internal/application"
 	"github.com/anbernal/clickgarcom/internal/infrastructure/persistence/postgres"
+	"github.com/anbernal/clickgarcom/internal/infrastructure/websocket"
 	"github.com/anbernal/clickgarcom/internal/infrastructure/whatsapp"
 	"github.com/anbernal/clickgarcom/internal/interfaces/http/handlers"
 	"github.com/anbernal/clickgarcom/pkg/database"
@@ -15,6 +17,7 @@ func SetupRoutes(
 	app *fiber.App,
 	db *database.Database,
 	rabbitMQ *database.RabbitMQClient,
+	wsHub *websocket.Hub,
 	logger *zap.Logger,
 	whatsappVerifyToken string,
 ) {
@@ -27,7 +30,7 @@ func SetupRoutes(
 	whatsappSender := whatsapp.NewSender(db.DB, logger)
 
 	// Use cases
-	updateOrderStatusUC := application.NewUpdateOrderStatusUseCase(orderRepo, whatsappSender, logger)
+	updateOrderStatusUC := application.NewUpdateOrderStatusUseCase(orderRepo, whatsappSender, wsHub, logger)
 
 	// Handlers
 	whatsappHandler := handlers.NewWhatsAppWebhookHandler(inboxRepo, rabbitMQ, logger)
@@ -59,5 +62,19 @@ func SetupRoutes(
 	orders := app.Group("/orders")
 	{
 		orders.Patch("/:id/status", orderHandler.UpdateOrderStatus)
+	}
+
+	// WebSocket routes
+	ws := app.Group("/ws")
+	wsHandler := handlers.NewWebSocketHandler(wsHub, logger)
+	{
+		// Upgrade middleware para WebSocket
+		ws.Use("/kds", func(c *fiber.Ctx) error {
+			if fiberws.IsWebSocketUpgrade(c) {
+				return c.Next()
+			}
+			return fiber.ErrUpgradeRequired
+		})
+		ws.Get("/kds", wsHandler.HandleKDS, fiberws.New(wsHandler.HandleKDSConnection))
 	}
 }

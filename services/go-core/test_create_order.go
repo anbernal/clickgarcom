@@ -44,7 +44,7 @@ func main() {
 	menuRepo := postgres.NewMenuRepository(db.DB)
 
 	// Use Case
-	createOrderUC := application.NewCreateOrderUseCase(orderRepo, tabRepo, menuRepo, logger.Log)
+	createOrderUC := application.NewCreateOrderUseCase(orderRepo, tabRepo, menuRepo, nil, logger.Log)
 
 	// Input (SUBSTITUA <MENU_ITEM_ID> pelo ID do item do menu)
 	input := application.CreateOrderInput{

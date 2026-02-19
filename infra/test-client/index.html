@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KDS WebSocket Test Client</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            overflow: hidden;
+        }
+
+        .header {
+            background: #667eea;
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            margin-bottom: 5px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 14px;
+        }
+
+        .controls {
+            padding: 20px;
+            background: #f7f7f7;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 5px;
+            color: #333;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+        }
+
+        button {
+            flex: 1;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 5px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-connect {
+            background: #10b981;
+            color: white;
+        }
+
+        .btn-connect:hover {
+            background: #059669;
+        }
+
+        .btn-disconnect {
+            background: #ef4444;
+            color: white;
+        }
+
+        .btn-disconnect:hover {
+            background: #dc2626;
+        }
+
+        .btn-clear {
+            background: #6b7280;
+            color: white;
+        }
+
+        .btn-clear:hover {
+            background: #4b5563;
+        }
+
+        .status-bar {
+            padding: 10px 20px;
+            background: #f3f4f6;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 14px;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #ef4444;
+        }
+
+        .status-dot.connected {
+            background: #10b981;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+        }
+
+        .messages-container {
+            padding: 20px;
+            height: 500px;
+            overflow-y: auto;
+            background: #1e293b;
+        }
+
+        .message {
+            margin-bottom: 15px;
+            padding: 12px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .message.connected {
+            background: #064e3b;
+            color: #6ee7b7;
+            border-left: 4px solid #10b981;
+        }
+
+        .message.event {
+            background: #1e3a8a;
+            color: #93c5fd;
+            border-left: 4px solid #3b82f6;
+        }
+
+        .message.error {
+            background: #7f1d1d;
+            color: #fca5a5;
+            border-left: 4px solid #ef4444;
+        }
+
+        .message.info {
+            background: #374151;
+            color: #d1d5db;
+            border-left: 4px solid #6b7280;
+        }
+
+        .timestamp {
+            font-size: 11px;
+            opacity: 0.7;
+            margin-bottom: 5px;
+        }
+
+        .json-content {
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .stats {
+            font-size: 12px;
+            color: #6b7280;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🍽️ ClickGarçom - KDS WebSocket Test Client</h1>
+            <p>Cliente de teste para conexão WebSocket em tempo real</p>
+        </div>
+
+        <div class="controls">
+            <div class="form-group">
+                <label for="api_url">API URL (localhost para testes locais)</label>
+                <input type="text" id="api_url" value="ws://localhost:8080/ws/kds" />
+            </div>
+            <div class="form-group">
+                <label for="tenant_id">Tenant ID</label>
+                <input type="text" id="tenant_id" value="a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11" />
+            </div>
+            <div class="button-group">
+                <button class="btn-connect" onclick="connect()">🔌 Conectar</button>
+                <button class="btn-disconnect" onclick="disconnect()">⏹️ Desconectar</button>
+                <button class="btn-clear" onclick="clearMessages()">🗑️ Limpar</button>
+            </div>
+        </div>
+
+        <div class="status-bar">
+            <div class="status">
+                <div class="status-dot" id="status-dot"></div>
+                <span id="status-text">Desconectado</span>
+            </div>
+            <div class="stats">
+                <span>Mensagens: <strong id="msg-count">0</strong></span>
+                <span style="margin-left: 20px;">Eventos: <strong id="event-count">0</strong></span>
+            </div>
+        </div>
+
+        <div class="messages-container" id="messages"></div>
+    </div>
+
+    <script>
+        let ws = null;
+        let messageCount = 0;
+        let eventCount = 0;
+
+        function connect() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                addMessage('⚠️ Já conectado!', 'info');
+                return;
+            }
+
+            const apiUrl = document.getElementById('api_url').value;
+            const tenantId = document.getElementById('tenant_id').value;
+            
+            if (!tenantId) {
+                addMessage('❌ Tenant ID é obrigatório', 'error');
+                return;
+            }
+
+            const url = `${apiUrl}?tenant_id=${tenantId}`;
+            
+            addMessage(`🔄 Conectando em: ${url}`, 'info');
+            
+            ws = new WebSocket(url);
+            
+            ws.onopen = () => {
+                updateStatus(true);
+                addMessage('✅ Conectado com sucesso!', 'connected');
+            };
+            
+            ws.onmessage = (event) => {
+                messageCount++;
+                updateMessageCount();
+                
+                try {
+                    const data = JSON.parse(event.data);
+                    
+                    // Contar eventos de pedidos
+                    if (data.type && data.type.startsWith('order.')) {
+                        eventCount++;
+                        updateEventCount();
+                    }
+                    
+                    addMessage(`📨 ${data.type || 'Mensagem'}:\n${JSON.stringify(data, null, 2)}`, 'event');
+                } catch (e) {
+                    addMessage(`📨 Mensagem: ${event.data}`, 'event');
+                }
+            };
+            
+            ws.onerror = (error) => {
+                addMessage(`❌ Erro na conexão: ${error.message || 'Unknown error'}`, 'error');
+            };
+            
+            ws.onclose = (event) => {
+                updateStatus(false);
+                addMessage(`🔌 Desconectado (código: ${event.code})`, 'info');
+            };
+        }
+
+        function disconnect() {
+            if (ws) {
+                ws.close();
+                ws = null;
+            } else {
+                addMessage('⚠️ Não há conexão ativa', 'info');
+            }
+        }
+
+        function clearMessages() {
+            document.getElementById('messages').innerHTML = '';
+            messageCount = 0;
+            eventCount = 0;
+            updateMessageCount();
+            updateEventCount();
+        }
+
+        function updateStatus(connected) {
+            const dot = document.getElementById('status-dot');
+            const text = document.getElementById('status-text');
+            
+            if (connected) {
+                dot.classList.add('connected');
+                text.textContent = 'Conectado';
+            } else {
+                dot.classList.remove('connected');
+                text.textContent = 'Desconectado';
+            }
+        }
+
+        function updateMessageCount() {
+            document.getElementById('msg-count').textContent = messageCount;
+        }
+
+        function updateEventCount() {
+            document.getElementById('event-count').textContent = eventCount;
+        }
+
+        function addMessage(text, type = 'info') {
+            const messagesDiv = document.getElementById('messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}`;
+            
+            const timestamp = new Date().toLocaleTimeString('pt-BR');
+            
+            messageDiv.innerHTML = `
+                <div class="timestamp">${timestamp}</div>
+                <div class="json-content">${escapeHtml(text)}</div>
+            `;
+            
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Auto-conectar ao carregar (opcional)
+        // window.onload = () => connect();
+    </script>
+</body>
+
+</html>

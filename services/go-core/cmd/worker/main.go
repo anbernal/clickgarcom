@@ -31,7 +31,7 @@ func main() {
 	}
 
 	// 2. Inicializar logger
-	if err := logger.Initialize(cfg.Log.Level, cfg.Log.Format); err != nil {
+	if err := logger.Initialize("debug", cfg.Log.Format); err != nil {
 		fmt.Printf("Failed to initialize logger: %v\n", err)
 		os.Exit(1)
 	}
@@ -93,6 +93,7 @@ func main() {
 		orderRepo,
 		tabRepo,
 		menuRepo,
+		nil, // wsHub not available in worker
 		logger.Log,
 	)
 

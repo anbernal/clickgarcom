@@ -9,9 +9,11 @@ import (
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 
+	"github.com/anbernal/clickgarcom/internal/domain/events"
 	"github.com/anbernal/clickgarcom/internal/domain/menu"
 	"github.com/anbernal/clickgarcom/internal/domain/order"
 	"github.com/anbernal/clickgarcom/internal/domain/tab"
+	"github.com/anbernal/clickgarcom/internal/infrastructure/websocket"
 )
 
 const (
@@ -47,6 +49,7 @@ type CreateOrderUseCase struct {
 	orderRepo order.Repository
 	tabRepo   tab.Repository
 	menuRepo  menu.Repository
+	wsHub     *websocket.Hub
 	logger    *zap.Logger
 }
 
@@ -54,12 +57,14 @@ func NewCreateOrderUseCase(
 	orderRepo order.Repository,
 	tabRepo tab.Repository,
 	menuRepo menu.Repository,
+	wsHub *websocket.Hub,
 	logger *zap.Logger,
 ) *CreateOrderUseCase {
 	return &CreateOrderUseCase{
 		orderRepo: orderRepo,
 		tabRepo:   tabRepo,
 		menuRepo:  menuRepo,
+		wsHub:     wsHub,
 		logger:    logger,
 	}
 }
@@ -205,6 +210,16 @@ func (uc *CreateOrderUseCase) Execute(ctx context.Context, input CreateOrderInpu
 		zap.Int("items_count", len(orderItems)),
 		zap.Float64("order_total", orderTotal),
 	)
+
+	// 9. Broadcast evento WebSocket
+	if uc.wsHub != nil {
+		event := events.NewOrderCreatedEvent(newOrder)
+		uc.wsHub.BroadcastToTenant(input.TenantID, event)
+		uc.logger.Info("order.created event broadcast",
+			zap.String("order_id", newOrder.ID.String()),
+			zap.String("tenant_id", input.TenantID.String()),
+		)
+	}
 
 	return newOrder, nil
 }

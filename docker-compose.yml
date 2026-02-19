@@ -90,6 +90,34 @@ services:
     networks:
       - clickgarcom-network
 
+  # ============ TEST TOOLS ============
+  # Cliente WebSocket HTML para testes visuais
+  websocket-test-client:
+    image: nginx:alpine
+    container_name: clickgarcom-ws-test-client
+    volumes:
+      - ./infra/test-client:/usr/share/nginx/html:ro
+    ports:
+      - "8888:80"
+    networks:
+      - clickgarcom-network
+    profiles:
+      - testing
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # Container com websocat para testes CLI
+  websocat:
+    image: alpine:latest
+    container_name: clickgarcom-websocat
+    command: sh -c "apk add --no-cache curl && wget -O /usr/local/bin/websocat https://github.com/vi/websocat/releases/download/v1.12.0/websocat.x86_64-unknown-linux-musl && chmod +x /usr/local/bin/websocat && tail -f /dev/null"
+    networks:
+      - clickgarcom-network
+    profiles:
+      - testing
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
 volumes:
   postgres_data:
   redis_data:
