@@ -36,6 +36,7 @@ func SetupRoutes(
 	whatsappHandler := handlers.NewWhatsAppWebhookHandler(inboxRepo, rabbitMQ, logger)
 	menuHandler := handlers.NewMenuHandler(menuRepo, logger)
 	orderHandler := handlers.NewOrderHandler(updateOrderStatusUC, logger)
+	listOrdersHandler := handlers.NewListOrdersHandler(orderRepo, logger)
 
 	// Middleware para passar verify token
 	app.Use(func(c *fiber.Ctx) error {
@@ -61,8 +62,12 @@ func SetupRoutes(
 	// Order routes
 	orders := app.Group("/orders")
 	{
+		orders.Get("/", listOrdersHandler.ListOrders)
 		orders.Patch("/:id/status", orderHandler.UpdateOrderStatus)
 	}
+
+	// Static files para KDS
+	app.Static("/kds", "./infra/kds")
 
 	// WebSocket routes
 	ws := app.Group("/ws")

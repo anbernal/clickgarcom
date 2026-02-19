@@ -88,3 +88,21 @@ func (r *OrderRepository) Create(ctx context.Context, o *order.Order) error {
 func (r *OrderRepository) Update(ctx context.Context, o *order.Order) error {
 	return r.db.WithContext(ctx).Save(o).Error
 }
+
+func (r *OrderRepository) ListByFilters(ctx context.Context, tenantID uuid.UUID, statuses []order.Status, destination string) ([]*order.Order, error) {
+	var orders []*order.Order
+	q := r.db.WithContext(ctx).
+		Preload("Items").
+		Where("tenant_id = ?", tenantID)
+
+	if len(statuses) > 0 {
+		q = q.Where("status IN ?", statuses)
+	}
+
+	if destination != "" {
+		q = q.Where("destination = ?", destination)
+	}
+
+	err := q.Order("created_at ASC").Find(&orders).Error
+	return orders, err
+}
