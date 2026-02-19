@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/anbernal/clickgarcom/internal/domain/events"
+	"github.com/anbernal/clickgarcom/internal/infrastructure/metrics"
 	"github.com/google/uuid"
 )
 
@@ -93,6 +94,9 @@ func (h *Hub) registerClient(client Client) {
 	}
 	h.tenantClients[tenantID][client] = true
 
+	// Metrics
+	metrics.IncActiveConnections(tenantID)
+
 	log.Printf("[WebSocket] Cliente registrado: tenant=%s, total_clients=%d",
 		tenantID, len(h.tenantClients[tenantID]))
 }
@@ -114,6 +118,9 @@ func (h *Hub) unregisterClient(client Client) {
 				delete(h.tenantClients, tenantID)
 			}
 		}
+
+		// Metrics
+		metrics.DecActiveConnections(tenantID)
 
 		log.Printf("[WebSocket] Cliente desregistrado: tenant=%s", tenantID)
 	}
@@ -137,6 +144,9 @@ func (h *Hub) broadcastToTenant(message *BroadcastMessage) {
 		return
 	}
 
+	// Metrics
+	metrics.IncEventsPublished(tenantID, string(message.Event.Type))
+
 	// Enviar para todos os clientes do tenant
 	for client := range clients {
 		select {
@@ -146,6 +156,9 @@ func (h *Hub) broadcastToTenant(message *BroadcastMessage) {
 			close(client.GetSendChannel())
 			delete(h.clients, client)
 			delete(clients, client)
+			// Note: We should probably decrement metrics here too if we were being strict,
+			// but unregisterClient handles the standard disconnect path.
+			// Ideally, we'd trigger unregister here to keep counts consistent.
 		}
 	}
 

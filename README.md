@@ -31,7 +31,14 @@ Cliente (WhatsApp) → Webhook (Go) → Inbox → RabbitMQ → Worker (Go)
 - ✅ **Notificações WhatsApp** assíncronas via outbox pattern
 - ✅ **API REST para cardápio** (3 endpoints)
 
-### 📋 Endpoints Disponíveis
+### �️ Kitchen Display System (KDS)
+- ✅ **Interface Real-time** conectada via WebSocket
+- ✅ **Separação de ambientes** (Cozinha vs Bar)
+- ✅ **Kanban de pedidos** (Novos, Preparo, Prontos)
+- ✅ **Alertas sonoros** para novos pedidos
+- ✅ **Métricas de performance** em tempo real
+
+### �📋 Endpoints Disponíveis
 
 #### Menu API
 ```bash
@@ -166,6 +173,20 @@ curl -X PATCH 'http://localhost:8080/orders/ORDER_ID/status?tenant_id=TENANT_ID'
   -d '{"status": "ACCEPTED"}'
 ```
 
+### Monitoramento KDS
+```bash
+# Métricas Prometheus
+curl http://localhost:8080/metrics
+# Ex: kds_active_connections, kds_events_published_total
+```
+
+### Testes Automatizados
+```bash
+# Rodar testes de unidade e concorrência (Backend)
+cd services/go-core
+go test -v -race ./internal/infrastructure/websocket/...
+```
+
 ## 📚 Documentação
 
 Documentação detalhada disponível em:
@@ -184,12 +205,13 @@ Documentação detalhada disponível em:
 - [x] Notificações WhatsApp via outbox
 - [x] API REST para cardápio
 
-### 🚧 Fase 2: KDS Real-time (PRÓXIMA)
-- [ ] WebSocket server para KDS
-- [ ] Interface KDS (Kitchen Display System)
-- [ ] Atualização em tempo real de pedidos
-- [ ] Notificações sonoras
-- [ ] Filtros por destino (BAR/COZINHA)
+### ✅ Fase 2: KDS Real-time (CONCLUÍDA)
+- [x] WebSocket server para KDS (Go + Fiber)
+- [x] Interface KDS (Kitchen Display System) em Vanilla JS
+- [x] Atualização em tempo real de pedidos (Event-driven)
+- [x] Notificações sonoras e visuais
+- [x] Filtros por destino (BAR/COZINHA)
+- [x] Compressão Gzip para WebSockets
 
 ### 📋 Fase 3: Admin Panel
 - [ ] Painel administrativo (NestJS)
@@ -204,11 +226,12 @@ Documentação detalhada disponível em:
 - [ ] Split de conta
 - [ ] Histórico de pagamentos
 
-### 📊 Fase 5: Analytics & Monitoring
-- [ ] Dashboard de métricas (Grafana)
-- [ ] Alertas (Prometheus)
-- [ ] Logs centralizados
-- [ ] Performance monitoring
+### ✅ Fase 5: Qualidade & Observabilidade (Parcialmente Concluída)
+- [x] Dashboard de métricas (Prometheus Endpoint)
+- [x] Testes de Unidade e Concorrência (Go)
+- [x] Logs estruturados
+- [ ] Dashboards Visuais (Grafana - Infra pronta)
+- [ ] Alertas Automáticos
 
 ## 🏗️ Estrutura do Projeto
 

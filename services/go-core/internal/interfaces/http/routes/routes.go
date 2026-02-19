@@ -2,7 +2,9 @@ package routes
 
 import (
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/adaptor"
 	fiberws "github.com/gofiber/websocket/v2"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 
 	"github.com/anbernal/clickgarcom/internal/application"
@@ -51,6 +53,9 @@ func SetupRoutes(
 		webhooks.Post("/whatsapp", whatsappHandler.HandleWebhook)
 	}
 
+	// Metrics route
+	app.Get("/metrics", adaptor.HTTPHandler(promhttp.Handler()))
+
 	// Menu routes
 	menu := app.Group("/menu")
 	{
@@ -80,6 +85,8 @@ func SetupRoutes(
 			}
 			return fiber.ErrUpgradeRequired
 		})
-		ws.Get("/kds", wsHandler.HandleKDS, fiberws.New(wsHandler.HandleKDSConnection))
+		ws.Get("/kds", wsHandler.HandleKDS, fiberws.New(wsHandler.HandleKDSConnection, fiberws.Config{
+			EnableCompression: true,
+		}))
 	}
 }
