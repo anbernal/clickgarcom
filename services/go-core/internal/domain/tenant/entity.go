@@ -16,6 +16,7 @@ type Tenant struct {
 	WhatsAppNumber string         `json:"whatsapp_number" gorm:"uniqueIndex;not null"`
 	Settings       TenantSettings `json:"settings" gorm:"type:jsonb"`
 	Active         bool           `json:"active" gorm:"default:true"`
+	IsOpen         bool           `json:"is_open" gorm:"default:false"`
 	CreatedAt      time.Time      `json:"created_at"`
 	UpdatedAt      time.Time      `json:"updated_at"`
 }
