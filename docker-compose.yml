@@ -104,6 +104,7 @@ services:
       DATABASE_PASSWORD: postgres123
       DATABASE_NAME: clickgarcom_db
       DEFAULT_TENANT_ID: 550e8400-e29b-41d4-a716-446655440000
+      RABBITMQ_URL: amqp://clickgarcom:clickgarcom123@rabbitmq:5672/
     ports:
       - "3002:3002"
     depends_on:

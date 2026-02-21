@@ -54,46 +54,36 @@
 
     <!-- MAIN -->
     <main class="main">
-        <!-- PAGES -->
-        <div id="page-dashboard" class="page active">
-            <!-- TOPBAR -->
-            <div class="topbar">
-                <div>
-                    <div class="page-title" id="page-title">Dashboard</div>
-                    <div class="page-sub" id="page-sub">Visão geral do seu restaurante hoje</div>
+        <!-- GLOBAL TOPBAR -->
+        <div class="topbar" id="global-topbar">
+            <div>
+                <div class="page-title" id="page-title">Dashboard</div>
+                <div class="page-sub" id="page-sub">Visão geral do seu restaurante hoje</div>
+            </div>
+            <div class="topbar-right" id="topbar-right-actions">
+                <div class="btn-icon" style="position:relative" title="Notificações">
+                    🔔
+                    <div class="notif-dot"></div>
                 </div>
-                <div class="topbar-right">
-                    <div class="btn-icon" style="position:relative" title="Notificações">
-                        🔔
-                        <div class="notif-dot"></div>
-                    </div>
-                    <div class="avatar">AD</div>
-                </div>
+                <div class="avatar">AD</div>
             </div>
         </div>
+
+        <!-- PAGES -->
+        <div id="page-dashboard" class="page active"></div>
         <div id="page-pedidos" class="page"></div>
         <div id="page-cardapio" class="page"></div>
         <div id="page-categorias" class="page"></div>
         <div id="page-mesas" class="page">
             <div class="layout-content">
-                <!-- Appears on Dashboard, Mesas, etc -->
-                <header class="topbar">
-                    <div class="topbar-left">
-                        <h2 id="page-title">Mesas / Comandas</h2>
-                    </div>
-                    <div class="topbar-right">
-                        <button class="btn btn-outline" id="btn-manual-req">
-                            <i class="fas fa-plus"></i> Forçar Mesa Manual
-                        </button>
-                        <button class="btn btn-primary" id="btn-nova-mesa">
-                            <i class="fas fa-plus"></i> Nova Mesa
-                        </button>
-                        <div class="user-profile">
-                            <div class="avatar">A</div>
-                            <span>Admin</span>
-                        </div>
-                    </div>
-                </header>
+                <div style="display: flex; justify-content: flex-end; gap: 14px; margin-bottom: 24px;">
+                    <button class="btn btn-outline" id="btn-manual-req">
+                        <i class="fas fa-plus"></i> Forçar Mesa Manual
+                    </button>
+                    <button class="btn btn-primary" id="btn-nova-mesa">
+                        <i class="fas fa-plus"></i> Nova Mesa
+                    </button>
+                </div>
 
                 <main class="main-body" id="main-content">
                     <!-- Injetar cards e pending requests aqui -->
