@@ -9,14 +9,16 @@ import (
 type ConversationState string
 
 const (
-	StateWelcome         ConversationState = "WELCOME"
-	StateMainMenu        ConversationState = "MAIN_MENU"
-	StateOrdering        ConversationState = "ORDERING"
-	StateSelectingQty    ConversationState = "SELECTING_QTY"
-	StateAddingNotes     ConversationState = "ADDING_NOTES"
-	StateConfirmingOrder ConversationState = "CONFIRMING_ORDER"
-	StateViewingTab      ConversationState = "VIEWING_TAB"
-	StateServiceRequest  ConversationState = "SERVICE_REQUEST"
+	StateWelcome                  ConversationState = "WELCOME"
+	StateMainMenu                 ConversationState = "MAIN_MENU"
+	StateOrdering                 ConversationState = "ORDERING"
+	StateSelectingQty             ConversationState = "SELECTING_QTY"
+	StateAddingNotes              ConversationState = "ADDING_NOTES"
+	StateConfirmingOrder          ConversationState = "CONFIRMING_ORDER"
+	StateViewingTab               ConversationState = "VIEWING_TAB"
+	StateServiceRequest           ConversationState = "SERVICE_REQUEST"
+	StateWaitingTableConfirmation ConversationState = "WAITING_TABLE_CONFIRMATION"
+	StateWaitingAdminApproval     ConversationState = "WAITING_ADMIN_APPROVAL"
 )
 
 type Session struct {

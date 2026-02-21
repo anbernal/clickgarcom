@@ -84,6 +84,7 @@ func main() {
 	menuRepo := postgres.NewMenuRepository(db.DB)
 	tabRepo := postgres.NewTabRepository(db.DB)
 	orderRepo := postgres.NewOrderRepository(db.DB)
+	tableRepo := postgres.NewTableRepository(db.DB)
 
 	// 6. Infrastructure
 	whatsappSender := whatsapp.NewSender(db.DB, logger.Log)
@@ -102,6 +103,7 @@ func main() {
 		tenantRepo,
 		menuRepo,
 		tabRepo,
+		tableRepo,
 		createOrderUC,
 		whatsappSender,
 		logger.Log,
@@ -115,6 +117,15 @@ func main() {
 
 	// 7. Consumer
 	consumer := rabbitmq.NewConsumer(rabbitMQClient.GetChannel(), logger.Log)
+
+	// 7.1 Table Event Consumer
+	processTableEventUC := application.NewProcessTableEventUseCase(
+		tableRepo,
+		tabRepo,
+		sessionRepo,
+		whatsappSender,
+		logger.Log,
+	)
 
 	// 8. Handler de mensagens do WhatsApp
 	handleWhatsAppMessage := func(ctx context.Context, body []byte) error {
@@ -140,9 +151,19 @@ func main() {
 		return processWhatsAppMsg.Execute(ctx, inboxID)
 	}
 
-	// 9. Iniciar consumer
+	// 8.1 Handler de eventos de mesa (Admin Panel)
+	handleTableEvent := func(ctx context.Context, body []byte) error {
+		logger.Debug("processing table event from admin")
+		return processTableEventUC.Execute(ctx, body)
+	}
+
+	// 9. Iniciar consumers
 	if err := consumer.Consume("whatsapp.messages", handleWhatsAppMessage); err != nil {
-		logger.Fatal("Failed to start consumer", zap.Error(err))
+		logger.Fatal("Failed to start whatsapp consumer", zap.Error(err))
+	}
+
+	if err := consumer.Consume("admin.table.events", handleTableEvent); err != nil {
+		logger.Fatal("Failed to start admin table consumer", zap.Error(err))
 	}
 
 	logger.Info("Worker is running, waiting for messages...")

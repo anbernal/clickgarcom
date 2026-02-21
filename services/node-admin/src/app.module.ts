@@ -10,12 +10,14 @@ import { Order } from './entities/order.entity';
 import { OrderItem } from './entities/order-item.entity';
 import { Table } from './entities/table.entity';
 import { Tab } from './entities/tab.entity';
+import { TableRequest } from './entities/table-request.entity';
 
 import { MenuModule } from './modules/menu/menu.module';
 import { CategoriesModule } from './modules/categories/categories.module';
 import { OrdersModule } from './modules/orders/orders.module';
 import { TablesModule } from './modules/tables/tables.module';
 import { ReportsModule } from './modules/reports/reports.module';
+import { AmqpModule } from './modules/amqp/amqp.module';
 
 @Module({
     imports: [
@@ -27,12 +29,13 @@ import { ReportsModule } from './modules/reports/reports.module';
             username: process.env.DATABASE_USER || 'postgres',
             password: process.env.DATABASE_PASSWORD || 'postgres123',
             database: process.env.DATABASE_NAME || 'clickgarcom_db',
-            entities: [MenuCategory, MenuItem, Order, OrderItem, Table, Tab],
+            entities: [MenuCategory, MenuItem, Order, OrderItem, Table, Tab, TableRequest],
             synchronize: false, // Tables already managed by go-core migrations
         }),
         ServeStaticModule.forRoot({
             rootPath: join(__dirname, '..', 'public'),
         }),
+        AmqpModule,
         MenuModule,
         CategoriesModule,
         OrdersModule,

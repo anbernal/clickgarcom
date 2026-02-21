@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -11,6 +12,7 @@ import (
 	"github.com/anbernal/clickgarcom/internal/domain/inbox/session"
 	"github.com/anbernal/clickgarcom/internal/domain/menu"
 	"github.com/anbernal/clickgarcom/internal/domain/tab"
+	"github.com/anbernal/clickgarcom/internal/domain/table"
 	"github.com/anbernal/clickgarcom/internal/domain/tenant"
 	"github.com/anbernal/clickgarcom/internal/domain/whatsapp"
 )
@@ -20,6 +22,7 @@ type HandleWhatsAppMessageUseCase struct {
 	tenantRepo    tenant.Repository
 	menuRepo      menu.Repository
 	tabRepo       tab.Repository
+	tableRepo     table.Repository
 	createOrderUC *CreateOrderUseCase
 	sender        WhatsAppSender
 	logger        *zap.Logger
@@ -34,6 +37,7 @@ func NewHandleWhatsAppMessageUseCase(
 	tenantRepo tenant.Repository,
 	menuRepo menu.Repository,
 	tabRepo tab.Repository,
+	tableRepo table.Repository,
 	createOrderUC *CreateOrderUseCase,
 	sender WhatsAppSender,
 	logger *zap.Logger,
@@ -43,6 +47,7 @@ func NewHandleWhatsAppMessageUseCase(
 		tenantRepo:    tenantRepo,
 		menuRepo:      menuRepo,
 		tabRepo:       tabRepo,
+		tableRepo:     tableRepo,
 		createOrderUC: createOrderUC,
 		sender:        sender,
 		logger:        logger,
@@ -67,26 +72,48 @@ func (uc *HandleWhatsAppMessageUseCase) Execute(ctx context.Context, input Handl
 		// Primeira interação - criar sessão
 		sess = session.NewSession(input.From, input.TenantID)
 
-		// Buscar tenant para saudação
+		// Verificar se é entrada via QR Code (ex: "Mesa 05")
+		// O Deep Link WA manda o texto que o usuário clica. Vamos extrair do input.Text se bater com o padrão.
+		textUpper := strings.ToUpper(strings.TrimSpace(input.Text))
+		if strings.HasPrefix(textUpper, "MESA") {
+			// Extract mesa number
+			parts := strings.Fields(textUpper)
+			if len(parts) >= 2 {
+				tableNumber := parts[1]
+				tTable, err := uc.tableRepo.FindByNumber(ctx, tableNumber, input.TenantID)
+				if err == nil && tTable != nil {
+					// Mesa encontrada - iniciar fluxo de QR Code
+					t, _ := uc.tenantRepo.FindByID(ctx, input.TenantID)
+					welcomeMsg := whatsapp.WelcomeTableMessage(t.Name, tTable.Number)
+
+					// Salvar Tabela no Contexto para criar o request no próximo passo
+					sess.SetContext("pending_table_id", tTable.ID.String())
+					sess.SetContext("pending_table_number", tTable.Number)
+					sess.TransitionTo(session.StateWaitingTableConfirmation)
+
+					if err := uc.sender.SendText(ctx, input.From, welcomeMsg); err != nil {
+						return fmt.Errorf("failed to send welcome table: %w", err)
+					}
+					return uc.sessionRepo.Save(ctx, sess)
+				}
+			}
+		}
+
+		// Fluxo Normal (Sem QR Code ou falha ao achar mesa)
 		t, err := uc.tenantRepo.FindByID(ctx, input.TenantID)
 		if err != nil {
 			return fmt.Errorf("failed to find tenant: %w", err)
 		}
 
-		// Enviar boas-vindas
 		welcomeMsg := whatsapp.WelcomeMessage(t.Name)
 		if err := uc.sender.SendText(ctx, input.From, welcomeMsg); err != nil {
 			return fmt.Errorf("failed to send welcome: %w", err)
 		}
 
-		// Mudar para menu principal
 		sess.TransitionTo(session.StateMainMenu)
-
-		// Salvar sessão
 		if err := uc.sessionRepo.Save(ctx, sess); err != nil {
 			return fmt.Errorf("failed to save session: %w", err)
 		}
-
 		return nil
 	}
 
@@ -142,6 +169,12 @@ func (uc *HandleWhatsAppMessageUseCase) processMessage(
 
 	case session.StateServiceRequest:
 		return uc.handleServiceRequest(ctx, sess, text)
+
+	case session.StateWaitingTableConfirmation:
+		return uc.handleTableConfirmation(ctx, sess, text)
+
+	case session.StateWaitingAdminApproval:
+		return uc.handleWaitingAdminApproval(ctx, sess, text)
 
 	default:
 		return whatsapp.MainMenuMessage(), session.StateMainMenu, nil
@@ -268,4 +301,65 @@ func (uc *HandleWhatsAppMessageUseCase) handleServiceRequest(
 	}
 
 	return whatsapp.MainMenuMessage(), session.StateMainMenu, nil
+}
+
+func (uc *HandleWhatsAppMessageUseCase) handleTableConfirmation(
+	ctx context.Context,
+	sess *session.Session,
+	text string,
+) (string, session.ConversationState, error) {
+
+	text = strings.TrimSpace(text)
+
+	// Permitir cancelar
+	if text == "0" || strings.ToLower(text) == "cancelar" {
+		return whatsapp.MainMenuMessage(), session.StateMainMenu, nil
+	}
+
+	// Validar quantidade de pessoas
+	paxCount, err := strconv.Atoi(text)
+	if err != nil || paxCount < 1 || paxCount > 20 {
+		return "❌ Por favor, digite um número válido de pessoas (1 a 20).\n\n_Ou digite 0 para cancelar_", session.StateWaitingTableConfirmation, nil
+	}
+
+	tableIDStr, ok := sess.GetContext("pending_table_id")
+	if !ok {
+		return "❌ Ocorreu um erro ao identificar a mesa. Por favor, escaneie o QR Code novamente.", session.StateMainMenu, nil
+	}
+	tableID, _ := uuid.Parse(tableIDStr.(string))
+
+	// Criar solicitação de mesa
+	req := &table.TableRequest{
+		ID:        uuid.New(),
+		TenantID:  sess.TenantID,
+		TableID:   tableID,
+		UserPhone: sess.UserPhone,
+		PaxCount:  paxCount,
+		Status:    table.RequestStatusPending,
+	}
+
+	if err := uc.tableRepo.CreateRequest(ctx, req); err != nil {
+		uc.logger.Error("failed to create table request", zap.Error(err))
+		return "❌ Tivemos um problema ao registrar sua solicitação. Pode tentar novamente?", session.StateWaitingTableConfirmation, nil
+	}
+
+	// Limpar contexto temporário
+	sess.Context = make(map[string]interface{})
+
+	return whatsapp.TableRequestPendingMessage(), session.StateWaitingAdminApproval, nil
+}
+
+func (uc *HandleWhatsAppMessageUseCase) handleWaitingAdminApproval(
+	ctx context.Context,
+	sess *session.Session,
+	text string,
+) (string, session.ConversationState, error) {
+
+	// Enquanto aguarda aprovação, ignorar outras mensagens exceto cancelamento
+	if text == "0" || strings.ToLower(text) == "cancelar" {
+		// Opcional: Rejeitar/cancelar a solicitação ativa (não implementado MVP)
+		return whatsapp.MainMenuMessage(), session.StateMainMenu, nil
+	}
+
+	return whatsapp.TableRequestPendingMessage(), session.StateWaitingAdminApproval, nil
 }

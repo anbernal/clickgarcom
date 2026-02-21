@@ -4,7 +4,7 @@ import "fmt"
 
 // WelcomeMessage mensagem de boas-vindas
 func WelcomeMessage(restaurantName string) string {
-    return fmt.Sprintf(`🍽️ Olá! Bem-vindo ao *%s*!
+	return fmt.Sprintf(`🍽️ Olá! Bem-vindo ao *%s*!
 
 Como posso te ajudar hoje?
 
@@ -17,9 +17,39 @@ Como posso te ajudar hoje?
 _Digite o número da opção desejada_`, restaurantName)
 }
 
+// WelcomeTableMessage boas vindas quando escaneia QR Code
+func WelcomeTableMessage(restaurantName, tableNumber string) string {
+	return fmt.Sprintf(`🍽️ Olá! Bem-vindo ao *%s*!
+
+Vimos que você está na *Mesa %s*.
+Para começarmos a te atender, para quantas pessoas é a mesa?
+
+_Digite apenas o número de pessoas (ex: 2)_`, restaurantName, tableNumber)
+}
+
+// TableRequestPendingMessage mensagem quando aguarda aprovação
+func TableRequestPendingMessage() string {
+	return `⏳ *Mesa solicitada!*
+
+Aguarde um momento enquanto nossa equipe libera o acesso ao cardápio para sua mesa.`
+}
+
+// TableRequestApprovedMessage mensagem quando mesa é liberada
+func TableRequestApprovedMessage() string {
+	return `✅ *Mesa liberada!*
+
+Você já pode acessar nosso menu principal:
+
+*1* - 🛒 Fazer pedido
+*2* - 📋 Ver minha comanda
+*4* - 🙋 Chamar garçom
+
+_Digite o número da opção_`
+}
+
 // MainMenuMessage menu principal
 func MainMenuMessage() string {
-    return `📱 *Menu Principal*
+	return `📱 *Menu Principal*
 
 *1* - 🛒 Fazer pedido
 *2* - 📋 Ver minha comanda
@@ -32,14 +62,14 @@ _Digite o número da opção_`
 
 // InvalidOptionMessage opção inválida
 func InvalidOptionMessage() string {
-    return `❌ Opção inválida.
+	return `❌ Opção inválida.
 
 Por favor, digite um número válido do menu.`
 }
 
 // OrderConfirmedMessage pedido confirmado
 func OrderConfirmedMessage(orderNumber int) string {
-    return fmt.Sprintf(`✅ *Pedido confirmado!*
+	return fmt.Sprintf(`✅ *Pedido confirmado!*
 
 Número do pedido: *#%d*
 
@@ -49,19 +79,19 @@ Você receberá uma notificação quando estiver pronto! 🍳`, orderNumber)
 
 // OrderReadyMessage pedido pronto
 func OrderReadyMessage(orderNumber int) string {
-    return fmt.Sprintf(`🔔 *Pedido #%d está pronto!*
+	return fmt.Sprintf(`🔔 *Pedido #%d está pronto!*
 
 Nosso garçom já está levando até você! 🚶`, orderNumber)
 }
 
 // TabSummaryMessage resumo da comanda
 func TabSummaryMessage(items []string, subtotal, serviceFee, total float64) string {
-    itemsList := ""
-    for _, item := range items {
-        itemsList += fmt.Sprintf("• %s\n", item)
-    }
-    
-    return fmt.Sprintf(`📋 *Sua Comanda*
+	itemsList := ""
+	for _, item := range items {
+		itemsList += fmt.Sprintf("• %s\n", item)
+	}
+
+	return fmt.Sprintf(`📋 *Sua Comanda*
 
 %s
 ━━━━━━━━━━━━━━━━
@@ -70,13 +100,13 @@ Taxa de serviço (10%%): R$ %.2f
 ━━━━━━━━━━━━━━━━
 *Total: R$ %.2f*
 
-_Use o menu para fazer mais pedidos ou fechar a conta_`, 
-        itemsList, subtotal, serviceFee, total)
+_Use o menu para fazer mais pedidos ou fechar a conta_`,
+		itemsList, subtotal, serviceFee, total)
 }
 
 // ServiceRequestConfirmed solicitação de serviço
 func ServiceRequestConfirmed(requestType string) string {
-    return fmt.Sprintf(`✅ *Solicitação registrada!*
+	return fmt.Sprintf(`✅ *Solicitação registrada!*
 
 Tipo: %s
 
@@ -85,7 +115,7 @@ Nosso garçom já foi avisado e virá te atender em breve! 🙋`, requestType)
 
 // PaymentPending pagamento pendente
 func PaymentPending(total float64, pixCode string) string {
-    return fmt.Sprintf(`💰 *Fechar Conta*
+	return fmt.Sprintf(`💰 *Fechar Conta*
 
 Total a pagar: *R$ %.2f*
 
@@ -94,13 +124,13 @@ Total a pagar: *R$ %.2f*
 
 _Copie o código acima e pague pelo seu app do banco_
 
-Você receberá confirmação assim que o pagamento for identificado! ✅`, 
-        total, pixCode)
+Você receberá confirmação assim que o pagamento for identificado! ✅`,
+		total, pixCode)
 }
 
 // PaymentConfirmed pagamento confirmado
 func PaymentConfirmed(total float64) string {
-    return fmt.Sprintf(`✅ *Pagamento confirmado!*
+	return fmt.Sprintf(`✅ *Pagamento confirmado!*
 
 Valor: R$ %.2f
 

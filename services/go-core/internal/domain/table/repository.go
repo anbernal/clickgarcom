@@ -1,15 +1,21 @@
 package table
 
 import (
-    "context"
+	"context"
 
-    "github.com/google/uuid"
+	"github.com/google/uuid"
 )
 
 type Repository interface {
-    FindByID(ctx context.Context, id uuid.UUID, tenantID uuid.UUID) (*Table, error)
-    FindByNumber(ctx context.Context, number string, tenantID uuid.UUID) (*Table, error)
-    FindByTenant(ctx context.Context, tenantID uuid.UUID) ([]*Table, error)
-    Create(ctx context.Context, table *Table) error
-    Update(ctx context.Context, table *Table) error
+	FindByID(ctx context.Context, id uuid.UUID, tenantID uuid.UUID) (*Table, error)
+	FindByNumber(ctx context.Context, number string, tenantID uuid.UUID) (*Table, error)
+	FindByTenant(ctx context.Context, tenantID uuid.UUID) ([]*Table, error)
+	Create(ctx context.Context, table *Table) error
+	Update(ctx context.Context, table *Table) error
+
+	// Table Request methods
+	CreateRequest(ctx context.Context, req *TableRequest) error
+	FindRequestByID(ctx context.Context, id uuid.UUID) (*TableRequest, error)
+	FindPendingRequestByPhone(ctx context.Context, phone string, tenantID uuid.UUID) (*TableRequest, error)
+	UpdateRequest(ctx context.Context, req *TableRequest) error
 }
