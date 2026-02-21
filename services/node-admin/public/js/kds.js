@@ -1,8 +1,8 @@
 // ─── CONFIG ────────────────────────────────────────────────────
 const CONFIG = {
-  API_URL: window.location.origin,
-  WS_URL: `ws://${window.location.host}/ws/kds`,
-  TENANT_ID: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+  API_URL: 'http://localhost:3002/admin/api',
+  WS_URL: 'ws://localhost:8080/ws/kds',
+  TENANT_ID: '550e8400-e29b-41d4-a716-446655440000',
   POLL_INTERVAL: 15000,
   URGENT_MINUTES: 10,
   WARNING_MINUTES: 5,

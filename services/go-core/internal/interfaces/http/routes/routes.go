@@ -71,9 +71,6 @@ func SetupRoutes(
 		orders.Patch("/:id/status", orderHandler.UpdateOrderStatus)
 	}
 
-	// Static files para KDS
-	app.Static("/kds", "./infra/kds")
-
 	// WebSocket routes
 	ws := app.Group("/ws")
 	wsHandler := handlers.NewWebSocketHandler(wsHub, logger)

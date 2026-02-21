@@ -224,6 +224,12 @@ Documentação detalhada disponível em:
 - [x] Relatórios de vendas
 - [x] Gestão de mesas/comandas
 
+### ✅ Fase 8: Painel Administrativo - Tela de Login (CONCLUÍDA)
+- [x] Layout principal Split-Screen com background Pattern SVG customizado
+- [x] Formulário de Login (E-mail/Senha com Toggle) responsivo e animado
+- [x] Migração de Variáveis Globais de Design (Sora, Teal e Componentes)
+- [x] Redirecionamento e Tratamento Visual de Erros Side-client
+
 ### 💳 Fase 4: Pagamentos
 - [ ] Integração com gateway de pagamento
 - [ ] Fechamento de comanda
