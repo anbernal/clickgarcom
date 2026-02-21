@@ -104,6 +104,7 @@ make db-seed
 make run-api        # API HTTP (porta 8080)
 make run-worker     # Worker de mensagens
 make run-outbox     # Worker de notificações
+make run-admin      # Node Admin Panel (porta 3002)
 ```
 
 ## Desenvolvimento
@@ -116,6 +117,9 @@ make run-worker
 
 # Rodar Outbox Worker
 make run-outbox
+
+# Rodar React Admin
+make run-admin
 
 # Limpar banco e filas
 make clean-all
@@ -213,12 +217,12 @@ Documentação detalhada disponível em:
 - [x] Filtros por destino (BAR/COZINHA)
 - [x] Compressão Gzip para WebSockets
 
-### 📋 Fase 3: Admin Panel
-- [ ] Painel administrativo (NestJS)
-- [ ] Gestão de cardápio
-- [ ] Gestão de categorias
-- [ ] Relatórios de vendas
-- [ ] Gestão de mesas/comandas
+### ✅ Fase 3: Admin Panel (CONCLUÍDA)
+- [x] Painel administrativo (NestJS)
+- [x] Gestão de cardápio
+- [x] Gestão de categorias
+- [x] Relatórios de vendas
+- [x] Gestão de mesas/comandas
 
 ### 💳 Fase 4: Pagamentos
 - [ ] Integração com gateway de pagamento
@@ -249,7 +253,7 @@ clickgarcom/
 │   │   │   ├── infrastructure/ # Repos, HTTP, RabbitMQ
 │   │   │   └── interfaces/   # HTTP handlers
 │   │   └── migrations/       # Database migrations
-│   ├── admin-panel/          # Admin (NestJS) - TODO
+│   ├── node-admin/           # Admin Panel BFF (NestJS + HTML/JS)
 │   └── docs/                 # Documentação
 ├── docker-compose.yml
 ├── Makefile

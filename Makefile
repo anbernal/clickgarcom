@@ -114,6 +114,16 @@ clean-all: ## Limpa TUDO (banco + filas)
 	docker exec clickgarcom-rabbitmq rabbitmqctl purge_queue orders.dlq
 	@echo "✅ Tudo limpo!"
 
+# ============ ADMIN PANEL ============
+run-admin: ## Roda Admin Panel localmente
+	cd services/node-admin && npm run start:dev
+
+install-admin: ## Instala dependências do Admin Panel
+	cd services/node-admin && npm install
+
+build-admin: ## Builda Admin Panel
+	cd services/node-admin && npm run build
+
 # ============ PRODUCTION ============
 build-api: ## Builda API para produção
 	cd services/go-core && CGO_ENABLED=0 GOOS=linux go build -o bin/api cmd/api/main.go

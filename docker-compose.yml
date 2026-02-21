@@ -90,6 +90,28 @@ services:
     networks:
       - clickgarcom-network
 
+  # ============ ADMIN PANEL ============
+  node-admin:
+    build:
+      context: ./services/node-admin
+      dockerfile: Dockerfile
+    container_name: clickgarcom-admin
+    environment:
+      APP_PORT: 3002
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_USER: postgres
+      DATABASE_PASSWORD: postgres123
+      DATABASE_NAME: clickgarcom_db
+      DEFAULT_TENANT_ID: 550e8400-e29b-41d4-a716-446655440000
+    ports:
+      - "3002:3002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - clickgarcom-network
+
   # ============ TEST TOOLS ============
   # Cliente WebSocket HTML para testes visuais
   websocket-test-client:
