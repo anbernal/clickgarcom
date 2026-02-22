@@ -55,6 +55,48 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.key === 'Escape') closeModal();
     });
 
+    // Inject User Data
+    try {
+        const session = JSON.parse(localStorage.getItem('clickgarcom_auth') || sessionStorage.getItem('clickgarcom_auth') || '{}');
+        if (session && session.user) {
+            const logoText = document.querySelector('.logo-text');
+            if (logoText) logoText.textContent = session.user.tenant_name || 'Restaurante';
+
+            const initials = session.user.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+            const avatar = document.querySelector('.avatar');
+            if (avatar) avatar.textContent = initials;
+        }
+    } catch (e) { console.error('Error injecting user data:', e); }
+
+    // Load Expediente Event Listener
+    const btnExpediente = document.getElementById('btn-expediente');
+    if (btnExpediente) {
+        btnExpediente.addEventListener('click', async () => {
+            const isOpen = btnExpediente.classList.contains('active');
+            try {
+                const res = await api.patch('/auth/status', { currentStatus: isOpen });
+                if (res.is_open) {
+                    btnExpediente.classList.add('active');
+                    btnExpediente.innerHTML = '<span class="nav-icon">🟢</span> Aberto';
+                    showToast('Expediente Aberto!', 'success');
+                } else {
+                    btnExpediente.classList.remove('active');
+                    btnExpediente.innerHTML = '<span class="nav-icon">🔴</span> Fechado';
+                    showToast('Expediente Fechado!', 'error');
+                }
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        });
+
+        // Load initial status (To be fetched, currently hardcoded to closed initially)
+        api.get('/auth/me').then(user => {
+            // Se o user object em /me retornasse tenant.isOpen, setariamos aqui.
+            // Por enquanto, apenas atualizamos o texto para fechar o loading
+            btnExpediente.innerHTML = '<span class="nav-icon">🔴</span> Fechado';
+        }).catch(err => console.error(err));
+    }
+
     // Load dashboard
     navigate('dashboard');
 });

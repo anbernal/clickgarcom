@@ -65,7 +65,7 @@ async function loadMesas() {
     await loadPendingRequests();
 
   } catch (err) {
-    container.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><h3>Erro</h3><p>${err.message}</p></div>`;
+    container.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><h3>Erro</h3><p>${escapeHTML(err.message)}</p></div>`;
   }
 }
 
@@ -88,12 +88,12 @@ async function loadPendingRequests() {
         html += `
                 <div style="border:1px solid var(--border); border-radius:8px; padding:12px; background:var(--bg-color);">
                     <div style="display:flex; justify-content:space-between; margin-bottom:8px">
-                        <strong>Mesa ${tableNum}</strong>
-                        <span style="font-size:0.85rem; color:var(--text-light)">${req.paxCount} pax</span>
+                        <strong>Mesa ${escapeHTML(tableNum)}</strong>
+                        <span style="font-size:0.85rem; color:var(--text-light)">${escapeHTML(req.paxCount)} pax</span>
                     </div>
                     <div style="font-size:0.9rem; margin-bottom:12px; font-family:var(--font-mono)">
-                        <a href="${waUrl}" target="_blank" style="color:var(--primary-color); text-decoration:none">
-                            <i class="fab fa-whatsapp"></i> ${req.userPhone}
+                        <a href="${escapeHTML(waUrl)}" target="_blank" style="color:var(--primary-color); text-decoration:none">
+                            <i class="fab fa-whatsapp"></i> ${escapeHTML(req.userPhone)}
                         </a>
                     </div>
                     <div style="display:flex; gap:8px">

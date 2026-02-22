@@ -28,12 +28,12 @@ export class OrdersService {
         });
     }
 
-    async findOne(id: string) {
-        return this.orderRepo.findOne({ where: { id }, relations: ['items'] });
+    async findOne(id: string, tenantId: string) {
+        return this.orderRepo.findOne({ where: { id, tenantId }, relations: ['items'] });
     }
 
-    async updateStatus(id: string, newStatus: string) {
-        const order = await this.findOne(id);
+    async updateStatus(id: string, newStatus: string, tenantId: string) {
+        const order = await this.findOne(id, tenantId);
         if (!order) throw new BadRequestException('Order not found');
 
         const allowed = VALID_TRANSITIONS[order.status] || [];

@@ -1,61 +1,56 @@
-import { Controller, Get, Post, Patch, Param, Query, Body } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Param, Query, Body, UseGuards, Request } from '@nestjs/common';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { TablesService } from './tables.service';
 
 @Controller('admin/api/tables')
+@UseGuards(JwtAuthGuard)
 export class TablesController {
     constructor(private readonly tablesService: TablesService) { }
 
     @Get()
-    findAll(@Query('tenant_id') tenantId?: string) {
-        const tid = tenantId || process.env.DEFAULT_TENANT_ID || '';
-        return this.tablesService.findAll(tid);
+    findAll(@Request() req) {
+        return this.tablesService.findAll(req.user.tenantId);
     }
 
     @Get('stats')
-    stats(@Query('tenant_id') tenantId?: string) {
-        const tid = tenantId || process.env.DEFAULT_TENANT_ID || '';
-        return this.tablesService.getTabStats(tid);
+    stats(@Request() req) {
+        return this.tablesService.getTabStats(req.user.tenantId);
     }
 
     @Post()
-    create(@Body() body: any) {
-        const tenantId = body.tenant_id || process.env.DEFAULT_TENANT_ID || '';
-        return this.tablesService.create(tenantId, { number: body.number });
+    create(@Request() req, @Body() body: any) {
+        return this.tablesService.create(req.user.tenantId, { number: body.number });
     }
 
     @Patch(':id/status')
-    async updateStatus(@Param('id') id: string, @Body('status') status: string) {
-        return this.tablesService.updateStatus(id, status);
+    async updateStatus(@Request() req, @Param('id') id: string, @Body('status') status: string) {
+        return this.tablesService.updateStatus(id, req.user.tenantId, status);
     }
 
     // --- Table Requests Endpoints ---
 
     @Get('requests/pending')
-    async getPendingRequests(@Query('tenant_id') tenantId?: string) {
-        const tid = tenantId || process.env.DEFAULT_TENANT_ID || '';
-        return this.tablesService.getPendingRequests(tid);
+    async getPendingRequests(@Request() req) {
+        return this.tablesService.getPendingRequests(req.user.tenantId);
     }
 
     @Post('requests/:id/approve')
-    async approveRequest(@Param('id') id: string, @Query('tenant_id') tenantId?: string) {
-        const tid = tenantId || process.env.DEFAULT_TENANT_ID || '';
-        return this.tablesService.approveRequest(id, tid);
+    async approveRequest(@Request() req, @Param('id') id: string) {
+        return this.tablesService.approveRequest(id, req.user.tenantId);
     }
 
     @Post('requests/:id/reject')
-    async rejectRequest(@Param('id') id: string, @Query('tenant_id') tenantId?: string) {
-        const tid = tenantId || process.env.DEFAULT_TENANT_ID || '';
-        return this.tablesService.rejectRequest(id, tid);
+    async rejectRequest(@Request() req, @Param('id') id: string) {
+        return this.tablesService.rejectRequest(id, req.user.tenantId);
     }
 
     @Post('requests/manual')
-    async createManualRequest(@Body() body: { tableId: string, userPhone: string, paxCount: number }, @Query('tenant_id') tenantId?: string) {
-        const tid = tenantId || process.env.DEFAULT_TENANT_ID || '';
-        return this.tablesService.createManualRequest(tid, body);
+    async createManualRequest(@Request() req, @Body() body: { tableId: string, userPhone: string, paxCount: number }) {
+        return this.tablesService.createManualRequest(req.user.tenantId, body);
     }
 
     @Get(':id/tab')
-    getTab(@Param('id') id: string) {
-        return this.tablesService.getTab(id);
+    getTab(@Request() req, @Param('id') id: string) {
+        return this.tablesService.getTab(id, req.user.tenantId);
     }
 }

@@ -4,9 +4,9 @@ import (
 	"errors"
 	"time"
 
+	"github.com/anbernal/clickgarcom/internal/domain/user"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	"github.com/yourorg/clickgarcom/services/go-core/internal/domain/user"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -17,9 +17,11 @@ type Service struct {
 }
 
 type Claims struct {
-	UserID   uuid.UUID `json:"user_id"`
-	TenantID uuid.UUID `json:"tenant_id"`
-	Role     string    `json:"role"`
+	UserID     string `json:"sub"`
+	TenantID   string `json:"tenant_id"`
+	Role       string `json:"role"`
+	Email      string `json:"email,omitempty"`
+	TenantName string `json:"tenant_name,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -52,7 +54,7 @@ func (s *Service) Login(email, password string) (string, error) {
 		return "", errors.New("invalid credentials")
 	}
 	// generate JWT
-	claims := Claims{UserID: u.ID, TenantID: u.TenantID, Role: string(u.Role), RegisteredClaims: jwt.RegisteredClaims{ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.tokenTTL)), IssuedAt: jwt.NewNumericDate(time.Now())}}
+	claims := Claims{UserID: u.ID.String(), TenantID: u.TenantID.String(), Role: string(u.Role), RegisteredClaims: jwt.RegisteredClaims{ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.tokenTTL)), IssuedAt: jwt.NewNumericDate(time.Now())}}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	signed, err := token.SignedString(s.jwtSecret)
 	if err != nil {

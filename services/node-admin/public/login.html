@@ -203,32 +203,40 @@
             btn.innerHTML = '<span class="spinner"></span> Entrando...';
 
             try {
-                // Simulate auth call (replace with real API later)
-                await new Promise(resolve => setTimeout(resolve, 1500));
+                const response = await fetch('/admin/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
 
-                // For now, accept any valid-looking credentials
-                if (email && password.length >= 6) {
-                    // Store auth state
-                    if (document.getElementById('remember').checked) {
-                        localStorage.setItem('clickgarcom_auth', JSON.stringify({
-                            email,
-                            token: 'demo-token',
-                            loggedAt: new Date().toISOString()
-                        }));
-                    } else {
-                        sessionStorage.setItem('clickgarcom_auth', JSON.stringify({
-                            email,
-                            token: 'demo-token',
-                            loggedAt: new Date().toISOString()
-                        }));
-                    }
-                    // Redirect to admin panel
-                    window.location.href = '/';
-                } else {
-                    throw new Error('Senha deve ter pelo menos 6 caracteres.');
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.message || data.error || 'E-mail ou senha inválidos.');
                 }
+
+                // Store JWT
+                if (document.getElementById('remember').checked) {
+                    localStorage.setItem('clickgarcom_auth', JSON.stringify({
+                        email,
+                        token: data.access_token,
+                        user: data.user,
+                        loggedAt: new Date().toISOString()
+                    }));
+                } else {
+                    sessionStorage.setItem('clickgarcom_auth', JSON.stringify({
+                        email,
+                        token: data.access_token,
+                        user: data.user,
+                        loggedAt: new Date().toISOString()
+                    }));
+                }
+
+                // Redirect to admin panel
+                window.location.href = '/';
+
             } catch (err) {
-                errorText.textContent = err.message || 'E-mail ou senha inválidos.';
+                errorText.textContent = err.message;
                 errorEl.classList.add('show');
                 btn.disabled = false;
                 btn.innerHTML = 'Entrar';

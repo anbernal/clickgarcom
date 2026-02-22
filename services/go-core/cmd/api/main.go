@@ -13,7 +13,9 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"go.uber.org/zap"
 
+	"github.com/anbernal/clickgarcom/internal/application/auth"
 	"github.com/anbernal/clickgarcom/internal/config"
+	"github.com/anbernal/clickgarcom/internal/infrastructure/persistence/postgres"
 	"github.com/anbernal/clickgarcom/internal/infrastructure/websocket"
 	"github.com/anbernal/clickgarcom/internal/interfaces/http/routes"
 	"github.com/anbernal/clickgarcom/pkg/database"
@@ -93,13 +95,18 @@ func main() {
 	go wsHub.Run() // Rodar hub em goroutine
 	logger.Info("WebSocket Hub initialized and running")
 
-	// 9) Setup routes
+	// 9) Setup Auth
+	userRepo := postgres.NewUserRepository(db.DB)
+	authService := auth.NewService(userRepo, cfg.JWT.Secret, 24*time.Hour)
+
+	// 10) Setup routes
 	routes.SetupRoutes(
 		app,
 		db,
 		rabbitMQ,
 		wsHub,
 		logger.Log,
+		authService,
 		cfg.WhatsApp.VerifyToken,
 	)
 

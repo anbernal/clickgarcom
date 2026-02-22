@@ -26,9 +26,9 @@ export class Tab {
     @Column({ type: 'varchar', length: 20, default: 'OPEN' })
     status!: string;
 
-    @Column({ type: 'timestamp', name: 'opened_at' })
+    @Column({ name: 'opened_at' })
     openedAt!: Date;
 
-    @Column({ type: 'timestamp', name: 'closed_at', nullable: true })
+    @Column({ name: 'closed_at', nullable: true })
     closedAt!: Date | null;
 }

@@ -48,14 +48,14 @@ export class TablesService {
         return this.tableRepo.save(table);
     }
 
-    async updateStatus(id: string, status: string) {
-        await this.tableRepo.update(id, { status });
-        return this.tableRepo.findOne({ where: { id } });
+    async updateStatus(id: string, tenantId: string, status: string) {
+        await this.tableRepo.update({ id, tenantId }, { status });
+        return this.tableRepo.findOne({ where: { id, tenantId } });
     }
 
-    async getTab(tableId: string) {
+    async getTab(tableId: string, tenantId: string) {
         return this.tabRepo.findOne({
-            where: { tableId, status: 'OPEN' },
+            where: { tableId, tenantId, status: 'OPEN' },
         });
     }
 

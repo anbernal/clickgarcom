@@ -3,51 +3,51 @@ let cardapioCategories = [];
 let cardapioItems = [];
 
 async function loadCardapio() {
-    const container = document.getElementById('page-cardapio');
-    container.innerHTML = '<div class="loading"><div class="spinner"></div> Carregando cardápio...</div>';
+  const container = document.getElementById('page-cardapio');
+  container.innerHTML = '<div class="loading"><div class="spinner"></div> Carregando cardápio...</div>';
 
-    try {
-        const [items, categories] = await Promise.all([
-            api.get('/menu'),
-            api.get('/categories'),
-        ]);
+  try {
+    const [items, categories] = await Promise.all([
+      api.get('/menu'),
+      api.get('/categories'),
+    ]);
 
-        cardapioItems = items || [];
-        cardapioCategories = categories || [];
+    cardapioItems = items || [];
+    cardapioCategories = categories || [];
 
-        renderCardapio();
-    } catch (err) {
-        container.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><h3>Erro</h3><p>${err.message}</p></div>`;
-    }
+    renderCardapio();
+  } catch (err) {
+    container.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><h3>Erro</h3><p>${escapeHTML(err.message)}</p></div>`;
+  }
 }
 
 function renderCardapio(filterCatId = null, search = '') {
-    const container = document.getElementById('page-cardapio');
+  const container = document.getElementById('page-cardapio');
 
-    let filtered = cardapioItems;
-    if (filterCatId) {
-        filtered = filtered.filter(i => i.categoryId === filterCatId);
-    }
-    if (search) {
-        const s = search.toLowerCase();
-        filtered = filtered.filter(i => i.name.toLowerCase().includes(s) || (i.description || '').toLowerCase().includes(s));
-    }
+  let filtered = cardapioItems;
+  if (filterCatId) {
+    filtered = filtered.filter(i => i.categoryId === filterCatId);
+  }
+  if (search) {
+    const s = search.toLowerCase();
+    filtered = filtered.filter(i => i.name.toLowerCase().includes(s) || (i.description || '').toLowerCase().includes(s));
+  }
 
-    const categoryEmojis = {
-        'Pizzas': '🍕', 'Hambúrgueres': '🍔', 'Bebidas': '🍹', 'Sobremesas': '🍰', 'Entradas': '🥗',
-    };
+  const categoryEmojis = {
+    'Pizzas': '🍕', 'Hambúrgueres': '🍔', 'Bebidas': '🍹', 'Sobremesas': '🍰', 'Entradas': '🥗',
+  };
 
-    const getEmoji = (item) => {
-        if (item.category) return categoryEmojis[item.category.name] || '🍽';
-        return '🍽';
-    };
+  const getEmoji = (item) => {
+    if (item.category) return categoryEmojis[item.category.name] || '🍽';
+    return '🍽';
+  };
 
-    const getBg = (item) => {
-        const map = { '🍕': '#fff7ed', '🍔': '#fff7ed', '🍹': '#f0fdf4', '🍰': '#fef2f2', '🥗': '#eff6ff' };
-        return map[getEmoji(item)] || '#f0f2f5';
-    };
+  const getBg = (item) => {
+    const map = { '🍕': '#fff7ed', '🍔': '#fff7ed', '🍹': '#f0fdf4', '🍰': '#fef2f2', '🥗': '#eff6ff' };
+    return map[getEmoji(item)] || '#f0f2f5';
+  };
 
-    container.innerHTML = `
+  container.innerHTML = `
     <div class="full-card">
       <div class="card-header">
         <div>
@@ -65,7 +65,7 @@ function renderCardapio(filterCatId = null, search = '') {
       <div class="cat-tags" id="cardapio-cat-tags">
         <div class="cat-tag ${!filterCatId ? 'active' : ''}" data-cat="">Todos</div>
         ${cardapioCategories.map(c => `
-          <div class="cat-tag ${filterCatId === c.id ? 'active' : ''}" data-cat="${c.id}">${c.name}</div>
+          <div class="cat-tag ${filterCatId === c.id ? 'active' : ''}" data-cat="${c.id}">${escapeHTML(c.name)}</div>
         `).join('')}
       </div>
       <div class="menu-grid">
@@ -73,9 +73,9 @@ function renderCardapio(filterCatId = null, search = '') {
           <div class="menu-card">
             <div class="menu-img" style="background:${getBg(item)}">${getEmoji(item)}</div>
             <div class="menu-body">
-              <div class="menu-name">${item.name}</div>
-              <div class="menu-cat">${item.category ? item.category.name : 'Sem categoria'}${item.description ? ' · ' + item.description.substring(0, 20) : ''}</div>
-              <div class="menu-price">${formatCurrency(item.price)}</div>
+              <div class="menu-name">${escapeHTML(item.name)}</div>
+              <div class="menu-cat">${escapeHTML(item.category ? item.category.name : 'Sem categoria')}${item.description ? ' · ' + escapeHTML(item.description.substring(0, 20)) : ''}</div>
+              <div class="menu-price">${escapeHTML(formatCurrency(item.price))}</div>
               <div class="menu-footer">
                 <div class="status-pill ${item.available ? 'status-done' : 'status-pending'}">${item.available ? 'Ativo' : 'Inativo'}</div>
                 <div style="display:flex;gap:6px">
@@ -96,25 +96,25 @@ function renderCardapio(filterCatId = null, search = '') {
     </div>
   `;
 
-    // Search handler
-    document.getElementById('cardapio-search').addEventListener('input', (e) => {
-        renderCardapio(filterCatId, e.target.value);
-    });
+  // Search handler
+  document.getElementById('cardapio-search').addEventListener('input', (e) => {
+    renderCardapio(filterCatId, e.target.value);
+  });
 
-    // Category filter handlers
-    document.querySelectorAll('#cardapio-cat-tags .cat-tag').forEach(tag => {
-        tag.addEventListener('click', () => {
-            const catId = tag.dataset.cat || null;
-            renderCardapio(catId, document.getElementById('cardapio-search')?.value || '');
-        });
+  // Category filter handlers
+  document.querySelectorAll('#cardapio-cat-tags .cat-tag').forEach(tag => {
+    tag.addEventListener('click', () => {
+      const catId = tag.dataset.cat || null;
+      renderCardapio(catId, document.getElementById('cardapio-search')?.value || '');
     });
+  });
 }
 
 function openMenuItemModal(itemId) {
-    const item = itemId ? cardapioItems.find(i => i.id === itemId) : null;
-    const isEdit = !!item;
+  const item = itemId ? cardapioItems.find(i => i.id === itemId) : null;
+  const isEdit = !!item;
 
-    openModal(`
+  openModal(`
     <div class="modal-header">
       <h3>${isEdit ? 'Editar Item' : 'Novo Item'}</h3>
       <button class="modal-close" onclick="closeModal()">✕</button>
@@ -122,11 +122,11 @@ function openMenuItemModal(itemId) {
     <div class="modal-body">
       <div class="form-group">
         <label>Nome do Item</label>
-        <input type="text" id="mi-name" value="${item ? item.name : ''}" placeholder="Ex: Pizza Margherita">
+        <input type="text" id="mi-name" value="${item ? escapeHTML(item.name) : ''}" placeholder="Ex: Pizza Margherita">
       </div>
       <div class="form-group">
         <label>Descrição</label>
-        <textarea id="mi-description" placeholder="Descrição do item">${item ? item.description || '' : ''}</textarea>
+        <textarea id="mi-description" placeholder="Descrição do item">${item ? escapeHTML(item.description) || '' : ''}</textarea>
       </div>
       <div class="form-row-2">
         <div class="form-group">
@@ -137,7 +137,7 @@ function openMenuItemModal(itemId) {
           <label>Categoria</label>
           <select id="mi-category">
             <option value="">Sem categoria</option>
-            ${cardapioCategories.map(c => `<option value="${c.id}" ${item && item.categoryId === c.id ? 'selected' : ''}>${c.name}</option>`).join('')}
+            ${cardapioCategories.map(c => `<option value="${c.id}" ${item && item.categoryId === c.id ? 'selected' : ''}>${escapeHTML(c.name)}</option>`).join('')}
           </select>
         </div>
       </div>
@@ -163,42 +163,42 @@ function openMenuItemModal(itemId) {
 }
 
 async function saveMenuItem(itemId) {
-    const data = {
-        name: document.getElementById('mi-name').value,
-        description: document.getElementById('mi-description').value,
-        price: parseFloat(document.getElementById('mi-price').value),
-        category_id: document.getElementById('mi-category').value || null,
-        destination: document.getElementById('mi-destination').value,
-        prep_time_minutes: parseInt(document.getElementById('mi-prep').value) || 15,
-    };
+  const data = {
+    name: document.getElementById('mi-name').value,
+    description: document.getElementById('mi-description').value,
+    price: parseFloat(document.getElementById('mi-price').value),
+    category_id: document.getElementById('mi-category').value || null,
+    destination: document.getElementById('mi-destination').value,
+    prep_time_minutes: parseInt(document.getElementById('mi-prep').value) || 15,
+  };
 
-    if (!data.name || !data.price) {
-        showToast('Nome e preço são obrigatórios', 'error');
-        return;
-    }
+  if (!data.name || !data.price) {
+    showToast('Nome e preço são obrigatórios', 'error');
+    return;
+  }
 
-    try {
-        if (itemId) {
-            await api.put(`/menu/${itemId}`, data);
-            showToast('Item atualizado com sucesso');
-        } else {
-            await api.post('/menu', data);
-            showToast('Item criado com sucesso');
-        }
-        closeModal();
-        loadCardapio();
-    } catch (err) {
-        showToast('Erro: ' + err.message, 'error');
+  try {
+    if (itemId) {
+      await api.put(`/menu/${itemId}`, data);
+      showToast('Item atualizado com sucesso');
+    } else {
+      await api.post('/menu', data);
+      showToast('Item criado com sucesso');
     }
+    closeModal();
+    loadCardapio();
+  } catch (err) {
+    showToast('Erro: ' + err.message, 'error');
+  }
 }
 
 async function deleteMenuItem(itemId) {
-    if (!confirm('Tem certeza que deseja remover este item?')) return;
-    try {
-        await api.delete(`/menu/${itemId}`);
-        showToast('Item removido');
-        loadCardapio();
-    } catch (err) {
-        showToast('Erro: ' + err.message, 'error');
-    }
+  if (!confirm('Tem certeza que deseja remover este item?')) return;
+  try {
+    await api.delete(`/menu/${itemId}`);
+    showToast('Item removido');
+    loadCardapio();
+  } catch (err) {
+    showToast('Erro: ' + err.message, 'error');
+  }
 }

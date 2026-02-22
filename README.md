@@ -219,29 +219,43 @@ Documentação detalhada disponível em:
 
 ### ✅ Fase 3: Admin Panel (CONCLUÍDA)
 - [x] Painel administrativo (NestJS)
-- [x] Gestão de cardápio
-- [x] Gestão de categorias
-- [x] Relatórios de vendas
-- [x] Gestão de mesas/comandas
+- [x] Gestão de cardápio e categorias
+- [x] Relatórios de vendas e gestão de mesas/comandas
 
-### ✅ Fase 8: Painel Administrativo - Tela de Login (CONCLUÍDA)
-- [x] Layout principal Split-Screen com background Pattern SVG customizado
-- [x] Formulário de Login (E-mail/Senha com Toggle) responsivo e animado
-- [x] Migração de Variáveis Globais de Design (Sora, Teal e Componentes)
-- [x] Redirecionamento e Tratamento Visual de Erros Side-client
-
-### 💳 Fase 4: Pagamentos
-- [ ] Integração com gateway de pagamento
-- [ ] Fechamento de comanda
-- [ ] Split de conta
-- [ ] Histórico de pagamentos
+### ✅ Fase 4: Fluxo de Reserva de Mesas (QR Code) (CONCLUÍDA)
+- [x] Pedido de liberação de mesa via WhatsApp
+- [x] Aprovação/Recusa em tempo real pelo Painel Admin
+- [x] Integração Event-driven via RabbitMQ (Admin -> Go-Core)
+- [x] Delegação manual de mesas (Walk-in)
 
 ### ✅ Fase 5: Qualidade & Observabilidade (Parcialmente Concluída)
 - [x] Dashboard de métricas (Prometheus Endpoint)
 - [x] Testes de Unidade e Concorrência (Go)
 - [x] Logs estruturados
-- [ ] Dashboards Visuais (Grafana - Infra pronta)
-- [ ] Alertas Automáticos
+- [ ] Dashboards Visuais (Grafana) e Alertas Automáticos
+
+### ✅ Fase 8: Painel Administrativo - Tela de Login (CONCLUÍDA)
+- [x] Layout principal Split-Screen com background Pattern SVG customizado
+- [x] Formulário de Login (E-mail/Senha com Toggle) responsivo e animado
+- [x] Migração de Variáveis Globais de Design
+
+### ✅ Fase 9: Multi-Tenancy & Autenticação JWT (CONCLUÍDA)
+- [x] Separação de rotas e frontend SPA Authentication (Tela de Registro)
+- [x] Criação de contas Multi-Inquilino (Restaurantes/Tenants e Usuários)
+- [x] Autenticação completa de API e validação client-side via Header Bearer
+- [x] Controle Ativo de Expediente das lojas (Aberto/Fechado)
+- [x] Proteção das chamadas WebSocket (KDS) interceptando Sessão e Validando Origem
+
+### ✅ Fase 10: Security Ops & Auditoria (CONCLUÍDA)
+- [x] Hardening completo das APIs Node.js com guardiões JWT contextuais
+- [x] Mitigação efetiva de BOLA/IDOR (Insecure Direct Object Reference)
+- [x] Bloqueio de ataques e injeções Cross-Tenant nos serviços ORM do banco de dados
+- [x] Sanitização Global e Defesa contra DOM-based XSS nas renderizações de Views (VanillaJS)
+
+### 💳 Próximos Passos
+- [ ] Integração nativa com Gateway de Pagamento
+- [ ] Fechamento de Cestas e Split de Conta Inteligente
+- [ ] Funcionalidades Avançadas de Agendamento
 
 ## 🏗️ Estrutura do Projeto
 

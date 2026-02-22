@@ -30,16 +30,16 @@ export class Order {
     @CreateDateColumn({ name: 'created_at' })
     createdAt!: Date;
 
-    @Column({ type: 'timestamp', name: 'accepted_at', nullable: true })
+    @Column({ name: 'accepted_at', nullable: true })
     acceptedAt!: Date | null;
 
-    @Column({ type: 'timestamp', name: 'ready_at', nullable: true })
+    @Column({ name: 'ready_at', nullable: true })
     readyAt!: Date | null;
 
-    @Column({ type: 'timestamp', name: 'delivered_at', nullable: true })
+    @Column({ name: 'delivered_at', nullable: true })
     deliveredAt!: Date | null;
 
-    @Column({ type: 'timestamp', name: 'canceled_at', nullable: true })
+    @Column({ name: 'canceled_at', nullable: true })
     canceledAt!: Date | null;
 
     @Column({ type: 'text', name: 'cancel_reason', nullable: true })

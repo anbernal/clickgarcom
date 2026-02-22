@@ -10,6 +10,7 @@ import (
 
 	"github.com/anbernal/clickgarcom/internal/domain/inbox"
 	"github.com/anbernal/clickgarcom/internal/domain/tenant"
+	"github.com/anbernal/clickgarcom/internal/domain/whatsapp"
 )
 
 type ProcessWhatsAppMessageUseCase struct {
@@ -100,7 +101,22 @@ func (uc *ProcessWhatsAppMessageUseCase) Execute(ctx context.Context, inboxID uu
 	uc.logger.Info("processing whatsapp message",
 		zap.String("tenant_id", tenant.ID.String()),
 		zap.String("tenant_name", tenant.Name),
+		zap.Bool("is_open", tenant.IsOpen),
 	)
+
+	// Intercept if tenant is closed
+	if !tenant.IsOpen {
+		uc.logger.Info("tenant is closed, rejecting message", zap.String("tenant_id", tenant.ID.String()))
+		if len(value.Messages) > 0 {
+			for _, msg := range value.Messages {
+				if msg.Type == "text" && msg.Text.Body != "" {
+					uc.handleMsgUseCase.sender.SendText(ctx, msg.From, whatsapp.RestaurantClosedMessage())
+				}
+			}
+		}
+		uc.inboxRepo.MarkAsProcessed(ctx, inboxID)
+		return nil
+	}
 
 	// 6. Processar mensagens
 	if len(value.Messages) > 0 {

@@ -33,8 +33,8 @@ export class CategoriesService {
         return result;
     }
 
-    async findOne(id: string) {
-        return this.categoryRepo.findOne({ where: { id } });
+    async findOne(id: string, tenantId: string) {
+        return this.categoryRepo.findOne({ where: { id, tenantId } });
     }
 
     async create(tenantId: string, data: Partial<MenuCategory>) {
@@ -46,12 +46,12 @@ export class CategoriesService {
         return this.categoryRepo.save(category);
     }
 
-    async update(id: string, data: Partial<MenuCategory>) {
-        await this.categoryRepo.update(id, data);
-        return this.findOne(id);
+    async update(id: string, tenantId: string, data: Partial<MenuCategory>) {
+        await this.categoryRepo.update({ id, tenantId }, data);
+        return this.findOne(id, tenantId);
     }
 
-    async remove(id: string) {
-        return this.categoryRepo.delete(id);
+    async remove(id: string, tenantId: string) {
+        return this.categoryRepo.delete({ id, tenantId });
     }
 }

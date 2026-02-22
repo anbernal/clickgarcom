@@ -1,12 +1,38 @@
 // ─── CONFIG ────────────────────────────────────────────────────
 const CONFIG = {
-  API_URL: 'http://localhost:3002/admin/api',
+  API_URL: '/admin/api',
   WS_URL: 'ws://localhost:8080/ws/kds',
   TENANT_ID: '550e8400-e29b-41d4-a716-446655440000',
   POLL_INTERVAL: 15000,
   URGENT_MINUTES: 10,
   WARNING_MINUTES: 5,
 };
+
+// ─── AUTHENTICATION ────────────────────────────────────────────
+let authSession = null;
+try {
+  const local = localStorage.getItem('clickgarcom_auth');
+  const session = sessionStorage.getItem('clickgarcom_auth');
+  if (local) authSession = JSON.parse(local);
+  else if (session) authSession = JSON.parse(session);
+} catch (e) {
+  console.error('Session parse error', e);
+}
+
+// Global Redirect if no session exists
+if (!authSession) {
+  window.location.href = '/login.html';
+}
+
+if (authSession?.token) {
+  try {
+    const payloadB64 = authSession.token.split('.')[1];
+    const payload = JSON.parse(atob(payloadB64));
+    CONFIG.TENANT_ID = payload.tenant_id;
+  } catch (e) {
+    console.error('JWT parse error', e);
+  }
+}
 
 // ─── STATE ─────────────────────────────────────────────────────
 let allOrders = {};  // id -> order
@@ -29,7 +55,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ─── API ───────────────────────────────────────────────────────
 async function apiGet(path) {
-  const r = await fetch(`${CONFIG.API_URL}${path}`);
+  const r = await fetch(`${CONFIG.API_URL}${path}`, {
+    headers: { 'Authorization': authSession ? `Bearer ${authSession.token}` : '' }
+  });
+  if (r.status === 401 || r.status === 403) window.location.href = '/login.html';
   if (!r.ok) throw new Error(`API ${r.status}`);
   return r.json();
 }
@@ -37,9 +66,13 @@ async function apiGet(path) {
 async function apiPatch(path, body) {
   const r = await fetch(`${CONFIG.API_URL}${path}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': authSession ? `Bearer ${authSession.token}` : ''
+    },
     body: JSON.stringify(body),
   });
+  if (r.status === 401 || r.status === 403) window.location.href = '/login.html';
   if (!r.ok) {
     const err = await r.json().catch(() => ({}));
     throw new Error(err.error || `API ${r.status}`);
@@ -62,7 +95,8 @@ async function loadOrders() {
 // ─── WEBSOCKET ─────────────────────────────────────────────────
 function connectWebSocket() {
   if (ws && ws.readyState <= 1) return;
-  const url = `${CONFIG.WS_URL}?tenant_id=${CONFIG.TENANT_ID}`;
+  const tokenParam = authSession ? `&token=${authSession.token}` : '';
+  const url = `${CONFIG.WS_URL}?tenant_id=${CONFIG.TENANT_ID}${tokenParam}`;
   ws = new WebSocket(url);
 
   ws.onopen = () => {
@@ -231,7 +265,7 @@ function buildCardHTML(order) {
   let itemsHtml = '';
   if (order.items && order.items.length) {
     itemsHtml = order.items.map(i =>
-      `<div class="order-item"><span class="item-qty">${i.quantity}x</span><span class="item-name">${i.menu_item_id ? shortId(i.menu_item_id) : 'Item'}</span>${i.observations ? `<span class="item-note">${i.observations}</span>` : ''}</div>`
+      `<div class="order-item"><span class="item-qty">${escapeHTML(i.quantity)}x</span><span class="item-name">${i.menu_item_id ? escapeHTML(shortId(i.menu_item_id)) : 'Item'}</span>${i.observations ? `<span class="item-note">${escapeHTML(i.observations)}</span>` : ''}</div>`
     ).join('');
   }
 
@@ -294,13 +328,13 @@ function renderWaiter() {
         const tag = o.destination === 'KITCHEN'
           ? '<span class="ready-tag" style="background:var(--orange-bg);color:var(--orange)">Cozinha</span>'
           : '<span class="ready-tag" style="background:var(--blue-bg);color:var(--blue)">Bar</span>';
-        const itemNames = (o.items || []).map(i => `${i.quantity}x ${shortId(i.menu_item_id)}`).join(', ') || 'Itens';
+        const itemNames = escapeHTML((o.items || []).map(i => `${i.quantity}x ${shortId(i.menu_item_id)}`).join(', ') || 'Itens');
         return `<div class="ready-item ${elapsed.urgent ? 'style="background:var(--red-bg);border-color:#f0c4be"' : ''}">
           <div style="font-size:20px;flex-shrink:0">${icon}</div>
           <div class="ready-item-left">
-            <div class="ready-item-title">Pedido #${shortId(o.id)}</div>
+            <div class="ready-item-title">Pedido #${escapeHTML(shortId(o.id))}</div>
             <div class="ready-item-sub">${itemNames}</div>
-            <div style="font-size:10px;color:var(--text-3);font-family:'DM Mono';margin-top:3px">Pronto há ${elapsed.text}</div>
+            <div style="font-size:10px;color:var(--text-3);font-family:'DM Mono';margin-top:3px">Pronto há ${escapeHTML(elapsed.text)}</div>
           </div>
           ${tag}
           <button class="action-btn deliver-btn" style="flex-shrink:0" onclick="updateStatus('${o.id}','DELIVERED')">Entregar</button>
@@ -440,6 +474,16 @@ function selectTime(el) {
 }
 
 // ─── HELPERS ───────────────────────────────────────────────────
+function escapeHTML(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 function shortId(id) {
   if (!id) return '???';
   return id.substring(0, 8);
@@ -487,9 +531,9 @@ function switchPanel(name) {
 // ─── TOAST ─────────────────────────────────────────────────────
 function toast(type, title, sub) {
   const el = document.createElement('div');
-  el.className = `toast ${type}`;
+  el.className = `toast ${escapeHTML(type)}`;
   const icon = type === 't-success' ? '✅' : type === 't-error' ? '🚫' : '🔔';
-  el.innerHTML = `<div style="font-size:18px">${icon}</div><div class="toast-content"><div class="toast-title">${title}</div><div class="toast-sub">${sub}</div></div>`;
+  el.innerHTML = `<div style="font-size:18px">${icon}</div><div class="toast-content"><div class="toast-title">${escapeHTML(title)}</div><div class="toast-sub">${escapeHTML(sub)}</div></div>`;
   document.getElementById('toasts').appendChild(el);
   setTimeout(() => { el.classList.add('fadeout'); setTimeout(() => el.remove(), 350); }, 4200);
 }

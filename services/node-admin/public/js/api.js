@@ -1,55 +1,112 @@
 // ClickGarçom Admin — API Client
 const API_BASE = '/admin/api';
-const TENANT_ID = '550e8400-e29b-41d4-a716-446655440000';
+
+// Retrieve Auth Session
+let authSession = null;
+try {
+    const local = localStorage.getItem('clickgarcom_auth');
+    const session = sessionStorage.getItem('clickgarcom_auth');
+    if (local) authSession = JSON.parse(local);
+    else if (session) authSession = JSON.parse(session);
+} catch (e) {
+    console.error('Session parse error', e);
+}
+
+// Global Redirect if no session exists and not on login/register page
+if (!authSession && !window.location.pathname.includes('.html') && window.location.pathname !== '/login.html' && window.location.pathname !== '/register.html') {
+    window.location.href = '/login.html';
+}
+
+// Parse JWT payload (to get tenant_id)
+let TENANT_ID = null;
+if (authSession?.token) {
+    try {
+        const payloadB64 = authSession.token.split('.')[1];
+        const payload = JSON.parse(atob(payloadB64));
+        TENANT_ID = payload.tenant_id;
+    } catch (e) {
+        console.error('JWT parse error', e);
+    }
+}
+
+function getAuthHeaders() {
+    return {
+        'Content-Type': 'application/json',
+        'Authorization': authSession ? `Bearer ${authSession.token}` : ''
+    };
+}
+
+async function handleResponse(res) {
+    if (res.status === 401 || res.status === 403) {
+        localStorage.removeItem('clickgarcom_auth');
+        sessionStorage.removeItem('clickgarcom_auth');
+        window.location.href = '/login.html';
+        throw new Error('Sessão expirada. Faça login novamente.');
+    }
+    if (!res.ok) throw new Error(`API Error: ${res.status}`);
+    return res.json();
+}
 
 const api = {
     async get(path, params = {}) {
         const url = new URL(API_BASE + path, window.location.origin);
-        url.searchParams.set('tenant_id', TENANT_ID);
+        if (TENANT_ID) url.searchParams.set('tenant_id', TENANT_ID);
         Object.entries(params).forEach(([k, v]) => {
             if (v !== undefined && v !== null) url.searchParams.set(k, v);
         });
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`API Error: ${res.status}`);
-        return res.json();
+        const res = await fetch(url, { headers: { 'Authorization': getAuthHeaders().Authorization } });
+        return handleResponse(res);
     },
 
     async post(path, body) {
+        const finalBody = { ...body };
+        if (TENANT_ID && !finalBody.tenant_id) finalBody.tenant_id = TENANT_ID;
+
         const res = await fetch(API_BASE + path, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...body, tenant_id: TENANT_ID }),
+            headers: getAuthHeaders(),
+            body: JSON.stringify(finalBody),
         });
-        if (!res.ok) throw new Error(`API Error: ${res.status}`);
-        return res.json();
+        return handleResponse(res);
     },
 
     async put(path, body) {
         const res = await fetch(API_BASE + path, {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
+            headers: getAuthHeaders(),
             body: JSON.stringify(body),
         });
-        if (!res.ok) throw new Error(`API Error: ${res.status}`);
-        return res.json();
+        return handleResponse(res);
     },
 
     async patch(path, body) {
         const res = await fetch(API_BASE + path, {
             method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
+            headers: getAuthHeaders(),
             body: JSON.stringify(body),
         });
-        if (!res.ok) throw new Error(`API Error: ${res.status}`);
-        return res.json();
+        return handleResponse(res);
     },
 
     async delete(path) {
-        const res = await fetch(API_BASE + path, { method: 'DELETE' });
-        if (!res.ok) throw new Error(`API Error: ${res.status}`);
-        return res.json();
+        const res = await fetch(API_BASE + path, {
+            method: 'DELETE',
+            headers: { 'Authorization': getAuthHeaders().Authorization }
+        });
+        return handleResponse(res);
     },
 };
+
+// Security: Escape HTML to prevent XSS
+function escapeHTML(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
 
 // Toast notifications
 function showToast(message, type = 'success') {

@@ -13,6 +13,45 @@ async function bootstrap() {
         }),
     );
 
+    // Static file routing (Replaces NestJS ServeStaticModule to prevent dashboard hijacking)
+    const express = require('express');
+    const path = require('path');
+    const publicPath = path.join(__dirname, '..', 'public');
+
+    // 1. Serve static assets (CSS, JS, Images, Data) first
+    const noCacheOptions = {
+        etag: false,
+        lastModified: false,
+        setHeaders: (res, path) => {
+            res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+            res.setHeader('Pragma', 'no-cache');
+            res.setHeader('Expires', '0');
+        }
+    };
+    app.use('/css', express.static(path.join(publicPath, 'css')));
+    app.use('/js', express.static(path.join(publicPath, 'js')));
+    app.use('/assets', express.static(path.join(publicPath, 'assets')));
+    app.use('/data', express.static(path.join(publicPath, 'data')));
+
+    // 2. Explicitly serve HTML auth routes
+    app.use('/login.html', express.static(path.join(publicPath, 'login.html'), noCacheOptions));
+    app.use('/register.html', express.static(path.join(publicPath, 'register.html'), noCacheOptions));
+
+    // 3. SPA Fallback (Dashboard index.html) for any other unmatched GET request
+    app.use('*', (req, res, next) => {
+        if (req.method === 'GET' && !req.originalUrl.startsWith('/admin/api')) {
+            if (req.originalUrl === '/register.html' || req.originalUrl === '/register') {
+                res.sendFile(path.join(publicPath, 'register.html'));
+            } else if (req.originalUrl === '/login.html' || req.originalUrl === '/login') {
+                res.sendFile(path.join(publicPath, 'login.html'));
+            } else {
+                res.sendFile(path.join(publicPath, 'index.html'));
+            }
+        } else {
+            next();
+        }
+    });
+
     app.enableCors();
 
     const port = process.env.APP_PORT || 3002;

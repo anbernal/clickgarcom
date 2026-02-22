@@ -1,26 +1,29 @@
-import { Controller, Get, Patch, Param, Query, Body } from '@nestjs/common';
+import { Controller, Get, Patch, Param, Query, Body, UseGuards, Request } from '@nestjs/common';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { OrdersService } from './orders.service';
 
 @Controller('admin/api/orders')
 export class OrdersController {
     constructor(private readonly ordersService: OrdersService) { }
 
+    @UseGuards(JwtAuthGuard)
     @Get()
     findAll(
-        @Query('tenant_id') tenantId?: string,
+        @Request() req,
         @Query('status') status?: string,
     ) {
-        const tid = tenantId || process.env.DEFAULT_TENANT_ID || '';
-        return this.ordersService.findAll(tid, status);
+        return this.ordersService.findAll(req.user.tenantId, status);
     }
 
+    @UseGuards(JwtAuthGuard)
     @Get(':id')
-    findOne(@Param('id') id: string) {
-        return this.ordersService.findOne(id);
+    findOne(@Request() req, @Param('id') id: string) {
+        return this.ordersService.findOne(id, req.user.tenantId);
     }
 
+    @UseGuards(JwtAuthGuard)
     @Patch(':id/status')
-    updateStatus(@Param('id') id: string, @Body() body: { status: string }) {
-        return this.ordersService.updateStatus(id, body.status);
+    updateStatus(@Request() req, @Param('id') id: string, @Body() body: { status: string }) {
+        return this.ordersService.updateStatus(id, body.status, req.user.tenantId);
     }
 }

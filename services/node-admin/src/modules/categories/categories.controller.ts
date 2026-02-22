@@ -6,29 +6,30 @@ import {
     Delete,
     Body,
     Param,
-    Query,
+    Request,
+    UseGuards,
 } from '@nestjs/common';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CategoriesService } from './categories.service';
 
 @Controller('admin/api/categories')
+@UseGuards(JwtAuthGuard)
 export class CategoriesController {
     constructor(private readonly categoriesService: CategoriesService) { }
 
     @Get()
-    findAll(@Query('tenant_id') tenantId?: string) {
-        const tid = tenantId || process.env.DEFAULT_TENANT_ID || '';
-        return this.categoriesService.findAll(tid);
+    findAll(@Request() req) {
+        return this.categoriesService.findAll(req.user.tenantId);
     }
 
     @Get(':id')
-    findOne(@Param('id') id: string) {
-        return this.categoriesService.findOne(id);
+    findOne(@Request() req, @Param('id') id: string) {
+        return this.categoriesService.findOne(id, req.user.tenantId);
     }
 
     @Post()
-    create(@Body() body: any) {
-        const tenantId = body.tenant_id || process.env.DEFAULT_TENANT_ID || '';
-        return this.categoriesService.create(tenantId, {
+    create(@Request() req, @Body() body: any) {
+        return this.categoriesService.create(req.user.tenantId, {
             name: body.name,
             description: body.description,
             displayOrder: body.display_order || 0,
@@ -37,8 +38,8 @@ export class CategoriesController {
     }
 
     @Put(':id')
-    update(@Param('id') id: string, @Body() body: any) {
-        return this.categoriesService.update(id, {
+    update(@Request() req, @Param('id') id: string, @Body() body: any) {
+        return this.categoriesService.update(id, req.user.tenantId, {
             name: body.name,
             description: body.description,
             displayOrder: body.display_order,
@@ -47,7 +48,7 @@ export class CategoriesController {
     }
 
     @Delete(':id')
-    remove(@Param('id') id: string) {
-        return this.categoriesService.remove(id);
+    remove(@Request() req, @Param('id') id: string) {
+        return this.categoriesService.remove(id, req.user.tenantId);
     }
 }

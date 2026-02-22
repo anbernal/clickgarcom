@@ -14,7 +14,7 @@ export class Table {
     @Column({ type: 'text', name: 'qr_token', nullable: true })
     qrToken!: string | null;
 
-    @Column({ type: 'timestamp', name: 'qr_expires_at', nullable: true })
+    @Column({ name: 'qr_expires_at', nullable: true })
     qrExpiresAt!: Date | null;
 
     @Column({ type: 'varchar', length: 20, default: 'AVAILABLE' })

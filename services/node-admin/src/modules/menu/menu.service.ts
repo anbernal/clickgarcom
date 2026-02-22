@@ -24,8 +24,8 @@ export class MenuService {
         });
     }
 
-    async findOne(id: string) {
-        return this.menuItemRepo.findOne({ where: { id }, relations: ['category'] });
+    async findOne(id: string, tenantId: string) {
+        return this.menuItemRepo.findOne({ where: { id, tenantId }, relations: ['category'] });
     }
 
     async create(tenantId: string, data: Partial<MenuItem>) {
@@ -37,19 +37,19 @@ export class MenuService {
         return this.menuItemRepo.save(item);
     }
 
-    async update(id: string, data: Partial<MenuItem>) {
-        await this.menuItemRepo.update(id, data);
-        return this.findOne(id);
+    async update(id: string, tenantId: string, data: Partial<MenuItem>) {
+        await this.menuItemRepo.update({ id, tenantId }, data);
+        return this.findOne(id, tenantId);
     }
 
-    async toggleAvailability(id: string) {
-        const item = await this.findOne(id);
+    async toggleAvailability(id: string, tenantId: string) {
+        const item = await this.findOne(id, tenantId);
         if (!item) return null;
         item.available = !item.available;
         return this.menuItemRepo.save(item);
     }
 
-    async remove(id: string) {
-        return this.menuItemRepo.delete(id);
+    async remove(id: string, tenantId: string) {
+        return this.menuItemRepo.delete({ id, tenantId });
     }
 }

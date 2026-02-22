@@ -8,10 +8,12 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/anbernal/clickgarcom/internal/application"
+	"github.com/anbernal/clickgarcom/internal/application/auth"
 	"github.com/anbernal/clickgarcom/internal/infrastructure/persistence/postgres"
 	"github.com/anbernal/clickgarcom/internal/infrastructure/websocket"
 	"github.com/anbernal/clickgarcom/internal/infrastructure/whatsapp"
 	"github.com/anbernal/clickgarcom/internal/interfaces/http/handlers"
+	"github.com/anbernal/clickgarcom/internal/interfaces/http/middleware"
 	"github.com/anbernal/clickgarcom/pkg/database"
 )
 
@@ -21,6 +23,7 @@ func SetupRoutes(
 	rabbitMQ *database.RabbitMQClient,
 	wsHub *websocket.Hub,
 	logger *zap.Logger,
+	authService *auth.Service,
 	whatsappVerifyToken string,
 ) {
 	// Repositories
@@ -39,12 +42,20 @@ func SetupRoutes(
 	menuHandler := handlers.NewMenuHandler(menuRepo, logger)
 	orderHandler := handlers.NewOrderHandler(updateOrderStatusUC, logger)
 	listOrdersHandler := handlers.NewListOrdersHandler(orderRepo, logger)
+	authHandler := NewAuthHandler(authService)
 
 	// Middleware para passar verify token
 	app.Use(func(c *fiber.Ctx) error {
 		c.Locals("whatsapp_verify_token", whatsappVerifyToken)
 		return c.Next()
 	})
+
+	// Auth routes
+	authGrp := app.Group("/auth")
+	{
+		authGrp.Post("/register", authHandler.Register)
+		authGrp.Post("/login", authHandler.Login)
+	}
 
 	// Routes
 	webhooks := app.Group("/webhooks")
@@ -64,8 +75,11 @@ func SetupRoutes(
 		menu.Get("/items", menuHandler.GetItems)
 	}
 
-	// Order routes
-	orders := app.Group("/orders")
+	// Middleware JWT
+	jwtAuth := middleware.JWTAuth(authService)
+
+	// Order routes (Protected)
+	orders := app.Group("/orders", jwtAuth)
 	{
 		orders.Get("/", listOrdersHandler.ListOrders)
 		orders.Patch("/:id/status", orderHandler.UpdateOrderStatus)
@@ -75,8 +89,8 @@ func SetupRoutes(
 	ws := app.Group("/ws")
 	wsHandler := handlers.NewWebSocketHandler(wsHub, logger)
 	{
-		// Upgrade middleware para WebSocket
-		ws.Use("/kds", func(c *fiber.Ctx) error {
+		// Upgrade middleware para WebSocket com validação JWT
+		ws.Use("/kds", jwtAuth, func(c *fiber.Ctx) error {
 			if fiberws.IsWebSocketUpgrade(c) {
 				return c.Next()
 			}

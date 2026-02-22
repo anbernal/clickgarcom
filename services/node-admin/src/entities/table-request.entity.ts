@@ -25,9 +25,8 @@ export class TableRequest {
     paxCount: number;
 
     @Column({
-        type: 'enum',
-        enum: RequestStatus,
-        default: RequestStatus.PENDING
+        type: 'varchar',
+        default: RequestStatus.PENDING,
     })
     status: RequestStatus;
 

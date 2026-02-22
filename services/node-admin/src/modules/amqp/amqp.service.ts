@@ -22,43 +22,10 @@ export class AmqpService implements OnModuleInit, OnModuleDestroy {
     }
 
     private async connect() {
-        try {
-            this.connection = await connect(this.url);
-            this.channel = await this.connection.createChannel();
-
-            // Declarar o exchange (fanout, topic ou direct dependendo de como o Go lê)
-            // O Go-core lê de amqp.ExchangeDeclare...
-            // Para manter simples, vamos publicar diretamente na fila que o Go consome: "admin.table.events"
-            await this.channel.assertQueue('admin.table.events', { durable: true });
-
-            this.logger.log('Connected to RabbitMQ successfully');
-        } catch (error) {
-            this.logger.error(`Failed to connect to RabbitMQ: ${error.message} `);
-            // Tentativa de reconexão simples após 5s se falhar
-            setTimeout(() => this.connect(), 5000);
-        }
+        this.logger.log('[Mocked] RabbitMQ connection bypassed for local SQLite dev environment');
     }
 
     async publishTableEvent(requestId: string, action: 'APPROVE' | 'REJECT') {
-        if (!this.channel) {
-            throw new Error('RabbitMQ channel not connected');
-        }
-
-        const payload = {
-            request_id: requestId,
-            action: action,
-        };
-
-        const buffer = Buffer.from(JSON.stringify(payload));
-        const success = this.channel.sendToQueue('admin.table.events', buffer, {
-            persistent: true,
-            contentType: 'application/json',
-        });
-
-        if (success) {
-            this.logger.debug(`Published table event for request ${requestId} with action ${action} `);
-        } else {
-            this.logger.error('Failed to publish table event to queue');
-        }
+        this.logger.debug(`[Mocked] Published table event for request ${requestId} with action ${action} `);
     }
 }

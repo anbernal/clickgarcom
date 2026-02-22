@@ -17,6 +17,14 @@ Como posso te ajudar hoje?
 _Digite o número da opção desejada_`, restaurantName)
 }
 
+// RestaurantClosedMessage mensagem exibida quando cliente tenta fazer pedido fora do expediente
+func RestaurantClosedMessage() string {
+	return `🚪 *O restaurante ainda não está aberto.*
+
+Agradecemos o seu contato, mas nossas atividades estão encerradas no momento.
+Aguarde, em breve abriremos!`
+}
+
 // WelcomeTableMessage boas vindas quando escaneia QR Code
 func WelcomeTableMessage(restaurantName, tableNumber string) string {
 	return fmt.Sprintf(`🍽️ Olá! Bem-vindo ao *%s*!
