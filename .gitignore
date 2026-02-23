@@ -47,3 +47,4 @@ yarn-error.log
 /services/go-core/test_create_order
 /services/go-core/worker
 /services/go-core/api
+/services/go-core/outbox-worker
