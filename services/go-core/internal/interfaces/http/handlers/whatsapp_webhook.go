@@ -78,20 +78,32 @@ func (h *WhatsAppWebhookHandler) HandleWebhook(c *fiber.Ctx) error {
 		return c.SendStatus(fiber.StatusOK)
 	}
 
-	// Tentar identificar o Inquilino (Restaurante) pelo Telefone Comercial pra Metrificação (Fase 11)
-	if wabaID != "" && h.tenantRepo != nil && h.logRepo != nil {
-		go func(wid string, mid string) {
-			tnt, err := h.tenantRepo.FindBySlug(context.Background(), wid) // Fictício: findByWaba será um método futuro, vamos usar fallback pra teste se falhar
-			// TODO: Add FindByWabaID to Tenant Repo interface. Provisoriamente ignora se erro pra não travar o fluxo
-			if err == nil {
-				h.logRepo.Save(context.Background(), &tenant.MessageLog{
-					TenantID:  tnt.ID,
-					Direction: tenant.DirectionIn,
-					MessageID: mid,
-					Status:    "RECEIVED",
-				})
+	// Tentar identificar o Inquilino (Restaurante) pelo Telefone Comercial pra Metrificação (Fase 11) e Bilhetagem (Fase 13)
+	if wabaID != "" && h.tenantRepo != nil {
+		tnt, err := h.tenantRepo.FindByWabaID(c.Context(), wabaID)
+		if err == nil {
+			// Phase 13: Verificação de Pedágio (Wallet Billing)
+			if tnt.BillingPlan == tenant.PlanPrePaid && tnt.WalletBalance <= 0 {
+				h.logger.Warn("tenant out of credits, dropping incoming message",
+					zap.String("waba_id", wabaID),
+					zap.Float64("balance", tnt.WalletBalance),
+				)
+				return c.SendStatus(fiber.StatusOK) // Dropar silenciosamente
 			}
-		}(wabaID, wamid)
+
+			// Debitar R$ 0,02 e logar recebimento
+			go func(tid uuid.UUID, mid string) {
+				_ = h.tenantRepo.DeductWalletBalance(context.Background(), tid, 0.02)
+				if h.logRepo != nil {
+					h.logRepo.Save(context.Background(), &tenant.MessageLog{
+						TenantID:  tid,
+						Direction: tenant.DirectionIn,
+						MessageID: mid,
+						Status:    "RECEIVED",
+					})
+				}
+			}(tnt.ID, wamid)
+		}
 	}
 
 	// 2. Inbox Pattern - persistir RAW

@@ -14,14 +14,21 @@ type Tenant struct {
 	Name           string         `json:"name" gorm:"not null"`
 	Slug           string         `json:"slug" gorm:"uniqueIndex;not null"`
 	WhatsAppNumber string         `json:"whatsapp_number" gorm:"uniqueIndex;not null"`
-	WabaID         string         `json:"waba_id" gorm:"column:waba_id"`       // WhatsApp Business Account Phone ID
-	MetaToken      string         `json:"meta_token" gorm:"column:meta_token"` // Cloud API Bearer Token
+	WabaID         string         `json:"waba_id" gorm:"column:waba_id"`                           // WhatsApp Business Account Phone ID
+	MetaToken      string         `json:"meta_token" gorm:"column:meta_token"`                     // Cloud API Bearer Token
+	WalletBalance  float64        `json:"wallet_balance" gorm:"type:numeric(10,2);default:0.00"`   // FASE 13
+	BillingPlan    string         `json:"billing_plan" gorm:"type:varchar(20);default:'pre_paid'"` // FASE 13
 	Settings       TenantSettings `json:"settings" gorm:"type:jsonb"`
 	Active         bool           `json:"active" gorm:"default:true"`
 	IsOpen         bool           `json:"is_open" gorm:"default:false"`
 	CreatedAt      time.Time      `json:"created_at"`
 	UpdatedAt      time.Time      `json:"updated_at"`
 }
+
+const (
+	PlanPrePaid  = "pre_paid"
+	PlanPostPaid = "post_paid"
+)
 
 type TenantSettings struct {
 	ServiceFeePercent float64 `json:"service_fee_percent"`

@@ -73,3 +73,8 @@ func (r *SessionRepository) Extend(ctx context.Context, userPhone string, tenant
 	key := r.getKey(userPhone, tenantID)
 	return r.client.Expire(ctx, key, duration).Err()
 }
+
+// Fase 15: FindByPhone é um alias explícito de Find para localizar a sessão do "opener" de forma legível
+func (r *SessionRepository) FindByPhone(ctx context.Context, userPhone string, tenantID string) (*session.Session, error) {
+	return r.Find(ctx, userPhone, tenantID)
+}

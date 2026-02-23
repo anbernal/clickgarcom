@@ -30,6 +30,7 @@ type HandleWhatsAppMessageUseCase struct {
 
 type WhatsAppSender interface {
 	SendText(ctx context.Context, to string, message string) error
+	SendInteractiveButtons(ctx context.Context, to, bodyText string, buttons []whatsapp.InteractiveButton) (string, error) // Fase 14
 }
 
 func NewHandleWhatsAppMessageUseCase(
@@ -82,8 +83,36 @@ func (uc *HandleWhatsAppMessageUseCase) Execute(ctx context.Context, input Handl
 				tableNumber := parts[1]
 				tTable, err := uc.tableRepo.FindByNumber(ctx, tableNumber, input.TenantID)
 				if err == nil && tTable != nil {
-					// Mesa encontrada - iniciar fluxo de QR Code
 					t, _ := uc.tenantRepo.FindByID(ctx, input.TenantID)
+
+					// Fase 14: Mesas já abertas precisam perguntar Compartilhar vs Individual
+					if tTable.Status == table.StatusOccupied {
+						activeTabs, err := uc.tabRepo.FindAllOpenByTable(ctx, tTable.ID, input.TenantID)
+						if err == nil && len(activeTabs) > 0 {
+							sess.SetContext("pending_table_id", tTable.ID.String())
+							sess.SetContext("main_tab_id", activeTabs[0].ID.String()) // Pega a primeira comanda (a principal)
+							sess.TransitionTo(session.StateWaitingCollabChoice)
+
+							buttons := []whatsapp.InteractiveButton{
+								{Type: "reply", Reply: struct {
+									ID    string `json:"id"`
+									Title string `json:"title"`
+								}{ID: "btn_shared", Title: "🤝 Entrar na Comanda"}},
+								{Type: "reply", Reply: struct {
+									ID    string `json:"id"`
+									Title string `json:"title"`
+								}{ID: "btn_individual", Title: "💳 Individual"}},
+							}
+
+							msg := fmt.Sprintf("Olá! 😊 Vimos que a *Mesa %s* já está em andamento.\n\nVocê deseja entrar na comanda com seus amigos ou criar uma conta só para você?", tTable.Number)
+							if _, err := uc.sender.SendInteractiveButtons(ctx, input.From, msg, buttons); err != nil {
+								uc.logger.Error("failed to send interactive buttons", zap.Error(err))
+							}
+							return uc.sessionRepo.Save(ctx, sess)
+						}
+					}
+
+					// Mesa encontrada (LIVRE) - iniciar fluxo de QR Code normal
 					welcomeMsg := whatsapp.WelcomeTableMessage(t.Name, tTable.Number)
 
 					// Salvar Tabela no Contexto para criar o request no próximo passo
@@ -173,8 +202,17 @@ func (uc *HandleWhatsAppMessageUseCase) processMessage(
 	case session.StateWaitingTableConfirmation:
 		return uc.handleTableConfirmation(ctx, sess, text)
 
+	case session.StateWaitingCollabChoice:
+		return uc.handleCollabChoice(ctx, sess, text)
+
 	case session.StateWaitingAdminApproval:
 		return uc.handleWaitingAdminApproval(ctx, sess, text)
+
+	case session.StateWaitingJoinApproval:
+		return uc.handleWaitingJoinApproval(ctx, sess, text)
+
+	case session.StateWaitingOpenerDecision:
+		return uc.handleOpenerDecision(ctx, sess, text)
 
 	default:
 		return whatsapp.MainMenuMessage(), session.StateMainMenu, nil
@@ -362,4 +400,223 @@ func (uc *HandleWhatsAppMessageUseCase) handleWaitingAdminApproval(
 	}
 
 	return whatsapp.TableRequestPendingMessage(), session.StateWaitingAdminApproval, nil
+}
+
+// Fase 14: Lidar com a Escolha do Botão Interativo "Compartilhar Comanda" ou "Individual"
+func (uc *HandleWhatsAppMessageUseCase) handleCollabChoice(
+	ctx context.Context,
+	sess *session.Session,
+	text string,
+) (string, session.ConversationState, error) {
+
+	text = strings.TrimSpace(text)
+
+	// O Webhook do WhatsApp vai enviar o "ID" do botão se o usuário clicou no botão.
+	// O Graph V18 manda no struct "Interactive" que nós ainda não mapeamos todo o corpo, mas caso ele digite,
+	// nós capturamos pela string "btn_shared" (que não seria digitada, seria o payload) ou pelas strings.
+	// Vamos simplificar para o MVP como se a string recebesse literal do texto do botão caso não encontre ID,
+	// e no Webhook passamos de forma unificada.
+
+	// Fast-Fail para cancelar
+	if text == "0" || strings.ToLower(text) == "cancelar" {
+		sess.Context = make(map[string]interface{})
+		return whatsapp.MainMenuMessage(), session.StateMainMenu, nil
+	}
+
+	tableIDStr, ok := sess.GetContext("pending_table_id")
+	if !ok {
+		return "❌ Ocorreu um erro ao identificar a mesa.", session.StateMainMenu, nil
+	}
+	tableID, _ := uuid.Parse(tableIDStr.(string))
+
+	isShared := text == "btn_shared" || strings.Contains(strings.ToLower(text), "entrar") || strings.Contains(strings.ToLower(text), "compartilhar")
+	isIndividual := text == "btn_individual" || strings.Contains(strings.ToLower(text), "individual")
+
+	var joinType tab.JoinType
+	if isShared {
+		joinType = tab.JoinTypeShared
+	} else if isIndividual {
+		joinType = tab.JoinTypeIndividual
+	} else {
+		return "Por favor, toque em um dos botões: *🤝 Entrar na Comanda* ou *💳 Individual*.", session.StateWaitingCollabChoice, nil
+	}
+
+	mainTabIDStr, hasMain := sess.GetContext("main_tab_id")
+	if !hasMain {
+		return "❌ A comanda principal já foi fechada.", session.StateMainMenu, nil
+	}
+	mainTabID, _ := uuid.Parse(mainTabIDStr.(string))
+
+	mainTab, err := uc.tabRepo.FindByID(ctx, mainTabID, sess.TenantID)
+	if err != nil || mainTab == nil {
+		return "❌ Erro ao localizar a comanda principal.", session.StateMainMenu, nil
+	}
+
+	// Fase 15: Criar JoinRequest PENDING
+	joinReq := &tab.TabJoinRequest{
+		ID:             uuid.New(),
+		TenantID:       sess.TenantID,
+		TableID:        tableID,
+		MainTabID:      mainTabID,
+		RequestorPhone: sess.UserPhone,
+		OpenerPhone:    mainTab.UserPhone,
+		JoinType:       joinType,
+		Status:         tab.JoinRequestPending,
+	}
+
+	if err := uc.tabRepo.CreateJoinRequest(ctx, joinReq); err != nil {
+		uc.logger.Error("failed to create join request", zap.Error(err))
+		return "❌ Tivemos um problema ao processar seu pedido.", session.StateWaitingCollabChoice, nil
+	}
+
+	// Salva as referências na sessão e muda o estado
+	sess.SetContext("join_request_id", joinReq.ID.String())
+	sess.SetContext("join_type", string(joinType))
+	sess.TransitionTo(session.StateWaitingJoinApproval)
+
+	// Localiza o opener e envia botões de Aprovar/Recusar
+	openerSess, err := uc.sessionRepo.FindByPhone(ctx, mainTab.UserPhone, sess.TenantID.String())
+	if err == nil && openerSess != nil {
+		joinDesc := "como COMANDA COMPARTILHADA"
+		if joinType == tab.JoinTypeIndividual {
+			joinDesc = "com CONTA INDIVIDUAL (pagamento separado)"
+		}
+
+		tableNumStr, _ := sess.GetContext("pending_table_number")
+		tableNumber := ""
+		if tableNumStr != nil {
+			tableNumber = tableNumStr.(string)
+		}
+
+		msgOpener := fmt.Sprintf("🔔 *Solicitação de Entrada*\n\nUm cliente (%s) quer entrar na Mesa %s %s.\n\nO que você deseja fazer?", sess.UserPhone, tableNumber, joinDesc)
+		buttons := []whatsapp.InteractiveButton{
+			{Type: "reply", Reply: struct {
+				ID    string `json:"id"`
+				Title string `json:"title"`
+			}{ID: fmt.Sprintf("btn_approve_%s", joinReq.ID.String()), Title: "✅ Aprovar"}},
+			{Type: "reply", Reply: struct {
+				ID    string `json:"id"`
+				Title string `json:"title"`
+			}{ID: fmt.Sprintf("btn_reject_%s", joinReq.ID.String()), Title: "❌ Recusar"}},
+		}
+
+		openerSess.TransitionTo(session.StateWaitingOpenerDecision)
+		openerSess.SetContext("pending_join_request_id", joinReq.ID.String())
+		uc.sessionRepo.Save(ctx, openerSess)
+
+		if _, err := uc.sender.SendInteractiveButtons(ctx, openerSess.UserPhone, msgOpener, buttons); err != nil {
+			uc.logger.Error("failed to send approval to opener", zap.Error(err))
+		}
+	} else {
+		// Log e mantém aguardando
+		uc.logger.Warn("opener session not found to send approval request", zap.String("opener_phone", mainTab.UserPhone))
+	}
+
+	return "⏳ Pedido enviado! Aguardando aprovação da pessoa responsável pela mesa...", session.StateWaitingJoinApproval, nil
+}
+
+func (uc *HandleWhatsAppMessageUseCase) handleWaitingJoinApproval(
+	ctx context.Context,
+	sess *session.Session,
+	text string,
+) (string, session.ConversationState, error) {
+
+	text = strings.TrimSpace(text)
+	if text == "0" || strings.ToLower(text) == "cancelar" {
+		sess.Context = make(map[string]interface{})
+		return whatsapp.MainMenuMessage(), session.StateMainMenu, nil
+	}
+
+	return "⏳ Aguardando aprovação da pessoa responsável pela mesa...\n\n_Digite 0 para cancelar_", session.StateWaitingJoinApproval, nil
+}
+
+func (uc *HandleWhatsAppMessageUseCase) handleOpenerDecision(
+	ctx context.Context,
+	sess *session.Session,
+	text string,
+) (string, session.ConversationState, error) {
+
+	text = strings.TrimSpace(text)
+
+	reqIDStr, hasReq := sess.GetContext("pending_join_request_id")
+	if !hasReq {
+		return whatsapp.MainMenuMessage(), session.StateMainMenu, nil
+	}
+
+	reqID, err := uuid.Parse(reqIDStr.(string))
+	if err != nil {
+		return "❌ Erro ao ler a solicitação.", session.StateMainMenu, nil
+	}
+
+	joinReq, err := uc.tabRepo.FindJoinRequestByID(ctx, reqID)
+	if err != nil || joinReq == nil {
+		return "❌ Solicitação não encontrada.", session.StateMainMenu, nil
+	}
+
+	if joinReq.Status != tab.JoinRequestPending {
+		delete(sess.Context, "pending_join_request_id")
+		return "Esta solicitação já foi respondida.", session.StateMainMenu, nil
+	}
+
+	isApprove := strings.HasPrefix(text, "btn_approve_") || strings.ToLower(text) == "aprovar"
+	isReject := strings.HasPrefix(text, "btn_reject_") || strings.ToLower(text) == "recusar"
+
+	if !isApprove && !isReject {
+		return "Por favor, responda com *✅ Aprovar* ou *❌ Recusar*.", session.StateWaitingOpenerDecision, nil
+	}
+
+	if isApprove {
+		joinReq.Status = tab.JoinRequestApproved
+		uc.tabRepo.UpdateJoinRequestStatus(ctx, joinReq.ID, tab.JoinRequestApproved)
+
+		clientB, err := uc.sessionRepo.Find(ctx, joinReq.RequestorPhone, sess.TenantID.String())
+		if err == nil && clientB != nil {
+			if joinReq.JoinType == tab.JoinTypeShared {
+				clientB.TabID = &joinReq.MainTabID
+				clientB.TableID = &joinReq.TableID
+				clientB.Context = make(map[string]interface{})
+				clientB.TransitionTo(session.StateMainMenu)
+				uc.sessionRepo.Save(ctx, clientB)
+
+				uc.sender.SendText(ctx, clientB.UserPhone, "✅ *Sua entrada foi aprovada!*\n\n🤝 Você entrou na Comanda Compartilhada.\n\n"+whatsapp.MainMenuMessage())
+			} else {
+				newTab := &tab.Tab{
+					ID:       uuid.New(),
+					TenantID: sess.TenantID,
+					TableID:  &joinReq.TableID,
+					Status:   tab.StatusOpen,
+				}
+				uc.tabRepo.Create(ctx, newTab)
+
+				clientB.TabID = &newTab.ID
+				clientB.TableID = &joinReq.TableID
+				clientB.Context = make(map[string]interface{})
+				clientB.TransitionTo(session.StateMainMenu)
+				uc.sessionRepo.Save(ctx, clientB)
+
+				uc.sender.SendText(ctx, clientB.UserPhone, "✅ *Sua entrada foi aprovada!*\n\n💳 Sua comanda individual foi criada.\n\n"+whatsapp.MainMenuMessage())
+			}
+		}
+
+		delete(sess.Context, "pending_join_request_id")
+		return "✅ Você *aprovou* a entrada.", session.StateMainMenu, nil
+	}
+
+	if isReject {
+		joinReq.Status = tab.JoinRequestRejected
+		uc.tabRepo.UpdateJoinRequestStatus(ctx, joinReq.ID, tab.JoinRequestRejected)
+
+		clientB, err := uc.sessionRepo.Find(ctx, joinReq.RequestorPhone, sess.TenantID.String())
+		if err == nil && clientB != nil {
+			clientB.Context = make(map[string]interface{})
+			clientB.TransitionTo(session.StateMainMenu)
+			uc.sessionRepo.Save(ctx, clientB)
+
+			uc.sender.SendText(ctx, clientB.UserPhone, "❌ *Sua entrada foi recusada* pela pessoa responsável pela mesa.\n\n"+whatsapp.MainMenuMessage())
+		}
+		delete(sess.Context, "pending_join_request_id")
+		return "❌ Você *recusou* a entrada.", session.StateMainMenu, nil
+	}
+
+	return whatsapp.MainMenuMessage(), session.StateMainMenu, nil
 }

@@ -23,6 +23,9 @@
             <button class="nav-item active" data-page="dashboard">
                 <span class="nav-icon">📊</span> Dashboard
             </button>
+            <button class="nav-item" data-page="wallet">
+                <span class="nav-icon">💳</span> Carteira & Assinatura
+            </button>
             <button class="nav-item" data-page="pedidos">
                 <span class="nav-icon">🛒</span> Pedidos
                 <span class="badge red" id="badge-pedidos"></span>
@@ -77,6 +80,7 @@
 
         <!-- PAGES -->
         <div id="page-dashboard" class="page active"></div>
+        <div id="page-wallet" class="page"></div>
         <div id="page-pedidos" class="page"></div>
         <div id="page-cardapio" class="page"></div>
         <div id="page-categorias" class="page"></div>
@@ -123,6 +127,7 @@
 
     <!-- SCRIPTS -->
     <script src="/js/api.js"></script>
+    <script src="/js/pages/wallet.js"></script>
     <script src="/js/pages/dashboard.js"></script>
     <script src="/js/pages/pedidos.js"></script>
     <script src="/js/pages/cardapio.js"></script>

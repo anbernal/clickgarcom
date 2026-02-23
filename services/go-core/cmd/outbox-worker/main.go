@@ -56,13 +56,15 @@ func main() {
 		logger.Log,
 	)
 
-	// 5. Criar Outbox Processor com Telemetry Repositories Phase 11
+	// 5. Criar Outbox Processor com Telemetry Repositories Phase 11 & Phase 13 (Billing)
 	logRepo := postgres.NewMessageLogRepository(db.DB)
+	tenantRepo := postgres.NewTenantRepository(db.DB)
 
 	processor := whatsapp.NewOutboxProcessor(
 		db.DB,
 		whatsappAPI,
 		logRepo,
+		tenantRepo,
 		logger.Log,
 	)
 

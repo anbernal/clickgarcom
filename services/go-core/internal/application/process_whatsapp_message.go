@@ -51,6 +51,13 @@ type WhatsAppWebhookPayload struct {
 					Text      struct {
 						Body string `json:"body"`
 					} `json:"text,omitempty"`
+					Interactive struct {
+						Type        string `json:"type"`
+						ButtonReply struct {
+							ID    string `json:"id"`
+							Title string `json:"title"`
+						} `json:"button_reply"`
+					} `json:"interactive,omitempty"`
 				} `json:"messages,omitempty"`
 			} `json:"value"`
 		} `json:"changes"`
@@ -109,7 +116,7 @@ func (uc *ProcessWhatsAppMessageUseCase) Execute(ctx context.Context, inboxID uu
 		uc.logger.Info("tenant is closed, rejecting message", zap.String("tenant_id", tenant.ID.String()))
 		if len(value.Messages) > 0 {
 			for _, msg := range value.Messages {
-				if msg.Type == "text" && msg.Text.Body != "" {
+				if msg.Type == "text" || msg.Type == "interactive" {
 					uc.handleMsgUseCase.sender.SendText(ctx, msg.From, whatsapp.RestaurantClosedMessage())
 				}
 			}
@@ -121,17 +128,24 @@ func (uc *ProcessWhatsAppMessageUseCase) Execute(ctx context.Context, inboxID uu
 	// 6. Processar mensagens
 	if len(value.Messages) > 0 {
 		for _, msg := range value.Messages {
+			var messageText string
+			if msg.Type == "text" && msg.Text.Body != "" {
+				messageText = msg.Text.Body
+			} else if msg.Type == "interactive" && msg.Interactive.Type == "button_reply" && msg.Interactive.ButtonReply.ID != "" {
+				messageText = msg.Interactive.ButtonReply.ID // Fase 14: Enviamos o ID do botão selecionado como input
+			}
+
 			uc.logger.Info("message received",
 				zap.String("from", msg.From),
 				zap.String("type", msg.Type),
-				zap.String("text", msg.Text.Body),
+				zap.String("extracted_text", messageText),
 			)
 
 			// Chamar use case de handling
-			if msg.Type == "text" && msg.Text.Body != "" {
+			if messageText != "" {
 				handleInput := HandleMessageInput{
 					From:      msg.From,
-					Text:      msg.Text.Body,
+					Text:      messageText,
 					TenantID:  tenant.ID,
 					Timestamp: msg.Timestamp,
 				}

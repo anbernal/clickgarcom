@@ -25,13 +25,13 @@ export class TablesService {
             order: { number: 'ASC' },
         });
 
-        // Attach open tab for each table
+        // Attach open tabs for each table (Fase 14 - Split Checks)
         const result = await Promise.all(
             tables.map(async (table) => {
-                const tab = await this.tabRepo.findOne({
+                const tabs = await this.tabRepo.find({
                     where: { tableId: table.id, status: 'OPEN' },
                 });
-                return { ...table, currentTab: tab || null };
+                return { ...table, activeTabs: tabs || [] };
             }),
         );
 
@@ -54,8 +54,18 @@ export class TablesService {
     }
 
     async getTab(tableId: string, tenantId: string) {
+        // Retorna a primeira tab aberta para manter retrocompatibilidade com partes antigas
         return this.tabRepo.findOne({
             where: { tableId, tenantId, status: 'OPEN' },
+            order: { openedAt: 'ASC' }
+        });
+    }
+
+    // Retorna todas as tabs abertas
+    async getTabs(tableId: string, tenantId: string) {
+        return this.tabRepo.find({
+            where: { tableId, tenantId, status: 'OPEN' },
+            order: { openedAt: 'ASC' }
         });
     }
 

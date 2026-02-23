@@ -26,6 +26,7 @@ func SetupRoutes(
 	logger *zap.Logger,
 	authService *auth.Service,
 	whatsappVerifyToken string,
+	apiClient *whatsapp.MetaAPIClient,
 ) {
 	// Repositories
 	inboxRepo := postgres.NewInboxRepository(db.DB)
@@ -39,7 +40,7 @@ func SetupRoutes(
 	mpClient := infraMP.NewMercadoPagoClient(logger)
 
 	// WhatsApp sender
-	whatsappSender := whatsapp.NewSender(db.DB, logger)
+	whatsappSender := whatsapp.NewSender(db.DB, apiClient, logger)
 
 	// Use cases
 	updateOrderStatusUC := application.NewUpdateOrderStatusUseCase(orderRepo, whatsappSender, wsHub, logger)
@@ -78,6 +79,12 @@ func SetupRoutes(
 	{
 		payments.Post("/pix", paymentHandler.CreatePixPayment)
 		payments.Post("/card", paymentHandler.CreateCardPayment)
+	}
+
+	// Wallet routes (Phase 13)
+	wallet := app.Group("/wallet")
+	{
+		wallet.Get("/balance", paymentHandler.GetWalletBalance)
 	}
 
 	// Metrics route

@@ -37,6 +37,24 @@ func NewPaymentHandler(
 	}
 }
 
+// GetWalletBalance handles GET /api/wallet/balance
+func (h *PaymentHandler) GetWalletBalance(c *fiber.Ctx) error {
+	tenantID, err := extractTenantID(c)
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "tenant id missing or invalid"})
+	}
+
+	tnt, err := h.tenantRepo.FindByID(c.Context(), tenantID)
+	if err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "tenant not found"})
+	}
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"wallet_balance": tnt.WalletBalance,
+		"billing_plan":   tnt.BillingPlan,
+	})
+}
+
 // CreatePixPayment handles POST /api/payments/pix
 func (h *PaymentHandler) CreatePixPayment(c *fiber.Ctx) error {
 	tenantID, err := extractTenantID(c)
@@ -222,6 +240,23 @@ func (h *PaymentHandler) HandleWebhook(c *fiber.Ctx) error {
 	// Idealmente, deveríamos fazer um GET /v1/payments/{mpIDStr} no MP para confirmar o real status.
 	// Por brevidade/exemplo, estamos assumindo disparar evento pra RabbitMQ investigar.
 	// Em produção real Webhook -> RabbitMQ -> Worker valida Status -> Fila Atualiza DB.
+
+	// FASE 13: Interceptação Direta para Recarga de Wallet (Pré-Pago)
+	if p.OrderID == uuid.Nil {
+		// É uma recarga de carteira. Se recebemos o webhook, vamos processar o crédito.
+		// Obs: Em Produção, checaríamos Status == `approved` com get request no MP.
+		if p.Status != payment.StatusApproved {
+			// Atualiza Status para Aprovado (Mock local para agilizar homologação)
+			_ = h.paymentRepo.UpdateStatus(c.Context(), p.ID, payment.StatusApproved)
+
+			// Recarrega o Saldo na Entidade Tenant
+			// Usando o método Deduct com valor Negativo (-) para Somar ao saldo
+			_ = h.tenantRepo.DeductWalletBalance(c.Context(), p.TenantID, -p.Amount)
+
+			h.logger.Info("wallet recharged successfully via webhook", zap.String("tenant_id", p.TenantID.String()), zap.Float64("amount", p.Amount))
+		}
+		return c.SendStatus(fiber.StatusOK)
+	}
 
 	msgBytes, _ := json.Marshal(map[string]interface{}{
 		"payment_id": p.ID.String(),

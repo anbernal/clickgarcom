@@ -77,11 +77,11 @@ Foram criados 4 arquivos principais de documentação:
 - **Outbox Pattern + Retry**: Polling a cada 5s, retry exponencial
 - **Meta API Client**: SendTextMessage, SendInteractiveMessage, SendListMessage
 
-#### 🔜 Próximas Fases
-- Fase 2: Domain completo de pedidos
-- Fase 3: KDS Real-time
-- Fase 4: Pagamentos PIX
-- Fase 5: Admin Panel
+#### 🔜 Próximas Fases (Atualizado)
+- Fase 2 a Fase 12: KDS, PIX, Admin Panel, Tenants, Auth, Gateway (Ver README.md)
+- **Fase 13 - Order Domain:** Estruturação avançada de pedidos e cardápio, isolando os itens ordenados da estrutura atômica com tracking individual.
+- **Fase 14 - Comandas Inteligentes & Split Check:** Capacidade de ratear pagamentos na mesma mesa, mantendo "conta principal" vs "conta individual".
+- **Fase 15 - Tab Join Approval:** Notificação ao dono da mesa quando convidados pedirem para entrar, permitindo compartilhamento assíncrono.
 
 **Quando usar**: Onboarding, entender o que já existe, planejar próximos passos
 

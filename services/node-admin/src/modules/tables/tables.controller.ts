@@ -1,11 +1,27 @@
-import { Controller, Get, Post, Patch, Param, Query, Body, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Param, Query, Body, UseGuards, Request, NotFoundException } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Tab } from '../../entities/tab.entity';
 import { TablesService } from './tables.service';
 
 @Controller('admin/api/tables')
 @UseGuards(JwtAuthGuard)
 export class TablesController {
-    constructor(private readonly tablesService: TablesService) { }
+    constructor(
+        private readonly tablesService: TablesService,
+        @InjectRepository(Tab)
+        private readonly tabRepo: Repository<Tab>,
+    ) { }
+
+    // Fase 14: Endpoint público para o checkout do cliente ver os dados da sua comanda
+    // Nota: não é proteged por JWT pois a página de checkout é acessada via link no WhatsApp
+    @Get('/public/tab/:tabId')
+    async getPublicTabById(@Param('tabId') tabId: string) {
+        const tab = await this.tabRepo.findOne({ where: { id: tabId } });
+        if (!tab) throw new NotFoundException('Tab not found');
+        return tab;
+    }
 
     @Get()
     findAll(@Request() req) {
@@ -52,5 +68,10 @@ export class TablesController {
     @Get(':id/tab')
     getTab(@Request() req, @Param('id') id: string) {
         return this.tablesService.getTab(id, req.user.tenantId);
+    }
+
+    @Get(':id/tabs')
+    getTabs(@Request() req, @Param('id') id: string) {
+        return this.tablesService.getTabs(id, req.user.tenantId);
     }
 }

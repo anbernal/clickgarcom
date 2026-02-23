@@ -17,9 +17,10 @@ const (
 )
 
 type Tab struct {
-	ID       uuid.UUID  `json:"id" gorm:"type:uuid;primary_key"`
-	TenantID uuid.UUID  `json:"tenant_id" gorm:"type:uuid;not null;index"`
-	TableID  *uuid.UUID `json:"table_id,omitempty" gorm:"type:uuid"`
+	ID        uuid.UUID  `json:"id" gorm:"type:uuid;primary_key"`
+	TenantID  uuid.UUID  `json:"tenant_id" gorm:"type:uuid;not null;index"`
+	TableID   *uuid.UUID `json:"table_id,omitempty" gorm:"type:uuid"`
+	UserPhone string     `json:"user_phone" gorm:"type:varchar(30)"` // Fase 15: Quem abriu a comanda
 
 	Subtotal   float64 `json:"subtotal" gorm:"type:decimal(10,2);default:0"`
 	ServiceFee float64 `json:"service_fee" gorm:"type:decimal(10,2);default:0"`

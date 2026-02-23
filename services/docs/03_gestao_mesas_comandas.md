@@ -39,3 +39,18 @@ A aprovação, quer seja via modal do painel ou do click de aprovar na sidebar d
 - Atributos vitais calculados dinamicamente: `Subtotal`, `ServiceFee`, `Total` e `PaidAmount`.
 - **Estados**: `OPEN`, `WAITING_PAYMENT`, `PARTIALLY_PAID`, `PAID`, `CLOSED`.
 - Quando um **Pedido (`Order`)** é confirmado na Cozinha e alterado o status (Ex: `DELIVERED`), o valor dos itens é somado a função `tab.AddOrderTotal(orderTotal)` na camada de serviço. A taxa de serviço (`tab.CalculateTotal(...)`) recalcula sobre todos os somatórios.
+
+## 4. Mesas Compartilhadas e Comandas Individuais (Split Checks - Fase 14)
+Para lidar com a realidade de dividir a conta de maneira precisa, uma única mesa `Table` pode possuir múltiplas `Tabs` vinculadas em simultâneo.
+- O sistema acompanha a `Tab` "principal" (A primeira a ser aberta na mesa).
+- Outro usuário pode escanear o mesmo QR Code da mesa já ocupada e optar por:
+  - **Entrar na Comanda** (Compartilhada: Todos veem e pedem na mesma conta primária).
+  - **Comanda Individual** (Uma nova `Tab` secundária é criada vinculada à mesma mesa, permitindo que a pessoa peça e pague apenas o dela).
+
+## 5. Autorização para Entrar na Mesa (Tab Join Approval - Fase 15)
+Como segurança, a entrada de convidados na mesa (mesmo para Split Checks) não é feita automaticamente.
+1. O novo cliente escaneia o QRCode e seleciona a modalidade de entrada (Compartilhada/Individual).
+2. O sistema emite um `TabJoinRequest` em status `PENDING`.
+3. O cliente fica em estado de espera no WhatsApp (`StateWaitingJoinApproval`).
+4. O cliente original que abriu a mesa (o `Opener`) recebe uma notificação interativa com opções para `✅ Aprovar` ou `❌ Recusar` (`StateWaitingOpenerDecision`).
+5. Apenas com a aprovação do dono a pessoa acessa o cardápio e os pedidos da mesa.

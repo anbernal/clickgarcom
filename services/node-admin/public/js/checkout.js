@@ -1,41 +1,94 @@
 /**
  * ClickGarçom - Mercado Pago Checkout UI logic (SDK V2)
+ * Fase 14: Suporta Split Checks via ?tab_id= na URL
  */
 
-document.addEventListener('DOMContentLoaded', () => {
-    // 1. UI Tabs Logic
-    const tabs = document.querySelectorAll('.tab-btn');
-    const panels = document.querySelectorAll('.method-panel');
+const ADMIN_API_URL = window.location.origin; // Node-Admin BFF
+const GO_API_URL = 'http://localhost:8080'; // Go-Core direto para pagamentos
 
-    tabs.forEach(tab => {
-        tab.addEventListener('click', () => {
-            tabs.forEach(t => t.classList.remove('active'));
-            panels.forEach(p => p.classList.remove('active'));
+let currentTabId = null;
+let currentAmount = 0;
 
-            tab.classList.add('active');
-            const method = tab.getAttribute('data-method');
-            document.getElementById(`panel-${method}`).classList.add('active');
+// ─────────────────────────────────────────────
+// 1. Ler parâmetros da URL
+// ─────────────────────────────────────────────
+function getURLParam(param) {
+    return new URLSearchParams(window.location.search).get(param);
+}
+
+// ─────────────────────────────────────────────
+// 2. Formatar moeda BR
+// ─────────────────────────────────────────────
+function fmtBRL(value) {
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value || 0);
+}
+
+// ─────────────────────────────────────────────
+// 3. Carregar dados da comanda
+// ─────────────────────────────────────────────
+async function loadTabData(tabId) {
+    try {
+        const resp = await fetch(`${ADMIN_API_URL}/admin/api/tables/public/tab/${tabId}`);
+        if (!resp.ok) throw new Error('Comanda não encontrada');
+        return await resp.json();
+    } catch (err) {
+        return null;
+    }
+}
+
+// ─────────────────────────────────────────────
+// 4. Inicializar Checkout
+// ─────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', async () => {
+    // --- Tab Switcher (PIX / Cartão) ---
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.tab-btn').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.method-panel').forEach(p => p.classList.remove('active'));
+            btn.classList.add('active');
+            document.getElementById(`panel-${btn.dataset.method}`).classList.add('active');
         });
     });
 
-    // 2. Mock Global Variables for Demo/Test Environment (Normally fetched dynamically from Backend or URL Params)
-    const MOCK_ORDER_ID = "11111111-2222-3333-4444-555555555555";
-    const MOCK_AMOUNT = 150.00;
-    const GO_API_URL = "http://localhost:3000"; // Go-Core Endpoint
-    const TENANT_ID = "d290f1ee-6c54-4b01-90e6-d701748f0851"; // Identificador do Restaurante na plataforma
+    // --- Descobrir Tab ID e carregar dados ---
+    currentTabId = getURLParam('tab_id');
 
-    // PUBLIC KEY (Extraída via API ou Renderizada. Para teste vamos usar a PUBKEY Sandbox informada)
-    // Nota: Essa é a PublicKey que só serve para tokenizar cartão via JS (Não consegue gerar cobranças sozinha)
-    const MP_PUBLIC_KEY = "TEST-4d4a8e29-65bf-4076-afde-48d616d00424"; // Exemplo provisório, em prod vem do banco
+    const loadingEl = document.getElementById('checkout-loading');
+    const contentEl = document.getElementById('checkout-content');
+    const tabInfoEl = document.getElementById('checkout-tab-info');
+    const totalEl = document.getElementById('checkout-total-amount');
 
-    const mp = new MercadoPago(MP_PUBLIC_KEY, {
-        locale: 'pt-BR'
-    });
+    if (currentTabId) {
+        const tab = await loadTabData(currentTabId);
 
-    // 3. PIX Logic
+        if (tab) {
+            currentAmount = parseFloat(tab.total || 0);
+            totalEl.textContent = fmtBRL(currentAmount);
+            tabInfoEl.textContent = `Comanda ${currentTabId.substring(0, 8).toUpperCase()} — Total`;
+        } else {
+            tabInfoEl.textContent = '⚠️ Comanda não encontrada';
+            tabInfoEl.style.color = 'var(--danger, red)';
+        }
+    } else {
+        // Modo Demo / Fallback quando não tem tab_id (ex: tela de demo)
+        currentAmount = 150.00;
+        totalEl.textContent = fmtBRL(currentAmount);
+        tabInfoEl.textContent = 'Mesa 04 — Demo';
+    }
+
+    if (loadingEl) loadingEl.style.display = 'none';
+    if (contentEl) contentEl.style.display = 'block';
+
+    // --- Mercado Pago SDK V2 ---
+    const MP_PUBLIC_KEY = 'TEST-ff17792e-d00c-4ea5-a8ba-fbec1ab15e69';
+    const TENANT_ID = getURLParam('tenant_id') || 'd290f1ee-6c54-4b01-90e6-d701748f0851';
+
+    const mp = new MercadoPago(MP_PUBLIC_KEY, { locale: 'pt-BR' });
+
+    // ── PIX ──────────────────────────────────────────────────────────────────
     document.getElementById('btn-generate-pix').addEventListener('click', async () => {
         const btn = document.getElementById('btn-generate-pix');
-        btn.innerHTML = "Gerando PIX... ⏳";
+        btn.innerHTML = 'Gerando PIX... ⏳';
         btn.disabled = true;
 
         try {
@@ -43,123 +96,111 @@ document.addEventListener('DOMContentLoaded', () => {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'X-Tenant-Id': TENANT_ID // Informa pro Go de qual Restaurante é essa cobrança
+                    'X-Tenant-Id': TENANT_ID,
                 },
                 body: JSON.stringify({
-                    order_id: MOCK_ORDER_ID,
-                    amount: MOCK_AMOUNT,
-                    description: "Jantar Especial Mesa 04",
-                    payer_email: "cliente@email.com",
-                    payer_name: "Visitante",
-                    payer_cpf: "19119119100"
-                })
+                    order_id: currentTabId || '11111111-2222-3333-4444-555555555555',
+                    amount: currentAmount,
+                    description: `Comanda ${(currentTabId || 'Demo').substring(0, 8).toUpperCase()}`,
+                    payer_email: 'cliente@email.com',
+                    payer_name: 'Visitante',
+                    payer_cpf: '19119119100',
+                }),
             });
 
-            if (!resp.ok) throw new Error("Falha ao gerar o PIX no Backend Go");
+            if (!resp.ok) throw new Error('Falha ao gerar o PIX no Backend Go');
 
             const data = await resp.json();
-
-            // Exibe QR Code na Tela
             document.getElementById('pix-img').src = `data:image/jpeg;base64,${data.qr_code_base64}`;
             document.getElementById('pix-copy-paste').value = data.qr_code;
             document.getElementById('pix-qrcode-container').style.display = 'block';
             btn.style.display = 'none';
 
-            // Simulate WebSocket / Polling for PIX Confirmation
+            // Simula confirmação após 60s
             setTimeout(() => {
                 document.getElementById('pix-success-msg').style.display = 'block';
-            }, 60000); // 1 minuto delay falso para visualização
+            }, 60000);
 
         } catch (e) {
             console.error(e);
-            alert("Erro ao Processar PIX. O Backend GO está online na porta 3000?");
-            btn.innerHTML = "Tentar Novamente";
+            alert('Erro ao processar PIX. O Backend GO está online na porta 8080?');
+            btn.innerHTML = 'Tentar Novamente';
             btn.disabled = false;
         }
     });
 
-    // 4. Cartão de Crédito Logic (SDK V2 Core)
-    const cardNumberElement = mp.fields.create('cardNumber', { placeholder: "Número do cartão" });
-    cardNumberElement.mount('form-checkout__cardNumber');
+    // ── Cartão (SDK Tokenização) ─────────────────────────────────────────────
+    const cardNumberEl = mp.fields.create('cardNumber', { placeholder: 'Número do cartão' });
+    const expirationDateEl = mp.fields.create('expirationDate', { placeholder: 'MM/YY' });
+    const securityCodeEl = mp.fields.create('securityCode', { placeholder: 'CVV' });
 
-    const expirationDateElement = mp.fields.create('expirationDate', { placeholder: "MM/YY" });
-    expirationDateElement.mount('form-checkout__expirationDate');
+    cardNumberEl.mount('form-checkout__cardNumber');
+    expirationDateEl.mount('form-checkout__expirationDate');
+    securityCodeEl.mount('form-checkout__securityCode');
 
-    const securityCodeElement = mp.fields.create('securityCode', { placeholder: "CVV" });
-    securityCodeElement.mount('form-checkout__securityCode');
-
-    // Popular os tipos de documentos (CPF/CNPJ)
     (async function getIdentificationTypes() {
         try {
-            const identificationTypes = await mp.getIdentificationTypes();
+            const types = await mp.getIdentificationTypes();
             const select = document.getElementById('form-checkout__identificationType');
-
-            identificationTypes.forEach(type => {
+            types.forEach(type => {
                 const opt = document.createElement('option');
                 opt.value = type.id;
                 opt.textContent = type.name;
                 select.appendChild(opt);
             });
-        } catch (e) { console.error("Error fetching docs", e); }
+        } catch (e) { console.error('Error fetching docs', e); }
     })();
 
-    // Handler de Submissão do Formulário de Cartão (Tokenização)
-    const formElement = document.getElementById('form-checkout');
-    formElement.addEventListener('submit', async (e) => {
+    document.getElementById('form-checkout').addEventListener('submit', async (e) => {
         e.preventDefault();
 
         const submitBtn = document.getElementById('form-checkout__submit');
-        submitBtn.innerHTML = "Tokenizando e Processando... ⏳";
+        submitBtn.innerHTML = 'Tokenizando e Processando... ⏳';
         submitBtn.disabled = true;
 
         try {
-            // Passo 1: O Mercado Pago SDK coleta os dados (Numbers/CVV) dos Iframes ocultos
-            // Assinando e validando via PCI internamente, gerando um TOKEN inofensivo
-            const tokenResponse = await mp.fields.createCardToken({
+            const tokenResp = await mp.fields.createCardToken({
                 cardholderName: document.getElementById('form-checkout__cardholderName').value,
                 identificationType: document.getElementById('form-checkout__identificationType').value,
                 identificationNumber: document.getElementById('form-checkout__identificationNumber').value,
             });
 
-            const pciToken = tokenResponse.id; // Ex: v2-2093j420jf2093jf2j
+            const pciToken = tokenResp.id;
 
-            // Passo 2: Enviar Token Seguro + Detalhes do Pedido para nossa API Rest do GO-CORE
             const resp = await fetch(`${GO_API_URL}/payments/card`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'X-Tenant-Id': TENANT_ID
+                    'X-Tenant-Id': TENANT_ID,
                 },
                 body: JSON.stringify({
-                    order_id: MOCK_ORDER_ID,
-                    amount: MOCK_AMOUNT,
-                    description: "Jantar Especial Mesa 04",
-                    token: pciToken,  // Só o Token! O Núm. de cartão jamais passou pelo backend.
-                    installments: 1,  // Mock (fácil extrair via getInstallments() do MP)
-                    payment_method_id: "master", // ou visa, extraído pelas bins 
+                    order_id: currentTabId || '11111111-2222-3333-4444-555555555555',
+                    amount: currentAmount,
+                    description: `Comanda ${(currentTabId || 'Demo').substring(0, 8).toUpperCase()}`,
+                    token: pciToken,
+                    installments: 1,
+                    payment_method_id: 'master',
                     payer_email: document.getElementById('form-checkout__cardholderEmail').value,
                     payer_cpf: document.getElementById('form-checkout__identificationNumber').value,
-                })
+                }),
             });
 
-            if (!resp.ok) throw new Error("A API Go-Core recusou ou erro de servidor no Cartão.");
+            if (!resp.ok) throw new Error('A API Go-Core recusou ou erro de servidor no Cartão.');
 
             const data = await resp.json();
-
-            if (data.status === "approved" || data.status === "in_process") {
-                alert(`Pagamento Aprovado com Sucesso! (ID: ${data.mp_id})`);
-                formElement.innerHTML = `<h3 style="color:var(--success);text-align:center">✅ Pagamento Aprovado!</h3><p style="text-align:center">Seu pedido já foi liberado na Cozinha.</p>`;
+            if (data.status === 'approved' || data.status === 'in_process') {
+                alert(`Pagamento Aprovado! (ID: ${data.mp_id})`);
+                document.getElementById('form-checkout').innerHTML =
+                    `<h3 style="color:var(--success);text-align:center">✅ Pagamento Aprovado!</h3><p style="text-align:center">Seu pedido já foi liberado na Cozinha.</p>`;
             } else {
                 alert(`Cartão Não Autorizado. Status: ${data.status}`);
             }
-
         } catch (err) {
             console.error(err);
-            alert("Falha Global de Transação. Verifique o console ou a API Go.");
+            alert('Falha Global de Transação. Verifique o console ou a API Go.');
         } finally {
-            submitBtn.innerHTML = "Pagar com Cartão 💳";
+            submitBtn.innerHTML = 'Pagar com Cartão 💳';
             submitBtn.disabled = false;
         }
     });
-
 });

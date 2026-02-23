@@ -7,25 +7,28 @@ import (
 
 	"github.com/anbernal/clickgarcom/internal/domain/tenant"
 	domain "github.com/anbernal/clickgarcom/internal/domain/whatsapp"
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
 
 type OutboxProcessor struct {
-	db        *gorm.DB
-	apiClient *MetaAPIClient
-	logRepo   tenant.MessageLogRepository
-	logger    *zap.Logger
-	batchSize int
+	db         *gorm.DB
+	apiClient  *MetaAPIClient
+	logRepo    tenant.MessageLogRepository
+	tenantRepo tenant.Repository
+	logger     *zap.Logger
+	batchSize  int
 }
 
-func NewOutboxProcessor(db *gorm.DB, apiClient *MetaAPIClient, logRepo tenant.MessageLogRepository, logger *zap.Logger) *OutboxProcessor {
+func NewOutboxProcessor(db *gorm.DB, apiClient *MetaAPIClient, logRepo tenant.MessageLogRepository, tenantRepo tenant.Repository, logger *zap.Logger) *OutboxProcessor {
 	return &OutboxProcessor{
-		db:        db,
-		apiClient: apiClient,
-		logRepo:   logRepo,
-		logger:    logger,
-		batchSize: 10, // Processar 10 mensagens por vez
+		db:         db,
+		apiClient:  apiClient,
+		logRepo:    logRepo,
+		tenantRepo: tenantRepo,
+		logger:     logger,
+		batchSize:  10, // Processar 10 mensagens por vez
 	}
 }
 
@@ -68,6 +71,23 @@ func (p *OutboxProcessor) ProcessPending(ctx context.Context) error {
 func (p *OutboxProcessor) processMessage(ctx context.Context, msg *domain.OutboxMessage) error {
 	// 1. Incrementar tentativas
 	msg.Attempts++
+
+	// Fase 13: Verificação de Pedágio (Pre-paid Check)
+	if msg.TenantID != nil && p.tenantRepo != nil {
+		tnt, err := p.tenantRepo.FindByID(ctx, *msg.TenantID)
+		if err == nil {
+			if tnt.BillingPlan == tenant.PlanPrePaid && tnt.WalletBalance <= 0 {
+				p.logger.Warn("tenant out of credits, dropping outgoing message", zap.String("msg_id", msg.ID.String()))
+
+				// Marcar a mensagem como erro definitivo (para não dar loop infinito)
+				msg.LastError = "OUT OF CREDITS"
+				msg.Attempts = msg.MaxAttempts
+				msg.Sent = false
+				return p.db.Save(msg).Error
+			}
+			// Assumiremos a dedução caso enviada com sucesso no passo 4
+		}
+	}
 
 	// Fase 11: Simular Digitando (Humanizar o Bot) antes de enviar Textos
 	p.apiClient.SendTypingIndicator(ctx, msg.Recipient)
@@ -114,16 +134,21 @@ func (p *OutboxProcessor) processMessage(ctx context.Context, msg *domain.Outbox
 
 	err = p.db.Save(msg).Error
 
-	// 4. Salvar Monitoria (Billing/Tracking Fase 11) se estiver associado a um Tenant
-	if err == nil && msg.TenantID != nil && p.logRepo != nil {
-		go func(tid string, mid string) {
-			p.logRepo.Save(context.Background(), &tenant.MessageLog{
-				TenantID:  *msg.TenantID,
-				Direction: tenant.DirectionOut,
-				MessageID: mid,
-				Status:    "SENT",
-			})
-		}(msg.TenantID.String(), messageID)
+	// 4. Salvar Monitoria (Billing/Tracking Fase 11) e Deduzir Pedágio (Fase 13)
+	if err == nil && msg.TenantID != nil {
+		go func(tid uuid.UUID, mid string) {
+			if p.tenantRepo != nil {
+				_ = p.tenantRepo.DeductWalletBalance(context.Background(), tid, 0.02)
+			}
+			if p.logRepo != nil {
+				p.logRepo.Save(context.Background(), &tenant.MessageLog{
+					TenantID:  tid,
+					Direction: tenant.DirectionOut,
+					MessageID: mid,
+					Status:    "SENT",
+				})
+			}
+		}(*msg.TenantID, messageID)
 	}
 
 	return err

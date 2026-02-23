@@ -266,6 +266,20 @@ Documentação detalhada disponível em:
 - [x] PIX Dinâmico: Geração programada de códigos Copia-e-Cola e QR Codes associados a mesas.
 - [x] Tela UI Independente e Escalável HTTP Server `checkout.js`.
 
+### ✅ Fase 13: Order Domain (CONCLUÍDA)
+- [x] Implementação integral do subdomínio de Pedidos, desvinculando Order Items da estrutura monolítica.
+- [x] Adição do fluxo Kanban para Pedidos vinculados a Itens de Menu, permitindo split financeiro granular.
+
+### ✅ Fase 14: Comandas Inteligentes e Split Checks (CONCLUÍDA)
+- [x] Permite que múltiplos clientes na mesma mesa física possuam comandas diferentes abertas em simultâneo.
+- [x] Clientes escolhem via WhatsApp "Entrar na Comanda" (compartilhada) ou "Comanda Individual".
+- [x] O sistema rastreia comandas principais vs individuais para checkout independente.
+
+### ✅ Fase 15: Autorização de Entrada na Mesa (Tab Join Approval) (CONCLUÍDA)
+- [x] Quando o Cliente B (convidado) tenta entrar na Mesa 05 já ocupada, um request assíncrono é gerado.
+- [x] Cliente A (o `user_phone` original - dono da mesa) recebe notificação no WhatsApp contendo botões interativos `Aprovar` e `Recusar`.
+- [x] Ao ser aprovado, a nova `Tab` é instanciada para o Cliente B (individual) ou a sessão é embutida (compartilhada).
+
 ### 💳 Próximos Passos
 - [ ] Fechamento de Cestas e Split de Conta Inteligente
 - [ ] Funcionalidades Avançadas de Agendamento

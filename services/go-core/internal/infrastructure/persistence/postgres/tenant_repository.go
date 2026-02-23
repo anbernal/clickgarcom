@@ -35,6 +35,22 @@ func (r *TenantRepository) FindByWhatsAppNumber(ctx context.Context, number stri
 	return &t, nil
 }
 
+func (r *TenantRepository) FindByWabaID(ctx context.Context, wabaID string) (*tenant.Tenant, error) {
+	var t tenant.Tenant
+	if err := r.db.WithContext(ctx).First(&t, "waba_id = ?", wabaID).Error; err != nil {
+		return nil, fmt.Errorf("tenant not found for waba_id: %w", err)
+	}
+	return &t, nil
+}
+
+func (r *TenantRepository) DeductWalletBalance(ctx context.Context, tenantID uuid.UUID, amount float64) error {
+	return r.db.WithContext(ctx).
+		Model(&tenant.Tenant{}).
+		Where("id = ?", tenantID).
+		UpdateColumn("wallet_balance", gorm.Expr("wallet_balance - ?", amount)).
+		Error
+}
+
 func (r *TenantRepository) FindBySlug(ctx context.Context, slug string) (*tenant.Tenant, error) {
 	var t tenant.Tenant
 	if err := r.db.WithContext(ctx).First(&t, "slug = ?", slug).Error; err != nil {

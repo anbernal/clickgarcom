@@ -18,8 +18,8 @@ import (
 	"github.com/anbernal/clickgarcom/pkg/database"
 	"github.com/anbernal/clickgarcom/pkg/logger"
 
-	"github.com/anbernal/clickgarcom/internal/domain/whatsapp"
 	redisRepo "github.com/anbernal/clickgarcom/internal/infrastructure/persistence/redis"
+	infraWA "github.com/anbernal/clickgarcom/internal/infrastructure/whatsapp"
 )
 
 func main() {
@@ -87,7 +87,12 @@ func main() {
 	tableRepo := postgres.NewTableRepository(db.DB)
 
 	// 6. Infrastructure
-	whatsappSender := whatsapp.NewSender(db.DB, logger.Log)
+	whatsappAPI := infraWA.NewMetaAPIClient(
+		cfg.WhatsApp.APIToken,
+		cfg.WhatsApp.PhoneNumberID,
+		logger.Log,
+	)
+	whatsappSender := infraWA.NewSender(db.DB, whatsappAPI, logger.Log)
 
 	// 7. Use Cases
 	createOrderUC := application.NewCreateOrderUseCase(

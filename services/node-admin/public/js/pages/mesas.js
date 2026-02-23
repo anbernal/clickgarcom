@@ -35,11 +35,21 @@ async function loadMesas() {
       const cls = statusMap[table.status] || 'free';
       const label = labelMap[table.status] || table.status;
       const emoji = emojiMap[table.status] || '🪑';
-      const tabTotal = table.currentTab ? formatCurrency(table.currentTab.total) : '—';
+      let tabTotalDisplay = '—';
+      let multipleTabsNote = '';
+
+      if (table.activeTabs && table.activeTabs.length > 0) {
+        const totalSum = table.activeTabs.reduce((acc, tab) => acc + parseFloat(tab.total || 0), 0);
+        tabTotalDisplay = formatCurrency(totalSum);
+
+        if (table.activeTabs.length > 1) {
+          multipleTabsNote = `<div style="font-size:12px; color:var(--text-light); margin-top:4px">${table.activeTabs.length} Comandas na mesa</div>`;
+        }
+      }
 
       let btnHtml = '';
       if (table.status === 'OCCUPIED') {
-        btnHtml = `<button class="btn-sm btn-primary" style="margin-top:8px;width:100%" onclick="viewComanda('${table.id}')">Ver Comanda</button>`;
+        btnHtml = `<button class="btn-sm btn-primary" style="margin-top:8px;width:100%" onclick="viewComandas('${table.id}', '${table.number}')">Ver Comanda(s)</button>`;
       } else if (table.status === 'AVAILABLE') {
         btnHtml = `<button class="btn-sm btn-outline" style="margin-top:8px;width:100%" onclick="changeTableStatus('${table.id}', 'OCCUPIED')">Abrir</button>`;
       } else if (table.status === 'RESERVED') {
@@ -53,7 +63,8 @@ async function loadMesas() {
               <div style="font-size:28px">${emoji}</div>
               <div class="table-num">Mesa ${table.number}</div>
               <div class="table-status">${label}</div>
-              <div class="table-value">${tabTotal}</div>
+              <div class="table-value">${tabTotalDisplay}</div>
+              ${multipleTabsNote}
               ${btnHtml}
             </div>`;
     }).join('')}
@@ -239,44 +250,55 @@ async function changeTableStatus(id, status) {
   }
 }
 
-async function viewComanda(tableId) {
+async function viewComandas(tableId, tableNumber) {
   try {
-    const tab = await api.get(`/tables/${tableId}/tab`);
-    if (!tab) {
+    const tabs = await api.get(`/tables/${tableId}/tabs`);
+
+    if (!tabs || tabs.length === 0) {
       showToast('Nenhuma comanda aberta para esta mesa', 'info');
       return;
     }
-    openModal(`
-      <div class="modal-header">
-        <h3>Comanda</h3>
-        <button class="modal-close" onclick="closeModal()">✕</button>
-      </div>
-      <div class="modal-body">
-        <div style="display:flex;justify-content:space-between;margin-bottom:16px">
-          <div><strong>Status:</strong> <span class="status-pill status-done">${tab.status}</span></div>
-          <div><strong>Aberta:</strong> ${formatDate(tab.openedAt)}</div>
+
+    let tabsHtml = tabs.map((tab, idx) => `
+      <div style="border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:12px; background:var(--bg-color)">
+        <div style="display:flex;justify-content:space-between;margin-bottom:12px">
+          <div>
+            <strong>Comanda ${idx + 1}</strong> <span style="font-size:12px;color:var(--text-light)">(${tab.id.substring(0, 8)})</span><br/>
+            <span class="status-pill status-done" style="margin-top:4px; display:inline-block">${tab.status}</span>
+          </div>
+          <div style="text-align:right; font-size:12px; color:var(--text-light)">
+            <div><strong>Abertura:</strong></div>
+            <div>${formatDate(tab.openedAt)}</div>
+          </div>
         </div>
-        <div style="border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:12px">
-          <div style="display:flex;justify-content:space-between;margin-bottom:8px">
-            <span style="color:var(--muted)">Subtotal</span>
-            <span class="mono">${formatCurrency(tab.subtotal)}</span>
+        <div style="background:var(--card-bg); border-radius:6px; padding:10px; margin-bottom:12px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+            <span style="color:var(--muted); font-size:14px">Subtotal</span>
+            <span class="mono" style="font-size:14px">${formatCurrency(tab.subtotal)}</span>
           </div>
-          <div style="display:flex;justify-content:space-between;margin-bottom:8px">
-            <span style="color:var(--muted)">Taxa de serviço</span>
-            <span class="mono">${formatCurrency(tab.serviceFee)}</span>
+          <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+            <span style="color:var(--muted); font-size:14px">Taxa de serviço</span>
+            <span class="mono" style="font-size:14px">${formatCurrency(tab.serviceFee)}</span>
           </div>
-          <div style="display:flex;justify-content:space-between;font-weight:700;padding-top:8px;border-top:1px solid var(--border)">
-            <span>Total</span>
+          <div style="display:flex;justify-content:space-between;font-weight:700;padding-top:6px;border-top:1px solid var(--border); font-size:16px">
+            <span>Total a Pagar</span>
             <span class="mono" style="color:var(--teal)">${formatCurrency(tab.total)}</span>
           </div>
         </div>
-        <div style="display:flex;justify-content:space-between">
-          <span style="color:var(--muted)">Valor pago</span>
-          <span class="mono">${formatCurrency(tab.paidAmount)}</span>
-        </div>
+      </div>
+    `).join('');
+
+    openModal(`
+      <div class="modal-header">
+        <h3>Mesa ${tableNumber} - Detalhamento das Comandas</h3>
+        <button class="modal-close" onclick="closeModal()">✕</button>
+      </div>
+      <div class="modal-body" style="max-height:60vh; overflow-y:auto; padding-right:8px">
+        ${tabs.length > 1 ? `<div class="alert alert-info" style="margin-bottom:16px"><i class="fas fa-info-circle"></i> Esta mesa possui comandas individuais/divididas.</div>` : ''}
+        ${tabsHtml}
       </div>
     `);
   } catch (err) {
-    showToast('Erro ao carregar comanda', 'error');
+    showToast('Erro ao carregar as comandas: ' + err.message, 'error');
   }
 }

@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+
+	"github.com/anbernal/clickgarcom/internal/domain/whatsapp"
 )
 
 type MetaAPIClient struct {
@@ -144,6 +146,80 @@ func (c *MetaAPIClient) MarkAsRead(ctx context.Context, messageID string) error 
 		return fmt.Errorf("failed to mark read: HTTP %d", resp.StatusCode)
 	}
 	return nil
+}
+
+// Fase 14: Interactive Buttons (Comandas Compartilhadas)
+
+type SendInteractiveMessageRequest struct {
+	MessagingProduct string `json:"messaging_product"`
+	RecipientType    string `json:"recipient_type"`
+	To               string `json:"to"`
+	Type             string `json:"type"`
+	Interactive      struct {
+		Type string `json:"type"`
+		Body struct {
+			Text string `json:"text"`
+		} `json:"body"`
+		Action struct {
+			Buttons []whatsapp.InteractiveButton `json:"buttons"`
+		} `json:"action"`
+	} `json:"interactive"`
+}
+
+func (c *MetaAPIClient) SendInteractiveButtons(ctx context.Context, to, bodyText string, buttons []whatsapp.InteractiveButton) (string, error) {
+	url := fmt.Sprintf("https://graph.facebook.com/v18.0/%s/messages", c.phoneNumberID)
+
+	reqBody := SendInteractiveMessageRequest{
+		MessagingProduct: "whatsapp",
+		RecipientType:    "individual",
+		To:               to,
+		Type:             "interactive",
+	}
+	reqBody.Interactive.Type = "button"
+	reqBody.Interactive.Body.Text = bodyText
+	reqBody.Interactive.Action.Buttons = buttons
+
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal interactive request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+c.apiToken)
+	req.Header.Set("Content-Type", "application/json")
+
+	c.logger.Debug("sending interactive buttons", zap.String("to", to), zap.Int("buttons", len(buttons)))
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to send interactive request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		c.logger.Error("whatsapp api error interactive",
+			zap.Int("status", resp.StatusCode),
+			zap.String("response", string(respBody)),
+		)
+		return "", fmt.Errorf("api error: %d - %s", resp.StatusCode, string(respBody))
+	}
+
+	var apiResp SendMessageResponse
+	if err := json.Unmarshal(respBody, &apiResp); err != nil {
+		return "", fmt.Errorf("failed to unmarshal interactive response: %w", err)
+	}
+
+	if len(apiResp.Messages) == 0 {
+		return "", fmt.Errorf("no message id in interactive response")
+	}
+
+	return apiResp.Messages[0].ID, nil
 }
 
 // Fase 11: Eventos Nativos

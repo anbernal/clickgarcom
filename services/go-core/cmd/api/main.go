@@ -17,6 +17,7 @@ import (
 	"github.com/anbernal/clickgarcom/internal/config"
 	"github.com/anbernal/clickgarcom/internal/infrastructure/persistence/postgres"
 	"github.com/anbernal/clickgarcom/internal/infrastructure/websocket"
+	"github.com/anbernal/clickgarcom/internal/infrastructure/whatsapp"
 	"github.com/anbernal/clickgarcom/internal/interfaces/http/routes"
 	"github.com/anbernal/clickgarcom/pkg/database"
 	"github.com/anbernal/clickgarcom/pkg/logger"
@@ -99,7 +100,14 @@ func main() {
 	userRepo := postgres.NewUserRepository(db.DB)
 	authService := auth.NewService(userRepo, cfg.JWT.Secret, 24*time.Hour)
 
-	// 10) Setup routes
+	// 10) Setup WhatsApp API Client
+	whatsappAPI := whatsapp.NewMetaAPIClient(
+		cfg.WhatsApp.APIToken,
+		cfg.WhatsApp.PhoneNumberID,
+		logger.Log,
+	)
+
+	// 11) Setup routes
 	routes.SetupRoutes(
 		app,
 		db,
@@ -108,6 +116,7 @@ func main() {
 		logger.Log,
 		authService,
 		cfg.WhatsApp.VerifyToken,
+		whatsappAPI,
 	)
 
 	// 9) Endpoints básicos (opcional, mas útil)

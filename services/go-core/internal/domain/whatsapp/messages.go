@@ -2,6 +2,15 @@ package whatsapp
 
 import "fmt"
 
+// Fase 14: Interactive Buttons
+type InteractiveButton struct {
+	Type  string `json:"type"`
+	Reply struct {
+		ID    string `json:"id"`
+		Title string `json:"title"`
+	} `json:"reply"`
+}
+
 // WelcomeMessage mensagem de boas-vindas
 func WelcomeMessage(restaurantName string) string {
 	return fmt.Sprintf(`🍽️ Olá! Bem-vindo ao *%s*!
