@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Super Admin - ClickGarçom</title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+
+<body>
+
+    <aside class="sidebar">
+        <div class="brand">
+            <span style="font-size: 24px">👑</span> ClickGarçom
+        </div>
+
+        <nav>
+            <a class="nav-link" data-page="dashboard" onclick="navigate('dashboard')">📊 Métricas Globais</a>
+            <a class="nav-link" data-page="tenants" onclick="navigate('tenants')">🏢 Restaurantes (Tenants)</a>
+            <a class="nav-link" data-page="settings" onclick="navigate('settings')">⚙️ Configurações</a>
+        </nav>
+
+        <div style="margin-top:auto">
+            <a class="nav-link" onclick="logout()" style="color:var(--danger)">🚪 Sair</a>
+        </div>
+    </aside>
+
+    <main class="main-content">
+
+        <!-- DASHBOARD -->
+        <div id="page-dashboard" class="page" style="display:none">
+            <h1 class="page-title">Métricas da Plataforma</h1>
+            <p class="page-sub">Visão global de consumo do ecossistema WhatsApp</p>
+
+            <div class="dashboard-grid">
+                <div class="card">
+                    <div class="stat-title">Restaurantes Ativos</div>
+                    <div class="stat-value" id="dash-tenants">0</div>
+                    <div class="stat-trend">Locais operando agora</div>
+                </div>
+                <div class="card" style="border-top: 4px solid var(--metric-in)">
+                    <div class="stat-title">Mensagens Recebidas (IN)</div>
+                    <div class="stat-value" id="dash-msg-in">0</div>
+                    <div class="stat-trend" style="color:var(--text-muted)">Volume da Inbox (WhatsApp)</div>
+                </div>
+                <div class="card" style="border-top: 4px solid var(--metric-out)">
+                    <div class="stat-title">Mensagens Enviadas (OUT)</div>
+                    <div class="stat-value" id="dash-msg-out">0</div>
+                    <div class="stat-trend" style="color:var(--text-muted)">Volume de Outbox (Respostas)</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3 style="margin-bottom: 20px">Top Restaurantes por Consumo</h3>
+                <table id="top-tenants-table">
+                    <thead>
+                        <tr>
+                            <th>Restaurante</th>
+                            <th>Status</th>
+                            <th>Entrada (IN)</th>
+                            <th>Saída (OUT)</th>
+                            <th>Total (Mensagens)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td colspan="5" style="text-align:center; color:var(--text-muted)">Carregando métricas...
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- TENANTS -->
+        <div id="page-tenants" class="page" style="display:none">
+            <div class="flex-between" style="margin-bottom: 32px">
+                <div>
+                    <h1 class="page-title">Gestão de Restaurantes</h1>
+                    <p class="page-sub" style="margin-bottom:0">Administre as contas e gere as chaves do Webhook Cloud
+                        API</p>
+                </div>
+                <button class="btn" onclick="openTenantModal()">+ Novo Restaurante</button>
+            </div>
+
+            <div class="card">
+                <table id="tenants-table">
+                    <thead>
+                        <tr>
+                            <th>ID (UUID)</th>
+                            <th>Nome da Franquia</th>
+                            <th>Acesso Admin</th>
+                            <th>Webhook URL Meta</th>
+                            <th>Métricas</th>
+                            <th>Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td colspan="6" style="text-align:center">Carregando restaurantes...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- MODAL: Novo Tenant / Editar -->
+    <div class="modal-overlay" id="tenant-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="tm-title">Novo Restaurante</h3>
+                <button onclick="closeTenantModal()"
+                    style="background:transparent;border:none;color:var(--text-muted);cursor:pointer;font-size:20px">✕</button>
+            </div>
+            <div class="modal-body">
+                <form id="tenant-form" onsubmit="saveTenant(event)">
+                    <input type="hidden" id="tm-id">
+
+                    <div class="form-group">
+                        <label>Nome do Restaurante</label>
+                        <input type="text" id="tm-name" class="input" placeholder="Ex: Pizzaria do Mario" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Slug (Identificador URL único)</label>
+                        <input type="text" id="tm-slug" class="input" placeholder="Ex: pizzaria-mario" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Phone-Number-ID Oficial da Meta API</label>
+                        <input type="text" id="tm-waba-id" class="input" placeholder="Ex: 1059384782019" required>
+                        <small style="color:var(--text-muted);font-size:12px;display:block;margin-top:4px">Usado pelo
+                            Go-Core para bindar o Webhook Inbox à conta correta.</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Token de Acesso (Bearer Meta)</label>
+                        <input type="text" id="tm-waba-token" class="input" placeholder="EAAD...">
+                    </div>
+
+                    <hr style="border:0;border-top:1px solid var(--border);margin:24px 0">
+                    <p style="color:var(--primary);margin-bottom:12px;font-weight:600;font-size:14px">Acesso do Painel
+                        Node-Admin</p>
+
+                    <div class="form-group">
+                        <label>E-mail do Dono (Admin)</label>
+                        <input type="email" id="tm-email" class="input" placeholder="dono@pizzariadmario.com" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Senha Provisória</label>
+                        <input type="text" id="tm-password" class="input" placeholder="******" required>
+                    </div>
+
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn"
+                    style="background:transparent;border:1px solid var(--border);color:white"
+                    onclick="closeTenantModal()">Cancelar</button>
+                <button type="submit" form="tenant-form" class="btn">Salvar & Gerar Webhook</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/js/app.js"></script>
+</body>
+
+</html>

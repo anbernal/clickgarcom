@@ -35,14 +35,11 @@ async function bootstrap() {
 
     // 2. Explicitly serve HTML auth routes
     app.use('/login.html', express.static(path.join(publicPath, 'login.html'), noCacheOptions));
-    app.use('/register.html', express.static(path.join(publicPath, 'register.html'), noCacheOptions));
 
     // 3. SPA Fallback (Dashboard index.html) for any other unmatched GET request
     app.use('*', (req, res, next) => {
         if (req.method === 'GET' && !req.originalUrl.startsWith('/admin/api')) {
-            if (req.originalUrl === '/register.html' || req.originalUrl === '/register') {
-                res.sendFile(path.join(publicPath, 'register.html'));
-            } else if (req.originalUrl === '/login.html' || req.originalUrl === '/login') {
+            if (req.originalUrl === '/login.html' || req.originalUrl === '/login') {
                 res.sendFile(path.join(publicPath, 'login.html'));
             } else {
                 res.sendFile(path.join(publicPath, 'index.html'));

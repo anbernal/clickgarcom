@@ -9,6 +9,7 @@ import (
 
 	"github.com/anbernal/clickgarcom/internal/application"
 	"github.com/anbernal/clickgarcom/internal/application/auth"
+	infraMP "github.com/anbernal/clickgarcom/internal/infrastructure/payment"
 	"github.com/anbernal/clickgarcom/internal/infrastructure/persistence/postgres"
 	"github.com/anbernal/clickgarcom/internal/infrastructure/websocket"
 	"github.com/anbernal/clickgarcom/internal/infrastructure/whatsapp"
@@ -30,6 +31,12 @@ func SetupRoutes(
 	inboxRepo := postgres.NewInboxRepository(db.DB)
 	menuRepo := postgres.NewMenuRepository(db.DB)
 	orderRepo := postgres.NewOrderRepository(db.DB)
+	tenantRepo := postgres.NewTenantRepository(db.DB)
+	logRepo := postgres.NewMessageLogRepository(db.DB)
+	paymentRepo := postgres.NewPaymentRepository(db.DB)
+
+	// Payment Client
+	mpClient := infraMP.NewMercadoPagoClient(logger)
 
 	// WhatsApp sender
 	whatsappSender := whatsapp.NewSender(db.DB, logger)
@@ -38,7 +45,8 @@ func SetupRoutes(
 	updateOrderStatusUC := application.NewUpdateOrderStatusUseCase(orderRepo, whatsappSender, wsHub, logger)
 
 	// Handlers
-	whatsappHandler := handlers.NewWhatsAppWebhookHandler(inboxRepo, rabbitMQ, logger)
+	whatsappHandler := handlers.NewWhatsAppWebhookHandler(inboxRepo, tenantRepo, logRepo, rabbitMQ, logger)
+	paymentHandler := handlers.NewPaymentHandler(paymentRepo, tenantRepo, mpClient, rabbitMQ, logger)
 	menuHandler := handlers.NewMenuHandler(menuRepo, logger)
 	orderHandler := handlers.NewOrderHandler(updateOrderStatusUC, logger)
 	listOrdersHandler := handlers.NewListOrdersHandler(orderRepo, logger)
@@ -62,6 +70,14 @@ func SetupRoutes(
 	{
 		webhooks.Get("/whatsapp", whatsappHandler.HandleVerification)
 		webhooks.Post("/whatsapp", whatsappHandler.HandleWebhook)
+		webhooks.Post("/mercadopago", paymentHandler.HandleWebhook)
+	}
+
+	// Payments routes
+	payments := app.Group("/payments")
+	{
+		payments.Post("/pix", paymentHandler.CreatePixPayment)
+		payments.Post("/card", paymentHandler.CreateCardPayment)
 	}
 
 	// Metrics route

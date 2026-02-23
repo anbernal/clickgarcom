@@ -8,6 +8,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/anbernal/clickgarcom/internal/domain/tenant"
+	"github.com/anbernal/clickgarcom/internal/domain/user"
 )
 
 type TenantRepository struct {
@@ -51,4 +52,12 @@ func (r *TenantRepository) Create(ctx context.Context, t *tenant.Tenant) error {
 
 func (r *TenantRepository) Update(ctx context.Context, t *tenant.Tenant) error {
 	return r.db.WithContext(ctx).Save(t).Error
+}
+
+func (r *TenantRepository) GetUsersByTenant(ctx context.Context, tenantID string) ([]*user.User, error) {
+	var users []*user.User
+	if err := r.db.WithContext(ctx).Where("tenant_id = ?", tenantID).Find(&users).Error; err != nil {
+		return nil, fmt.Errorf("failed to list users: %w", err)
+	}
+	return users, nil
 }

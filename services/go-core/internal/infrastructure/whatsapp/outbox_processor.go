@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/anbernal/clickgarcom/internal/domain/tenant"
 	domain "github.com/anbernal/clickgarcom/internal/domain/whatsapp"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -13,14 +14,16 @@ import (
 type OutboxProcessor struct {
 	db        *gorm.DB
 	apiClient *MetaAPIClient
+	logRepo   tenant.MessageLogRepository
 	logger    *zap.Logger
 	batchSize int
 }
 
-func NewOutboxProcessor(db *gorm.DB, apiClient *MetaAPIClient, logger *zap.Logger) *OutboxProcessor {
+func NewOutboxProcessor(db *gorm.DB, apiClient *MetaAPIClient, logRepo tenant.MessageLogRepository, logger *zap.Logger) *OutboxProcessor {
 	return &OutboxProcessor{
 		db:        db,
 		apiClient: apiClient,
+		logRepo:   logRepo,
 		logger:    logger,
 		batchSize: 10, // Processar 10 mensagens por vez
 	}
@@ -66,6 +69,9 @@ func (p *OutboxProcessor) processMessage(ctx context.Context, msg *domain.Outbox
 	// 1. Incrementar tentativas
 	msg.Attempts++
 
+	// Fase 11: Simular Digitando (Humanizar o Bot) antes de enviar Textos
+	p.apiClient.SendTypingIndicator(ctx, msg.Recipient)
+
 	// 2. Tentar enviar
 	messageID, err := p.apiClient.SendTextMessage(ctx, msg.Recipient, msg.Payload)
 
@@ -106,5 +112,19 @@ func (p *OutboxProcessor) processMessage(ctx context.Context, msg *domain.Outbox
 		zap.String("whatsapp_message_id", messageID),
 	)
 
-	return p.db.Save(msg).Error
+	err = p.db.Save(msg).Error
+
+	// 4. Salvar Monitoria (Billing/Tracking Fase 11) se estiver associado a um Tenant
+	if err == nil && msg.TenantID != nil && p.logRepo != nil {
+		go func(tid string, mid string) {
+			p.logRepo.Save(context.Background(), &tenant.MessageLog{
+				TenantID:  *msg.TenantID,
+				Direction: tenant.DirectionOut,
+				MessageID: mid,
+				Status:    "SENT",
+			})
+		}(msg.TenantID.String(), messageID)
+	}
+
+	return err
 }

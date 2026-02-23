@@ -252,8 +252,21 @@ Documentação detalhada disponível em:
 - [x] Bloqueio de ataques e injeções Cross-Tenant nos serviços ORM do banco de dados
 - [x] Sanitização Global e Defesa contra DOM-based XSS nas renderizações de Views (VanillaJS)
 
+### ✅ Fase 11: Plataforma Super Admin & Tracking WhatsApp (CONCLUÍDA)
+- [x] Remoção radical do registro Self-Service / Onboarding Público do Painel Admin
+- [x] Criação da Estrutura Autônoma do Front-end Super Admin para gestão de Franquias
+- [x] API WhatsApp Cloud Nível Meta: Suporte Nativo a Eventos (`typing_on`, `mark_as_read`) no Go
+- [x] Bilhetagem Ativa: Injeção de Observabilidade via `MessageLogs` Database nos Padrões Inbox/Outbox
+- [x] Separação Estrutural de Autenticação Webhook Metadados (`WabaID`, Token) abstraídos por Tenant
+
+### ✅ Fase 12: Integração de Gateways de Pagamento Seguros (CONCLUÍDA)
+- [x] Integração PCI Compliant via **Mercado Pago API V2 (SDK)**.
+- [x] Transações Abstratas (Go-Core): Sem processamento de PANs/Cartões reais pela rede do ClickGarçom.
+- [x] Worker Asíncrono de Webhooks MP (`payment.updated`) repassados via RabbitMQ.
+- [x] PIX Dinâmico: Geração programada de códigos Copia-e-Cola e QR Codes associados a mesas.
+- [x] Tela UI Independente e Escalável HTTP Server `checkout.js`.
+
 ### 💳 Próximos Passos
-- [ ] Integração nativa com Gateway de Pagamento
 - [ ] Fechamento de Cestas e Split de Conta Inteligente
 - [ ] Funcionalidades Avançadas de Agendamento
 

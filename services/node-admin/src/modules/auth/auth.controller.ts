@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Patch, Body, HttpCode, HttpStatus, UseGuards, Request } from '@nestjs/common';
+import { Controller, Post, Body, Request, UseGuards, Get, HttpException, HttpStatus, Patch, UnauthorizedException, HttpCode } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 
@@ -8,7 +8,8 @@ export class AuthController {
 
     @Post('register')
     async register(@Body() data: any) {
-        return this.authService.register(data);
+        // Fase 11: Criação de Tenant foi delegada ao Super Admin isolado. O Node-Admin (Painel do Restaurante) não possui mais cadastro público.
+        throw new UnauthorizedException('Criação pública de contas desativada. Solicite ao Super Admin.');
     }
 
     @Post('login')

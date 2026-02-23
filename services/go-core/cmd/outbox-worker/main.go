@@ -11,6 +11,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/anbernal/clickgarcom/internal/config"
+	"github.com/anbernal/clickgarcom/internal/infrastructure/persistence/postgres"
 	"github.com/anbernal/clickgarcom/internal/infrastructure/whatsapp"
 	"github.com/anbernal/clickgarcom/pkg/database"
 	"github.com/anbernal/clickgarcom/pkg/logger"
@@ -55,10 +56,13 @@ func main() {
 		logger.Log,
 	)
 
-	// 5. Criar Outbox Processor
+	// 5. Criar Outbox Processor com Telemetry Repositories Phase 11
+	logRepo := postgres.NewMessageLogRepository(db.DB)
+
 	processor := whatsapp.NewOutboxProcessor(
 		db.DB,
 		whatsappAPI,
+		logRepo,
 		logger.Log,
 	)
 

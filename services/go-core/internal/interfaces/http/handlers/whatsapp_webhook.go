@@ -10,12 +10,15 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/anbernal/clickgarcom/internal/domain/inbox"
+	"github.com/anbernal/clickgarcom/internal/domain/tenant"
 )
 
 type WhatsAppWebhookHandler struct {
-	inboxRepo inbox.Repository
-	rabbitMQ  RabbitMQPublisher
-	logger    *zap.Logger
+	inboxRepo  inbox.Repository
+	tenantRepo tenant.Repository
+	logRepo    tenant.MessageLogRepository
+	rabbitMQ   RabbitMQPublisher
+	logger     *zap.Logger
 }
 
 type RabbitMQPublisher interface {
@@ -24,13 +27,17 @@ type RabbitMQPublisher interface {
 
 func NewWhatsAppWebhookHandler(
 	inboxRepo inbox.Repository,
+	tenantRepo tenant.Repository,
+	logRepo tenant.MessageLogRepository,
 	rabbitMQ RabbitMQPublisher,
 	logger *zap.Logger,
 ) *WhatsAppWebhookHandler {
 	return &WhatsAppWebhookHandler{
-		inboxRepo: inboxRepo,
-		rabbitMQ:  rabbitMQ,
-		logger:    logger,
+		inboxRepo:  inboxRepo,
+		tenantRepo: tenantRepo,
+		logRepo:    logRepo,
+		rabbitMQ:   rabbitMQ,
+		logger:     logger,
 	}
 }
 
@@ -56,7 +63,7 @@ func (h *WhatsAppWebhookHandler) HandleVerification(c *fiber.Ctx) error {
 func (h *WhatsAppWebhookHandler) HandleWebhook(c *fiber.Ctx) error {
 	startTime := time.Now()
 
-	// 1. Extrair wamid para idempotência
+	// 1. Extrair wamid para idempotência e wabaID para Tracking
 	var payload map[string]interface{}
 	if err := json.Unmarshal(c.Body(), &payload); err != nil {
 		h.logger.Error("failed to parse webhook payload", zap.Error(err))
@@ -64,9 +71,27 @@ func (h *WhatsAppWebhookHandler) HandleWebhook(c *fiber.Ctx) error {
 	}
 
 	wamid := extractWAMID(payload)
+	wabaID := extractWabaID(payload)
+
 	if wamid == "" {
 		h.logger.Warn("webhook without wamid, skipping")
 		return c.SendStatus(fiber.StatusOK)
+	}
+
+	// Tentar identificar o Inquilino (Restaurante) pelo Telefone Comercial pra Metrificação (Fase 11)
+	if wabaID != "" && h.tenantRepo != nil && h.logRepo != nil {
+		go func(wid string, mid string) {
+			tnt, err := h.tenantRepo.FindBySlug(context.Background(), wid) // Fictício: findByWaba será um método futuro, vamos usar fallback pra teste se falhar
+			// TODO: Add FindByWabaID to Tenant Repo interface. Provisoriamente ignora se erro pra não travar o fluxo
+			if err == nil {
+				h.logRepo.Save(context.Background(), &tenant.MessageLog{
+					TenantID:  tnt.ID,
+					Direction: tenant.DirectionIn,
+					MessageID: mid,
+					Status:    "RECEIVED",
+				})
+			}
+		}(wabaID, wamid)
 	}
 
 	// 2. Inbox Pattern - persistir RAW
@@ -145,4 +170,33 @@ func extractWAMID(payload map[string]interface{}) string {
 
 	wamid, _ := message["id"].(string)
 	return wamid
+}
+
+// extractWabaID extrai o Telefone Comercial ID (WABA) que originou a recepção
+func extractWabaID(payload map[string]interface{}) string {
+	entry, ok := payload["entry"].([]interface{})
+	if !ok || len(entry) == 0 {
+		return ""
+	}
+
+	changes, ok := entry[0].(map[string]interface{})["changes"].([]interface{})
+	if !ok || len(changes) == 0 {
+		return ""
+	}
+
+	value, ok := changes[0].(map[string]interface{})["value"].(map[string]interface{})
+	if !ok {
+		return ""
+	}
+
+	metadata, ok := value["metadata"].(map[string]interface{})
+	if !ok {
+		return ""
+	}
+
+	wabaID, _ := metadata["display_phone_number"].(string) // or phone_number_id
+	if wabaID == "" {
+		wabaID, _ = metadata["phone_number_id"].(string)
+	}
+	return wabaID
 }

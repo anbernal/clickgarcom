@@ -14,6 +14,8 @@ type Tenant struct {
 	Name           string         `json:"name" gorm:"not null"`
 	Slug           string         `json:"slug" gorm:"uniqueIndex;not null"`
 	WhatsAppNumber string         `json:"whatsapp_number" gorm:"uniqueIndex;not null"`
+	WabaID         string         `json:"waba_id" gorm:"column:waba_id"`       // WhatsApp Business Account Phone ID
+	MetaToken      string         `json:"meta_token" gorm:"column:meta_token"` // Cloud API Bearer Token
 	Settings       TenantSettings `json:"settings" gorm:"type:jsonb"`
 	Active         bool           `json:"active" gorm:"default:true"`
 	IsOpen         bool           `json:"is_open" gorm:"default:false"`
@@ -27,6 +29,8 @@ type TenantSettings struct {
 	AutoAcceptOrders  bool    `json:"auto_accept_orders"`
 	NPSEnabled        bool    `json:"nps_enabled"`
 	VoucherEnabled    bool    `json:"voucher_enabled"`
+	MPAccessToken     string  `json:"mp_access_token"` // FASE 12
+	MPPublicKey       string  `json:"mp_public_key"`   // FASE 12
 }
 
 func (Tenant) TableName() string {

@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Checkout Seguríssimo — ClickGarçom</title>
+    <link rel="stylesheet" href="/css/design-system.css">
+    <!-- Mercado Pago SDK V2 (PCI Compliant) -->
+    <script src="https://sdk.mercadopago.com/js/v2"></script>
+    <style>
+        body {
+            background: var(--bg-color);
+            font-family: var(--font-body);
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+        }
+
+        .checkout-container {
+            max-width: 480px;
+            width: 100%;
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 32px;
+            box-shadow: var(--shadow-md);
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 24px;
+        }
+
+        .total-box {
+            background: var(--border);
+            padding: 24px;
+            border-radius: 8px;
+            text-align: center;
+            margin-bottom: 24px;
+        }
+
+        .total-text {
+            font-size: 14px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            font-weight: 600;
+            letter-spacing: 1px;
+        }
+
+        .total-amount {
+            font-size: 32px;
+            font-weight: 700;
+            color: var(--primary);
+            margin-top: 8px;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 24px;
+        }
+
+        .tab-btn {
+            flex: 1;
+            padding: 12px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background: var(--bg-color);
+            color: var(--text-main);
+            font-weight: 600;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+
+        .tab-btn.active {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+        }
+
+        .method-panel {
+            display: none;
+        }
+
+        .method-panel.active {
+            display: block;
+        }
+
+        /* Mercado Pago Iframe Wrapper */
+        #form-checkout {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .mp-input-wrapper {
+            background: #fff;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 12px;
+            height: 48px;
+            box-sizing: border-box;
+        }
+
+        #pix-qrcode-container {
+            text-align: center;
+            display: none;
+            padding: 20px;
+            background: white;
+            border-radius: 8px;
+            border: 2px dashed var(--primary);
+        }
+
+        #pix-qrcode-container img {
+            max-width: 250px;
+            margin: 0 auto 16px;
+            display: block;
+        }
+
+        .copy-paste-input {
+            width: 100%;
+            padding: 12px;
+            font-family: monospace;
+            font-size: 12px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            background: var(--bg-color);
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="checkout-container">
+        <div class="header">
+            <h2 style="margin:0; font-family: var(--font-heading); font-size: 22px">🍕 Resumo do Pedido</h2>
+            <p style="margin:4px 0 0; color: var(--text-muted); font-size: 14px;">Mesa 04 — Comanda #1092</p>
+        </div>
+
+        <div class="total-box">
+            <div class="total-text">Total a Pagar</div>
+            <div class="total-amount">R$ 150,00</div>
+        </div>
+
+        <div class="tabs">
+            <button class="tab-btn active" data-method="pix">PIX</button>
+            <button class="tab-btn" data-method="card">Cartão (Crédito/Débito)</button>
+        </div>
+
+        <!-- PIX PANEL -->
+        <div id="panel-pix" class="method-panel active">
+            <button class="btn btn-primary" id="btn-generate-pix"
+                style="width: 100%; height: 50px; font-size: 16px">Gerar QR Code PIX ⚡</button>
+
+            <div id="pix-qrcode-container">
+                <h3 style="margin-top:0">Escaneie para pagar</h3>
+                <img id="pix-img" src="" alt="QR Code PIX">
+                <p style="font-size: 14px; font-weight: bold;">Ou use o Copia e Cola:</p>
+                <textarea class="copy-paste-input" id="pix-copy-paste" rows="4" readonly></textarea>
+                <button class="btn" onclick="copyPix()"
+                    style="width: 100%; margin-top: 12px; background:var(--border)">Copiar Código Copia e Cola</button>
+                <div style="margin-top: 16px; font-size: 14px; color: var(--success); font-weight: bold; display: none;"
+                    id="pix-success-msg">✅ Pagamento Recebido! Pedido liberado na cozinha.</div>
+            </div>
+        </div>
+
+        <!-- CARD PANEL (Mercado Pago SDK) -->
+        <div id="panel-card" class="method-panel">
+            <form id="form-checkout">
+                <!-- MP PCI Inputs are injected here via JS -->
+                <div>
+                    <label style="font-size: 12px; color: var(--text-muted); display:block; margin-bottom: 4px">Número
+                        do Cartão</label>
+                    <div id="form-checkout__cardNumber" class="mp-input-wrapper"></div>
+                </div>
+
+                <div style="display: flex; gap: 16px">
+                    <div style="flex:1">
+                        <label
+                            style="font-size: 12px; color: var(--text-muted); display:block; margin-bottom: 4px">Validade</label>
+                        <div id="form-checkout__expirationDate" class="mp-input-wrapper"></div>
+                    </div>
+                    <div style="flex:1">
+                        <label
+                            style="font-size: 12px; color: var(--text-muted); display:block; margin-bottom: 4px">CVV</label>
+                        <div id="form-checkout__securityCode" class="mp-input-wrapper"></div>
+                    </div>
+                </div>
+
+                <div>
+                    <label style="font-size: 12px; color: var(--text-muted); display:block; margin-bottom: 4px">Nome do
+                        Titular</label>
+                    <input type="text" id="form-checkout__cardholderName" class="mp-input-wrapper" style="width:100%"
+                        placeholder="Nome impresso no Cartão" />
+                </div>
+
+                <div>
+                    <label
+                        style="font-size: 12px; color: var(--text-muted); display:block; margin-bottom: 4px">E-mail</label>
+                    <input type="email" id="form-checkout__cardholderEmail" class="mp-input-wrapper" style="width:100%"
+                        placeholder="E-mail do pagador" />
+                </div>
+
+                <div>
+                    <label
+                        style="font-size: 12px; color: var(--text-muted); display:block; margin-bottom: 4px">Documento
+                        (CPF)</label>
+                    <div style="display: flex; gap: 8px">
+                        <select id="form-checkout__identificationType" class="mp-input-wrapper"
+                            style="width: 80px"></select>
+                        <input type="text" id="form-checkout__identificationNumber" class="mp-input-wrapper"
+                            style="flex:1" placeholder="Número do CPF" />
+                    </div>
+                </div>
+
+                <div>
+                    <label
+                        style="font-size: 12px; color: var(--text-muted); display:block; margin-bottom: 4px">Parcelas</label>
+                    <select id="form-checkout__installments" class="mp-input-wrapper" style="width:100%"></select>
+                </div>
+
+                <button type="submit" id="form-checkout__submit" class="btn btn-primary"
+                    style="height: 50px; font-size: 16px; margin-top: 16px;">
+                    Pagar com Cartão 💳
+                </button>
+                <progress value="0" class="progress-bar" style="display:none; width: 100%"></progress>
+            </form>
+        </div>
+
+    </div>
+
+    <script src="/js/checkout.js"></script>
+    <script>
+        function copyPix() {
+            var copyText = document.getElementById("pix-copy-paste");
+            copyText.select();
+            document.execCommand("copy");
+            alert("Código PIX copiado para a área de transferência!");
+        }
+    </script>
+</body>
+
+</html>
