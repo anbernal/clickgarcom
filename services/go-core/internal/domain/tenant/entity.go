@@ -30,14 +30,35 @@ const (
 	PlanPostPaid = "post_paid"
 )
 
+// MessageTemplates contém os templates personalizáveis de mensagem do bot WhatsApp.
+// Campos vazios significam "usar mensagem padrão do sistema".
+// Variáveis disponíveis: {nome_restaurante}, {numero_mesa}, {numero_pedido},
+// {itens}, {subtotal}, {taxa}, {total}, {tipo_servico}, {codigo_pix}
+type MessageTemplates struct {
+	Welcome          string `json:"msg_welcome,omitempty"`
+	RestaurantClosed string `json:"msg_restaurant_closed,omitempty"`
+	WelcomeTable     string `json:"msg_welcome_table,omitempty"`
+	TablePending     string `json:"msg_table_request_pending,omitempty"`
+	TableApproved    string `json:"msg_table_approved,omitempty"`
+	MainMenu         string `json:"msg_main_menu,omitempty"`
+	InvalidOption    string `json:"msg_invalid_option,omitempty"`
+	OrderConfirmed   string `json:"msg_order_confirmed,omitempty"`
+	OrderReady       string `json:"msg_order_ready,omitempty"`
+	TabSummary       string `json:"msg_tab_summary,omitempty"`
+	ServiceRequest   string `json:"msg_service_request,omitempty"`
+	PaymentPending   string `json:"msg_payment_pending,omitempty"`
+	PaymentConfirmed string `json:"msg_payment_confirmed,omitempty"`
+}
+
 type TenantSettings struct {
-	ServiceFeePercent float64 `json:"service_fee_percent"`
-	SplitEnabled      bool    `json:"split_enabled"`
-	AutoAcceptOrders  bool    `json:"auto_accept_orders"`
-	NPSEnabled        bool    `json:"nps_enabled"`
-	VoucherEnabled    bool    `json:"voucher_enabled"`
-	MPAccessToken     string  `json:"mp_access_token"` // FASE 12
-	MPPublicKey       string  `json:"mp_public_key"`   // FASE 12
+	ServiceFeePercent float64          `json:"service_fee_percent"`
+	SplitEnabled      bool             `json:"split_enabled"`
+	AutoAcceptOrders  bool             `json:"auto_accept_orders"`
+	NPSEnabled        bool             `json:"nps_enabled"`
+	VoucherEnabled    bool             `json:"voucher_enabled"`
+	MPAccessToken     string           `json:"mp_access_token"` // FASE 12
+	MPPublicKey       string           `json:"mp_public_key"`   // FASE 12
+	Messages          MessageTemplates `json:"messages"`        // FASE 16
 }
 
 func (Tenant) TableName() string {

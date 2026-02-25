@@ -33,11 +33,15 @@ async function bootstrap() {
     app.use('/assets', express.static(path.join(publicPath, 'assets')));
     app.use('/data', express.static(path.join(publicPath, 'data')));
 
-    // 2. Explicitly serve HTML auth routes
+    // 2. Explicitly serve HTML routes
+    app.use('/index.html', express.static(path.join(publicPath, 'index.html'), noCacheOptions));
     app.use('/login.html', express.static(path.join(publicPath, 'login.html'), noCacheOptions));
+    app.use('/kds.html', express.static(path.join(publicPath, 'kds.html'), noCacheOptions));
+    app.use('/checkout.html', express.static(path.join(publicPath, 'checkout.html'), noCacheOptions));
 
-    // 3. SPA Fallback (Dashboard index.html) for any other unmatched GET request
-    app.use('*', (req, res, next) => {
+    // 3. SPA Fallback (Dashboard index.html) for any other unmatched GET request.
+    // Use app.use without "*" to avoid wildcard differences across Express versions.
+    app.use((req, res, next) => {
         if (req.method === 'GET' && !req.originalUrl.startsWith('/admin/api')) {
             if (req.originalUrl === '/login.html' || req.originalUrl === '/login') {
                 res.sendFile(path.join(publicPath, 'login.html'));

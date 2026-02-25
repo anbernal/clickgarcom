@@ -1,8 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { ServeStaticModule } from '@nestjs/serve-static';
-import { join } from 'path';
 
 import { MenuCategory } from './entities/menu-category.entity';
 import { MenuItem } from './entities/menu-item.entity';
@@ -27,10 +25,14 @@ import { AppController } from './app.controller';
     imports: [
         ConfigModule.forRoot({ isGlobal: true }),
         TypeOrmModule.forRoot({
-            type: 'sqlite',
-            database: 'database.sqlite',
+            type: 'postgres',
+            host: process.env.DATABASE_HOST || 'localhost',
+            port: parseInt(process.env.DATABASE_PORT || '5432', 10),
+            username: process.env.DATABASE_USER || 'postgres',
+            password: process.env.DATABASE_PASSWORD || 'postgres123',
+            database: process.env.DATABASE_NAME || 'clickgarcom_db',
             entities: [MenuCategory, MenuItem, Order, OrderItem, Table, Tab, TableRequest, User, Tenant],
-            synchronize: true, // Auto-create tables for local sqlite dev
+            synchronize: false,
         }),
         AmqpModule,
         MenuModule,

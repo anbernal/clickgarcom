@@ -7,6 +7,7 @@ const pages = {
     categorias: { title: 'Categorias', sub: 'Organize o cardápio em categorias', loader: loadCategorias },
     mesas: { title: 'Mesas & Comandas', sub: 'Gerencie as mesas e comandas do restaurante', loader: loadMesas },
     vendas: { title: 'Vendas', sub: 'Relatório completo de vendas', loader: loadVendas },
+    configuracoes: { title: 'Configurações de Mensagens', sub: 'Personalize as mensagens do bot', loader: loadConfiguracoesPage },
 };
 
 function navigate(pageId) {

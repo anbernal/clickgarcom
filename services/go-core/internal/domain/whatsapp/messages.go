@@ -1,6 +1,11 @@
 package whatsapp
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+
+	"github.com/anbernal/clickgarcom/internal/domain/tenant"
+)
 
 // Fase 14: Interactive Buttons
 type InteractiveButton struct {
@@ -11,9 +16,28 @@ type InteractiveButton struct {
 	} `json:"reply"`
 }
 
-// WelcomeMessage mensagem de boas-vindas
-func WelcomeMessage(restaurantName string) string {
-	return fmt.Sprintf(`🍽️ Olá! Bem-vindo ao *%s*!
+// ─────────────────────────────────────────────────
+// Helper: resolve template personalizado ou padrão
+// ─────────────────────────────────────────────────
+
+// resolveTemplate retorna o template customizado se não estiver vazio,
+// caso contrário retorna o template padrão do sistema.
+func resolveTemplate(custom, defaultTpl string, replacements map[string]string) string {
+	tpl := defaultTpl
+	if custom != "" {
+		tpl = custom
+	}
+	for placeholder, value := range replacements {
+		tpl = strings.ReplaceAll(tpl, placeholder, value)
+	}
+	return tpl
+}
+
+// ─────────────────────────────────────────────────
+// Mensagens padrão do sistema (fallback)
+// ─────────────────────────────────────────────────
+
+const defaultWelcome = `🍽️ Olá! Bem-vindo ao *{nome_restaurante}*!
 
 Como posso te ajudar hoje?
 
@@ -23,37 +47,25 @@ Como posso te ajudar hoje?
 *4* - 🙋 Chamar garçom
 *5* - 💰 Fechar conta
 
-_Digite o número da opção desejada_`, restaurantName)
-}
+_Digite o número da opção desejada_`
 
-// RestaurantClosedMessage mensagem exibida quando cliente tenta fazer pedido fora do expediente
-func RestaurantClosedMessage() string {
-	return `🚪 *O restaurante ainda não está aberto.*
+const defaultRestaurantClosed = `🚪 *O restaurante ainda não está aberto.*
 
 Agradecemos o seu contato, mas nossas atividades estão encerradas no momento.
 Aguarde, em breve abriremos!`
-}
 
-// WelcomeTableMessage boas vindas quando escaneia QR Code
-func WelcomeTableMessage(restaurantName, tableNumber string) string {
-	return fmt.Sprintf(`🍽️ Olá! Bem-vindo ao *%s*!
+const defaultWelcomeTable = `🍽️ Olá! Bem-vindo ao *{nome_restaurante}*!
 
-Vimos que você está na *Mesa %s*.
+Vimos que você está na *Mesa {numero_mesa}*.
 Para começarmos a te atender, para quantas pessoas é a mesa?
 
-_Digite apenas o número de pessoas (ex: 2)_`, restaurantName, tableNumber)
-}
+_Digite apenas o número de pessoas (ex: 2)_`
 
-// TableRequestPendingMessage mensagem quando aguarda aprovação
-func TableRequestPendingMessage() string {
-	return `⏳ *Mesa solicitada!*
+const defaultTablePending = `⏳ *Mesa solicitada!*
 
 Aguarde um momento enquanto nossa equipe libera o acesso ao cardápio para sua mesa.`
-}
 
-// TableRequestApprovedMessage mensagem quando mesa é liberada
-func TableRequestApprovedMessage() string {
-	return `✅ *Mesa liberada!*
+const defaultTableApproved = `✅ *Mesa liberada!*
 
 Você já pode acessar nosso menu principal:
 
@@ -62,11 +74,8 @@ Você já pode acessar nosso menu principal:
 *4* - 🙋 Chamar garçom
 
 _Digite o número da opção_`
-}
 
-// MainMenuMessage menu principal
-func MainMenuMessage() string {
-	return `📱 *Menu Principal*
+const defaultMainMenu = `📱 *Menu Principal*
 
 *1* - 🛒 Fazer pedido
 *2* - 📋 Ver minha comanda
@@ -75,85 +84,218 @@ func MainMenuMessage() string {
 *5* - 💰 Fechar conta
 
 _Digite o número da opção_`
-}
 
-// InvalidOptionMessage opção inválida
-func InvalidOptionMessage() string {
-	return `❌ Opção inválida.
+const defaultInvalidOption = `❌ Opção inválida.
 
 Por favor, digite um número válido do menu.`
-}
 
-// OrderConfirmedMessage pedido confirmado
-func OrderConfirmedMessage(orderNumber int) string {
-	return fmt.Sprintf(`✅ *Pedido confirmado!*
+const defaultOrderConfirmed = `✅ *Pedido confirmado!*
 
-Número do pedido: *#%d*
+Número do pedido: *#{numero_pedido}*
 
 Seu pedido está sendo preparado.
-Você receberá uma notificação quando estiver pronto! 🍳`, orderNumber)
-}
+Você receberá uma notificação quando estiver pronto! 🍳`
 
-// OrderReadyMessage pedido pronto
-func OrderReadyMessage(orderNumber int) string {
-	return fmt.Sprintf(`🔔 *Pedido #%d está pronto!*
+const defaultOrderReady = `🔔 *Pedido #{numero_pedido} está pronto!*
 
-Nosso garçom já está levando até você! 🚶`, orderNumber)
-}
+Nosso garçom já está levando até você! 🚶`
 
-// TabSummaryMessage resumo da comanda
-func TabSummaryMessage(items []string, subtotal, serviceFee, total float64) string {
-	itemsList := ""
-	for _, item := range items {
-		itemsList += fmt.Sprintf("• %s\n", item)
-	}
+const defaultTabSummary = `📋 *Sua Comanda*
 
-	return fmt.Sprintf(`📋 *Sua Comanda*
-
-%s
+{itens}
 ━━━━━━━━━━━━━━━━
-Subtotal: R$ %.2f
-Taxa de serviço (10%%): R$ %.2f
+Subtotal: R$ {subtotal}
+Taxa de serviço (10%): R$ {taxa}
 ━━━━━━━━━━━━━━━━
-*Total: R$ %.2f*
+*Total: R$ {total}*
 
-_Use o menu para fazer mais pedidos ou fechar a conta_`,
-		itemsList, subtotal, serviceFee, total)
-}
+_Use o menu para fazer mais pedidos ou fechar a conta_`
 
-// ServiceRequestConfirmed solicitação de serviço
-func ServiceRequestConfirmed(requestType string) string {
-	return fmt.Sprintf(`✅ *Solicitação registrada!*
+const defaultServiceRequest = `✅ *Solicitação registrada!*
 
-Tipo: %s
+Tipo: {tipo_servico}
 
-Nosso garçom já foi avisado e virá te atender em breve! 🙋`, requestType)
-}
+Nosso garçom já foi avisado e virá te atender em breve! 🙋`
 
-// PaymentPending pagamento pendente
-func PaymentPending(total float64, pixCode string) string {
-	return fmt.Sprintf(`💰 *Fechar Conta*
+const defaultPaymentPending = "💰 *Fechar Conta*\n\nTotal a pagar: *R$ {total}*\n\n🔑 *Pix Copia e Cola:*\n`{codigo_pix}`\n\n_Copie o código acima e pague pelo seu app do banco_\n\nVocê receberá confirmação assim que o pagamento for identificado! ✅"
 
-Total a pagar: *R$ %.2f*
+const defaultPaymentConfirmed = `✅ *Pagamento confirmado!*
 
-🔑 *Pix Copia e Cola:*
-`+"`"+`%s`+"`"+`
-
-_Copie o código acima e pague pelo seu app do banco_
-
-Você receberá confirmação assim que o pagamento for identificado! ✅`,
-		total, pixCode)
-}
-
-// PaymentConfirmed pagamento confirmado
-func PaymentConfirmed(total float64) string {
-	return fmt.Sprintf(`✅ *Pagamento confirmado!*
-
-Valor: R$ %.2f
+Valor: R$ {total}
 
 Obrigado pela preferência! 
 Esperamos vê-lo novamente em breve! 😊
 
 _Como foi sua experiência?_
-Avalie de 0 a 10:`, total)
+Avalie de 0 a 10:`
+
+// ─────────────────────────────────────────────────
+// Funções públicas (com suporte a template custom)
+// ─────────────────────────────────────────────────
+
+// WelcomeMessage mensagem de boas-vindas
+func WelcomeMessage(restaurantName string, msgs ...tenant.MessageTemplates) string {
+	custom := ""
+	if len(msgs) > 0 {
+		custom = msgs[0].Welcome
+	}
+	return resolveTemplate(custom, defaultWelcome, map[string]string{
+		"{nome_restaurante}": restaurantName,
+	})
+}
+
+// RestaurantClosedMessage mensagem exibida quando restaurante está fechado
+func RestaurantClosedMessage(msgs ...tenant.MessageTemplates) string {
+	custom := ""
+	if len(msgs) > 0 {
+		custom = msgs[0].RestaurantClosed
+	}
+	return resolveTemplate(custom, defaultRestaurantClosed, nil)
+}
+
+// WelcomeTableMessage boas vindas quando escaneia QR Code
+func WelcomeTableMessage(restaurantName, tableNumber string, msgs ...tenant.MessageTemplates) string {
+	custom := ""
+	if len(msgs) > 0 {
+		custom = msgs[0].WelcomeTable
+	}
+	return resolveTemplate(custom, defaultWelcomeTable, map[string]string{
+		"{nome_restaurante}": restaurantName,
+		"{numero_mesa}":      tableNumber,
+	})
+}
+
+// TableRequestPendingMessage mensagem quando aguarda aprovação
+func TableRequestPendingMessage(msgs ...tenant.MessageTemplates) string {
+	custom := ""
+	if len(msgs) > 0 {
+		custom = msgs[0].TablePending
+	}
+	return resolveTemplate(custom, defaultTablePending, nil)
+}
+
+// TableRequestApprovedMessage mensagem quando mesa é liberada
+func TableRequestApprovedMessage(msgs ...tenant.MessageTemplates) string {
+	custom := ""
+	if len(msgs) > 0 {
+		custom = msgs[0].TableApproved
+	}
+	return resolveTemplate(custom, defaultTableApproved, nil)
+}
+
+// MainMenuMessage menu principal
+func MainMenuMessage(msgs ...tenant.MessageTemplates) string {
+	custom := ""
+	if len(msgs) > 0 {
+		custom = msgs[0].MainMenu
+	}
+	return resolveTemplate(custom, defaultMainMenu, nil)
+}
+
+// InvalidOptionMessage opção inválida
+func InvalidOptionMessage(msgs ...tenant.MessageTemplates) string {
+	custom := ""
+	if len(msgs) > 0 {
+		custom = msgs[0].InvalidOption
+	}
+	return resolveTemplate(custom, defaultInvalidOption, nil)
+}
+
+// OrderConfirmedMessage pedido confirmado
+func OrderConfirmedMessage(orderNumber int, msgs ...tenant.MessageTemplates) string {
+	custom := ""
+	if len(msgs) > 0 {
+		custom = msgs[0].OrderConfirmed
+	}
+	return resolveTemplate(custom, defaultOrderConfirmed, map[string]string{
+		"{numero_pedido}": fmt.Sprintf("%d", orderNumber),
+	})
+}
+
+// OrderReadyMessage pedido pronto
+func OrderReadyMessage(orderNumber int, msgs ...tenant.MessageTemplates) string {
+	custom := ""
+	if len(msgs) > 0 {
+		custom = msgs[0].OrderReady
+	}
+	return resolveTemplate(custom, defaultOrderReady, map[string]string{
+		"{numero_pedido}": fmt.Sprintf("%d", orderNumber),
+	})
+}
+
+// TabSummaryMessage resumo da comanda
+func TabSummaryMessage(items []string, subtotal, serviceFee, total float64, msgs ...tenant.MessageTemplates) string {
+	custom := ""
+	if len(msgs) > 0 {
+		custom = msgs[0].TabSummary
+	}
+
+	itemsList := ""
+	for _, item := range items {
+		itemsList += fmt.Sprintf("• %s\n", item)
+	}
+
+	return resolveTemplate(custom, defaultTabSummary, map[string]string{
+		"{itens}":    itemsList,
+		"{subtotal}": fmt.Sprintf("%.2f", subtotal),
+		"{taxa}":     fmt.Sprintf("%.2f", serviceFee),
+		"{total}":    fmt.Sprintf("%.2f", total),
+	})
+}
+
+// ServiceRequestConfirmed solicitação de garçom
+func ServiceRequestConfirmed(requestType string, msgs ...tenant.MessageTemplates) string {
+	custom := ""
+	if len(msgs) > 0 {
+		custom = msgs[0].ServiceRequest
+	}
+	return resolveTemplate(custom, defaultServiceRequest, map[string]string{
+		"{tipo_servico}": requestType,
+	})
+}
+
+// PaymentPending pagamento pendente
+func PaymentPending(total float64, pixCode string, msgs ...tenant.MessageTemplates) string {
+	custom := ""
+	if len(msgs) > 0 {
+		custom = msgs[0].PaymentPending
+	}
+	return resolveTemplate(custom, defaultPaymentPending, map[string]string{
+		"{total}":      fmt.Sprintf("%.2f", total),
+		"{codigo_pix}": pixCode,
+	})
+}
+
+// PaymentConfirmed pagamento confirmado
+func PaymentConfirmed(total float64, msgs ...tenant.MessageTemplates) string {
+	custom := ""
+	if len(msgs) > 0 {
+		custom = msgs[0].PaymentConfirmed
+	}
+	return resolveTemplate(custom, defaultPaymentConfirmed, map[string]string{
+		"{total}": fmt.Sprintf("%.2f", total),
+	})
+}
+
+// ─────────────────────────────────────────────────
+// Defaults: retorna mapa com todos os templates padrão
+// (usado pela API para exibir os padrões ao admin)
+// ─────────────────────────────────────────────────
+
+func DefaultMessageTemplates() tenant.MessageTemplates {
+	return tenant.MessageTemplates{
+		Welcome:          defaultWelcome,
+		RestaurantClosed: defaultRestaurantClosed,
+		WelcomeTable:     defaultWelcomeTable,
+		TablePending:     defaultTablePending,
+		TableApproved:    defaultTableApproved,
+		MainMenu:         defaultMainMenu,
+		InvalidOption:    defaultInvalidOption,
+		OrderConfirmed:   defaultOrderConfirmed,
+		OrderReady:       defaultOrderReady,
+		TabSummary:       defaultTabSummary,
+		ServiceRequest:   defaultServiceRequest,
+		PaymentPending:   defaultPaymentPending,
+		PaymentConfirmed: defaultPaymentConfirmed,
+	}
 }

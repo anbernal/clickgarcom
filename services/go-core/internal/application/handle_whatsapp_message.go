@@ -113,7 +113,7 @@ func (uc *HandleWhatsAppMessageUseCase) Execute(ctx context.Context, input Handl
 					}
 
 					// Mesa encontrada (LIVRE) - iniciar fluxo de QR Code normal
-					welcomeMsg := whatsapp.WelcomeTableMessage(t.Name, tTable.Number)
+					welcomeMsg := whatsapp.WelcomeTableMessage(t.Name, tTable.Number, t.Settings.Messages)
 
 					// Salvar Tabela no Contexto para criar o request no próximo passo
 					sess.SetContext("pending_table_id", tTable.ID.String())
@@ -134,7 +134,7 @@ func (uc *HandleWhatsAppMessageUseCase) Execute(ctx context.Context, input Handl
 			return fmt.Errorf("failed to find tenant: %w", err)
 		}
 
-		welcomeMsg := whatsapp.WelcomeMessage(t.Name)
+		welcomeMsg := whatsapp.WelcomeMessage(t.Name, t.Settings.Messages)
 		if err := uc.sender.SendText(ctx, input.From, welcomeMsg); err != nil {
 			return fmt.Errorf("failed to send welcome: %w", err)
 		}

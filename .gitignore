@@ -48,3 +48,6 @@ yarn-error.log
 /services/go-core/worker
 /services/go-core/api
 /services/go-core/outbox-worker
+/.pid-api
+/.pid-outbox
+/.pid-worker

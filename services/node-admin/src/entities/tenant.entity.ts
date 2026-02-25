@@ -1,5 +1,32 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
 
+export interface MessageTemplates {
+    msg_welcome?: string;
+    msg_restaurant_closed?: string;
+    msg_welcome_table?: string;
+    msg_table_request_pending?: string;
+    msg_table_approved?: string;
+    msg_main_menu?: string;
+    msg_invalid_option?: string;
+    msg_order_confirmed?: string;
+    msg_order_ready?: string;
+    msg_tab_summary?: string;
+    msg_service_request?: string;
+    msg_payment_pending?: string;
+    msg_payment_confirmed?: string;
+}
+
+export interface TenantSettings {
+    service_fee_percent?: number;
+    split_enabled?: boolean;
+    auto_accept_orders?: boolean;
+    nps_enabled?: boolean;
+    voucher_enabled?: boolean;
+    mp_access_token?: string;
+    mp_public_key?: string;
+    messages?: MessageTemplates;
+}
+
 @Entity('tenants')
 export class Tenant {
     @PrimaryGeneratedColumn('uuid')
@@ -15,7 +42,7 @@ export class Tenant {
     whatsappNumber: string;
 
     @Column({ type: 'simple-json', nullable: true })
-    settings: Record<string, any>;
+    settings: TenantSettings;
 
     @Column({ default: true })
     active: boolean;

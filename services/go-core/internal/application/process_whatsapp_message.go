@@ -113,11 +113,14 @@ func (uc *ProcessWhatsAppMessageUseCase) Execute(ctx context.Context, inboxID uu
 
 	// Intercept if tenant is closed
 	if !tenant.IsOpen {
-		uc.logger.Info("tenant is closed, rejecting message", zap.String("tenant_id", tenant.ID.String()))
+		uc.logger.Info("tenant is closed, rejecting message",
+			zap.String("tenant_id", tenant.ID.String()),
+			zap.String("custom_closed_msg", tenant.Settings.Messages.RestaurantClosed),
+		)
 		if len(value.Messages) > 0 {
 			for _, msg := range value.Messages {
 				if msg.Type == "text" || msg.Type == "interactive" {
-					uc.handleMsgUseCase.sender.SendText(ctx, msg.From, whatsapp.RestaurantClosedMessage())
+					uc.handleMsgUseCase.sender.SendText(ctx, msg.From, whatsapp.RestaurantClosedMessage(tenant.Settings.Messages))
 				}
 			}
 		}
