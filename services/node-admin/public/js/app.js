@@ -40,6 +40,12 @@ function closeModal() {
     document.getElementById('modal-overlay').classList.remove('active');
 }
 
+function logout() {
+    localStorage.removeItem('clickgarcom_auth');
+    sessionStorage.removeItem('clickgarcom_auth');
+    window.location.href = '/login.html';
+}
+
 // Init
 document.addEventListener('DOMContentLoaded', () => {
     // Nav click handlers
@@ -56,6 +62,11 @@ document.addEventListener('DOMContentLoaded', () => {
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') closeModal();
     });
+
+    const btnLogout = document.getElementById('btn-logout');
+    if (btnLogout) {
+        btnLogout.addEventListener('click', logout);
+    }
 
     // Inject User Data
     try {
