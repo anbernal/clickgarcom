@@ -1,0 +1,3 @@
+ALTER TABLE tabs
+ADD COLUMN IF NOT EXISTS user_phone VARCHAR(30);
+

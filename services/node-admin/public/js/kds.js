@@ -1,12 +1,31 @@
 // ─── CONFIG ────────────────────────────────────────────────────
 const CONFIG = {
   API_URL: '/admin/api',
-  WS_URL: 'ws://localhost:8080/ws/kds',
+  WS_URL: resolveWebSocketUrl(),
   TENANT_ID: '550e8400-e29b-41d4-a716-446655440000',
   POLL_INTERVAL: 15000,
   URGENT_MINUTES: 10,
   WARNING_MINUTES: 5,
 };
+
+function resolveWebSocketUrl() {
+  const query = new URLSearchParams(window.location.search);
+  const queryWs = query.get('ws_url');
+  if (queryWs) return queryWs;
+
+  const savedWs = localStorage.getItem('clickgarcom_ws_url');
+  if (savedWs) return savedWs;
+
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const host = window.location.hostname;
+  const isLocal = host === 'localhost' || host === '127.0.0.1';
+
+  if (isLocal) {
+    return `${protocol}//${host}:8080/ws/kds`;
+  }
+
+  return `${protocol}//${window.location.host}/ws/kds`;
+}
 
 // ─── AUTHENTICATION ────────────────────────────────────────────
 let authSession = null;
@@ -83,8 +102,12 @@ async function apiPatch(path, body) {
 async function loadOrders() {
   try {
     const data = await apiGet(`/orders?tenant_id=${CONFIG.TENANT_ID}&status=PENDING,ACCEPTED,READY`);
+    const orders = Array.isArray(data) ? data : (data.orders || []);
     allOrders = {};
-    (data.orders || []).forEach(o => { allOrders[o.id] = o; });
+    orders.forEach((order) => {
+      const normalized = normalizeOrder(order);
+      allOrders[normalized.id] = normalized;
+    });
     renderAll();
   } catch (e) {
     console.error('Failed to load orders:', e);
@@ -159,7 +182,7 @@ function handleWSEvent(event) {
   if (event.type === 'connected') return;
 
   if (event.type === 'order.created') {
-    const order = event.data;
+    const order = normalizeOrder(event.data);
     allOrders[order.id] = order;
     renderAll();
     playNotificationSound();
@@ -167,7 +190,7 @@ function handleWSEvent(event) {
   }
 
   if (event.type === 'order.status_changed') {
-    const order = event.data;
+    const order = normalizeOrder(event.data);
     if (order.status === 'DELIVERED' || order.status === 'CANCELED') {
       delete allOrders[order.id];
     } else {
@@ -487,6 +510,26 @@ function escapeHTML(str) {
 function shortId(id) {
   if (!id) return '???';
   return id.substring(0, 8);
+}
+
+function normalizeOrder(order) {
+  if (!order || !order.id) return order;
+
+  const items = Array.isArray(order.items) ? order.items : [];
+  return {
+    ...order,
+    created_at: order.created_at || order.createdAt || null,
+    accepted_at: order.accepted_at || order.acceptedAt || null,
+    ready_at: order.ready_at || order.readyAt || null,
+    delivered_at: order.delivered_at || order.deliveredAt || null,
+    canceled_at: order.canceled_at || order.canceledAt || null,
+    cancel_reason: order.cancel_reason || order.cancelReason || '',
+    items: items.map((item) => ({
+      ...item,
+      menu_item_id: item.menu_item_id || item.menuItemId || null,
+      unit_price: item.unit_price || item.unitPrice || item.price || null,
+    })),
+  };
 }
 
 function getElapsed(dateStr) {

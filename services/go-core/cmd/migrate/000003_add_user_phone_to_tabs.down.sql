@@ -1,0 +1,2 @@
+ALTER TABLE tabs
+DROP COLUMN IF EXISTS user_phone;

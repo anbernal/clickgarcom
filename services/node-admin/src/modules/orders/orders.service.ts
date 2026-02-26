@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Order } from '../../entities/order.entity';
 
 const VALID_TRANSITIONS: Record<string, string[]> = {
@@ -20,7 +20,17 @@ export class OrdersService {
 
     async findAll(tenantId: string, status?: string) {
         const where: any = { tenantId };
-        if (status) where.status = status;
+        if (status) {
+            const statuses = status
+                .split(',')
+                .map((s) => s.trim())
+                .filter(Boolean);
+            if (statuses.length === 1) {
+                where.status = statuses[0];
+            } else if (statuses.length > 1) {
+                where.status = In(statuses);
+            }
+        }
         return this.orderRepo.find({
             where,
             relations: ['items'],

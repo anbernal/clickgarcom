@@ -113,9 +113,10 @@ func (uc *HandleWhatsAppMessageUseCase) getOrCreateTab(
 
 	// Criar nova tab
 	newTab := &tab.Tab{
-		ID:       uuid.New(),
-		TenantID: sess.TenantID,
-		Status:   tab.StatusOpen,
+		ID:        uuid.New(),
+		TenantID:  sess.TenantID,
+		UserPhone: sess.UserPhone,
+		Status:    tab.StatusOpen,
 	}
 
 	if err := uc.tabRepo.Create(ctx, newTab); err != nil {
