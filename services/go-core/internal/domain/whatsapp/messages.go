@@ -277,6 +277,21 @@ func PaymentConfirmed(total float64, msgs ...tenant.MessageTemplates) string {
 	})
 }
 
+// WithRestaurantHeader adiciona o nome do restaurante como título visual da mensagem.
+func WithRestaurantHeader(restaurantName, message string) string {
+	body := strings.TrimSpace(message)
+	if body == "" {
+		return ""
+	}
+
+	name := strings.TrimSpace(restaurantName)
+	if name == "" {
+		return body
+	}
+
+	return fmt.Sprintf("🍽️ %s\n_______________________\n\n%s", name, body)
+}
+
 // ─────────────────────────────────────────────────
 // Defaults: retorna mapa com todos os templates padrão
 // (usado pela API para exibir os padrões ao admin)

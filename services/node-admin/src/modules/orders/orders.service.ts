@@ -102,12 +102,14 @@ export class OrdersService {
         const recipient = this.resolveRecipient(rows?.[0]?.user_phone, order.notes || '');
         if (!recipient) return;
         const itemsSummary = await this.buildAcceptedItemsSummary(order, tenantId);
+        const tenantName = await this.resolveTenantName(tenantId);
 
-        const message =
+        const messageBody =
             `✅ *Pedido aceito!*\n\n` +
             `${itemsSummary}` +
             `Seu pedido foi aceito e será entregue em *${eta} minutos*.\n\n` +
             `Assim que estiver pronto, avisaremos por aqui.`;
+        const message = this.withRestaurantHeader(tenantName, messageBody);
 
         await this.dataSource.query(
             `INSERT INTO outbox_messages
@@ -127,13 +129,15 @@ export class OrdersService {
         if (!recipient) return;
 
         const itemsSummary = await this.buildAcceptedItemsSummary(order, tenantId);
+        const tenantName = await this.resolveTenantName(tenantId);
         const reason = (order.cancelReason || '').trim() || 'Sem motivo informado.';
-        const message =
+        const messageBody =
             `⚠️ *Pedido indisponível no momento*\n\n` +
             `${itemsSummary}` +
             `Motivo: *${reason}*\n\n` +
             `Esse item não será cobrado na sua comanda.\n` +
             `Você pode fazer um novo pedido pelo menu principal.`;
+        const message = this.withRestaurantHeader(tenantName, messageBody);
 
         await this.dataSource.query(
             `INSERT INTO outbox_messages
@@ -220,6 +224,25 @@ export class OrdersService {
         const allowed = new Set([5, 10, 15, 20, 25, 30, 40, 45]);
         if (prepMinutes && allowed.has(prepMinutes)) return prepMinutes;
         return 10;
+    }
+
+    private async resolveTenantName(tenantId: string): Promise<string> {
+        const rows = await this.dataSource.query(
+            'SELECT name FROM tenants WHERE id = $1 LIMIT 1',
+            [tenantId],
+        );
+
+        return String(rows?.[0]?.name || '').trim();
+    }
+
+    private withRestaurantHeader(tenantName: string, message: string): string {
+        const body = (message || '').trim();
+        if (!body) return '';
+
+        const title = (tenantName || '').trim();
+        if (!title) return body;
+
+        return `🍽️ ${title}\n_______________________\n\n${body}`;
     }
 
     private resolveRecipient(tabPhone?: string, orderNotes?: string): string | null {

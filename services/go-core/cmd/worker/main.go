@@ -130,6 +130,7 @@ func main() {
 		tableRepo,
 		tabRepo,
 		sessionRepo,
+		tenantRepo,
 		whatsappSender,
 		logger.Log,
 	)

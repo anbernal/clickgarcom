@@ -129,7 +129,7 @@ func (uc *ProcessWhatsAppMessageUseCase) Execute(ctx context.Context, inboxID uu
 						userText = strings.TrimSpace(msg.Interactive.ButtonReply.ID)
 					}
 					closedResponse := uc.buildClosedTenantResponse(ctx, tenant, msg.From, userText)
-					if err := uc.handleMsgUseCase.sender.SendText(ctx, msg.From, closedResponse); err != nil {
+					if err := uc.handleMsgUseCase.sendTenantMessage(ctx, msg.From, tenant.ID, closedResponse); err != nil {
 						uc.logger.Warn("failed to send closed-tenant response",
 							zap.Error(err),
 							zap.String("tenant_id", tenant.ID.String()),

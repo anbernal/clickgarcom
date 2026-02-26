@@ -120,7 +120,7 @@ func (uc *HandleWhatsAppMessageUseCase) Execute(ctx context.Context, input Handl
 					sess.SetContext("pending_table_number", tTable.Number)
 					sess.TransitionTo(session.StateWaitingTableConfirmation)
 
-					if err := uc.sender.SendText(ctx, input.From, welcomeMsg); err != nil {
+					if err := uc.sendTenantMessage(ctx, input.From, input.TenantID, welcomeMsg); err != nil {
 						return fmt.Errorf("failed to send welcome table: %w", err)
 					}
 					return uc.sessionRepo.Save(ctx, sess)
@@ -135,7 +135,7 @@ func (uc *HandleWhatsAppMessageUseCase) Execute(ctx context.Context, input Handl
 		}
 
 		welcomeMsg := whatsapp.WelcomeMessage(t.Name, t.Settings.Messages)
-		if err := uc.sender.SendText(ctx, input.From, welcomeMsg); err != nil {
+		if err := uc.sendTenantMessage(ctx, input.From, input.TenantID, welcomeMsg); err != nil {
 			return fmt.Errorf("failed to send welcome: %w", err)
 		}
 
@@ -154,7 +154,7 @@ func (uc *HandleWhatsAppMessageUseCase) Execute(ctx context.Context, input Handl
 
 	// 3. Enviar resposta
 	if response != "" {
-		if err := uc.sender.SendText(ctx, input.From, response); err != nil {
+		if err := uc.sendTenantMessage(ctx, input.From, input.TenantID, response); err != nil {
 			return fmt.Errorf("failed to send response: %w", err)
 		}
 	}
@@ -578,7 +578,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleOpenerDecision(
 				clientB.TransitionTo(session.StateMainMenu)
 				uc.sessionRepo.Save(ctx, clientB)
 
-				uc.sender.SendText(ctx, clientB.UserPhone, "✅ *Sua entrada foi aprovada!*\n\n🤝 Você entrou na Comanda Compartilhada.\n\n"+whatsapp.MainMenuMessage())
+				uc.sendTenantMessage(ctx, clientB.UserPhone, sess.TenantID, "✅ *Sua entrada foi aprovada!*\n\n🤝 Você entrou na Comanda Compartilhada.\n\n"+whatsapp.MainMenuMessage())
 			} else {
 				newTab := &tab.Tab{
 					ID:       uuid.New(),
@@ -594,7 +594,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleOpenerDecision(
 				clientB.TransitionTo(session.StateMainMenu)
 				uc.sessionRepo.Save(ctx, clientB)
 
-				uc.sender.SendText(ctx, clientB.UserPhone, "✅ *Sua entrada foi aprovada!*\n\n💳 Sua comanda individual foi criada.\n\n"+whatsapp.MainMenuMessage())
+				uc.sendTenantMessage(ctx, clientB.UserPhone, sess.TenantID, "✅ *Sua entrada foi aprovada!*\n\n💳 Sua comanda individual foi criada.\n\n"+whatsapp.MainMenuMessage())
 			}
 		}
 
@@ -612,11 +612,29 @@ func (uc *HandleWhatsAppMessageUseCase) handleOpenerDecision(
 			clientB.TransitionTo(session.StateMainMenu)
 			uc.sessionRepo.Save(ctx, clientB)
 
-			uc.sender.SendText(ctx, clientB.UserPhone, "❌ *Sua entrada foi recusada* pela pessoa responsável pela mesa.\n\n"+whatsapp.MainMenuMessage())
+			uc.sendTenantMessage(ctx, clientB.UserPhone, sess.TenantID, "❌ *Sua entrada foi recusada* pela pessoa responsável pela mesa.\n\n"+whatsapp.MainMenuMessage())
 		}
 		delete(sess.Context, "pending_join_request_id")
 		return "❌ Você *recusou* a entrada.", session.StateMainMenu, nil
 	}
 
 	return whatsapp.MainMenuMessage(), session.StateMainMenu, nil
+}
+
+func (uc *HandleWhatsAppMessageUseCase) sendTenantMessage(
+	ctx context.Context,
+	to string,
+	tenantID uuid.UUID,
+	message string,
+) error {
+	decorated := whatsapp.WithRestaurantHeader(uc.resolveTenantName(ctx, tenantID), message)
+	return uc.sender.SendText(ctx, to, decorated)
+}
+
+func (uc *HandleWhatsAppMessageUseCase) resolveTenantName(ctx context.Context, tenantID uuid.UUID) string {
+	t, err := uc.tenantRepo.FindByID(ctx, tenantID)
+	if err != nil || t == nil {
+		return ""
+	}
+	return strings.TrimSpace(t.Name)
 }

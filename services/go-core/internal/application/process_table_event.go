@@ -11,6 +11,7 @@ import (
 	"github.com/anbernal/clickgarcom/internal/domain/inbox/session"
 	"github.com/anbernal/clickgarcom/internal/domain/tab"
 	"github.com/anbernal/clickgarcom/internal/domain/table"
+	"github.com/anbernal/clickgarcom/internal/domain/tenant"
 	"github.com/anbernal/clickgarcom/internal/domain/whatsapp"
 )
 
@@ -18,6 +19,7 @@ type ProcessTableEventUseCase struct {
 	tableRepo   table.Repository
 	tabRepo     tab.Repository
 	sessionRepo session.Repository
+	tenantRepo  tenant.Repository
 	sender      WhatsAppSender
 	logger      *zap.Logger
 }
@@ -26,6 +28,7 @@ func NewProcessTableEventUseCase(
 	tableRepo table.Repository,
 	tabRepo tab.Repository,
 	sessionRepo session.Repository,
+	tenantRepo tenant.Repository,
 	sender WhatsAppSender,
 	logger *zap.Logger,
 ) *ProcessTableEventUseCase {
@@ -33,6 +36,7 @@ func NewProcessTableEventUseCase(
 		tableRepo:   tableRepo,
 		tabRepo:     tabRepo,
 		sessionRepo: sessionRepo,
+		tenantRepo:  tenantRepo,
 		sender:      sender,
 		logger:      logger,
 	}
@@ -130,6 +134,9 @@ func (uc *ProcessTableEventUseCase) Execute(ctx context.Context, payloadBytes []
 
 		// 6. Enviar Mensagem de Aprovação via WhatsApp
 		msg := whatsapp.TableRequestApprovedMessage()
+		if tenantObj, tenantErr := uc.tenantRepo.FindByID(ctx, req.TenantID); tenantErr == nil && tenantObj != nil {
+			msg = whatsapp.WithRestaurantHeader(tenantObj.Name, msg)
+		}
 		if err := uc.sender.SendText(ctx, sess.UserPhone, msg); err != nil {
 			uc.logger.Error("failed to send wa approval message", zap.Error(err))
 		}
