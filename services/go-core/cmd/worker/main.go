@@ -93,6 +93,7 @@ func main() {
 		logger.Log,
 	)
 	whatsappSender := infraWA.NewSender(db.DB, whatsappAPI, logger.Log)
+	rabbitPublisher := rabbitmq.NewPublisher(rabbitMQClient.GetChannel(), logger.Log)
 
 	// 7. Use Cases
 	createOrderUC := application.NewCreateOrderUseCase(
@@ -100,6 +101,7 @@ func main() {
 		tabRepo,
 		menuRepo,
 		nil, // wsHub not available in worker
+		rabbitPublisher,
 		logger.Log,
 	)
 

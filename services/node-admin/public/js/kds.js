@@ -397,10 +397,13 @@ function updateNavBadges() {
 }
 
 // ─── ACTIONS ───────────────────────────────────────────────────
-async function updateStatus(orderId, newStatus, cancelReason) {
+async function updateStatus(orderId, newStatus, cancelReason, prepMinutes) {
   try {
     const body = { status: newStatus };
     if (cancelReason) body.cancel_reason = cancelReason;
+    if (newStatus === 'ACCEPTED' && Number.isFinite(prepMinutes)) {
+      body.prep_minutes = prepMinutes;
+    }
     await apiPatch(`/orders/${orderId}/status?tenant_id=${CONFIG.TENANT_ID}`, body);
 
     // Optimistic update
@@ -461,7 +464,9 @@ function switchModalTab(t) {
 
 function confirmAccept() {
   if (!modalState.orderId) return;
-  updateStatus(modalState.orderId, 'ACCEPTED');
+  const selected = document.querySelector('.time-opt.selected');
+  const prepMinutes = Number.parseInt(selected?.textContent || '', 10) || 10;
+  updateStatus(modalState.orderId, 'ACCEPTED', undefined, prepMinutes);
   closeModal();
 }
 

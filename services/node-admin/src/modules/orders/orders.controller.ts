@@ -23,7 +23,11 @@ export class OrdersController {
 
     @UseGuards(JwtAuthGuard)
     @Patch(':id/status')
-    updateStatus(@Request() req, @Param('id') id: string, @Body() body: { status: string }) {
-        return this.ordersService.updateStatus(id, body.status, req.user.tenantId);
+    updateStatus(
+        @Request() req,
+        @Param('id') id: string,
+        @Body() body: { status: string; prep_minutes?: number },
+    ) {
+        return this.ordersService.updateStatus(id, body.status, req.user.tenantId, body.prep_minutes);
     }
 }

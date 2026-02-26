@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
@@ -11,11 +12,14 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/recover"
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 
 	"github.com/anbernal/clickgarcom/internal/application/auth"
 	"github.com/anbernal/clickgarcom/internal/config"
+	"github.com/anbernal/clickgarcom/internal/domain/events"
 	"github.com/anbernal/clickgarcom/internal/infrastructure/persistence/postgres"
+	"github.com/anbernal/clickgarcom/internal/infrastructure/queue/rabbitmq"
 	"github.com/anbernal/clickgarcom/internal/infrastructure/websocket"
 	"github.com/anbernal/clickgarcom/internal/infrastructure/whatsapp"
 	"github.com/anbernal/clickgarcom/internal/interfaces/http/routes"
@@ -95,6 +99,29 @@ func main() {
 	wsHub := websocket.NewHub()
 	go wsHub.Run() // Rodar hub em goroutine
 	logger.Info("WebSocket Hub initialized and running")
+
+	// 8.1) Bridge de eventos KDS vindos do worker via RabbitMQ
+	consumer := rabbitmq.NewConsumer(rabbitMQ.GetChannel(), logger.Log)
+	handleKDSEvent := func(ctx context.Context, body []byte) error {
+		var event events.OrderEvent
+		if err := json.Unmarshal(body, &event); err != nil {
+			return fmt.Errorf("failed to unmarshal kds event: %w", err)
+		}
+
+		if event.TenantID == uuid.Nil {
+			return fmt.Errorf("invalid tenant_id in kds event")
+		}
+
+		wsHub.BroadcastToTenant(event.TenantID, &event)
+		logger.Debug("kds event bridged to websocket hub",
+			zap.String("tenant_id", event.TenantID.String()),
+			zap.String("event_type", string(event.Type)),
+		)
+		return nil
+	}
+	if err := consumer.Consume("kds.events", handleKDSEvent); err != nil {
+		logger.Fatal("Failed to start kds.events consumer", zap.Error(err))
+	}
 
 	// 9) Setup Auth
 	userRepo := postgres.NewUserRepository(db.DB)

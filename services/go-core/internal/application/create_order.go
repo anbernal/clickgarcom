@@ -19,6 +19,8 @@ import (
 const (
 	// ServiceFeePercent é a taxa de serviço padrão (10%)
 	ServiceFeePercent = 10.0
+	// KDSEventsQueue é a fila usada para propagar eventos de pedidos ao processo da API (WebSocket Hub)
+	KDSEventsQueue = "kds.events"
 )
 
 var (
@@ -50,7 +52,12 @@ type CreateOrderUseCase struct {
 	tabRepo   tab.Repository
 	menuRepo  menu.Repository
 	wsHub     *websocket.Hub
+	publisher KDSEventPublisher
 	logger    *zap.Logger
+}
+
+type KDSEventPublisher interface {
+	PublishJSON(exchange, routingKey string, data interface{}) error
 }
 
 func NewCreateOrderUseCase(
@@ -58,6 +65,7 @@ func NewCreateOrderUseCase(
 	tabRepo tab.Repository,
 	menuRepo menu.Repository,
 	wsHub *websocket.Hub,
+	publisher KDSEventPublisher,
 	logger *zap.Logger,
 ) *CreateOrderUseCase {
 	return &CreateOrderUseCase{
@@ -65,6 +73,7 @@ func NewCreateOrderUseCase(
 		tabRepo:   tabRepo,
 		menuRepo:  menuRepo,
 		wsHub:     wsHub,
+		publisher: publisher,
 		logger:    logger,
 	}
 }
@@ -211,14 +220,33 @@ func (uc *CreateOrderUseCase) Execute(ctx context.Context, input CreateOrderInpu
 		zap.Float64("order_total", orderTotal),
 	)
 
-	// 9. Broadcast evento WebSocket
+	// 9. Publicar evento de pedido criado
+	event := events.NewOrderCreatedEvent(newOrder)
+
+	// 9.1 Broadcast local (quando o use case roda no processo da API)
 	if uc.wsHub != nil {
-		event := events.NewOrderCreatedEvent(newOrder)
 		uc.wsHub.BroadcastToTenant(input.TenantID, event)
 		uc.logger.Info("order.created event broadcast",
 			zap.String("order_id", newOrder.ID.String()),
 			zap.String("tenant_id", input.TenantID.String()),
 		)
+	}
+
+	// 9.2 Bridge via fila (quando o use case roda no worker)
+	if uc.publisher != nil {
+		if err := uc.publisher.PublishJSON("", KDSEventsQueue, event); err != nil {
+			uc.logger.Error("failed to publish order.created event to kds queue",
+				zap.Error(err),
+				zap.String("order_id", newOrder.ID.String()),
+				zap.String("tenant_id", input.TenantID.String()),
+			)
+		} else {
+			uc.logger.Info("order.created event published to kds queue",
+				zap.String("order_id", newOrder.ID.String()),
+				zap.String("tenant_id", input.TenantID.String()),
+				zap.String("queue", KDSEventsQueue),
+			)
+		}
 	}
 
 	return newOrder, nil

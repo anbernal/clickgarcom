@@ -77,14 +77,15 @@ func (uc *HandleWhatsAppMessageUseCase) handleOrderingSimplified(
 			session.StateMainMenu, nil
 	}
 
-	// Mensagem de confirmação
-	msg := fmt.Sprintf(`✅ *Pedido confirmado!*
+	// Mensagem após criação: pedido enviado e aguardando aceite da cozinha
+	msg := fmt.Sprintf(`⏳ *Pedido enviado!*
 
 📦 Item: %s
 💰 Valor: R$ %.2f
 🔢 Quantidade: 1
 
-Seu pedido está sendo preparado! 🍳
+Seu pedido foi enviado, aguarde o aceite da nossa cozinha.
+Assim que for aceito, vamos informar o tempo estimado de entrega.
 
 %s`, selectedItem.Name, selectedItem.Price, whatsapp.MainMenuMessage())
 
