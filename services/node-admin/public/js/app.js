@@ -46,6 +46,21 @@ function logout() {
     window.location.href = '/login.html';
 }
 
+function setExpedienteButtonState(isOpen) {
+    const btnExpediente = document.getElementById('btn-expediente');
+    if (!btnExpediente) return;
+
+    if (isOpen) {
+        btnExpediente.classList.add('active');
+        btnExpediente.innerHTML = '<span class="nav-icon">🟢</span> Aberto';
+    } else {
+        btnExpediente.classList.remove('active');
+        btnExpediente.innerHTML = '<span class="nav-icon">🔴</span> Fechado';
+    }
+}
+
+window.setExpedienteButtonState = setExpedienteButtonState;
+
 // Init
 document.addEventListener('DOMContentLoaded', () => {
     // Nav click handlers
@@ -86,27 +101,19 @@ document.addEventListener('DOMContentLoaded', () => {
     if (btnExpediente) {
         btnExpediente.addEventListener('click', async () => {
             const isOpen = btnExpediente.classList.contains('active');
+            const nextState = !isOpen;
             try {
-                const res = await api.patch('/auth/status', { currentStatus: isOpen });
-                if (res.is_open) {
-                    btnExpediente.classList.add('active');
-                    btnExpediente.innerHTML = '<span class="nav-icon">🟢</span> Aberto';
-                    showToast('Expediente Aberto!', 'success');
-                } else {
-                    btnExpediente.classList.remove('active');
-                    btnExpediente.innerHTML = '<span class="nav-icon">🔴</span> Fechado';
-                    showToast('Expediente Fechado!', 'error');
-                }
+                const res = await api.patch('/auth/status', { is_open: nextState });
+                setExpedienteButtonState(!!res.is_open);
+                showToast(res.is_open ? 'Expediente Aberto!' : 'Expediente Fechado!', res.is_open ? 'success' : 'error');
             } catch (err) {
                 showToast(err.message, 'error');
             }
         });
 
-        // Load initial status (To be fetched, currently hardcoded to closed initially)
+        // Load initial status from API /auth/me
         api.get('/auth/me').then(user => {
-            // Se o user object em /me retornasse tenant.isOpen, setariamos aqui.
-            // Por enquanto, apenas atualizamos o texto para fechar o loading
-            btnExpediente.innerHTML = '<span class="nav-icon">🔴</span> Fechado';
+            setExpedienteButtonState(!!user.isOpen);
         }).catch(err => console.error(err));
     }
 

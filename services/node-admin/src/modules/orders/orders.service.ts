@@ -106,7 +106,7 @@ export class OrdersService {
         const message =
             `✅ *Pedido aceito!*\n\n` +
             `${itemsSummary}` +
-            `Seu pedido foi aceito pela cozinha e será entregue em *${eta} minutos*.\n\n` +
+            `Seu pedido foi aceito e será entregue em *${eta} minutos*.\n\n` +
             `Assim que estiver pronto, avisaremos por aqui.`;
 
         await this.dataSource.query(

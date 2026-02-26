@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Request, UseGuards, Get, HttpException, HttpStatus, Patch, UnauthorizedException, HttpCode } from '@nestjs/common';
+import { Controller, Post, Body, Request, UseGuards, Get, HttpException, HttpStatus, Patch, Put, UnauthorizedException, HttpCode } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 
@@ -26,8 +26,22 @@ export class AuthController {
 
     @UseGuards(JwtAuthGuard)
     @Patch('status')
-    async toggleStatus(@Request() req, @Body() data: { currentStatus: boolean }) {
-        return this.authService.toggleTenantStatus(req.user.tenantId, data.currentStatus);
+    async toggleStatus(@Request() req, @Body() data: { currentStatus?: boolean; is_open?: boolean }) {
+        if (typeof data.is_open === 'boolean') {
+            return this.authService.setTenantStatus(req.user.tenantId, data.is_open);
+        }
+        return this.authService.toggleTenantStatus(req.user.tenantId, !!data.currentStatus);
+    }
+
+    @UseGuards(JwtAuthGuard)
+    @Get('messages')
+    async getMessages(@Request() req) {
+        return this.authService.getTenantMessages(req.user.tenantId);
+    }
+
+    @UseGuards(JwtAuthGuard)
+    @Put('messages')
+    async updateMessages(@Request() req, @Body() data: any) {
+        return this.authService.updateTenantMessages(req.user.tenantId, data || {});
     }
 }
-

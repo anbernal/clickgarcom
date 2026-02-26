@@ -17,6 +17,7 @@ const MessageTemplatesKeys = [
 
 let configuracoesDefaults = {};
 let configuracoesAtuais = {};
+let expedienteAberto = false;
 
 async function loadConfiguracoesPage() {
     document.getElementById('page-title').textContent = 'Configurações de Mensagens';
@@ -34,9 +35,12 @@ async function loadConfiguracoesPage() {
     `;
 
     try {
-        const tenantId = localStorage.getItem('tenant_id');
-        const res = await apiFetch('/api/tenants/' + tenantId + '/messages');
+        const [me, res] = await Promise.all([
+            api.get('/auth/me'),
+            api.get('/auth/messages'),
+        ]);
 
+        expedienteAberto = !!me.isOpen;
         configuracoesAtuais = res.messages || {};
         configuracoesDefaults = res.defaults || {};
 
@@ -52,6 +56,18 @@ function renderConfiguracoesUI(container) {
         <div class="layout-content">
             <main class="main-body">
                 <div class="card" style="max-width: 800px; margin: 0 auto;">
+                    <h2 class="card-title" style="margin-bottom: 8px;">Expediente</h2>
+                    <p style="color: var(--muted); margin-bottom: 16px;">Controle o funcionamento do restaurante. Com o expediente fechado, novos pedidos ficam bloqueados no WhatsApp.</p>
+                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; margin-bottom: 24px;">
+                        <div>
+                            <div style="font-weight: 700;" id="expediente-status-text">${expedienteAberto ? '🟢 Aberto para pedidos' : '🔴 Fechado para novos pedidos'}</div>
+                            <div style="font-size: 13px; color: var(--muted); margin-top: 4px;">${expedienteAberto ? 'Clientes podem enviar pedidos normalmente.' : 'Pedidos novos bloqueados. Clientes com comanda aberta recebem orientação para fechamento.'}</div>
+                        </div>
+                        <button type="button" class="btn ${expedienteAberto ? 'btn-danger' : 'btn-primary'}" id="btn-expediente-config" onclick="toggleExpedienteFromConfig()">
+                            ${expedienteAberto ? 'Fechar expediente' : 'Abrir expediente'}
+                        </button>
+                    </div>
+
                     <h2 class="card-title" style="margin-bottom: 8px;">Mensagens do Bot</h2>
                     <p style="color: var(--muted); margin-bottom: 24px;">Você pode personalizar o texto do bot abaixo. As variáveis entre chaves <code>{variavel}</code> serão substituídas automaticamente pelo sistema. Deixe vazio para usar o padrão.</p>
                     
@@ -129,7 +145,6 @@ async function handleSaveMessages(e) {
     btnSave.innerHTML = '<span class="spinner" style="width: 14px; height: 14px; border-width: 2px;"></span> Salvando...';
     btnSave.disabled = true;
 
-    const tenantId = localStorage.getItem('tenant_id');
     const payload = {};
 
     // Extrair apenas os valores customizados que forem diferentes do default
@@ -143,10 +158,7 @@ async function handleSaveMessages(e) {
     });
 
     try {
-        await apiFetch('/api/tenants/' + tenantId + '/messages', {
-            method: 'PUT',
-            body: JSON.stringify(payload)
-        });
+        await api.put('/auth/messages', payload);
 
         alert('Configurações de mensagens salvas com sucesso!');
         loadConfiguracoesPage(); // recarrega botões
@@ -156,6 +168,36 @@ async function handleSaveMessages(e) {
     } finally {
         btnSave.innerHTML = 'Salvar Alterações';
         btnSave.disabled = false;
+    }
+}
+
+async function toggleExpedienteFromConfig() {
+    const btn = document.getElementById('btn-expediente-config');
+    if (!btn) return;
+
+    btn.disabled = true;
+    const nextState = !expedienteAberto;
+    try {
+        const res = await api.patch('/auth/status', { is_open: nextState });
+        expedienteAberto = !!res.is_open;
+
+        const statusText = document.getElementById('expediente-status-text');
+        if (statusText) {
+            statusText.textContent = expedienteAberto ? '🟢 Aberto para pedidos' : '🔴 Fechado para novos pedidos';
+        }
+        btn.classList.toggle('btn-danger', expedienteAberto);
+        btn.classList.toggle('btn-primary', !expedienteAberto);
+        btn.textContent = expedienteAberto ? 'Fechar expediente' : 'Abrir expediente';
+
+        if (typeof window.setExpedienteButtonState === 'function') {
+            window.setExpedienteButtonState(expedienteAberto);
+        }
+
+        showToast(expedienteAberto ? 'Expediente aberto com sucesso!' : 'Expediente fechado com sucesso!', expedienteAberto ? 'success' : 'error');
+    } catch (err) {
+        showToast(err.message || 'Falha ao alterar expediente', 'error');
+    } finally {
+        btn.disabled = false;
     }
 }
 

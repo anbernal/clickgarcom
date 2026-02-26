@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 
 	"github.com/anbernal/clickgarcom/internal/domain/inbox"
+	"github.com/anbernal/clickgarcom/internal/domain/tab"
 	"github.com/anbernal/clickgarcom/internal/domain/tenant"
 	"github.com/anbernal/clickgarcom/internal/domain/whatsapp"
 )
@@ -120,7 +122,20 @@ func (uc *ProcessWhatsAppMessageUseCase) Execute(ctx context.Context, inboxID uu
 		if len(value.Messages) > 0 {
 			for _, msg := range value.Messages {
 				if msg.Type == "text" || msg.Type == "interactive" {
-					uc.handleMsgUseCase.sender.SendText(ctx, msg.From, whatsapp.RestaurantClosedMessage(tenant.Settings.Messages))
+					userText := ""
+					if msg.Type == "text" {
+						userText = strings.TrimSpace(msg.Text.Body)
+					} else if msg.Type == "interactive" && msg.Interactive.Type == "button_reply" {
+						userText = strings.TrimSpace(msg.Interactive.ButtonReply.ID)
+					}
+					closedResponse := uc.buildClosedTenantResponse(ctx, tenant, msg.From, userText)
+					if err := uc.handleMsgUseCase.sender.SendText(ctx, msg.From, closedResponse); err != nil {
+						uc.logger.Warn("failed to send closed-tenant response",
+							zap.Error(err),
+							zap.String("tenant_id", tenant.ID.String()),
+							zap.String("to", msg.From),
+						)
+					}
 				}
 			}
 		}
@@ -173,4 +188,75 @@ func (uc *ProcessWhatsAppMessageUseCase) Execute(ctx context.Context, inboxID uu
 	)
 
 	return nil
+}
+
+func (uc *ProcessWhatsAppMessageUseCase) buildClosedTenantResponse(
+	ctx context.Context,
+	tenantObj *tenant.Tenant,
+	userPhone string,
+	userText string,
+) string {
+	base := whatsapp.RestaurantClosedMessage(tenantObj.Settings.Messages)
+	openTab := uc.findOpenTabForPhone(ctx, tenantObj.ID, userPhone)
+	if openTab == nil {
+		return base + "\n\n📱 Para consultar opções, digite *2 - Ver minha comanda* quando reabrirmos."
+	}
+
+	summary := fmt.Sprintf(
+		"📋 *Sua Comanda (aberta)*\n\nSubtotal: R$ %.2f\nTaxa de serviço: R$ %.2f\n*Total: R$ %.2f*",
+		openTab.Subtotal,
+		openTab.ServiceFee,
+		openTab.Total,
+	)
+
+	instruction := "Como estamos fora do expediente, não recebemos novos pedidos agora.\n" +
+		"Para encerrar a conta, fale com nossa equipe e utilize a opção *2 - Ver minha comanda* no menu quando necessário."
+
+	if userText == "2" || userText == "5" {
+		return base + "\n\n" + summary + "\n\n" + instruction
+	}
+
+	return base + "\n\n" + summary + "\n\n" + instruction
+}
+
+func (uc *ProcessWhatsAppMessageUseCase) findOpenTabForPhone(
+	ctx context.Context,
+	tenantID uuid.UUID,
+	userPhone string,
+) *tab.Tab {
+	if uc.handleMsgUseCase == nil || uc.handleMsgUseCase.tabRepo == nil || uc.handleMsgUseCase.sessionRepo == nil {
+		return nil
+	}
+
+	sess, err := uc.handleMsgUseCase.sessionRepo.Find(ctx, userPhone, tenantID.String())
+	if err == nil && sess != nil && sess.TabID != nil {
+		t, tabErr := uc.handleMsgUseCase.tabRepo.FindByID(ctx, *sess.TabID, tenantID)
+		if tabErr == nil && t != nil && t.Status == tab.StatusOpen {
+			return t
+		}
+	}
+
+	openTabs, err := uc.handleMsgUseCase.tabRepo.FindByTenantAndStatus(ctx, tenantID, tab.StatusOpen)
+	if err != nil {
+		return nil
+	}
+
+	normalizedPhone := normalizePhoneDigits(userPhone)
+	for _, candidate := range openTabs {
+		if normalizePhoneDigits(candidate.UserPhone) == normalizedPhone {
+			return candidate
+		}
+	}
+
+	return nil
+}
+
+func normalizePhoneDigits(phone string) string {
+	var digits strings.Builder
+	for _, r := range phone {
+		if r >= '0' && r <= '9' {
+			digits.WriteRune(r)
+		}
+	}
+	return digits.String()
 }

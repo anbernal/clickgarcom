@@ -17,7 +17,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
     async validate(payload: any) {
         // payload: { sub: userId, email, role, tenant_id }
-        const user = await this.userRepository.findOne({ where: { id: payload.sub } });
+        const user = await this.userRepository.findOne({
+            where: { id: payload.sub },
+            relations: ['tenant'],
+        });
 
         if (!user || !user.active) {
             throw new UnauthorizedException('Sua sessão é inválida ou expirou.');
@@ -28,7 +31,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
             email: user.email,
             tenantId: user.tenantId,
             role: user.role,
-            name: user.name
+            name: user.name,
+            tenantName: user.tenant?.name,
+            isOpen: !!user.tenant?.isOpen,
         };
     }
 }

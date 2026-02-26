@@ -34,9 +34,9 @@ async function seed() {
     const miBurgerId = uuidv4();
     const miRefriId = uuidv4();
 
-    await client.query('INSERT INTO menu_items (id, tenant_id, category_id, name, description, price, available, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, true, NOW(), NOW()), ($7, $8, $9, $10, $11, $12, true, NOW(), NOW())', [
-      miBurgerId, tenantId, catLanchesId, 'Hambúrguer QA', 'Pão brioche, carne de 180g, queijo', 35.00,
-      miRefriId, tenantId, catBebidasId, 'Refrigerante 350ml', 'Lata gelada', 6.50
+    await client.query('INSERT INTO menu_items (id, tenant_id, category_id, name, description, price, destination, available, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, true, NOW(), NOW()), ($8, $9, $10, $11, $12, $13, $14, true, NOW(), NOW())', [
+      miBurgerId, tenantId, catLanchesId, 'Hambúrguer QA', 'Pão brioche, carne de 180g, queijo', 35.00, 'KITCHEN',
+      miRefriId, tenantId, catBebidasId, 'Refrigerante 350ml', 'Lata gelada', 6.50, 'BAR'
     ]);
 
     console.log('Inserting sample Tabs and Orders...');
