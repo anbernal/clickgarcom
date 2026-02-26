@@ -11,6 +11,7 @@ import { Tab } from './entities/tab.entity';
 import { TableRequest } from './entities/table-request.entity';
 import { User } from './entities/user.entity';
 import { Tenant } from './entities/tenant.entity';
+import { MessageLog } from './entities/message-log.entity';
 
 import { MenuModule } from './modules/menu/menu.module';
 import { CategoriesModule } from './modules/categories/categories.module';
@@ -19,6 +20,7 @@ import { TablesModule } from './modules/tables/tables.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { AmqpModule } from './modules/amqp/amqp.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { SuperAdminModule } from './modules/super-admin/super-admin.module';
 import { AppController } from './app.controller';
 
 @Module({
@@ -31,7 +33,7 @@ import { AppController } from './app.controller';
             username: process.env.DATABASE_USER || 'postgres',
             password: process.env.DATABASE_PASSWORD || 'postgres123',
             database: process.env.DATABASE_NAME || 'clickgarcom_db',
-            entities: [MenuCategory, MenuItem, Order, OrderItem, Table, Tab, TableRequest, User, Tenant],
+            entities: [MenuCategory, MenuItem, Order, OrderItem, Table, Tab, TableRequest, User, Tenant, MessageLog],
             synchronize: false,
         }),
         AmqpModule,
@@ -41,6 +43,7 @@ import { AppController } from './app.controller';
         TablesModule,
         ReportsModule,
         AuthModule,
+        SuperAdminModule,
     ],
     controllers: [AppController],
 })

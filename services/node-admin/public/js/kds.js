@@ -3,6 +3,7 @@ const CONFIG = {
   API_URL: '/admin/api',
   WS_URL: resolveWebSocketUrl(),
   TENANT_ID: '550e8400-e29b-41d4-a716-446655440000',
+  TENANT_NAME: 'ClickGarcom',
   POLL_INTERVAL: 15000,
   URGENT_MINUTES: 10,
   WARNING_MINUTES: 5,
@@ -48,6 +49,13 @@ if (authSession?.token) {
     const payloadB64 = authSession.token.split('.')[1];
     const payload = JSON.parse(atob(payloadB64));
     CONFIG.TENANT_ID = payload.tenant_id;
+    CONFIG.TENANT_NAME = String(
+      authSession?.user?.tenant_name ||
+      authSession?.user?.tenantName ||
+      payload?.tenant_name ||
+      payload?.tenantName ||
+      CONFIG.TENANT_NAME
+    ).trim() || CONFIG.TENANT_NAME;
   } catch (e) {
     console.error('JWT parse error', e);
   }
@@ -66,6 +74,7 @@ let menuItemNameById = new Map();
 
 // ─── INIT ──────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+  applySidebarTenantName();
   startClock();
   loadMenuItems().finally(() => {
     loadOrders().then(() => {
@@ -74,6 +83,24 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 });
+
+function applySidebarTenantName() {
+  const el = document.querySelector('.sidebar-logo');
+  if (!el) return;
+
+  const tenantName = String(CONFIG.TENANT_NAME || '').trim();
+  if (!tenantName || tenantName.toLowerCase() === 'clickgarcom') return;
+
+  const parts = tenantName.split(/\s+/).filter(Boolean);
+  if (parts.length < 2) {
+    el.textContent = tenantName;
+    return;
+  }
+
+  const first = escapeHTML(parts.shift());
+  const rest = escapeHTML(parts.join(' '));
+  el.innerHTML = `${first}<span>${rest}</span>`;
+}
 
 async function loadMenuItems() {
   try {

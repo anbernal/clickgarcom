@@ -41,6 +41,12 @@ export class Tenant {
     @Column({ name: 'whatsapp_number', type: 'varchar', length: 20, unique: true })
     whatsappNumber: string;
 
+    @Column({ name: 'waba_id', type: 'varchar', length: 255, nullable: true })
+    wabaId: string | null;
+
+    @Column({ name: 'meta_token', type: 'text', nullable: true })
+    metaToken: string | null;
+
     @Column({ type: 'simple-json', nullable: true })
     settings: TenantSettings;
 

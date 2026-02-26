@@ -206,9 +206,11 @@ func extractWabaID(payload map[string]interface{}) string {
 		return ""
 	}
 
-	wabaID, _ := metadata["display_phone_number"].(string) // or phone_number_id
+	// Prioriza phone_number_id (ID oficial do número na Meta Cloud API).
+	// fallback para display_phone_number por compatibilidade.
+	wabaID, _ := metadata["phone_number_id"].(string)
 	if wabaID == "" {
-		wabaID, _ = metadata["phone_number_id"].(string)
+		wabaID, _ = metadata["display_phone_number"].(string)
 	}
 	return wabaID
 }
