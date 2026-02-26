@@ -26,8 +26,14 @@ export class OrdersController {
     updateStatus(
         @Request() req,
         @Param('id') id: string,
-        @Body() body: { status: string; prep_minutes?: number },
+        @Body() body: { status: string; prep_minutes?: number; cancel_reason?: string },
     ) {
-        return this.ordersService.updateStatus(id, body.status, req.user.tenantId, body.prep_minutes);
+        return this.ordersService.updateStatus(
+            id,
+            body.status,
+            req.user.tenantId,
+            body.prep_minutes,
+            body.cancel_reason,
+        );
     }
 }
