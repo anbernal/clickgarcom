@@ -62,15 +62,52 @@ let wsReconnectDelay = 1000;
 let wsReconnectTimer = null;
 let pollTimer = null;
 let timerInterval = null;
+let menuItemNameById = new Map();
 
 // ─── INIT ──────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   startClock();
-  loadOrders().then(() => {
-    connectWebSocket();
-    startTimerUpdates();
+  loadMenuItems().finally(() => {
+    loadOrders().then(() => {
+      connectWebSocket();
+      startTimerUpdates();
+    });
   });
 });
+
+async function loadMenuItems() {
+  try {
+    const data = await apiGet('/menu');
+    const items = Array.isArray(data) ? data : [];
+    menuItemNameById = new Map(
+      items
+        .filter((item) => item && item.id && item.name)
+        .map((item) => [String(item.id), String(item.name)])
+    );
+  } catch (e) {
+    console.warn('Failed to load menu items for KDS labels:', e);
+    menuItemNameById = new Map();
+  }
+}
+
+function resolveItemName(item) {
+  const directName = String(
+    item?.menu_item_name ||
+    item?.menuItemName ||
+    item?.name ||
+    item?.menuItem?.name ||
+    ''
+  ).trim();
+  if (directName) return directName;
+
+  const menuItemId = item?.menu_item_id || item?.menuItemId || '';
+  if (menuItemId && menuItemNameById.has(menuItemId)) {
+    return String(menuItemNameById.get(menuItemId));
+  }
+
+  if (menuItemId) return shortId(menuItemId);
+  return 'Item';
+}
 
 // ─── API ───────────────────────────────────────────────────────
 async function apiGet(path) {
@@ -288,7 +325,7 @@ function buildCardHTML(order) {
   let itemsHtml = '';
   if (order.items && order.items.length) {
     itemsHtml = order.items.map(i =>
-      `<div class="order-item"><span class="item-qty">${escapeHTML(i.quantity)}x</span><span class="item-name">${i.menu_item_id ? escapeHTML(shortId(i.menu_item_id)) : 'Item'}</span>${i.observations ? `<span class="item-note">${escapeHTML(i.observations)}</span>` : ''}</div>`
+      `<div class="order-item"><span class="item-qty">${escapeHTML(i.quantity)}x</span><span class="item-name">${escapeHTML(resolveItemName(i))}</span>${i.observations ? `<span class="item-note">${escapeHTML(i.observations)}</span>` : ''}</div>`
     ).join('');
   }
 
@@ -351,7 +388,7 @@ function renderWaiter() {
         const tag = o.destination === 'KITCHEN'
           ? '<span class="ready-tag" style="background:var(--orange-bg);color:var(--orange)">Cozinha</span>'
           : '<span class="ready-tag" style="background:var(--blue-bg);color:var(--blue)">Bar</span>';
-        const itemNames = escapeHTML((o.items || []).map(i => `${i.quantity}x ${shortId(i.menu_item_id)}`).join(', ') || 'Itens');
+        const itemNames = escapeHTML((o.items || []).map(i => `${i.quantity}x ${resolveItemName(i)}`).join(', ') || 'Itens');
         return `<div class="ready-item ${elapsed.urgent ? 'style="background:var(--red-bg);border-color:#f0c4be"' : ''}">
           <div style="font-size:20px;flex-shrink:0">${icon}</div>
           <div class="ready-item-left">
@@ -532,6 +569,7 @@ function normalizeOrder(order) {
     items: items.map((item) => ({
       ...item,
       menu_item_id: item.menu_item_id || item.menuItemId || null,
+      menu_item_name: item.menu_item_name || item.menuItemName || item.name || item.menuItem?.name || '',
       unit_price: item.unit_price || item.unitPrice || item.price || null,
     })),
   };

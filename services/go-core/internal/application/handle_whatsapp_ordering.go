@@ -9,6 +9,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/anbernal/clickgarcom/internal/domain/inbox/session"
+	"github.com/anbernal/clickgarcom/internal/domain/order"
 	"github.com/anbernal/clickgarcom/internal/domain/tab"
 	"github.com/anbernal/clickgarcom/internal/domain/whatsapp"
 )
@@ -170,9 +171,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleMainMenuSimplified(
 		return msg, session.StateOrdering, nil
 
 	case "2":
-		// Ver comanda
-		return "📋 *Sua Comanda*\n\nAinda não há itens na comanda.\n\n_Digite 0 para voltar ao menu_",
-			session.StateViewingTab, nil
+		return uc.buildTabSummaryResponse(ctx, sess, false)
 
 	case "3":
 		// Repetir rodada
@@ -186,12 +185,161 @@ func (uc *HandleWhatsAppMessageUseCase) handleMainMenuSimplified(
 		return msg, session.StateMainMenu, nil
 
 	case "5":
-		// Fechar conta
-		return "💰 *Fechar Conta*\n\nEm breve!\n\n_Digite 0 para voltar ao menu_",
-			session.StateMainMenu, nil
+		return uc.buildTabSummaryResponse(ctx, sess, true)
 
 	default:
 		return whatsapp.InvalidOptionMessage() + "\n\n" + whatsapp.MainMenuMessage(),
 			session.StateMainMenu, nil
 	}
+}
+
+func (uc *HandleWhatsAppMessageUseCase) buildTabSummaryResponse(
+	ctx context.Context,
+	sess *session.Session,
+	isCloseFlow bool,
+) (string, session.ConversationState, error) {
+	userTab := uc.findSessionOpenTab(ctx, sess)
+	if userTab == nil {
+		if isCloseFlow {
+			return "💰 *Fechar Conta*\n\nAinda não há itens na comanda.\n\n_Digite 0 para voltar ao menu_",
+				session.StateViewingTab, nil
+		}
+		return "📋 *Sua Comanda*\n\nAinda não há itens na comanda.\n\n_Digite 0 para voltar ao menu_",
+			session.StateViewingTab, nil
+	}
+
+	items := uc.buildTabItemsList(ctx, sess.TenantID, userTab.ID)
+	message := whatsapp.TabSummaryMessage(items, userTab.Subtotal, userTab.ServiceFee, userTab.Total)
+
+	if tenantObj, err := uc.tenantRepo.FindByID(ctx, sess.TenantID); err == nil && tenantObj != nil {
+		message = whatsapp.TabSummaryMessage(
+			items,
+			userTab.Subtotal,
+			userTab.ServiceFee,
+			userTab.Total,
+			tenantObj.Settings.Messages,
+		)
+	}
+
+	if isCloseFlow {
+		message = "💰 *Fechar Conta*\n\n" + message + "\n\n" +
+			"Para encerrar a conta, solicite nossa equipe.\n\n_Digite 0 para voltar ao menu_"
+		return message, session.StateViewingTab, nil
+	}
+
+	message += "\n\n_Digite 0 para voltar ao menu_"
+	return message, session.StateViewingTab, nil
+}
+
+func (uc *HandleWhatsAppMessageUseCase) findSessionOpenTab(
+	ctx context.Context,
+	sess *session.Session,
+) *tab.Tab {
+	if sess.TabID != nil {
+		existingTab, err := uc.tabRepo.FindByID(ctx, *sess.TabID, sess.TenantID)
+		if err == nil && existingTab != nil && existingTab.Status == tab.StatusOpen {
+			return existingTab
+		}
+	}
+
+	openTabs, err := uc.tabRepo.FindByTenantAndStatus(ctx, sess.TenantID, tab.StatusOpen)
+	if err != nil {
+		return nil
+	}
+
+	normalizedPhone := normalizePhoneDigits(sess.UserPhone)
+	for _, candidate := range openTabs {
+		if normalizePhoneDigits(candidate.UserPhone) == normalizedPhone {
+			return candidate
+		}
+	}
+
+	return nil
+}
+
+func (uc *HandleWhatsAppMessageUseCase) buildTabItemsList(
+	ctx context.Context,
+	tenantID uuid.UUID,
+	tabID uuid.UUID,
+) []string {
+	if uc.createOrderUC == nil || uc.createOrderUC.orderRepo == nil {
+		return []string{}
+	}
+
+	orders, err := uc.createOrderUC.orderRepo.FindByTab(ctx, tabID, tenantID)
+	if err != nil {
+		uc.logger.Warn("failed to load tab orders for summary",
+			zap.Error(err),
+			zap.String("tab_id", tabID.String()),
+		)
+		return []string{}
+	}
+
+	type itemAgg struct {
+		MenuItemID uuid.UUID
+		Quantity   int
+		Total      float64
+	}
+
+	aggregated := make(map[uuid.UUID]*itemAgg)
+	orderedIDs := make([]uuid.UUID, 0)
+
+	for _, ord := range orders {
+		if ord == nil || ord.Status == order.StatusCanceled {
+			continue
+		}
+
+		for _, item := range ord.Items {
+			existing, ok := aggregated[item.MenuItemID]
+			if !ok {
+				existing = &itemAgg{MenuItemID: item.MenuItemID}
+				aggregated[item.MenuItemID] = existing
+				orderedIDs = append(orderedIDs, item.MenuItemID)
+			}
+			existing.Quantity += item.Quantity
+			existing.Total += float64(item.Quantity) * item.UnitPrice
+		}
+	}
+
+	if len(aggregated) == 0 {
+		return []string{}
+	}
+
+	menuItemIDs := make([]uuid.UUID, 0, len(orderedIDs))
+	for _, id := range orderedIDs {
+		if id != uuid.Nil {
+			menuItemIDs = append(menuItemIDs, id)
+		}
+	}
+
+	itemNameByID := make(map[uuid.UUID]string, len(menuItemIDs))
+	if len(menuItemIDs) > 0 {
+		menuItems, err := uc.menuRepo.FindItemsByIDs(ctx, menuItemIDs, tenantID)
+		if err != nil {
+			uc.logger.Warn("failed to load menu item names for tab summary", zap.Error(err))
+		} else {
+			for _, menuItem := range menuItems {
+				if menuItem != nil {
+					itemNameByID[menuItem.ID] = menuItem.Name
+				}
+			}
+		}
+	}
+
+	lines := make([]string, 0, len(orderedIDs))
+	for _, id := range orderedIDs {
+		agg := aggregated[id]
+		if agg == nil || agg.Quantity <= 0 {
+			continue
+		}
+
+		name := itemNameByID[id]
+		if name == "" {
+			name = fmt.Sprintf("Item %s", id.String()[:8])
+		}
+
+		lines = append(lines, fmt.Sprintf("%dx %s - R$ %.2f", agg.Quantity, name, agg.Total))
+	}
+
+	return lines
 }
