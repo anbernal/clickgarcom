@@ -52,3 +52,5 @@ yarn-error.log
 /.pid-outbox
 /.pid-worker
 /.pid-ngrok
+/.pid-admin
+/.pid-realtime

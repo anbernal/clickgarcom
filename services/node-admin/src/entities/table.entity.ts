@@ -11,6 +11,9 @@ export class Table {
     @Column({ type: 'varchar' })
     number!: string;
 
+    @Column({ type: 'int', default: 4 })
+    capacity!: number;
+
     @Column({ type: 'text', name: 'qr_token', nullable: true })
     qrToken!: string | null;
 
