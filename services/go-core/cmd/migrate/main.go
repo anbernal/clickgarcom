@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/anbernal/clickgarcom/internal/config"
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
@@ -16,9 +17,8 @@ func main() {
 	flag.StringVar(&direction, "direction", "up", "Migration direction: up or down")
 	flag.Parse()
 
-	// Carregar .env
-	viper.SetConfigFile(".env")
-	if err := viper.ReadInConfig(); err != nil {
+	// Carregar configuração via env vars, com .env opcional em dev.
+	if err := config.LoadEnvironment(); err != nil {
 		log.Fatalf("Error reading config file: %v", err)
 	}
 

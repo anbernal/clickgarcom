@@ -37,17 +37,7 @@ func resolveTemplate(custom, defaultTpl string, replacements map[string]string) 
 // Mensagens padrão do sistema (fallback)
 // ─────────────────────────────────────────────────
 
-const defaultWelcome = `🍽️ Olá! Bem-vindo ao *{nome_restaurante}*!
-
-Como posso te ajudar hoje?
-
-*1* - 🛒 Fazer pedido
-*2* - 📋 Ver minha comanda
-*3* - 🔄 Repetir última rodada
-*4* - 🙋 Chamar garçom
-*5* - 💰 Fechar conta
-
-_Digite o número da opção desejada_`
+const defaultWelcome = `🍽️ Olá! Bem-vindo ao *{nome_restaurante}*!`
 
 const defaultRestaurantClosed = `🚪 *O restaurante ainda não está aberto.*
 

@@ -30,6 +30,7 @@ func SetupRoutes(
 	authService *auth.Service,
 	whatsappVerifyToken string,
 	apiClient *whatsapp.MetaAPIClient,
+	redisClient *database.RedisClient,
 ) {
 	// Repositories
 	inboxRepo := postgres.NewInboxRepository(db.DB)
@@ -110,6 +111,24 @@ func SetupRoutes(
 			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 		}
 		return c.JSON(fiber.Map{"status": "delivered", "to": req.Phone})
+	})
+
+	// Debug route to clear WhatsApp sessions
+	app.Post("/admin/api/debug/clear-sessions", func(c *fiber.Ctx) error {
+		ctx := c.Context()
+		iter := redisClient.Client.Scan(ctx, 0, "session:*", 0).Iterator()
+		count := 0
+		for iter.Next(ctx) {
+			key := iter.Val()
+			if err := redisClient.Client.Del(ctx, key).Err(); err == nil {
+				count++
+			}
+		}
+		if err := iter.Err(); err != nil {
+			logger.Error("failed to scan redis sessions", zap.Error(err))
+			return c.Status(500).JSON(fiber.Map{"error": "Failed to clear sessions"})
+		}
+		return c.JSON(fiber.Map{"status": "success", "cleared": count})
 	})
 
 	// Menu routes

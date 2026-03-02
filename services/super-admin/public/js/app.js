@@ -1,5 +1,9 @@
 // Super Admin - Application Logic
 
+if (sessionStorage.getItem('super_admin_authenticated') !== 'true') {
+    window.location.href = '/login.html';
+}
+
 const state = {
     activePage: 'dashboard',
     tenants: [],
@@ -264,8 +268,8 @@ async function toggleTenantActive(tenantId, active) {
 }
 
 function logout() {
-    closeTenantModal();
-    navigate('dashboard');
+    sessionStorage.removeItem('super_admin_authenticated');
+    window.location.href = '/login.html';
 }
 
 document.addEventListener('DOMContentLoaded', () => {

@@ -144,6 +144,7 @@ func main() {
 		authService,
 		cfg.WhatsApp.VerifyToken,
 		whatsappAPI,
+		redisClient,
 	)
 
 	// 9) Endpoints básicos (opcional, mas útil)

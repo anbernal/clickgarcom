@@ -54,3 +54,6 @@ yarn-error.log
 /.pid-ngrok
 /.pid-admin
 /.pid-realtime
+/services/go-core/.pid-api
+/services/node-admin/.pid-admin
+/services/super-admin/.pid-superadmin

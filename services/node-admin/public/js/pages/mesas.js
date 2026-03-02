@@ -61,7 +61,10 @@ async function loadMesas() {
       return `
             <div class="table-item ${cls}" style="padding:20px">
               <div style="font-size:28px">${emoji}</div>
-              <div class="table-num">Mesa ${table.number}</div>
+              <div class="table-num" style="display:flex; justify-content:space-between; align-items:center;">
+                <span>Mesa ${table.number}</span>
+                <span style="font-size:12px; color:var(--text-light); font-weight:normal; background:var(--bg); padding:2px 6px; border-radius:4px;">${table.capacity || 4} pax</span>
+              </div>
               <div class="table-status">${label}</div>
               <div class="table-value">${tabTotalDisplay}</div>
               ${multipleTabsNote}
@@ -78,6 +81,25 @@ async function loadMesas() {
   } catch (err) {
     container.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><h3>Erro</h3><p>${escapeHTML(err.message)}</p></div>`;
   }
+}
+
+if (window.registerPageHandler) {
+  window.registerPageHandler('mesas', () => {
+    loadMesas();
+    if (pendingRequestsInterval) clearInterval(pendingRequestsInterval);
+    pendingRequestsInterval = setInterval(loadPendingRequests, 10000); // Polling 10s
+  }, () => {
+    if (pendingRequestsInterval) {
+      clearInterval(pendingRequestsInterval);
+      pendingRequestsInterval = null;
+    }
+  });
+} else {
+  // Legacy fallback
+  document.addEventListener('DOMContentLoaded', () => {
+    const btn = document.querySelector('[data-page="mesas"]');
+    if (btn) btn.addEventListener('click', loadMesas);
+  });
 }
 
 async function loadPendingRequests() {
@@ -108,7 +130,7 @@ async function loadPendingRequests() {
                         </a>
                     </div>
                     <div style="display:flex; gap:8px">
-                        <button class="btn-sm btn-primary" style="flex:1; padding:6px" onclick="approveTableRequest('${req.id}')">Aprovar</button>
+                        <button class="btn-sm btn-primary" style="flex:1; padding:6px" onclick="approveTableRequest('${req.id}', '${req.tableId || ''}')">Aprovar</button>
                         <button class="btn-sm btn-outline" style="flex:1; padding:6px; color:var(--danger); border-color:var(--danger)" onclick="rejectTableRequest('${req.id}')">Recusar</button>
                     </div>
                 </div>`;
@@ -123,10 +145,62 @@ async function loadPendingRequests() {
   }
 }
 
-async function approveTableRequest(id) {
+async function approveTableRequest(id, tableId) {
+  if (!tableId || tableId === 'null') {
+    // Busca mesas livres
+    try {
+      const tables = await api.get('/tables');
+      const availableTables = tables.filter(t => t.status === 'AVAILABLE');
+
+      let optionsHtml = availableTables.map(t => `<option value="${t.id}">Mesa ${t.number} (${t.capacity || 4} pax)</option>`).join('');
+      if (availableTables.length === 0) {
+        optionsHtml = '<option value="" disabled selected>Nenhuma mesa livre</option>';
+      }
+
+      openModal(`
+        <div class="modal-header">
+          <h3>Associar Mesa</h3>
+          <button class="modal-close" onclick="closeModal()">✕</button>
+        </div>
+        <div class="modal-body">
+          <p style="margin-bottom:16px; font-size:14px; color:var(--text-light)">
+            Esta solicitação chegou sem uma mesa específica (QR Code não escaneado). Escolha a mesa para alocar o cliente.
+          </p>
+          <div class="form-group">
+            <label>Mesa Disponível</label>
+            <select id="assign-table-id" class="input">
+              ${optionsHtml}
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-sm btn-outline" onclick="closeModal()">Cancelar</button>
+          <button class="btn-sm btn-primary" onclick="submitApproveTableRequest('${id}')" ${availableTables.length === 0 ? 'disabled' : ''}>Confirmar</button>
+        </div>
+      `);
+    } catch (err) {
+      showToast('Erro ao carregar mesas', 'error');
+    }
+    return;
+  }
+
+  // Se já tem tableId (ex: escaneou QR Code)
+  await submitApproveTableRequest(id, tableId);
+}
+
+async function submitApproveTableRequest(id, tableId = null) {
   try {
-    await api.post(`/tables/requests/${id}/approve`);
+    const data = {};
+    if (!tableId) {
+      const select = document.getElementById('assign-table-id');
+      if (select) data.tableId = select.value;
+    } else {
+      data.tableId = tableId;
+    }
+
+    await api.post(`/tables/requests/${id}/approve`, data);
     showToast('Mesa aprovada e cliente notificado!');
+    closeModal();
     loadMesas();
   } catch (err) {
     showToast('Erro ao aprovar mesa: ' + err.message, 'error');
@@ -155,6 +229,10 @@ function openNewTableModal() {
         <label>Número da Mesa</label>
         <input type="text" id="table-number" placeholder="Ex: 01, 02, VIP-1">
       </div>
+      <div class="form-group" style="margin-top: 12px;">
+        <label>Capacidade (Lugares)</label>
+        <input type="number" id="table-capacity" value="4" min="1" max="20">
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn-sm btn-outline" onclick="closeModal()">Cancelar</button>
@@ -168,16 +246,16 @@ function openManualRequestModal() {
   api.get('/tables').then(tables => {
     const availableTables = tables.filter(t => t.status === 'AVAILABLE');
 
-    let optionsHtml = availableTables.map(t => `<option value="${t.id}">Mesa ${t.number}</option>`).join('');
+    let optionsHtml = availableTables.map(t => `< option value = "${t.id}" > Mesa ${t.number}</option > `).join('');
     if (availableTables.length === 0) {
       optionsHtml = '<option value="" disabled selected>Nenhuma mesa livre</option>';
     }
 
     openModal(`
-        <div class="modal-header">
+    < div class= "modal-header" >
           <h3>Alocar Cliente Manualmente</h3>
           <button class="modal-close" onclick="closeModal()">✕</button>
-        </div>
+        </div >
         <div class="modal-body">
           <p style="margin-bottom:16px; font-size:14px; color:var(--text-light)">
             Use esta opção para clientes que chegaram sem ler o QR Code mas que desejam receber o cardápio no WhatsApp.
@@ -228,10 +306,11 @@ async function createManualRequest() {
 
 async function createTable() {
   const number = document.getElementById('table-number').value;
+  const capacity = parseInt(document.getElementById('table-capacity').value, 10);
   if (!number) { showToast('Número é obrigatório', 'error'); return; }
 
   try {
-    await api.post('/tables', { number });
+    await api.post('/tables', { number, capacity });
     showToast('Mesa criada');
     closeModal();
     loadMesas();
@@ -242,7 +321,7 @@ async function createTable() {
 
 async function changeTableStatus(id, status) {
   try {
-    await api.patch(`/tables/${id}/status`, { status });
+    await api.patch(`/ tables / ${id} / status`, { status });
     showToast('Status atualizado');
     loadMesas();
   } catch (err) {
@@ -252,7 +331,7 @@ async function changeTableStatus(id, status) {
 
 async function viewComandas(tableId, tableNumber) {
   try {
-    const tabs = await api.get(`/tables/${tableId}/tabs`);
+    const tabs = await api.get(`/ tables / ${tableId} / tabs`);
 
     if (!tabs || tabs.length === 0) {
       showToast('Nenhuma comanda aberta para esta mesa', 'info');
@@ -260,7 +339,7 @@ async function viewComandas(tableId, tableNumber) {
     }
 
     let tabsHtml = tabs.map((tab, idx) => `
-      <div style="border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:12px; background:var(--bg-color)">
+    < div style = "border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:12px; background:var(--bg-color)" >
         <div style="display:flex;justify-content:space-between;margin-bottom:12px">
           <div>
             <strong>Comanda ${idx + 1}</strong> <span style="font-size:12px;color:var(--text-light)">(${tab.id.substring(0, 8)})</span><br/>
@@ -285,14 +364,14 @@ async function viewComandas(tableId, tableNumber) {
             <span class="mono" style="color:var(--teal)">${formatCurrency(tab.total)}</span>
           </div>
         </div>
-      </div>
-    `).join('');
+      </div >
+      `).join('');
 
     openModal(`
-      <div class="modal-header">
+      < div class= "modal-header" >
         <h3>Mesa ${tableNumber} - Detalhamento das Comandas</h3>
         <button class="modal-close" onclick="closeModal()">✕</button>
-      </div>
+      </div >
       <div class="modal-body" style="max-height:60vh; overflow-y:auto; padding-right:8px">
         ${tabs.length > 1 ? `<div class="alert alert-info" style="margin-bottom:16px"><i class="fas fa-info-circle"></i> Esta mesa possui comandas individuais/divididas.</div>` : ''}
         ${tabsHtml}

@@ -1,7 +1,9 @@
 package config
 
 import (
+	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/spf13/viper"
@@ -72,13 +74,26 @@ type MetricsConfig struct {
 	Port    string
 }
 
-// Load carrega as configurações do arquivo .env
-func Load() (*Config, error) {
+// LoadEnvironment carrega opcionalmente um arquivo .env e sempre aceita overrides via env vars.
+func LoadEnvironment() error {
 	viper.SetConfigFile(".env")
 	viper.AutomaticEnv()
 
 	if err := viper.ReadInConfig(); err != nil {
-		return nil, fmt.Errorf("error reading config file: %w", err)
+		var configFileNotFoundError viper.ConfigFileNotFoundError
+		if errors.As(err, &configFileNotFoundError) || os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("error reading config file: %w", err)
+	}
+
+	return nil
+}
+
+// Load carrega as configurações a partir de env vars, com .env opcional em desenvolvimento.
+func Load() (*Config, error) {
+	if err := LoadEnvironment(); err != nil {
+		return nil, err
 	}
 
 	jwtSecret := viper.GetString("JWT_SECRET")

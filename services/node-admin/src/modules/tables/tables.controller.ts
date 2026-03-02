@@ -35,7 +35,10 @@ export class TablesController {
 
     @Post()
     create(@Request() req, @Body() body: any) {
-        return this.tablesService.create(req.user.tenantId, { number: body.number });
+        return this.tablesService.create(req.user.tenantId, {
+            number: body.number,
+            capacity: body.capacity
+        });
     }
 
     @Patch(':id/status')
@@ -51,8 +54,8 @@ export class TablesController {
     }
 
     @Post('requests/:id/approve')
-    async approveRequest(@Request() req, @Param('id') id: string) {
-        return this.tablesService.approveRequest(id, req.user.tenantId);
+    async approveRequest(@Request() req, @Param('id') id: string, @Body('tableId') tableId?: string) {
+        return this.tablesService.approveRequest(id, req.user.tenantId, tableId);
     }
 
     @Post('requests/:id/reject')

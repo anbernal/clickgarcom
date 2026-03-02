@@ -19,6 +19,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+      start_period: 15s
     networks:
       - clickgarcom-network
 
@@ -53,10 +54,11 @@ services:
       - "5672:5672"   # AMQP protocol
       - "15672:15672" # Management UI
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q ping && rabbitmq-diagnostics -q check_port_listener 5672"]
       interval: 10s
-      timeout: 10s
-      retries: 5
+      timeout: 30s
+      retries: 12
+      start_period: 60s
     networks:
       - clickgarcom-network
 
@@ -90,12 +92,140 @@ services:
     networks:
       - clickgarcom-network
 
+  # ============ GO CORE ============
+  go-migrate:
+    build:
+      context: ./services/go-core
+      dockerfile: Dockerfile
+    container_name: clickgarcom-go-migrate
+    env_file:
+      - ./services/go-core/.env
+    environment:
+      APP_ENV: docker
+      DATABASE_HOST: postgres
+      REDIS_HOST: redis
+      RABBITMQ_HOST: rabbitmq
+    command: ["./bin/migrate", "-direction", "up"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - clickgarcom-network
+
+  go-setup-rabbitmq:
+    build:
+      context: ./services/go-core
+      dockerfile: Dockerfile
+    container_name: clickgarcom-go-setup-rabbitmq
+    env_file:
+      - ./services/go-core/.env
+    environment:
+      APP_ENV: docker
+      DATABASE_HOST: postgres
+      REDIS_HOST: redis
+      RABBITMQ_HOST: rabbitmq
+    command: ["./bin/setup-rabbitmq"]
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - clickgarcom-network
+
+  go-api:
+    build:
+      context: ./services/go-core
+      dockerfile: Dockerfile
+    container_name: clickgarcom-go-api
+    env_file:
+      - ./services/go-core/.env
+    environment:
+      APP_ENV: docker
+      DATABASE_HOST: postgres
+      REDIS_HOST: redis
+      RABBITMQ_HOST: rabbitmq
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      go-migrate:
+        condition: service_completed_successfully
+      go-setup-rabbitmq:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "/app/bin/healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - clickgarcom-network
+
+  go-worker:
+    build:
+      context: ./services/go-core
+      dockerfile: Dockerfile
+    container_name: clickgarcom-go-worker
+    env_file:
+      - ./services/go-core/.env
+    environment:
+      APP_ENV: docker
+      DATABASE_HOST: postgres
+      REDIS_HOST: redis
+      RABBITMQ_HOST: rabbitmq
+    command: ["./bin/worker"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      go-migrate:
+        condition: service_completed_successfully
+      go-setup-rabbitmq:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    networks:
+      - clickgarcom-network
+
+  go-outbox:
+    build:
+      context: ./services/go-core
+      dockerfile: Dockerfile
+    container_name: clickgarcom-go-outbox
+    env_file:
+      - ./services/go-core/.env
+    environment:
+      APP_ENV: docker
+      DATABASE_HOST: postgres
+      REDIS_HOST: redis
+      RABBITMQ_HOST: rabbitmq
+    command: ["./bin/outbox-worker"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      go-migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    networks:
+      - clickgarcom-network
+
   # ============ ADMIN PANEL ============
   node-admin:
     build:
       context: ./services/node-admin
       dockerfile: Dockerfile
     container_name: clickgarcom-admin
+    env_file:
+      - ./services/node-admin/.env
     environment:
       APP_PORT: 3002
       DATABASE_HOST: postgres
@@ -106,11 +236,35 @@ services:
       JWT_SECRET: your-super-secret-jwt-key-change-in-production
       DEFAULT_TENANT_ID: 550e8400-e29b-41d4-a716-446655440000
       RABBITMQ_URL: amqp://clickgarcom:clickgarcom123@rabbitmq:5672/
+      NGROK_API_URL: http://ngrok:4040
+      NGROK_PUBLIC_URL: ${NGROK_PUBLIC_URL:-}
     ports:
       - "3002:3002"
     depends_on:
       postgres:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      go-migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    networks:
+      - clickgarcom-network
+
+  ngrok:
+    image: ngrok/ngrok:latest
+    container_name: clickgarcom-ngrok
+    command: ["http", "go-api:8080", "--log", "stdout"]
+    environment:
+      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN:-}
+    ports:
+      - "4040:4040"
+    depends_on:
+      go-api:
+        condition: service_healthy
+    profiles:
+      - tunnel
+    restart: unless-stopped
     networks:
       - clickgarcom-network
 

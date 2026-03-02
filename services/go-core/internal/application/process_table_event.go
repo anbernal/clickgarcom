@@ -86,10 +86,17 @@ func (uc *ProcessTableEventUseCase) Execute(ctx context.Context, payloadBytes []
 		return fmt.Errorf("failed to update table request status: %w", err)
 	}
 
+	if req.TableID == nil {
+		return fmt.Errorf("table request %s has no table_id", req.ID)
+	}
+
 	// 3. Atualizar status da Mesa
-	t, err := uc.tableRepo.FindByID(ctx, req.TableID, req.TenantID)
+	t, err := uc.tableRepo.FindByID(ctx, *req.TableID, req.TenantID)
 	if err != nil {
 		return fmt.Errorf("failed to find table: %w", err)
+	}
+	if t == nil {
+		return fmt.Errorf("table %s not found", req.TableID.String())
 	}
 	if t != nil {
 		t.Status = table.StatusOccupied

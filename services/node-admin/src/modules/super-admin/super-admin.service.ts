@@ -2,11 +2,13 @@ import {
     BadRequestException,
     ForbiddenException,
     Injectable,
+    Logger,
     NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
+import axios from 'axios';
 import { Tenant, TenantSettings } from '../../entities/tenant.entity';
 import { User } from '../../entities/user.entity';
 import { MessageLog } from '../../entities/message-log.entity';
@@ -23,6 +25,8 @@ type TenantPayload = {
 
 @Injectable()
 export class SuperAdminService {
+    private readonly logger = new Logger(SuperAdminService.name);
+
     constructor(
         @InjectRepository(Tenant)
         private readonly tenantRepo: Repository<Tenant>,
@@ -163,7 +167,7 @@ export class SuperAdminService {
                  ORDER BY t.created_at DESC`,
             );
 
-        const webhookUrl = this.getWebhookUrl();
+        const webhookUrl = await this.getWebhookUrl();
         return (rows || []).map((row: any) => {
             const msgIn = Number(row.msg_in || 0);
             const msgOut = Number(row.msg_out || 0);
@@ -241,7 +245,7 @@ export class SuperAdminService {
             whatsappNumber: savedTenant.whatsappNumber,
             wabaId: savedTenant.wabaId || '',
             adminEmail,
-            webhook: this.getWebhookUrl(),
+            webhook: await this.getWebhookUrl(),
         };
     }
 
@@ -304,7 +308,7 @@ export class SuperAdminService {
             slug: tenant.slug,
             whatsappNumber: tenant.whatsappNumber,
             wabaId: tenant.wabaId || '',
-            webhook: this.getWebhookUrl(),
+            webhook: await this.getWebhookUrl(),
             updated: true,
         };
     }
@@ -348,12 +352,41 @@ export class SuperAdminService {
         return String(value || '').replace(/\D/g, '');
     }
 
-    private getWebhookUrl(): string {
-        const baseRaw =
+    private async getWebhookUrl(): Promise<string> {
+        const configuredBase =
             process.env.PUBLIC_WEBHOOK_BASE_URL ||
-            process.env.NGROK_PUBLIC_URL ||
-            'http://localhost:8080';
-        const base = String(baseRaw).trim().replace(/\/+$/, '');
+            process.env.NGROK_PUBLIC_URL;
+        if (String(configuredBase || '').trim()) {
+            const base = String(configuredBase).trim().replace(/\/+$/, '');
+            return `${base}/webhooks/whatsapp`;
+        }
+
+        const ngrokApiBase = String(process.env.NGROK_API_URL || '').trim().replace(/\/+$/, '');
+        if (ngrokApiBase) {
+            try {
+                const { data } = await axios.get(`${ngrokApiBase}/api/tunnels`, {
+                    timeout: 2000,
+                });
+                const tunnels = Array.isArray(data?.tunnels) ? data.tunnels : [];
+                const tunnel =
+                    tunnels.find((item: any) =>
+                        String(item?.public_url || '').trim().startsWith('https://'),
+                    ) ||
+                    tunnels.find((item: any) =>
+                        String(item?.public_url || '').trim().length > 0,
+                    );
+
+                const publicUrl = String(tunnel?.public_url || '').trim();
+                if (publicUrl) {
+                    const base = publicUrl.replace(/\/+$/, '');
+                    return `${base}/webhooks/whatsapp`;
+                }
+            } catch (error) {
+                this.logger.debug(`Falha ao consultar ngrok: ${(error as Error).message}`);
+            }
+        }
+
+        const base = 'http://localhost:8080';
         return `${base}/webhooks/whatsapp`;
     }
 

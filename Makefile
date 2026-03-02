@@ -31,6 +31,55 @@ rebuild: ## Rebuilda e sobe containers
 restart: ## Reinicia containers
 	docker-compose restart
 
+ngrok-up: ## Sobe o tunnel ngrok (exporte NGROK_AUTHTOKEN antes)
+	@if docker-compose --profile tunnel up -d ngrok; then \
+		echo "ngrok em container iniciado."; \
+	elif command -v ngrok >/dev/null 2>&1; then \
+		set -a; \
+		[ -f ./.env ] && . ./.env; \
+		set +a; \
+		if [ -z "$$NGROK_AUTHTOKEN" ] || [ "$$NGROK_AUTHTOKEN" = "coloque_seu_token_aqui" ]; then \
+			echo "Defina NGROK_AUTHTOKEN no arquivo .env da raiz antes de subir o ngrok."; \
+			exit 1; \
+		fi; \
+		if [ -f .pid-ngrok ] && kill -0 "$$(cat .pid-ngrok)" 2>/dev/null; then \
+			echo "ngrok local ja esta rodando (PID $$(cat .pid-ngrok))."; \
+		else \
+			rm -f .pid-ngrok; \
+			nohup ngrok http 8080 --authtoken "$$NGROK_AUTHTOKEN" --log stdout > .ngrok.log 2>&1 & echo $$! > .pid-ngrok; \
+			sleep 3; \
+			if [ -f .pid-ngrok ] && kill -0 "$$(cat .pid-ngrok)" 2>/dev/null; then \
+				echo "ngrok local iniciado (PID $$(cat .pid-ngrok))."; \
+			else \
+				echo "Falha ao iniciar o ngrok local. Veja .ngrok.log"; \
+				exit 1; \
+			fi; \
+		fi; \
+	else \
+		echo "Docker falhou ao baixar a imagem e o ngrok local nao esta instalado."; \
+		exit 1; \
+	fi
+
+ngrok-down: ## Para o tunnel ngrok
+	@docker-compose stop ngrok >/dev/null 2>&1 || true
+	@if [ -f .pid-ngrok ]; then \
+		kill "$$(cat .pid-ngrok)" >/dev/null 2>&1 || true; \
+		rm -f .pid-ngrok; \
+		echo "ngrok local parado."; \
+	fi
+
+ngrok-logs: ## Logs do ngrok
+	@if docker ps --format '{{.Names}}' | rg -x 'clickgarcom-ngrok' >/dev/null 2>&1; then \
+		docker-compose logs -f ngrok; \
+	elif [ -f .ngrok.log ]; then \
+		tail -f .ngrok.log; \
+	else \
+		echo "Nenhum log de ngrok encontrado."; \
+	fi
+
+ngrok-url: ## Mostra a URL publica do ngrok para o webhook
+	@curl -fsS http://localhost:4040/api/tunnels | node -e "let data='';process.stdin.on('data',c=>data+=c);process.stdin.on('end',()=>{const parsed=JSON.parse(data);const tunnels=Array.isArray(parsed.tunnels)?parsed.tunnels:[];const tunnel=tunnels.find(t=>String(t.public_url||'').startsWith('https://'))||tunnels[0];if(!tunnel){process.exit(1)}console.log(String(tunnel.public_url).replace(/\\/+$$/,'') + '/webhooks/whatsapp');})"
+
 # ============ DATABASE ============
 migrate-up: ## Executa migrations
 	cd services/go-core && go run cmd/migrate/main.go up

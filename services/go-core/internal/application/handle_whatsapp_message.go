@@ -139,7 +139,25 @@ func (uc *HandleWhatsAppMessageUseCase) Execute(ctx context.Context, input Handl
 			return fmt.Errorf("failed to send welcome: %w", err)
 		}
 
-		sess.TransitionTo(session.StateMainMenu)
+		// Create TableRequest without a table_id
+		req := &table.TableRequest{
+			ID:        uuid.New(),
+			TenantID:  sess.TenantID,
+			TableID:   nil,
+			UserPhone: sess.UserPhone,
+			PaxCount:  1, // Defaulting to adult 1 passenger
+			Status:    table.RequestStatusPending,
+		}
+
+		if err := uc.tableRepo.CreateRequest(ctx, req); err != nil {
+			uc.logger.Error("failed to create initial table request", zap.Error(err))
+		} else {
+			// Notify user it's pending table assignment
+			pendingMsg := whatsapp.TableRequestPendingMessage(t.Settings.Messages)
+			uc.sendTenantMessage(ctx, input.From, input.TenantID, pendingMsg)
+		}
+
+		sess.TransitionTo(session.StateWaitingAdminApproval)
 		if err := uc.sessionRepo.Save(ctx, sess); err != nil {
 			return fmt.Errorf("failed to save session: %w", err)
 		}
@@ -370,7 +388,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleTableConfirmation(
 	req := &table.TableRequest{
 		ID:        uuid.New(),
 		TenantID:  sess.TenantID,
-		TableID:   tableID,
+		TableID:   &tableID,
 		UserPhone: sess.UserPhone,
 		PaxCount:  paxCount,
 		Status:    table.RequestStatusPending,

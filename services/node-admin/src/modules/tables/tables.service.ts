@@ -38,11 +38,12 @@ export class TablesService {
         return result;
     }
 
-    async create(tenantId: string, data: { number: string }) {
+    async create(tenantId: string, data: { number: string, capacity?: number }) {
         const table = this.tableRepo.create({
             id: uuidv4(),
             tenantId,
             number: data.number,
+            capacity: data.capacity || 4,
             status: 'AVAILABLE',
         });
         return this.tableRepo.save(table);
@@ -101,17 +102,20 @@ export class TablesService {
         });
     }
 
-    async approveRequest(requestId: string, tenantId: string) {
+    async approveRequest(requestId: string, tenantId: string, tableId?: string) {
         const req = await this.tableRequestRepo.findOne({ where: { id: requestId, tenantId } });
         if (!req) throw new Error('Request not found');
 
-        // Note: The actual DB status and Table updates are handled by Go-Core via the event
-        // We just notify Go-Core that this was approved. Look at the AmqpService logic
-        await this.amqpService.publishTableEvent(req.id, 'APPROVE');
+        if (tableId) {
+            req.tableId = tableId;
+        }
 
-        // Optimistic update
+        // Updates status and table optimistically
         req.status = RequestStatus.APPROVED;
         await this.tableRequestRepo.save(req);
+
+        // Note: The actual Go-Core updates are triggered by the event
+        await this.amqpService.publishTableEvent(req.id, 'APPROVE');
 
         return req;
     }

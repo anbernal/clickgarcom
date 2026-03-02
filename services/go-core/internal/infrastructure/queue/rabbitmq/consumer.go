@@ -30,7 +30,7 @@ func (c *Consumer) Consume(queueName string, handler MessageHandler) error {
 		false,     // delete when unused
 		false,     // exclusive
 		false,     // no-wait
-		nil,       // arguments
+		queueDeclareArgs(queueName),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to declare queue: %w", err)
@@ -110,4 +110,16 @@ func (c *Consumer) Consume(queueName string, handler MessageHandler) error {
 	}()
 
 	return nil
+}
+
+func queueDeclareArgs(queueName string) amqp.Table {
+	switch queueName {
+	case "whatsapp.messages", "payment.webhooks", "notifications.send":
+		return amqp.Table{
+			"x-dead-letter-exchange": "clickgarcom.dlx",
+			"x-queue-type":           "quorum",
+		}
+	default:
+		return nil
+	}
 }
