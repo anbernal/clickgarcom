@@ -53,9 +53,10 @@ PATCH /orders/:id/status?tenant_id=xxx   # Atualizar status do pedido
 ```
 
 ### 🔄 Fluxo de Pedido WhatsApp
-1. Cliente envia "1" → Menu principal
-2. Cliente envia "1" → Opção "Fazer pedido" → Lista de itens
-3. Cliente envia número do item → Pedido criado + Comanda atualizada
+1. Cliente envia mensagem → Recebe Boas Vindas e aguarda associação de mesa (se já não estiver escaneado o QR).
+2. Garçom associa a mesa via Painel Admin → Cliente é notificado e recebe o Menu Principal.
+3. Cliente envia "1" → Opção "Fazer pedido" → Lista de itens.
+4. Cliente envia número do item → Pedido criado + Comanda atualizada.
 
 ### 💾 Modelo de Dados
 
@@ -279,6 +280,13 @@ Documentação detalhada disponível em:
 - [x] Quando o Cliente B (convidado) tenta entrar na Mesa 05 já ocupada, um request assíncrono é gerado.
 - [x] Cliente A (o `user_phone` original - dono da mesa) recebe notificação no WhatsApp contendo botões interativos `Aprovar` e `Recusar`.
 - [x] Ao ser aprovado, a nova `Tab` é instanciada para o Cliente B (individual) ou a sessão é embutida (compartilhada).
+
+### ✅ Fase 16: Novo Fluxo de Onboarding e Gestão de Mesas (CONCLUÍDA)
+- [x] Criação do atributo de Capacidade (Lugares) para as mesas persistido e listado no Painel Admin.
+- [x] Cliente não necessita mais rastear QR Code obrigatoriamente para enviar a primeira mensagem.
+- [x] Adição do conceito de requisição pendente `Unassigned` no BD para alocação manual.
+- [x] Sistema de painel para o garçom visualizar pedidos de mesas e assinar logicamente de dentro da lista de mesas vagas.
+- [x] Endpoint de debug para limpar sessões de teste no Redis (`/admin/api/debug/clear-sessions`).
 
 ### 💳 Próximos Passos
 - [ ] Fechamento de Cestas e Split de Conta Inteligente
