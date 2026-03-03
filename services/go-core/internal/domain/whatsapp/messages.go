@@ -57,6 +57,8 @@ Aguarde um momento enquanto nossa equipe libera o acesso ao cardápio para sua m
 
 const defaultTableApproved = `✅ *Mesa liberada!*
 
+Você está na *Mesa {numero_mesa}*.
+
 Você já pode acessar nosso menu principal:
 
 *1* - 🛒 Fazer pedido
@@ -165,12 +167,26 @@ func TableRequestPendingMessage(msgs ...tenant.MessageTemplates) string {
 }
 
 // TableRequestApprovedMessage mensagem quando mesa é liberada
-func TableRequestApprovedMessage(msgs ...tenant.MessageTemplates) string {
+func TableRequestApprovedMessage(tableNumber string, msgs ...tenant.MessageTemplates) string {
 	custom := ""
 	if len(msgs) > 0 {
 		custom = msgs[0].TableApproved
 	}
-	return resolveTemplate(custom, defaultTableApproved, nil)
+
+	msg := resolveTemplate(custom, defaultTableApproved, map[string]string{
+		"{numero_mesa}": tableNumber,
+	})
+
+	if tableNumber != "" && !strings.Contains(msg, tableNumber) {
+		injection := fmt.Sprintf("\nVocê está na *Mesa %s*.\n", tableNumber)
+		parts := strings.SplitN(msg, "\n\n", 2)
+		if len(parts) == 2 {
+			return parts[0] + "\n" + injection + "\n" + parts[1]
+		}
+		return msg + injection
+	}
+
+	return msg
 }
 
 // MainMenuMessage menu principal

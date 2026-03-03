@@ -75,6 +75,7 @@ let pendingRequests = [];
 let availableTables = [];
 let tablesSnapshot = [];
 let tableMetrics = { total: 0, available: 0, occupied: 0 };
+let tabMetaById = new Map();
 let assignModalState = { requestId: null, selectedTableId: null };
 const PANEL_ORDER = ['kitchen', 'bar', 'attendance', 'waiter'];
 
@@ -267,7 +268,7 @@ function handleWSEvent(event) {
     allOrders[order.id] = order;
     renderAll();
     playNotificationSound();
-    toast('t-info', '🆕 Novo Pedido', `#${shortId(order.id)} · ${order.destination}`);
+    toast('t-info', '🆕 Novo Pedido', `#${getOrderDisplayCode(order)} · ${order.destination}`);
   }
 
   if (event.type === 'order.status_changed') {
@@ -385,8 +386,8 @@ function buildCardHTML(order) {
 
   return `
     <div class="order-card-header">
-      <span class="order-id">#${shortId(order.id)}</span>
-      <span class="table-badge">${order.notes && order.notes.includes('WhatsApp') ? '📱 WhatsApp' : 'Mesa'}</span>
+      <span class="order-id">#${escapeHTML(getOrderDisplayCode(order))}</span>
+      <span class="table-badge">${escapeHTML(getOrderTableLabel(order))}</span>
       <span class="order-type-badge ${badge}">${destLabel}</span>
     </div>
     <div class="order-items">${itemsHtml || '<div class="order-item"><span class="item-name" style="color:var(--text-3)">Sem itens</span></div>'}</div>
@@ -489,7 +490,7 @@ function renderWaiter() {
         return `<div class="ready-item ${elapsed.urgent ? 'style="background:var(--red-bg);border-color:#f0c4be"' : ''}">
           <div style="font-size:20px;flex-shrink:0">${icon}</div>
           <div class="ready-item-left">
-            <div class="ready-item-title">Pedido #${escapeHTML(shortId(o.id))}</div>
+            <div class="ready-item-title">Pedido #${escapeHTML(getOrderDisplayCode(o))}</div>
             <div class="ready-item-sub">${itemNames}</div>
             <div style="font-size:10px;color:var(--text-3);font-family:'DM Mono';margin-top:3px">Pronto há ${escapeHTML(elapsed.text)}</div>
           </div>
@@ -513,7 +514,7 @@ function renderWaiter() {
         return `<div class="ready-item">
           <div style="font-size:20px;flex-shrink:0">${icon}</div>
           <div class="ready-item-left">
-            <div class="ready-item-title">Pedido #${shortId(o.id)}</div>
+            <div class="ready-item-title">Pedido #${escapeHTML(getOrderDisplayCode(o))}</div>
             <div class="ready-item-sub">Em preparo há ${elapsed.text}</div>
           </div>
         </div>`;
@@ -536,6 +537,8 @@ function updateNavBadges() {
 // ─── ACTIONS ───────────────────────────────────────────────────
 async function updateStatus(orderId, newStatus, cancelReason, prepMinutes) {
   try {
+    const orderRef = allOrders[orderId];
+    const displayCode = getOrderDisplayCode(orderRef || { id: orderId });
     const body = { status: newStatus };
     if (cancelReason) body.cancel_reason = cancelReason;
     if (newStatus === 'ACCEPTED' && Number.isFinite(prepMinutes)) {
@@ -552,7 +555,7 @@ async function updateStatus(orderId, newStatus, cancelReason, prepMinutes) {
     renderAll();
 
     const labels = { ACCEPTED: 'aceito', READY: 'pronto', DELIVERED: 'entregue', CANCELED: 'cancelado' };
-    toast('t-success', `✅ Pedido ${labels[newStatus]}!`, `#${shortId(orderId)}`);
+    toast('t-success', `✅ Pedido ${labels[newStatus]}!`, `#${displayCode}`);
   } catch (e) {
     toast('t-error', '❌ Erro', e.message);
   }
@@ -564,7 +567,7 @@ function openModal(orderId, tab) {
   const order = allOrders[orderId];
   if (!order) return;
 
-  document.getElementById('mi-id').textContent = '#' + shortId(orderId);
+  document.getElementById('mi-id').textContent = '#' + getOrderDisplayCode(order);
   document.getElementById('mi-dest').textContent = order.destination;
   document.getElementById('mi-status').textContent = order.status;
 
@@ -660,6 +663,8 @@ function normalizeOrder(order) {
   const items = Array.isArray(order.items) ? order.items : [];
   return {
     ...order,
+    tab_id: order.tab_id || order.tabId || null,
+    tabId: order.tabId || order.tab_id || null,
     created_at: order.created_at || order.createdAt || null,
     accepted_at: order.accepted_at || order.acceptedAt || null,
     ready_at: order.ready_at || order.readyAt || null,
@@ -673,6 +678,53 @@ function normalizeOrder(order) {
       unit_price: item.unit_price || item.unitPrice || item.price || null,
     })),
   };
+}
+
+function formatTableNumber(value) {
+  const raw = String(value || '--').trim();
+  return /^\d+$/.test(raw) ? raw.padStart(2, '0') : raw;
+}
+
+function getOrderTabId(order) {
+  return String(order?.tab_id || order?.tabId || '').trim();
+}
+
+function getOrderPhoneSuffix(order) {
+  const notes = String(order?.notes || '').trim();
+  const match = notes.match(/(\d{10,15})/);
+  if (!match) return '';
+  const digits = match[1];
+  return digits.slice(-4);
+}
+
+function getOrderTableCode(order) {
+  const tabId = getOrderTabId(order);
+  if (!tabId || !tabMetaById.has(tabId)) return '';
+  const meta = tabMetaById.get(tabId) || {};
+  return formatTableNumber(meta.tableNumber || '');
+}
+
+function getOrderTableLabel(order) {
+  const tableCode = getOrderTableCode(order);
+  if (tableCode) return `Mesa ${tableCode}`;
+  if (order?.notes && String(order.notes).includes('WhatsApp')) return 'WhatsApp';
+  return 'Mesa';
+}
+
+function getOrderDisplayCode(order) {
+  const phoneSuffix = getOrderPhoneSuffix(order);
+  const tableCode = getOrderTableCode(order);
+  const orderId = String(order?.id || '').trim();
+  const orderSuffix = orderId ? orderId.slice(-4) : '';
+
+  if (phoneSuffix && tableCode && orderSuffix) return `${phoneSuffix}-${tableCode}-${orderSuffix}`;
+  if (phoneSuffix && tableCode) return `${phoneSuffix}-${tableCode}`;
+  if (phoneSuffix && orderSuffix) return `${phoneSuffix}-${orderSuffix}`;
+  if (tableCode && orderSuffix) return `${tableCode}-${orderSuffix}`;
+  if (phoneSuffix) return phoneSuffix;
+  if (tableCode) return tableCode;
+  if (orderSuffix) return orderSuffix;
+  return shortId(orderId);
 }
 
 function getElapsed(dateStr) {
@@ -769,18 +821,31 @@ async function loadTableState() {
     const data = await apiGet('/tables');
     tablesSnapshot = Array.isArray(data) ? data : [];
     availableTables = tablesSnapshot.filter(t => t.status === 'AVAILABLE');
+    tabMetaById = new Map();
+    tablesSnapshot.forEach((table) => {
+      const tabs = Array.isArray(table.activeTabs) ? table.activeTabs : [];
+      tabs.forEach((tab) => {
+        if (tab?.id) {
+          tabMetaById.set(String(tab.id), {
+            tableId: table.id,
+            tableNumber: table.number,
+          });
+        }
+      });
+    });
     tableMetrics = {
       total: tablesSnapshot.length,
       available: availableTables.length,
       occupied: tablesSnapshot.filter(t => t.status === 'OCCUPIED').length,
     };
-    renderAttendance();
+    renderAll();
   } catch (e) {
     console.warn('Failed to load tables:', e);
     tablesSnapshot = [];
     availableTables = [];
+    tabMetaById = new Map();
     tableMetrics = { total: 0, available: 0, occupied: 0 };
-    renderAttendance();
+    renderAll();
   }
 }
 

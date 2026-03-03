@@ -33,6 +33,8 @@ _Digite apenas o número de pessoas (ex: 2)_`,
 Aguarde um momento enquanto nossa equipe libera o acesso ao cardápio para sua mesa.`,
     msg_table_approved: `✅ *Mesa liberada!*
 
+Você está na *Mesa {numero_mesa}*.
+
 Você já pode acessar nosso menu principal:
 
 *1* - 🛒 Fazer pedido

@@ -1,7 +1,7 @@
 // Super Admin - Application Logic
 
 if (sessionStorage.getItem('super_admin_authenticated') !== 'true') {
-    window.location.href = '/login.html';
+    window.location.href = '/login';
 }
 
 const state = {
@@ -269,7 +269,7 @@ async function toggleTenantActive(tenantId, active) {
 
 function logout() {
     sessionStorage.removeItem('super_admin_authenticated');
-    window.location.href = '/login.html';
+    window.location.href = '/login';
 }
 
 document.addEventListener('DOMContentLoaded', () => {

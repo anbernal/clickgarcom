@@ -140,8 +140,9 @@ func (uc *ProcessTableEventUseCase) Execute(ctx context.Context, payloadBytes []
 		}
 
 		// 6. Enviar Mensagem de Aprovação via WhatsApp
-		msg := whatsapp.TableRequestApprovedMessage()
+		msg := whatsapp.TableRequestApprovedMessage(t.Number)
 		if tenantObj, tenantErr := uc.tenantRepo.FindByID(ctx, req.TenantID); tenantErr == nil && tenantObj != nil {
+			msg = whatsapp.TableRequestApprovedMessage(t.Number, tenantObj.Settings.Messages)
 			msg = whatsapp.WithRestaurantHeader(tenantObj.Name, msg)
 		}
 		if err := uc.sender.SendText(ctx, sess.UserPhone, msg); err != nil {
