@@ -1,4 +1,13 @@
-.PHONY: help
+.PHONY: help deploy-check deploy-sync deploy-remote redeploy
+
+-include .deploy.env
+
+DEPLOY_USER ?=
+DEPLOY_HOST ?=
+DEPLOY_PORT ?= 22
+DEPLOY_PATH ?= /opt/clickgarcom
+DEPLOY_COMPOSE_CMD ?= docker compose
+DEPLOY_APP_SERVICES ?= go-migrate go-setup-rabbitmq go-api go-worker go-outbox node-admin super-admin
 
 help: ## Mostra este menu de ajuda
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -21,6 +30,9 @@ logs-worker: ## Logs apenas do Worker
 
 logs-rabbitmq: ## Logs do RabbitMQ
 	docker-compose logs -f rabbitmq
+
+logs-super-admin: ## Logs do Super Admin
+	docker-compose logs -f super-admin
 
 ps: ## Lista containers rodando
 	docker-compose ps
@@ -173,12 +185,40 @@ install-admin: ## Instala dependências do Admin Panel
 build-admin: ## Builda Admin Panel
 	cd services/node-admin && npm run build
 
+run-super-admin: ## Roda Super Admin localmente (precisa serve instalado)
+	cd services/super-admin && npx serve public -l 3003
+
 # ============ PRODUCTION ============
 build-api: ## Builda API para produção
 	cd services/go-core && CGO_ENABLED=0 GOOS=linux go build -o bin/api cmd/api/main.go
 
 build-worker: ## Builda Worker para produção
 	cd services/go-core && CGO_ENABLED=0 GOOS=linux go build -o bin/worker cmd/worker/main.go
+
+deploy-check: ## Valida configuracao minima para redeploy remoto
+	@test -n "$(DEPLOY_USER)" || (echo "Defina DEPLOY_USER em .deploy.env ou na linha de comando."; exit 1)
+	@test -n "$(DEPLOY_HOST)" || (echo "Defina DEPLOY_HOST em .deploy.env ou na linha de comando."; exit 1)
+	@command -v ssh >/dev/null 2>&1 || (echo "ssh nao encontrado."; exit 1)
+	@command -v rsync >/dev/null 2>&1 || (echo "rsync nao encontrado."; exit 1)
+
+deploy-sync: deploy-check ## Sincroniza codigo com o servidor sem sobrescrever .env do servidor
+	@ssh -p $(DEPLOY_PORT) $(DEPLOY_USER)@$(DEPLOY_HOST) 'mkdir -p "$(DEPLOY_PATH)"'
+	@rsync -az --delete \
+		--exclude '.git/' \
+		--exclude 'node_modules/' \
+		--exclude 'dist/' \
+		--exclude '.env' \
+		--exclude '.deploy.env' \
+		--exclude '.pid-*' \
+		--exclude '.ngrok.log' \
+		--exclude 'services/go-core/.env' \
+		--exclude 'services/node-admin/.env' \
+		./ $(DEPLOY_USER)@$(DEPLOY_HOST):$(DEPLOY_PATH)/
+
+deploy-remote: deploy-check ## Rebuilda e reinicia servicos de aplicacao no servidor
+	@ssh -p $(DEPLOY_PORT) $(DEPLOY_USER)@$(DEPLOY_HOST) 'set -e; cd "$(DEPLOY_PATH)"; $(DEPLOY_COMPOSE_CMD) up -d --build --force-recreate $(DEPLOY_APP_SERVICES); $(DEPLOY_COMPOSE_CMD) ps'
+
+redeploy: deploy-sync deploy-remote ## Sincroniza codigo e faz redeploy completo da aplicacao no servidor
 
 clean: ## Limpa arquivos buildados
 	rm -rf services/go-core/bin/

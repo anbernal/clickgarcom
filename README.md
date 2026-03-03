@@ -92,41 +92,54 @@ cd clickgarcom
 # 2. Copie o .env
 cp services/go-core/.env.example services/go-core/.env
 
-# 3. Suba os containers
-docker-compose up -d
+# 3. Suba toda a stack local em containers
+make rebuild
 
-# 4. Execute as migrations
-make migrate-up
-
-# 5. Seed do banco (menu de exemplo)
+# 4. (Opcional) Seed do banco
 make db-seed
 
-# 6. Rode os serviços
-make run-api        # API HTTP (porta 8080)
-make run-worker     # Worker de mensagens
-make run-outbox     # Worker de notificações
-make run-admin      # Node Admin Panel (porta 3002)
+# 5. URLs locais
+# API HTTP:            http://localhost:8080
+# Admin Panel:         http://localhost:3002
+# Super Admin:         http://localhost:3003
+# RabbitMQ UI:         http://localhost:15672
+# Grafana:             http://localhost:3001
+# Prometheus:          http://localhost:9090
 ```
+
+## Stack Containerizada
+
+- `postgres`: PostgreSQL 17
+- `redis`: Redis 7
+- `rabbitmq`: RabbitMQ 3.13 + management UI
+- `prometheus`: métricas
+- `grafana`: dashboards
+- `go-migrate`: aplica migrations ao subir
+- `go-setup-rabbitmq`: cria exchanges/filas ao subir
+- `go-api`: API HTTP / webhooks (porta `8080`)
+- `go-worker`: processamento assíncrono
+- `go-outbox`: envio e processamento de outbox
+- `node-admin`: painel operacional (porta `3002`)
+- `super-admin`: painel estático de administração global (porta `3003`)
 
 ## Desenvolvimento
 ```bash
-# Rodar API localmente
+# Subir tudo em Docker
+make rebuild
+
+# Rodar algum serviço fora do Docker (quando necessário)
 make run-api
-
-# Rodar Worker
 make run-worker
-
-# Rodar Outbox Worker
 make run-outbox
-
-# Rodar React Admin
 make run-admin
+make run-super-admin
 
 # Limpar banco e filas
 make clean-all
 
 # Ver logs
 make logs
+make logs-super-admin
 
 # Acessar RabbitMQ UI
 http://localhost:15672

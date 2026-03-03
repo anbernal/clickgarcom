@@ -105,13 +105,17 @@ export class TablesService {
     async approveRequest(requestId: string, tenantId: string, tableId?: string) {
         const req = await this.tableRequestRepo.findOne({ where: { id: requestId, tenantId } });
         if (!req) throw new Error('Request not found');
+        if (req.status === RequestStatus.REJECTED) {
+            throw new Error('Rejected requests cannot be approved');
+        }
 
         if (tableId) {
             req.tableId = tableId;
         }
 
-        // Updates status and table optimistically
-        req.status = RequestStatus.APPROVED;
+        // Keep the request pending until Go-Core consumes the event and finalizes
+        // the approval, otherwise the worker ignores the message as already handled.
+        req.status = RequestStatus.PENDING;
         await this.tableRequestRepo.save(req);
 
         // Note: The actual Go-Core updates are triggered by the event

@@ -251,6 +251,19 @@ services:
     networks:
       - clickgarcom-network
 
+  super-admin:
+    build:
+      context: ./services/super-admin
+      dockerfile: Dockerfile
+    container_name: clickgarcom-super-admin
+    ports:
+      - "3003:80"
+    depends_on:
+      - node-admin
+    restart: unless-stopped
+    networks:
+      - clickgarcom-network
+
   ngrok:
     image: ngrok/ngrok:latest
     container_name: clickgarcom-ngrok

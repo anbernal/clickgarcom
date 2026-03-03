@@ -16,6 +16,7 @@ go.work
 # Environment
 .env
 .env.local
+.deploy.env
 *.env.backup
 
 # IDEs

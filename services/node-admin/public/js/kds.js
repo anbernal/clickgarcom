@@ -71,9 +71,21 @@ let wsReconnectTimer = null;
 let pollTimer = null;
 let timerInterval = null;
 let menuItemNameById = new Map();
+let pendingRequests = [];
+let availableTables = [];
+let tablesSnapshot = [];
+let tableMetrics = { total: 0, available: 0, occupied: 0 };
+let assignModalState = { requestId: null, selectedTableId: null };
+const PANEL_ORDER = ['kitchen', 'bar', 'attendance', 'waiter'];
+
+function resolveInitialPanel() {
+  const panel = new URLSearchParams(window.location.search).get('panel');
+  return PANEL_ORDER.includes(panel) ? panel : 'kitchen';
+}
 
 // ─── INIT ──────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+  switchPanel(resolveInitialPanel());
   applySidebarTenantName();
   startClock();
   loadMenuItems().finally(() => {
@@ -82,6 +94,11 @@ document.addEventListener('DOMContentLoaded', () => {
       startTimerUpdates();
     });
   });
+  Promise.all([loadPendingRequests(), loadTableState()]);
+  setInterval(() => {
+    loadPendingRequests();
+    loadTableState();
+  }, 10000);
 });
 
 function applySidebarTenantName() {
@@ -268,6 +285,7 @@ function handleWSEvent(event) {
 function renderAll() {
   renderPanel('kitchen', 'KITCHEN');
   renderPanel('bar', 'BAR');
+  renderAttendance();
   renderWaiter();
   updateNavBadges();
 }
@@ -389,18 +407,70 @@ function renderStats(containerId, pending, accepted, ready, destination) {
     <div class="stat-card"><div class="stat-icon" style="background:var(--surface-2)">${icon}</div><div><div class="stat-value">${pending + accepted + ready}</div><div class="stat-label">Total ativos</div></div></div>`;
 }
 
+function renderAttendance() {
+  const statsEl = document.getElementById('stats-attendance');
+  if (statsEl) {
+    statsEl.innerHTML = `
+      <div class="stat-card"><div class="stat-icon" style="background:var(--yellow-bg)">👤</div><div><div class="stat-value" style="color:#8a6e00">${pendingRequests.length}</div><div class="stat-label">Aguardando aceite</div></div></div>
+      <div class="stat-card"><div class="stat-icon" style="background:var(--green-bg)">🪑</div><div><div class="stat-value" style="color:var(--green)">${tableMetrics.available}</div><div class="stat-label">Mesas livres</div></div></div>
+      <div class="stat-card"><div class="stat-icon" style="background:var(--red-bg)">🍽</div><div><div class="stat-value" style="color:var(--red)">${tableMetrics.occupied}</div><div class="stat-label">Mesas ocupadas</div></div></div>
+      <div class="stat-card"><div class="stat-icon" style="background:var(--blue-bg)">📋</div><div><div class="stat-value" style="color:var(--blue)">${tableMetrics.total}</div><div class="stat-label">Mesas cadastradas</div></div></div>`;
+  }
+
+  const newList = document.getElementById('attendance-new-list');
+  if (newList) {
+    if (pendingRequests.length === 0) {
+      newList.innerHTML = '<div class="empty-state">Nenhum cliente aguardando</div>';
+    } else {
+      newList.innerHTML = pendingRequests.map(req => {
+        const elapsed = getElapsed(req.createdAt || req.created_at);
+        const phone = escapeHTML(req.userPhone || req.user_phone || 'N/A');
+        const pax = req.paxCount || req.pax_count || '?';
+        return `<div class="ready-item">
+          <div style="font-size:20px;flex-shrink:0">📱</div>
+          <div class="ready-item-left">
+            <div class="ready-item-title">${phone}</div>
+            <div class="ready-item-sub">${pax} pessoa(s) · Aguardando há ${escapeHTML(elapsed.text)}</div>
+          </div>
+          <button class="action-btn accept-btn" style="flex-shrink:0" onclick="openAssignModal('${escapeHTML(req.id)}','${phone}','${pax}')">🥞 Alocar Mesa</button>
+        </div>`;
+      }).join('');
+    }
+    document.getElementById('attendance-new-count').textContent = pendingRequests.length;
+  }
+
+  const tablesList = document.getElementById('attendance-tables-list');
+  if (tablesList) {
+    if (availableTables.length === 0) {
+      tablesList.innerHTML = '<div class="empty-state">Nenhuma mesa livre agora</div>';
+    } else {
+      tablesList.innerHTML = availableTables.map(table => {
+        const capacity = table.capacity ? `${escapeHTML(String(table.capacity))} lugares` : 'Capacidade n/d';
+        return `<div class="ready-item">
+          <div style="font-size:20px;flex-shrink:0">🪑</div>
+          <div class="ready-item-left">
+            <div class="ready-item-title">Mesa ${escapeHTML(table.number || '--')}</div>
+            <div class="ready-item-sub">${capacity}</div>
+          </div>
+        </div>`;
+      }).join('');
+    }
+    document.getElementById('attendance-available-count').textContent = availableTables.length;
+  }
+}
+
 function renderWaiter() {
   const readyOrders = Object.values(allOrders).filter(o => o.status === 'READY');
   const prepOrders = Object.values(allOrders).filter(o => o.status === 'ACCEPTED');
+  const queuedOrders = Object.values(allOrders).filter(o => o.status === 'PENDING');
 
-  // Stats
   const statsEl = document.getElementById('stats-waiter');
   if (statsEl) {
     statsEl.innerHTML = `
       <div class="stat-card"><div class="stat-icon" style="background:var(--green-bg)">🍽</div><div><div class="stat-value" style="color:var(--green)">${readyOrders.length}</div><div class="stat-label">Prontos p/ entregar</div></div></div>
       <div class="stat-card"><div class="stat-icon" style="background:var(--yellow-bg)">⏱</div><div><div class="stat-value" style="color:#8a6e00">${prepOrders.length}</div><div class="stat-label">Em preparo</div></div></div>
-      <div class="stat-card"><div class="stat-icon" style="background:var(--blue-bg)">🛎</div><div><div class="stat-value" style="color:var(--blue)">${Object.keys(allOrders).length}</div><div class="stat-label">Pedidos ativos</div></div></div>
-      <div class="stat-card"><div class="stat-icon" style="background:var(--surface-2)">✅</div><div><div class="stat-value">—</div><div class="stat-label">Entregues hoje</div></div></div>`;
+      <div class="stat-card"><div class="stat-icon" style="background:var(--red-bg)">🧾</div><div><div class="stat-value" style="color:var(--red)">${queuedOrders.length}</div><div class="stat-label">Na fila da cozinha/bar</div></div></div>
+      <div class="stat-card"><div class="stat-icon" style="background:var(--blue-bg)">🛎</div><div><div class="stat-value" style="color:var(--blue)">${Object.keys(allOrders).length}</div><div class="stat-label">Pedidos ativos</div></div></div>`;
   }
 
   // Ready list
@@ -456,8 +526,11 @@ function renderWaiter() {
 function updateNavBadges() {
   const kitchen = Object.values(allOrders).filter(o => o.destination === 'KITCHEN' && o.status === 'PENDING').length;
   const bar = Object.values(allOrders).filter(o => o.destination === 'BAR' && o.status === 'PENDING').length;
+  const readyOrders = Object.values(allOrders).filter(o => o.status === 'READY').length;
   document.getElementById('nb-kitchen').textContent = kitchen;
   document.getElementById('nb-bar').textContent = bar;
+  document.getElementById('nb-attendance').textContent = pendingRequests.length;
+  document.getElementById('nb-waiter').textContent = readyOrders;
 }
 
 // ─── ACTIONS ───────────────────────────────────────────────────
@@ -628,17 +701,19 @@ function startTimerUpdates() {
 const TITLES = {
   kitchen: ['Estação da Cozinha', '— aceite e gerencie os pedidos da cozinha'],
   bar: ['Estação do Bar', '— aceite e gerencie os pedidos do bar'],
+  attendance: ['Painel de Atendimento', '— aceite o primeiro contato e aloque mesas'],
   waiter: ['Painel do Garçom', '— acompanhe os pedidos prontos e chamados'],
 };
 
 function switchPanel(name) {
-  activePanel = name;
+  const nextPanel = PANEL_ORDER.includes(name) ? name : 'kitchen';
+  activePanel = nextPanel;
   document.querySelectorAll('.screen-panel').forEach(p => p.classList.remove('active'));
-  document.getElementById('panel-' + name).classList.add('active');
-  document.querySelectorAll('.screen-tab').forEach((t, i) => t.classList.toggle('active', ['kitchen', 'bar', 'waiter'][i] === name));
-  document.querySelectorAll('.sidebar-nav .nav-item').forEach((n, i) => n.classList.toggle('active', i === ['kitchen', 'bar', 'waiter'].indexOf(name)));
-  document.getElementById('topbar-title').textContent = TITLES[name][0];
-  document.getElementById('topbar-sub').textContent = TITLES[name][1];
+  document.getElementById('panel-' + nextPanel).classList.add('active');
+  document.querySelectorAll('.screen-tab').forEach((t, i) => t.classList.toggle('active', PANEL_ORDER[i] === nextPanel));
+  document.querySelectorAll('.sidebar-nav .nav-item').forEach((n, i) => n.classList.toggle('active', PANEL_ORDER[i] === nextPanel));
+  document.getElementById('topbar-title').textContent = TITLES[nextPanel][0];
+  document.getElementById('topbar-sub').textContent = TITLES[nextPanel][1];
 }
 
 // ─── TOAST ─────────────────────────────────────────────────────
@@ -675,4 +750,111 @@ function startClock() {
   };
   update();
   setInterval(update, 1000);
+}
+
+// ─── PENDING TABLE REQUESTS ─────────────────────────────────────────────
+async function loadPendingRequests() {
+  try {
+    const data = await apiGet('/tables/requests/pending');
+    pendingRequests = Array.isArray(data) ? data : [];
+    renderAttendance();
+    updateNavBadges();
+  } catch (e) {
+    console.warn('Failed to load pending requests:', e);
+  }
+}
+
+async function loadTableState() {
+  try {
+    const data = await apiGet('/tables');
+    tablesSnapshot = Array.isArray(data) ? data : [];
+    availableTables = tablesSnapshot.filter(t => t.status === 'AVAILABLE');
+    tableMetrics = {
+      total: tablesSnapshot.length,
+      available: availableTables.length,
+      occupied: tablesSnapshot.filter(t => t.status === 'OCCUPIED').length,
+    };
+    renderAttendance();
+  } catch (e) {
+    console.warn('Failed to load tables:', e);
+    tablesSnapshot = [];
+    availableTables = [];
+    tableMetrics = { total: 0, available: 0, occupied: 0 };
+    renderAttendance();
+  }
+}
+
+function openAssignModal(requestId, phone, pax) {
+  assignModalState = { requestId, selectedTableId: null };
+  document.getElementById('assign-phone').textContent = phone;
+  document.getElementById('assign-pax').textContent = pax;
+  document.getElementById('err-no-table').classList.remove('show');
+
+  loadTableState().then(() => {
+    const grid = document.getElementById('assign-tables-grid');
+    if (availableTables.length === 0) {
+      grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1">Nenhuma mesa disponível</div>';
+    } else {
+      grid.innerHTML = availableTables.map(t => {
+        const rawNumber = String(t.number || '--');
+        const displayNumber = /^\d+$/.test(rawNumber) ? rawNumber.padStart(2, '0') : rawNumber;
+        const capacity = Number(t.capacity || 0);
+        const seatsText = capacity > 0
+          ? `Disponibilidade de ${String(capacity).padStart(2, '0')} ${capacity === 1 ? 'lugar' : 'lugares'}`
+          : 'Capacidade não informada';
+        return `<div class="assign-table-option" onclick="selectAssignTable(this, '${escapeHTML(t.id)}')">
+          <div class="assign-table-option-icon">🪑</div>
+          <div class="assign-table-option-title">Mesa ${escapeHTML(displayNumber)}</div>
+          <div class="assign-table-option-subtitle">${escapeHTML(seatsText)}</div>
+        </div>`;
+      }).join('');
+    }
+    document.getElementById('assignTableModal').classList.add('open');
+  });
+}
+
+function closeAssignModal() {
+  document.getElementById('assignTableModal').classList.remove('open');
+  assignModalState = { requestId: null, selectedTableId: null };
+}
+
+document.getElementById('assignTableModal').addEventListener('click', e => {
+  if (e.target.id === 'assignTableModal') closeAssignModal();
+});
+
+function selectAssignTable(el, tableId) {
+  document.querySelectorAll('#assign-tables-grid .assign-table-option').forEach(t => t.classList.remove('selected'));
+  el.classList.add('selected');
+  assignModalState.selectedTableId = tableId;
+  document.getElementById('err-no-table').classList.remove('show');
+}
+
+async function confirmAssignTable() {
+  if (!assignModalState.selectedTableId) {
+    document.getElementById('err-no-table').classList.add('show');
+    return;
+  }
+
+  try {
+    const r = await fetch(`${CONFIG.API_URL}/tables/requests/${assignModalState.requestId}/approve`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': authSession ? `Bearer ${authSession.token}` : ''
+      },
+      body: JSON.stringify({ tableId: assignModalState.selectedTableId }),
+    });
+    if (r.status === 401 || r.status === 403) { window.location.href = '/login.html'; return; }
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.error || err.message || `API ${r.status}`);
+    }
+
+    closeAssignModal();
+    playNotificationSound();
+    toast('t-success', '✅ Cliente alocado!', 'Mesa atribuída com sucesso');
+    await Promise.all([loadPendingRequests(), loadTableState()]);
+  } catch (e) {
+    toast('t-error', '❌ Erro', e.message);
+  }
 }

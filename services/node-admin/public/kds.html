@@ -656,6 +656,10 @@
             transition: transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
         }
 
+        .modal-body {
+            min-height: 0;
+        }
+
         .modal-overlay.open .modal {
             transform: translateY(0) scale(1);
         }
@@ -807,6 +811,60 @@
             font-family: 'DM Sans';
         }
 
+        .assign-table-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .assign-table-option {
+            padding: 12px 10px;
+            border-radius: 12px;
+            border: 2px solid var(--border);
+            background: var(--surface);
+            cursor: pointer;
+            transition: all 0.15s;
+            min-height: 108px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            gap: 8px;
+            text-align: center;
+        }
+
+        .assign-table-option:hover {
+            border-color: #999;
+            transform: translateY(-1px);
+        }
+
+        .assign-table-option.selected {
+            border-color: var(--green);
+            background: var(--green-bg);
+            box-shadow: inset 0 0 0 1px rgba(58, 171, 111, 0.15);
+        }
+
+        .assign-table-option-title {
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--text);
+            line-height: 1.2;
+        }
+
+        .assign-table-option-subtitle {
+            font-size: 11px;
+            line-height: 1.35;
+            color: var(--text-2);
+            font-weight: 600;
+            max-width: 100%;
+        }
+
+        .assign-table-option-icon {
+            font-size: 20px;
+            line-height: 1;
+        }
+
         .reject-reasons {
             display: flex;
             flex-direction: column;
@@ -939,6 +997,24 @@
             justify-content: center;
             padding: 11px;
             font-size: 13.5px;
+        }
+
+        #assignTableModal .modal {
+            width: min(680px, 94vw);
+            max-height: min(92vh, 760px);
+            display: flex;
+            flex-direction: column;
+        }
+
+        #assignTableModal .modal-body {
+            overflow-y: auto;
+            padding-right: 2px;
+            margin-right: -2px;
+        }
+
+        #assignTableModal .modal-actions {
+            flex-shrink: 0;
+            margin-top: 6px;
         }
 
         .waiter-grid {
@@ -1147,7 +1223,10 @@
                         class="nav-badge" id="nb-kitchen">0</span></a>
                 <a class="nav-item" onclick="switchPanel('bar')"><span class="icon">🍹</span> Bar <span
                         class="nav-badge" id="nb-bar">0</span></a>
-                <a class="nav-item" onclick="switchPanel('waiter')"><span class="icon">🛎</span> Garçom</a>
+                <a class="nav-item" onclick="switchPanel('attendance')"><span class="icon">👤</span> Atendimento <span
+                        class="nav-badge" id="nb-attendance">0</span></a>
+                <a class="nav-item" onclick="switchPanel('waiter')"><span class="icon">🛎</span> Garçom <span
+                        class="nav-badge" id="nb-waiter">0</span></a>
             </nav>
             <div class="sidebar-footer">
                 <div class="station-status" id="ws-status">
@@ -1169,6 +1248,7 @@
                 <div class="screen-tabs">
                     <button class="screen-tab active" onclick="switchPanel('kitchen')">🍳 Cozinha</button>
                     <button class="screen-tab" onclick="switchPanel('bar')">🍹 Bar</button>
+                    <button class="screen-tab" onclick="switchPanel('attendance')">👤 Atendimento</button>
                     <button class="screen-tab" onclick="switchPanel('waiter')">🛎 Garçom</button>
                 </div>
 
@@ -1235,8 +1315,33 @@
                 </div>
 
                 <!-- GARÇOM -->
+                <div id="panel-attendance" class="screen-panel">
+                    <div class="stats-row" id="stats-attendance"></div>
+
+                    <div class="waiter-grid">
+                        <div class="section-card">
+                            <div class="section-header">
+                                <div class="section-header-icon" style="background:var(--yellow-bg)">👤</div>
+                                <h3>Primeiro Contato</h3><span class="column-count" id="attendance-new-count"
+                                    style="margin-left:auto;background:var(--yellow-bg);color:#8a6e00;border:1px solid #e6d5a0;">0</span>
+                            </div>
+                            <div class="section-body" id="attendance-new-list"></div>
+                        </div>
+                        <div class="section-card">
+                            <div class="section-header">
+                                <div class="section-header-icon" style="background:var(--green-bg)">🪑</div>
+                                <h3>Mesas Livres Agora</h3><span class="column-count" id="attendance-available-count"
+                                    style="margin-left:auto;background:var(--green-bg);color:var(--green);border:1px solid #b5e0ca;">0</span>
+                            </div>
+                            <div class="section-body" id="attendance-tables-list"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- GARÇOM -->
                 <div id="panel-waiter" class="screen-panel">
                     <div class="stats-row" id="stats-waiter"></div>
+
                     <div class="waiter-grid">
                         <div class="section-card">
                             <div class="section-header">
@@ -1349,6 +1454,35 @@
                     <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
                     <button class="btn btn-red-solid" onclick="confirmReject()">✕ Confirmar Recusa</button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: Alocar Mesa -->
+    <div class="modal-overlay" id="assignTableModal">
+        <div class="modal">
+            <div class="modal-header">
+                <div class="modal-title">Alocar Mesa</div>
+                <button class="modal-close" onclick="closeAssignModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="modal-order-info">
+                    <div class="info-item">
+                        <div class="info-label">Cliente</div>
+                        <div class="info-val" id="assign-phone">—</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Pessoas</div>
+                        <div class="info-val" id="assign-pax">—</div>
+                    </div>
+                </div>
+                <div class="modal-label">Selecione a Mesa Disponível</div>
+                <div id="assign-tables-grid" class="assign-table-grid"></div>
+                <div class="error-msg-inline" id="err-no-table">⚠ Selecione uma mesa para continuar.</div>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-ghost" onclick="closeAssignModal()">Cancelar</button>
+                <button class="btn btn-green" onclick="confirmAssignTable()">✓ Confirmar Alocação</button>
             </div>
         </div>
     </div>
