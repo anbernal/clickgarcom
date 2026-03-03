@@ -14,6 +14,7 @@ async function loadDashboard() {
         let tablesData = [];
         try { tablesData = await api.get('/tables'); } catch (e) { }
 
+        const tableNumbersByTabId = buildTableNumbersByTabId(tablesData);
         const recentOrders = (orders || []).slice(0, 4);
         const pendingCount = (orders || []).filter(o => o.status === 'PENDING').length;
 
@@ -71,7 +72,7 @@ async function loadDashboard() {
               <div class="order-item">
                 <div class="order-avatar" style="background:${getGradient(i)}">#${(i + 1)}</div>
                 <div>
-                  <div class="order-name">Pedido #${order.id.substring(0, 8)}</div>
+                  <div class="order-name">Pedido #${getOrderDisplayCode(order, tableNumbersByTabId)}</div>
                   <div class="order-meta">${formatTime(order.createdAt)} · ${order.destination}</div>
                 </div>
                 <div class="order-amount">${formatCurrency(total)}</div>
@@ -138,6 +139,44 @@ async function loadDashboard() {
     } catch (err) {
         container.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><h3>Erro ao carregar</h3><p>${err.message}</p></div>`;
     }
+}
+
+function buildTableNumbersByTabId(tablesData) {
+    const map = {};
+    (tablesData || []).forEach((table) => {
+        const tableNumber = formatTableNumber(table.number);
+        (table.activeTabs || []).forEach((tab) => {
+            if (tab && tab.id) {
+                map[String(tab.id)] = tableNumber;
+            }
+        });
+    });
+    return map;
+}
+
+function getOrderDisplayCode(order, tableNumbersByTabId) {
+    const phoneSuffix = getOrderPhoneSuffix(order);
+    const tableCode = getOrderTableCode(order, tableNumbersByTabId);
+    const orderSuffix = String(order?.id || '').slice(-4) || '----';
+    return [phoneSuffix, tableCode, orderSuffix].join('-');
+}
+
+function getOrderPhoneSuffix(order) {
+    const notes = String(order?.notes || '');
+    const digits = notes.replace(/\D/g, '');
+    return digits.slice(-4) || '0000';
+}
+
+function getOrderTableCode(order, tableNumbersByTabId) {
+    const tabId = String(order?.tabId || order?.tab_id || '');
+    if (!tabId) return '--';
+    return tableNumbersByTabId[tabId] || '--';
+}
+
+function formatTableNumber(number) {
+    const digits = String(number ?? '').replace(/\D/g, '');
+    if (!digits) return '--';
+    return digits.padStart(2, '0');
 }
 
 function buildChart(data) {

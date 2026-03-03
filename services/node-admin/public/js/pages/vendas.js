@@ -4,12 +4,17 @@ async function loadVendas() {
     container.innerHTML = '<div class="loading"><div class="spinner"></div> Carregando relatórios...</div>';
 
     try {
-        const [stats, sales, topItems, weekly] = await Promise.all([
+        const [stats, sales, topItems, weekly, menuItems] = await Promise.all([
             api.get('/reports/stats'),
             api.get('/reports/sales'),
             api.get('/reports/top-items'),
             api.get('/reports/weekly'),
+            api.get('/menu'),
         ]);
+
+        const menuItemNameById = new Map(
+            (menuItems || []).map((item) => [String(item.id), String(item.name || '')]),
+        );
 
         const totalMonth = sales.reduce((sum, order) => {
             const t = order.items ? order.items.reduce((s, it) => s + Number(it.unitPrice) * it.quantity, 0) : 0;
@@ -77,7 +82,7 @@ async function loadVendas() {
                 <div style="font-size:16px;font-weight:700;color:var(--muted);width:24px">${i + 1}</div>
                 <div style="flex:1">
                   <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:600;margin-bottom:4px">
-                    <span>${item.menuItemId?.substring(0, 8) || '—'}</span>
+                    <span>${escapeHTML(getTopItemLabel(item, menuItemNameById))}</span>
                     <span class="mono">${item.totalQuantity} und</span>
                   </div>
                   <div style="background:var(--border);border-radius:20px;height:6px">
@@ -133,6 +138,19 @@ async function loadVendas() {
     } catch (err) {
         container.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><h3>Erro</h3><p>${err.message}</p></div>`;
     }
+}
+
+function getTopItemLabel(item, menuItemNameById) {
+    const menuItemId = String(item?.menuItemId || '');
+    if (menuItemId && menuItemNameById.has(menuItemId)) {
+        return menuItemNameById.get(menuItemId);
+    }
+
+    if (menuItemId) {
+        return menuItemId.substring(0, 8);
+    }
+
+    return '—';
 }
 
 function exportCSV() {
