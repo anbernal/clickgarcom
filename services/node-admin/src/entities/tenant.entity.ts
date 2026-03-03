@@ -47,6 +47,15 @@ export class Tenant {
     @Column({ name: 'meta_token', type: 'text', nullable: true })
     metaToken: string | null;
 
+    @Column({ name: 'wallet_balance', type: 'numeric', precision: 10, scale: 2, default: 0.00 })
+    walletBalance: number;
+
+    @Column({ name: 'billing_plan', type: 'varchar', length: 20, default: 'pre_paid' })
+    billingPlan: string;
+
+    @Column({ name: 'message_price', type: 'numeric', precision: 10, scale: 2, default: 0.02 })
+    messagePrice: number;
+
     @Column({ type: 'simple-json', nullable: true })
     settings: TenantSettings;
 

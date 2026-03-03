@@ -92,8 +92,10 @@ func (h *WhatsAppWebhookHandler) HandleWebhook(c *fiber.Ctx) error {
 			}
 
 			// Debitar R$ 0,02 e logar recebimento
-			go func(tid uuid.UUID, mid string) {
-				_ = h.tenantRepo.DeductWalletBalance(context.Background(), tid, 0.02)
+			go func(tid uuid.UUID, mid string, billingPlan string, messagePrice float64) {
+				if billingPlan == tenant.PlanPrePaid {
+					_ = h.tenantRepo.DeductWalletBalance(context.Background(), tid, messagePrice)
+				}
 				if h.logRepo != nil {
 					h.logRepo.Save(context.Background(), &tenant.MessageLog{
 						TenantID:  tid,
@@ -102,7 +104,7 @@ func (h *WhatsAppWebhookHandler) HandleWebhook(c *fiber.Ctx) error {
 						Status:    "RECEIVED",
 					})
 				}
-			}(tnt.ID, wamid)
+			}(tnt.ID, wamid, tnt.BillingPlan, tnt.MessagePrice)
 		}
 	}
 

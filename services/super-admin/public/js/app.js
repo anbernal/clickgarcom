@@ -76,6 +76,12 @@ const api = {
             body: JSON.stringify({ active }),
         });
     },
+    updateWallet(id, payload) {
+        return request(`/tenants/${id}/wallet`, {
+            method: 'PATCH',
+            body: JSON.stringify(payload),
+        });
+    },
 };
 
 function escapeHtml(value) {
@@ -116,6 +122,7 @@ function navigate(pageId) {
 
     if (targetPage === 'dashboard') loadDashboard();
     if (targetPage === 'tenants') loadTenants();
+    if (targetPage === 'wallet') loadWallet();
 }
 
 async function loadDashboard() {
@@ -181,6 +188,46 @@ async function loadTenants() {
     }
 }
 
+async function loadWallet() {
+    try {
+        setTableLoading('#wallet-table tbody', 5, 'Carregando carteiras...');
+        const tenants = await api.getTenants();
+        state.tenants = Array.isArray(tenants) ? tenants : [];
+
+        const tbody = document.querySelector('#wallet-table tbody');
+        if (!state.tenants.length) {
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted)">Nenhum restaurante cadastrado.</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = state.tenants.map((t) => `
+            <tr>
+                <td>
+                    <strong>${escapeHtml(t.name)}</strong><br>
+                    <small style="font-family:monospace; color:var(--text-muted)">${escapeHtml(t.id)}</small>
+                </td>
+                <td>
+                    <span class="badge ${t.billingPlan === 'pre_paid' ? 'active' : ''}" style="${t.billingPlan === 'post_paid' ? 'background:rgba(59, 130, 246, 0.2);color:#3b82f6;' : ''}">
+                        ${t.billingPlan === 'pre_paid' ? 'Pré-Pago' : 'Pós-Pago'}
+                    </span>
+                </td>
+                <td>
+                    <strong style="font-size:16px; color:${t.walletBalance < 0 ? 'var(--danger)' : 'var(--text)'}">
+                        R$ ${formatNumber(t.walletBalance)}
+                    </strong>
+                </td>
+                <td><span class="badge ${t.active ? 'active' : ''}">${t.active ? 'Ativo' : 'Pausado'}</span></td>
+                <td>
+                    <button class="btn" style="padding:6px 12px; background:var(--border)" onclick="openWalletModal('${escapeHtml(t.id)}')">Gerenciar</button>
+                </td>
+            </tr>
+        `).join('');
+    } catch (error) {
+        console.error(error);
+        setTableLoading('#wallet-table tbody', 5, `Falha ao carregar carteiras: ${error.message}`);
+    }
+}
+
 function openTenantModal(tenantId = '') {
     const form = document.getElementById('tenant-form');
     form.reset();
@@ -193,6 +240,7 @@ function openTenantModal(tenantId = '') {
     document.getElementById('tm-name').value = isEditing ? (tenant.name || '') : '';
     document.getElementById('tm-slug').value = isEditing ? (tenant.slug || '') : '';
     document.getElementById('tm-waba-id').value = isEditing ? (tenant.wabaId || '') : '';
+    document.getElementById('tm-message-price').value = isEditing ? (tenant.messagePrice !== undefined ? tenant.messagePrice : 0.02) : '0.02';
     document.getElementById('tm-whatsapp-number').value = isEditing ? (tenant.whatsappNumber || '') : '';
     document.getElementById('tm-email').value = isEditing ? (tenant.adminEmail || '') : '';
     document.getElementById('tm-password').value = '';
@@ -216,6 +264,7 @@ async function saveTenant(event) {
         name: document.getElementById('tm-name').value.trim(),
         slug: document.getElementById('tm-slug').value.trim().toLowerCase(),
         waba_id: normalizeDigits(document.getElementById('tm-waba-id').value),
+        message_price: parseFloat(document.getElementById('tm-message-price').value),
         whatsapp_number: normalizeDigits(document.getElementById('tm-whatsapp-number').value),
         admin_email: document.getElementById('tm-email').value.trim().toLowerCase(),
         admin_password: document.getElementById('tm-password').value,
@@ -264,6 +313,50 @@ async function toggleTenantActive(tenantId, active) {
     } catch (error) {
         console.error(error);
         alert(`Falha ao atualizar status: ${error.message}`);
+    }
+}
+
+function openWalletModal(tenantId) {
+    const form = document.getElementById('wallet-form');
+    form.reset();
+
+    const tenant = state.tenants.find((item) => item.id === tenantId);
+    if (!tenant) return;
+
+    document.getElementById('wm-id').value = tenant.id;
+    document.getElementById('wm-tenant-name').textContent = tenant.name;
+    document.getElementById('wm-plan').value = tenant.billingPlan || 'pre_paid';
+    document.getElementById('wm-amount').value = '';
+
+    document.getElementById('wallet-modal').classList.add('active');
+}
+
+function closeWalletModal() {
+    document.getElementById('wallet-modal').classList.remove('active');
+}
+
+async function saveWallet(event) {
+    event.preventDefault();
+
+    const tenantId = document.getElementById('wm-id').value.trim();
+    if (!tenantId) return;
+
+    const amountStr = document.getElementById('wm-amount').value.trim();
+    const plan = document.getElementById('wm-plan').value;
+
+    const payload = { billing_plan: plan };
+    if (amountStr) {
+        payload.amount = parseFloat(amountStr);
+    }
+
+    try {
+        await api.updateWallet(tenantId, payload);
+        closeWalletModal();
+        await loadWallet();
+        alert('Carteira atualizada com sucesso!');
+    } catch (error) {
+        console.error(error);
+        alert(`Falha ao atualizar carteira: ${error.message}`);
     }
 }
 

@@ -21,6 +21,7 @@ import { ReportsModule } from './modules/reports/reports.module';
 import { AmqpModule } from './modules/amqp/amqp.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { SuperAdminModule } from './modules/super-admin/super-admin.module';
+import { WalletModule } from './modules/wallet/wallet.module';
 import { AppController } from './app.controller';
 
 @Module({
@@ -44,6 +45,7 @@ import { AppController } from './app.controller';
         ReportsModule,
         AuthModule,
         SuperAdminModule,
+        WalletModule,
     ],
     controllers: [AppController],
 })

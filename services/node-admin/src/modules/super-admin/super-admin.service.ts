@@ -19,6 +19,7 @@ type TenantPayload = {
     whatsapp_number?: string;
     waba_id?: string;
     meta_token?: string;
+    message_price?: number;
     admin_email?: string;
     admin_password?: string;
 };
@@ -126,6 +127,9 @@ export class SuperAdminService {
                     t.waba_id,
                     t.active,
                     t.is_open,
+                    t.wallet_balance,
+                    t.billing_plan,
+                    t.message_price,
                     t.created_at,
                     admin_user.email AS admin_email,
                     COALESCE(SUM(CASE WHEN ml.direction = 'IN' THEN 1 ELSE 0 END), 0)::int AS msg_in,
@@ -140,7 +144,7 @@ export class SuperAdminService {
                  ) admin_user ON true
                  LEFT JOIN message_logs ml ON ml.tenant_id = t.id
                  GROUP BY
-                    t.id, t.name, t.slug, t.whatsapp_number, t.waba_id, t.active, t.is_open, t.created_at, admin_user.email
+                    t.id, t.name, t.slug, t.whatsapp_number, t.waba_id, t.active, t.is_open, t.wallet_balance, t.billing_plan, t.message_price, t.created_at, admin_user.email
                  ORDER BY t.created_at DESC`,
             )
             : await this.dataSource.query(
@@ -152,6 +156,9 @@ export class SuperAdminService {
                     t.waba_id,
                     t.active,
                     t.is_open,
+                    t.wallet_balance,
+                    t.billing_plan,
+                    t.message_price,
                     t.created_at,
                     admin_user.email AS admin_email,
                     0::int AS msg_in,
@@ -180,6 +187,9 @@ export class SuperAdminService {
                 adminEmail: row.admin_email || '',
                 active: !!row.active,
                 isOpen: !!row.is_open,
+                walletBalance: Number(row.wallet_balance || 0),
+                billingPlan: row.billing_plan || 'pre_paid',
+                messagePrice: Number(row.message_price || 0.02),
                 webhook: webhookUrl,
                 msgsIn: msgIn,
                 msgsOut: msgOut,
@@ -218,6 +228,7 @@ export class SuperAdminService {
             whatsappNumber,
             wabaId,
             metaToken: metaToken || null,
+            messagePrice: payload.message_price !== undefined ? payload.message_price : 0.02,
             active: true,
             isOpen: false,
             settings: defaults,
@@ -268,6 +279,7 @@ export class SuperAdminService {
         if (whatsappNumber) tenant.whatsappNumber = whatsappNumber;
         if (wabaId) tenant.wabaId = wabaId;
         if (metaToken) tenant.metaToken = metaToken;
+        if (payload.message_price !== undefined) tenant.messagePrice = payload.message_price;
 
         await this.tenantRepo.save(tenant);
 
@@ -321,6 +333,36 @@ export class SuperAdminService {
         return {
             id: tenant.id,
             active: tenant.active,
+        };
+    }
+
+    async updateWallet(id: string, payload: { amount?: number; billing_plan?: string }) {
+        const tenant = await this.tenantRepo.findOne({ where: { id } });
+        if (!tenant) throw new NotFoundException('Tenant não encontrado.');
+
+        if (payload.billing_plan) {
+            const plan = String(payload.billing_plan).trim();
+            if (['pre_paid', 'post_paid'].includes(plan)) {
+                tenant.billingPlan = plan;
+            } else {
+                throw new BadRequestException('O plano de faturamento deve ser "pre_paid" ou "post_paid".');
+            }
+        }
+
+        if (payload.amount !== undefined && payload.amount !== null) {
+            const amount = Number(payload.amount);
+            if (!Number.isFinite(amount)) {
+                throw new BadRequestException('O valor recarregado deve ser um número válido.');
+            }
+            tenant.walletBalance = Number(tenant.walletBalance || 0) + amount;
+        }
+
+        await this.tenantRepo.save(tenant);
+
+        return {
+            id: tenant.id,
+            walletBalance: tenant.walletBalance,
+            billingPlan: tenant.billingPlan,
         };
     }
 

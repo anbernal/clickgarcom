@@ -18,6 +18,7 @@ type Tenant struct {
 	MetaToken      string         `json:"meta_token" gorm:"column:meta_token"`                     // Cloud API Bearer Token
 	WalletBalance  float64        `json:"wallet_balance" gorm:"type:numeric(10,2);default:0.00"`   // FASE 13
 	BillingPlan    string         `json:"billing_plan" gorm:"type:varchar(20);default:'pre_paid'"` // FASE 13
+	MessagePrice   float64        `json:"message_price" gorm:"type:numeric(10,2);default:0.02"`    // Custo configurável por msg
 	Settings       TenantSettings `json:"settings" gorm:"type:jsonb"`
 	Active         bool           `json:"active" gorm:"default:true"`
 	IsOpen         bool           `json:"is_open" gorm:"default:false"`

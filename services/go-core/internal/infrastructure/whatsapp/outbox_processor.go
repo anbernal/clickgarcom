@@ -138,7 +138,10 @@ func (p *OutboxProcessor) processMessage(ctx context.Context, msg *domain.Outbox
 	if err == nil && msg.TenantID != nil {
 		go func(tid uuid.UUID, mid string) {
 			if p.tenantRepo != nil {
-				_ = p.tenantRepo.DeductWalletBalance(context.Background(), tid, 0.02)
+				tnt, err := p.tenantRepo.FindByID(context.Background(), tid)
+				if err == nil && tnt.BillingPlan == tenant.PlanPrePaid {
+					_ = p.tenantRepo.DeductWalletBalance(context.Background(), tid, tnt.MessagePrice)
+				}
 			}
 			if p.logRepo != nil {
 				p.logRepo.Save(context.Background(), &tenant.MessageLog{

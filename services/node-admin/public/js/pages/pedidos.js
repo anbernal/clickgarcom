@@ -4,7 +4,11 @@ async function loadPedidos() {
   container.innerHTML = '<div class="loading"><div class="spinner"></div> Carregando pedidos...</div>';
 
   try {
-    const orders = await api.get('/orders');
+    const [orders, tablesData] = await Promise.all([
+      api.get('/orders'),
+      api.get('/tables').catch(() => []),
+    ]);
+    const tableNumbersByTabId = buildTableNumbersByTabId(tablesData);
     const pending = orders.filter(o => o.status === 'PENDING').length;
     const prep = orders.filter(o => o.status === 'ACCEPTED').length;
     const ready = orders.filter(o => o.status === 'READY').length;
@@ -26,7 +30,7 @@ async function loadPedidos() {
         }
 
         return `<tr>
-          <td class="mono">#${escapeHTML(order.id.substring(0, 8))}</td>
+          <td class="mono">#${escapeHTML(getOrderDisplayCode(order, tableNumbersByTabId))}</td>
           <td>${escapeHTML(order.destination)}</td>
           <td>${escapeHTML(order.items ? order.items.length + ' itens' : '-')}</td>
           <td><span class="status-pill ${escapeHTML(statusClass(order.status))}">${escapeHTML(statusLabel(order.status))}</span></td>
@@ -77,6 +81,44 @@ async function loadPedidos() {
   } catch (err) {
     container.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><h3>Erro</h3><p>${escapeHTML(err.message)}</p></div>`;
   }
+}
+
+function buildTableNumbersByTabId(tablesData) {
+  const map = {};
+  (tablesData || []).forEach((table) => {
+    const tableNumber = formatTableNumber(table.number);
+    (table.activeTabs || []).forEach((tab) => {
+      if (tab && tab.id) {
+        map[String(tab.id)] = tableNumber;
+      }
+    });
+  });
+  return map;
+}
+
+function getOrderDisplayCode(order, tableNumbersByTabId) {
+  const phoneSuffix = getOrderPhoneSuffix(order);
+  const tableCode = getOrderTableCode(order, tableNumbersByTabId);
+  const orderSuffix = String(order?.id || '').slice(-4) || '----';
+  return [phoneSuffix, tableCode, orderSuffix].join('-');
+}
+
+function getOrderPhoneSuffix(order) {
+  const notes = String(order?.notes || '');
+  const digits = notes.replace(/\D/g, '');
+  return digits.slice(-4) || '0000';
+}
+
+function getOrderTableCode(order, tableNumbersByTabId) {
+  const tabId = String(order?.tabId || order?.tab_id || '');
+  if (!tabId) return '--';
+  return tableNumbersByTabId[tabId] || '--';
+}
+
+function formatTableNumber(number) {
+  const digits = String(number ?? '').replace(/\D/g, '');
+  if (!digits) return '--';
+  return digits.padStart(2, '0');
 }
 
 async function updateOrderStatus(orderId, newStatus) {

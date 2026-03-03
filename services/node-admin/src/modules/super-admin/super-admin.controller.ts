@@ -45,4 +45,14 @@ export class SuperAdminController {
         this.superAdminService.assertAccess(key);
         return this.superAdminService.setTenantActive(id, !!body?.active);
     }
+
+    @Patch('tenants/:id/wallet')
+    updateWallet(
+        @Headers('x-super-admin-key') key: string | undefined,
+        @Param('id') id: string,
+        @Body() body: { amount?: number; billing_plan?: string },
+    ) {
+        this.superAdminService.assertAccess(key);
+        return this.superAdminService.updateWallet(id, body || {});
+    }
 }

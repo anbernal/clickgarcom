@@ -4,17 +4,19 @@ async function loadVendas() {
     container.innerHTML = '<div class="loading"><div class="spinner"></div> Carregando relatórios...</div>';
 
     try {
-        const [stats, sales, topItems, weekly, menuItems] = await Promise.all([
+        const [stats, sales, topItems, weekly, menuItems, tablesData] = await Promise.all([
             api.get('/reports/stats'),
             api.get('/reports/sales'),
             api.get('/reports/top-items'),
             api.get('/reports/weekly'),
             api.get('/menu'),
+            api.get('/tables').catch(() => []),
         ]);
 
         const menuItemNameById = new Map(
             (menuItems || []).map((item) => [String(item.id), String(item.name || '')]),
         );
+        const tableNumbersByTabId = buildTableNumbersByTabId(tablesData);
 
         const totalMonth = sales.reduce((sum, order) => {
             const t = order.items ? order.items.reduce((s, it) => s + Number(it.unitPrice) * it.quantity, 0) : 0;
@@ -54,7 +56,7 @@ async function loadVendas() {
               ${sales.map((order, i) => {
             const total = order.items ? order.items.reduce((s, it) => s + Number(it.unitPrice) * it.quantity, 0) : 0;
             return `<tr>
-                  <td class="mono">#${order.id.substring(0, 8)}</td>
+                  <td class="mono">#${escapeHTML(getOrderDisplayCode(order, tableNumbersByTabId))}</td>
                   <td>${order.destination}</td>
                   <td><span class="status-pill ${statusClass(order.status)}">${statusLabel(order.status)}</span></td>
                   <td>${formatDate(order.createdAt)}</td>
@@ -138,6 +140,44 @@ async function loadVendas() {
     } catch (err) {
         container.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><h3>Erro</h3><p>${err.message}</p></div>`;
     }
+}
+
+function buildTableNumbersByTabId(tablesData) {
+    const map = {};
+    (tablesData || []).forEach((table) => {
+        const tableNumber = formatTableNumber(table.number);
+        (table.activeTabs || []).forEach((tab) => {
+            if (tab && tab.id) {
+                map[String(tab.id)] = tableNumber;
+            }
+        });
+    });
+    return map;
+}
+
+function getOrderDisplayCode(order, tableNumbersByTabId) {
+    const phoneSuffix = getOrderPhoneSuffix(order);
+    const tableCode = getOrderTableCode(order, tableNumbersByTabId);
+    const orderSuffix = String(order?.id || '').slice(-4) || '----';
+    return [phoneSuffix, tableCode, orderSuffix].join('-');
+}
+
+function getOrderPhoneSuffix(order) {
+    const notes = String(order?.notes || '');
+    const digits = notes.replace(/\D/g, '');
+    return digits.slice(-4) || '0000';
+}
+
+function getOrderTableCode(order, tableNumbersByTabId) {
+    const tabId = String(order?.tabId || order?.tab_id || '');
+    if (!tabId) return '--';
+    return tableNumbersByTabId[tabId] || '--';
+}
+
+function formatTableNumber(number) {
+    const digits = String(number ?? '').replace(/\D/g, '');
+    if (!digits) return '--';
+    return digits.padStart(2, '0');
 }
 
 function getTopItemLabel(item, menuItemNameById) {

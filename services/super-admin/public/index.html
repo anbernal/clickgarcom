@@ -18,6 +18,7 @@
         <nav>
             <a class="nav-link" data-page="dashboard" onclick="navigate('dashboard')">📊 Métricas Globais</a>
             <a class="nav-link" data-page="tenants" onclick="navigate('tenants')">🏢 Restaurantes (Tenants)</a>
+            <a class="nav-link" data-page="wallet" onclick="navigate('wallet')">💳 Carteira & Assinatura</a>
             <a class="nav-link" data-page="settings" onclick="navigate('settings')">⚙️ Configurações</a>
         </nav>
 
@@ -104,6 +105,36 @@
             </div>
         </div>
 
+        <!-- WALLET & SUBSCRIPTION -->
+        <div id="page-wallet" class="page" style="display:none">
+            <div class="flex-between" style="margin-bottom: 32px">
+                <div>
+                    <h1 class="page-title">Carteira & Assinatura</h1>
+                    <p class="page-sub" style="margin-bottom:0">Gerencie os créditos pós/pré pagos e os planos de cada
+                        restaurante</p>
+                </div>
+            </div>
+
+            <div class="card">
+                <table id="wallet-table">
+                    <thead>
+                        <tr>
+                            <th>ID / Restaurante</th>
+                            <th>Plano de Bilhetagem</th>
+                            <th>Saldo Atual (R$)</th>
+                            <th>Status Conta</th>
+                            <th>Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td colspan="5" style="text-align:center">Carregando carteiras...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
     </main>
 
     <!-- MODAL: Novo Tenant / Editar -->
@@ -136,6 +167,14 @@
                     </div>
 
                     <div class="form-group">
+                        <label>Custo por Mensagem WhatsApp (R$)</label>
+                        <input type="number" step="0.01" min="0" id="tm-message-price" class="input"
+                            placeholder="Ex: 0.02" required>
+                        <small style="color:var(--text-muted);font-size:12px;display:block;margin-top:4px">Custo
+                            deduzido do saldo para operações IN/OUT no plano Pré-Pago.</small>
+                    </div>
+
+                    <div class="form-group">
                         <label>Número WhatsApp (display_phone_number)</label>
                         <input type="text" id="tm-whatsapp-number" class="input" placeholder="Ex: 5511999999999"
                             required>
@@ -163,6 +202,47 @@
                     style="background:transparent;border:1px solid var(--border);color:white"
                     onclick="closeTenantModal()">Cancelar</button>
                 <button type="submit" form="tenant-form" class="btn">Salvar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: Carteira & PLano -->
+    <div class="modal-overlay" id="wallet-modal">
+        <div class="modal-content" style="max-width: 400px;">
+            <div class="modal-header">
+                <h3>Gerenciar Créditos</h3>
+                <button onclick="closeWalletModal()"
+                    style="background:transparent;border:none;color:var(--text-muted);cursor:pointer;font-size:20px">✕</button>
+            </div>
+            <div class="modal-body">
+                <form id="wallet-form" onsubmit="saveWallet(event)">
+                    <input type="hidden" id="wm-id">
+
+                    <p id="wm-tenant-name" style="margin-bottom: 20px; font-weight: 500;"></p>
+
+                    <div class="form-group">
+                        <label>Adicionar Saldo (R$)</label>
+                        <input type="number" step="0.01" id="wm-amount" class="input" placeholder="Ex: 50.00">
+                        <small style="color:var(--text-muted);font-size:12px;display:block;margin-top:4px">Opcional.
+                            Valor a ser somado ao saldo atual.</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Plano de Bilhetagem</label>
+                        <select id="wm-plan" class="input" required>
+                            <option value="pre_paid">Pré-Pago (Trava sem saldo)</option>
+                            <option value="post_paid">Pós-Pago (Fatura livre)</option>
+                        </select>
+                        <small style="color:var(--text-muted);font-size:12px;display:block;margin-top:4px">O plano
+                            Pós-Pago não bloqueia envios mesmo com saldo negativo.</small>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn"
+                    style="background:transparent;border:1px solid var(--border);color:white"
+                    onclick="closeWalletModal()">Cancelar</button>
+                <button type="submit" form="wallet-form" class="btn">Aplicar</button>
             </div>
         </div>
     </div>
