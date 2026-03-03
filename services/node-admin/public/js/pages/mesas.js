@@ -89,37 +89,74 @@ function renderManagementCard(tables) {
   const reservedCount = tables.filter((table) => table.status === 'RESERVED').length;
 
   return `
-    <div class="full-card" style="margin-bottom:20px">
-      <div class="card-header">
-        <div>
-          <div class="card-title">Cadastro Dinamico de Mesas</div>
-          <div class="card-subtitle">Cadastre novas mesas e defina quantas pessoas cada uma comporta</div>
+    <div class="full-card" style="margin-bottom:24px; padding:24px; border:none; box-shadow:0 4px 20px rgba(0,0,0,0.03);">
+      
+      <!-- Header Area -->
+      <div style="display:flex; align-items:flex-start; margin-bottom: 24px;">
+        <div style="display:flex; align-items:center; gap:16px;">
+          <div style="width:52px; height:52px; border-radius:14px; background:linear-gradient(135deg, rgba(59,130,246,0.1), rgba(124,58,237,0.1)); border:1px solid rgba(59,130,246,0.1); display:flex; align-items:center; justify-content:center; font-size:24px; flex-shrink:0;">
+            🪑
+          </div>
+          <div>
+            <h2 style="margin:0 0 6px 0; font-size:18px; font-weight:700; color:var(--text); letter-spacing:-0.4px;">Cadastro de Mesas</h2>
+            <p style="margin:0; font-size:13px; color:var(--text-light); max-width:400px; line-height:1.4;">
+              Adicione as mesas do seu salão e defina a capacidade de lugares de cada uma para otimizar o fluxo de atendimento.
+            </p>
+          </div>
         </div>
       </div>
-      <div style="display:grid; grid-template-columns:minmax(260px, 1.2fr) minmax(220px, 0.8fr); gap:16px; align-items:start;">
-        <div style="padding:16px; border:1px solid var(--border); border-radius:12px; background:var(--bg);">
-          <div style="display:grid; grid-template-columns:1.2fr 0.8fr auto; gap:10px; align-items:end;">
-            <div>
-              <label style="display:block; font-size:12px; font-weight:700; margin-bottom:6px; color:var(--text-light);">Numero da Mesa</label>
-              <input type="text" id="table-number-inline" placeholder="Ex: 01, 02, VIP-1" class="input">
+
+      <!-- Main Content Split -->
+      <div style="display:flex; gap:20px; flex-wrap:wrap; align-items:stretch;">
+
+        <!-- Form Section -->
+        <div style="flex:1.8; min-width:320px; padding:20px; background:var(--bg); border:1px solid var(--border); border-radius:14px;">
+          <h3 style="margin:0 0 16px 0; font-size:14px; font-weight:600; color:var(--text); letter-spacing:-0.2px;">Adicionar Nova Mesa</h3>
+          
+          <div style="display:flex; gap:12px; align-items:flex-end;">
+            <div style="flex:1;">
+              <label style="display:block; font-size:12px; font-weight:600; color:var(--text-light); margin-bottom:6px;">
+                Identificação / Número
+              </label>
+              <input type="text" id="table-number-inline" placeholder="Ex: 01, M-10" class="input" style="width:100%; height:42px; border-radius:8px; padding:0 14px; font-size:14px;">
             </div>
-            <div>
-              <label style="display:block; font-size:12px; font-weight:700; margin-bottom:6px; color:var(--text-light);">Lugares</label>
-              <input type="number" id="table-capacity-inline" value="4" min="1" max="20" class="input">
+            
+            <div style="width:110px;">
+              <label style="display:block; font-size:12px; font-weight:600; color:var(--text-light); margin-bottom:6px;">
+                Lugares
+              </label>
+              <div style="position:relative;">
+                <input type="number" id="table-capacity-inline" value="4" min="1" max="20" class="input" style="width:100%; height:42px; border-radius:8px; padding:0 14px; padding-right:32px; font-size:14px; text-align:center;">
+                <span style="position:absolute; right:12px; top:12px; font-size:13px; color:var(--text-light); pointer-events:none;">👤</span>
+              </div>
             </div>
-            <button class="btn btn-primary" type="button" onclick="createTable()" style="white-space:nowrap;">Cadastrar Mesa</button>
+
+            <button class="btn btn-primary" type="button" onclick="createTable()" style="height:42px; padding:0 24px; border-radius:8px; font-size:14px; font-weight:600; letter-spacing:0.2px; transition:transform 0.1s;">
+              + Adicionar
+            </button>
           </div>
         </div>
-        <div style="padding:16px; border:1px solid rgba(240,120,64,0.18); border-radius:12px; background:rgba(240,120,64,0.08);">
-          <div style="font-size:13px; font-weight:700; margin-bottom:8px;">Regra de Reserva</div>
-          <div style="font-size:13px; color:var(--text-light); line-height:1.45;">
-            Mesas marcadas como <strong>Reservada</strong> nao entram na alocacao automatica do Atendimento.
-            Elas ficam bloqueadas ate que voce libere a reserva ou confirme a chegada do cliente.
+
+        <!-- Info / Callout Section -->
+        <div style="flex:1; min-width:280px; padding:20px; background:rgba(245,158,11,0.04); border:1px solid rgba(245,158,11,0.2); border-radius:14px; position:relative; overflow:hidden;">
+          <div style="position:absolute; top:-16px; right:-16px; font-size:86px; opacity:0.04; pointer-events:none; filter:grayscale(1);">
+            📅
           </div>
-          <div style="margin-top:10px; font-size:12px; color:var(--text-light);">
-            Reservadas agora: <strong>${reservedCount}</strong>
+          
+          <div style="display:flex; align-items:center; gap:8px; font-size:14px; font-weight:700; color:#b45309; margin-bottom:8px;">
+            Regra de Reservas
+          </div>
+          
+          <p style="font-size:13px; color:var(--text-light); margin:0 0 16px 0; line-height:1.5;">
+            Mesas marcadas como <strong style="color:var(--text);">Reservadas</strong> são ocultadas da distribuição automática de novos clientes vindos do WhatsApp.
+          </p>
+          
+          <div style="display:inline-flex; align-items:center; background:#fffbf0; border:1px solid rgba(245,158,11,0.3); color:#92400e; font-size:12px; font-weight:600; padding:4px 12px; border-radius:20px;">
+            <span style="font-size:14px; margin-right:6px;">🔔</span>
+            ${reservedCount} mesa(s) separada(s) agora
           </div>
         </div>
+
       </div>
     </div>
   `;
