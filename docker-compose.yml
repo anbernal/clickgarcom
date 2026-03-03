@@ -100,6 +100,8 @@ services:
     container_name: clickgarcom-go-migrate
     env_file:
       - ./services/go-core/.env
+    volumes:
+      - ./services/go-core/cmd/migrate:/app/cmd/migrate:ro
     environment:
       APP_ENV: docker
       DATABASE_HOST: postgres
