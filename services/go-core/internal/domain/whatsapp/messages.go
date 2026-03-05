@@ -37,7 +37,7 @@ func resolveTemplate(custom, defaultTpl string, replacements map[string]string) 
 // Mensagens padrão do sistema (fallback)
 // ─────────────────────────────────────────────────
 
-const defaultWelcome = `🍽️ Olá! Bem-vindo ao *{nome_restaurante}*!`
+const defaultWelcome = `🍽️ Oi! Seja muito bem-vindo ao *{nome_restaurante}*! 😊`
 
 const defaultRestaurantClosed = `🚪 *O restaurante ainda não está aberto.*
 
@@ -51,9 +51,17 @@ Para começarmos a te atender, para quantas pessoas é a mesa?
 
 _Digite apenas o número de pessoas (ex: 2)_`
 
-const defaultTablePending = `⏳ *Mesa solicitada!*
+const defaultTablePending = `🙋‍♂️ *Prontinho! Já solicitei sua mesa para nossa equipe.*
 
-Aguarde um momento enquanto nossa equipe libera o acesso ao cardápio para sua mesa.`
+Nossa equipe já está organizando tudo para liberar seu acesso ao cardápio.
+Te aviso por aqui assim que estiver pronto. 🤝`
+
+const defaultAlreadyInQueue = `🙋‍♂️ *Recebi sua mensagem!*
+
+Você já está na fila de atendimento.
+Daqui a pouquinho nossa equipe vai te chamar por aqui. 🤝`
+
+const defaultTextOnlySupport = `No momento só entendo mensagem de texto, como posso te ajudar?`
 
 const defaultTableApproved = `✅ *Mesa liberada!*
 
@@ -164,6 +172,31 @@ func TableRequestPendingMessage(msgs ...tenant.MessageTemplates) string {
 		custom = msgs[0].TablePending
 	}
 	return resolveTemplate(custom, defaultTablePending, nil)
+}
+
+// AlreadyInQueueMessage mensagem para quando o cliente já está aguardando na fila.
+func AlreadyInQueueMessage() string {
+	return defaultAlreadyInQueue
+}
+
+// TextOnlySupportMessage mensagem para conteúdos não suportados (imagem, áudio, etc).
+func TextOnlySupportMessage() string {
+	return defaultTextOnlySupport
+}
+
+// WelcomeAndTablePendingMessage combina boas-vindas + aviso de mesa pendente em uma única mensagem.
+func WelcomeAndTablePendingMessage(restaurantName string, msgs ...tenant.MessageTemplates) string {
+	welcome := strings.TrimSpace(WelcomeMessage(restaurantName, msgs...))
+	pending := strings.TrimSpace(TableRequestPendingMessage(msgs...))
+
+	switch {
+	case welcome == "":
+		return pending
+	case pending == "":
+		return welcome
+	default:
+		return welcome + "\n\n" + pending
+	}
 }
 
 // TableRequestApprovedMessage mensagem quando mesa é liberada

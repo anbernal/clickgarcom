@@ -95,10 +95,25 @@ export class TablesService {
     // --- Table Requests Methods ---
 
     async getPendingRequests(tenantId: string) {
-        return this.tableRequestRepo.find({
+        const pending = await this.tableRequestRepo.find({
             where: { tenantId, status: RequestStatus.PENDING },
             relations: ['table'],
-            order: { createdAt: 'ASC' }
+            // Desc para manter a versão mais recente ao deduplicar por telefone.
+            order: { createdAt: 'DESC' }
+        });
+
+        // Evita itens duplicados no painel quando o mesmo número envia várias mensagens.
+        const latestByPhone = new Map<string, TableRequest>();
+        for (const req of pending) {
+            const phone = String(req.userPhone || '').trim();
+            if (!phone || latestByPhone.has(phone)) continue;
+            latestByPhone.set(phone, req);
+        }
+
+        return Array.from(latestByPhone.values()).sort((a, b) => {
+            const aTime = new Date(a.createdAt || 0).getTime();
+            const bTime = new Date(b.createdAt || 0).getTime();
+            return aTime - bTime;
         });
     }
 

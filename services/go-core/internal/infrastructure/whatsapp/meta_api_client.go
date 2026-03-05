@@ -294,11 +294,36 @@ func (c *MetaAPIClient) SendInteractiveButtons(ctx context.Context, to, bodyText
 }
 
 // Fase 11: Eventos Nativos
-func (c *MetaAPIClient) SendTypingIndicator(ctx context.Context, to string) error {
-	// Typing/Chat States via WhatsApp Business Cloud API requires passing type=contacts etc, but sometimes it is simply avoided.
-	// As of recent Meta Docs, only Official API nodes support full XMPP chatstates but we simulate it natively.
-	// We'll wrap it to prevent crashes if the Tier doesn't support it.
-	c.logger.Debug("Typing indicator (mock/dispatch)", zap.String("to", to))
-	// In some Graph versions it's not exposed for Text directly without WABA template approval. Leaving it a No-Op safely logged.
+func (c *MetaAPIClient) SendTypingIndicator(ctx context.Context, messageID string) error {
+	if messageID == "" {
+		return nil
+	}
+
+	url := fmt.Sprintf("https://graph.facebook.com/v18.0/%s/messages", c.phoneNumberID)
+	reqBody := map[string]interface{}{
+		"messaging_product": "whatsapp",
+		"status":            "read",
+		"message_id":        messageID,
+		"typing_indicator": map[string]string{
+			"type": "text",
+		},
+	}
+
+	jsonData, _ := json.Marshal(reqBody)
+	req, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
+	req.Header.Set("Authorization", "Bearer "+c.apiToken)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to send typing indicator: HTTP %d - %s", resp.StatusCode, string(body))
+	}
+
 	return nil
 }

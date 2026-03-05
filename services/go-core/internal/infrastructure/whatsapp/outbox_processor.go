@@ -89,9 +89,6 @@ func (p *OutboxProcessor) processMessage(ctx context.Context, msg *domain.Outbox
 		}
 	}
 
-	// Fase 11: Simular Digitando (Humanizar o Bot) antes de enviar Textos
-	p.apiClient.SendTypingIndicator(ctx, msg.Recipient)
-
 	// 2. Tentar enviar
 	messageID, err := p.apiClient.SendTextMessage(ctx, msg.Recipient, msg.Payload)
 

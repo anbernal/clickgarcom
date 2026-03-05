@@ -22,6 +22,11 @@ type ProcessWhatsAppMessageUseCase struct {
 	logger           *zap.Logger
 }
 
+type NativeStatusSender interface {
+	MarkAsRead(ctx context.Context, messageID string) error
+	SendTypingIndicator(ctx context.Context, messageID string) error
+}
+
 func NewProcessWhatsAppMessageUseCase(
 	inboxRepo inbox.Repository,
 	tenantRepo tenant.Repository,
@@ -45,25 +50,27 @@ type WhatsAppWebhookPayload struct {
 					DisplayPhoneNumber string `json:"display_phone_number"`
 					PhoneNumberID      string `json:"phone_number_id"`
 				} `json:"metadata"`
-				Messages []struct {
-					ID        string `json:"id"`
-					From      string `json:"from"`
-					Timestamp string `json:"timestamp"`
-					Type      string `json:"type"`
-					Text      struct {
-						Body string `json:"body"`
-					} `json:"text,omitempty"`
-					Interactive struct {
-						Type        string `json:"type"`
-						ButtonReply struct {
-							ID    string `json:"id"`
-							Title string `json:"title"`
-						} `json:"button_reply"`
-					} `json:"interactive,omitempty"`
-				} `json:"messages,omitempty"`
+				Messages []WhatsAppInboundMessage `json:"messages,omitempty"`
 			} `json:"value"`
 		} `json:"changes"`
 	} `json:"entry"`
+}
+
+type WhatsAppInboundMessage struct {
+	ID        string `json:"id"`
+	From      string `json:"from"`
+	Timestamp string `json:"timestamp"`
+	Type      string `json:"type"`
+	Text      struct {
+		Body string `json:"body"`
+	} `json:"text,omitempty"`
+	Interactive struct {
+		Type        string `json:"type"`
+		ButtonReply struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+		} `json:"button_reply"`
+	} `json:"interactive,omitempty"`
 }
 
 func (uc *ProcessWhatsAppMessageUseCase) Execute(ctx context.Context, inboxID uuid.UUID) error {
@@ -121,13 +128,9 @@ func (uc *ProcessWhatsAppMessageUseCase) Execute(ctx context.Context, inboxID uu
 		)
 		if len(value.Messages) > 0 {
 			for _, msg := range value.Messages {
-				if msg.Type == "text" || msg.Type == "interactive" {
-					userText := ""
-					if msg.Type == "text" {
-						userText = strings.TrimSpace(msg.Text.Body)
-					} else if msg.Type == "interactive" && msg.Interactive.Type == "button_reply" {
-						userText = strings.TrimSpace(msg.Interactive.ButtonReply.ID)
-					}
+				userText := extractSupportedInput(msg)
+				if userText != "" {
+					uc.sendNativeReadAndTyping(ctx, msg)
 					closedResponse := uc.buildClosedTenantResponse(ctx, tenant, msg.From, userText)
 					if err := uc.handleMsgUseCase.sendTenantMessage(ctx, msg.From, tenant.ID, closedResponse); err != nil {
 						uc.logger.Warn("failed to send closed-tenant response",
@@ -136,7 +139,26 @@ func (uc *ProcessWhatsAppMessageUseCase) Execute(ctx context.Context, inboxID uu
 							zap.String("to", msg.From),
 						)
 					}
+					continue
 				}
+
+				if isUnsupportedNonTextMessage(msg) {
+					uc.sendNativeReadAndTyping(ctx, msg)
+					if err := uc.handleMsgUseCase.sendTenantMessage(ctx, msg.From, tenant.ID, whatsapp.TextOnlySupportMessage()); err != nil {
+						uc.logger.Warn("failed to send text-only response",
+							zap.Error(err),
+							zap.String("tenant_id", tenant.ID.String()),
+							zap.String("to", msg.From),
+							zap.String("message_type", msg.Type),
+						)
+					}
+					continue
+				}
+
+				uc.logger.Debug("ignoring message without supported input while tenant is closed",
+					zap.String("type", msg.Type),
+					zap.String("from", msg.From),
+				)
 			}
 		}
 		uc.inboxRepo.MarkAsProcessed(ctx, inboxID)
@@ -146,12 +168,7 @@ func (uc *ProcessWhatsAppMessageUseCase) Execute(ctx context.Context, inboxID uu
 	// 6. Processar mensagens
 	if len(value.Messages) > 0 {
 		for _, msg := range value.Messages {
-			var messageText string
-			if msg.Type == "text" && msg.Text.Body != "" {
-				messageText = msg.Text.Body
-			} else if msg.Type == "interactive" && msg.Interactive.Type == "button_reply" && msg.Interactive.ButtonReply.ID != "" {
-				messageText = msg.Interactive.ButtonReply.ID // Fase 14: Enviamos o ID do botão selecionado como input
-			}
+			messageText := extractSupportedInput(msg)
 
 			uc.logger.Info("message received",
 				zap.String("from", msg.From),
@@ -161,6 +178,7 @@ func (uc *ProcessWhatsAppMessageUseCase) Execute(ctx context.Context, inboxID uu
 
 			// Chamar use case de handling
 			if messageText != "" {
+				uc.sendNativeReadAndTyping(ctx, msg)
 				handleInput := HandleMessageInput{
 					From:      msg.From,
 					Text:      messageText,
@@ -174,7 +192,26 @@ func (uc *ProcessWhatsAppMessageUseCase) Execute(ctx context.Context, inboxID uu
 					)
 					// Não falha o processamento do inbox por causa disso
 				}
+				continue
 			}
+
+			if isUnsupportedNonTextMessage(msg) {
+				uc.sendNativeReadAndTyping(ctx, msg)
+				if err := uc.handleMsgUseCase.sendTenantMessage(ctx, msg.From, tenant.ID, whatsapp.TextOnlySupportMessage()); err != nil {
+					uc.logger.Warn("failed to send text-only response",
+						zap.Error(err),
+						zap.String("tenant_id", tenant.ID.String()),
+						zap.String("to", msg.From),
+						zap.String("message_type", msg.Type),
+					)
+				}
+				continue
+			}
+
+			uc.logger.Debug("ignoring message without supported input",
+				zap.String("type", msg.Type),
+				zap.String("from", msg.From),
+			)
 		}
 	}
 
@@ -259,4 +296,65 @@ func normalizePhoneDigits(phone string) string {
 		}
 	}
 	return digits.String()
+}
+
+func extractSupportedInput(msg WhatsAppInboundMessage) string {
+	msgType := strings.ToLower(strings.TrimSpace(msg.Type))
+	switch msgType {
+	case "text":
+		return strings.TrimSpace(msg.Text.Body)
+	case "interactive":
+		if strings.ToLower(strings.TrimSpace(msg.Interactive.Type)) == "button_reply" {
+			return strings.TrimSpace(msg.Interactive.ButtonReply.ID)
+		}
+	}
+	return ""
+}
+
+func isUnsupportedNonTextMessage(msg WhatsAppInboundMessage) bool {
+	if strings.TrimSpace(msg.From) == "" {
+		return false
+	}
+
+	msgType := strings.ToLower(strings.TrimSpace(msg.Type))
+	if msgType == "" || msgType == "text" {
+		return false
+	}
+
+	// button_reply é tratado como input suportado.
+	if msgType == "interactive" && strings.ToLower(strings.TrimSpace(msg.Interactive.Type)) == "button_reply" {
+		return false
+	}
+
+	return true
+}
+
+func (uc *ProcessWhatsAppMessageUseCase) sendNativeReadAndTyping(ctx context.Context, msg WhatsAppInboundMessage) {
+	if uc == nil || uc.handleMsgUseCase == nil || uc.handleMsgUseCase.sender == nil {
+		return
+	}
+
+	messageID := strings.TrimSpace(msg.ID)
+	if messageID == "" {
+		return
+	}
+
+	nativeSender, ok := uc.handleMsgUseCase.sender.(NativeStatusSender)
+	if !ok {
+		return
+	}
+
+	if err := nativeSender.MarkAsRead(ctx, messageID); err != nil {
+		uc.logger.Warn("failed to mark message as read",
+			zap.String("message_id", messageID),
+			zap.Error(err),
+		)
+	}
+
+	if err := nativeSender.SendTypingIndicator(ctx, messageID); err != nil {
+		uc.logger.Warn("failed to send typing indicator",
+			zap.String("message_id", messageID),
+			zap.Error(err),
+		)
+	}
 }

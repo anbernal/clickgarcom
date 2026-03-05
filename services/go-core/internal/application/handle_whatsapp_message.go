@@ -134,9 +134,20 @@ func (uc *HandleWhatsAppMessageUseCase) Execute(ctx context.Context, input Handl
 			return fmt.Errorf("failed to find tenant: %w", err)
 		}
 
-		welcomeMsg := whatsapp.WelcomeMessage(t.Name, t.Settings.Messages)
-		if err := uc.sendTenantMessage(ctx, input.From, input.TenantID, welcomeMsg); err != nil {
-			return fmt.Errorf("failed to send welcome: %w", err)
+		// Evita duplicar solicitações pendentes para o mesmo telefone.
+		existingReq, err := uc.tableRepo.FindPendingRequestByPhone(ctx, input.From, input.TenantID)
+		if err != nil {
+			return fmt.Errorf("failed to find pending request by phone: %w", err)
+		}
+		if existingReq != nil {
+			if err := uc.sendTenantMessagePlain(ctx, input.From, input.TenantID, whatsapp.AlreadyInQueueMessage()); err != nil {
+				return fmt.Errorf("failed to send already-in-queue message: %w", err)
+			}
+			sess.TransitionTo(session.StateWaitingAdminApproval)
+			if err := uc.sessionRepo.Save(ctx, sess); err != nil {
+				return fmt.Errorf("failed to save session: %w", err)
+			}
+			return nil
 		}
 
 		// Create TableRequest without a table_id
@@ -151,10 +162,15 @@ func (uc *HandleWhatsAppMessageUseCase) Execute(ctx context.Context, input Handl
 
 		if err := uc.tableRepo.CreateRequest(ctx, req); err != nil {
 			uc.logger.Error("failed to create initial table request", zap.Error(err))
+			fallbackMsg := whatsapp.WelcomeMessage(t.Name, t.Settings.Messages) + "\n\n⚠️ Tivemos uma instabilidade ao solicitar sua mesa agora. Pode tentar novamente em alguns segundos?"
+			if sendErr := uc.sendTenantMessagePlain(ctx, input.From, input.TenantID, fallbackMsg); sendErr != nil {
+				return fmt.Errorf("failed to send fallback message: %w", sendErr)
+			}
 		} else {
-			// Notify user it's pending table assignment
-			pendingMsg := whatsapp.TableRequestPendingMessage(t.Settings.Messages)
-			uc.sendTenantMessage(ctx, input.From, input.TenantID, pendingMsg)
+			introMsg := whatsapp.WelcomeAndTablePendingMessage(t.Name, t.Settings.Messages)
+			if err := uc.sendTenantMessagePlain(ctx, input.From, input.TenantID, introMsg); err != nil {
+				return fmt.Errorf("failed to send intro message: %w", err)
+			}
 		}
 
 		sess.TransitionTo(session.StateWaitingAdminApproval)
@@ -417,7 +433,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleWaitingAdminApproval(
 		return whatsapp.MainMenuMessage(), session.StateMainMenu, nil
 	}
 
-	return whatsapp.TableRequestPendingMessage(), session.StateWaitingAdminApproval, nil
+	return whatsapp.AlreadyInQueueMessage(), session.StateWaitingAdminApproval, nil
 }
 
 // Fase 14: Lidar com a Escolha do Botão Interativo "Compartilhar Comanda" ou "Individual"
@@ -648,6 +664,16 @@ func (uc *HandleWhatsAppMessageUseCase) sendTenantMessage(
 	decorated := whatsapp.WithRestaurantHeader(uc.resolveTenantName(ctx, tenantID), message)
 	ctx = whatsapp.WithTenantID(ctx, tenantID)
 	return uc.sender.SendText(ctx, to, decorated)
+}
+
+func (uc *HandleWhatsAppMessageUseCase) sendTenantMessagePlain(
+	ctx context.Context,
+	to string,
+	tenantID uuid.UUID,
+	message string,
+) error {
+	ctx = whatsapp.WithTenantID(ctx, tenantID)
+	return uc.sender.SendText(ctx, to, strings.TrimSpace(message))
 }
 
 func (uc *HandleWhatsAppMessageUseCase) resolveTenantName(ctx context.Context, tenantID uuid.UUID) string {

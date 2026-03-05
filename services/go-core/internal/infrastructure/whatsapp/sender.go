@@ -106,6 +106,24 @@ func (s *Sender) SendInteractiveButtons(ctx context.Context, to, bodyText string
 	return messageID, nil
 }
 
+// MarkAsRead envia o evento nativo "mensagem lida" sem passar pelo Outbox.
+// Não gera cobrança interna pois não cria outbox nem billing log.
+func (s *Sender) MarkAsRead(ctx context.Context, messageID string) error {
+	if s.apiClient == nil {
+		return fmt.Errorf("MetaAPIClient is not initialized")
+	}
+	return s.apiClient.MarkAsRead(ctx, messageID)
+}
+
+// SendTypingIndicator envia o estado nativo "digitando" sem passar pelo Outbox.
+// Não gera cobrança interna pois não cria outbox nem billing log.
+func (s *Sender) SendTypingIndicator(ctx context.Context, messageID string) error {
+	if s.apiClient == nil {
+		return fmt.Errorf("MetaAPIClient is not initialized")
+	}
+	return s.apiClient.SendTypingIndicator(ctx, messageID)
+}
+
 func (s *Sender) loadTenantForBilling(ctx context.Context) (*tenantDomain.Tenant, error) {
 	tenantID, ok := whatsappDomain.TenantIDFromContext(ctx)
 	if !ok {
