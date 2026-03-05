@@ -145,6 +145,7 @@ func (uc *ProcessTableEventUseCase) Execute(ctx context.Context, payloadBytes []
 			msg = whatsapp.TableRequestApprovedMessage(t.Number, tenantObj.Settings.Messages)
 			msg = whatsapp.WithRestaurantHeader(tenantObj.Name, msg)
 		}
+		ctx = whatsapp.WithTenantID(ctx, req.TenantID)
 		if err := uc.sender.SendText(ctx, sess.UserPhone, msg); err != nil {
 			uc.logger.Error("failed to send wa approval message", zap.Error(err))
 		}

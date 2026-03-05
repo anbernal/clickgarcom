@@ -20,7 +20,7 @@ async function loadWallet() {
 
         const balance = Number(res.wallet_balance || 0);
         const isPrePaid = res.billing_plan === 'pre_paid';
-        const plan = isPrePaid ? 'Pre-Pago' : 'Pos-Pago';
+        const plan = isPrePaid ? 'PRÉ-PAGO' : 'PÓS-PAGO';
         const messagePrice = Number(res.message_price || 0.02);
         const messagesIn = Number(res.messages_in || 0);
         const messagesOut = Number(res.messages_out || 0);
@@ -31,87 +31,206 @@ async function loadWallet() {
 
         const remainingLabel = isPrePaid
             ? formatWalletInteger(messagesRemaining)
-            : 'Ilimitado';
+            : '∞';
+
+        const balanceColor = balance <= 0 ? '#ef4444' : balance < 5 ? '#f59e0b' : '#1abc9c';
+        const planBadgeBg = isPrePaid ? 'rgba(59, 130, 246, 0.1)' : 'rgba(139, 92, 246, 0.1)';
+        const planBadgeColor = isPrePaid ? '#3b82f6' : '#8b5cf6';
+        const planIcon = isPrePaid ? '🔒' : '🔓';
 
         container.innerHTML = `
-            <div style="max-width: 760px; margin: 0 auto; background: var(--card-bg); padding: 30px; border-radius: var(--border-radius-lg); box-shadow: var(--shadow-md);">
-                <div style="text-align: center; margin-bottom: 24px;">
-                    <div style="font-size: 14px; color: var(--muted); text-transform: uppercase; font-weight: 600; letter-spacing: 1px;">Plano Atual: ${plan}</div>
-                    <div style="font-size: 48px; font-weight: 700; color: ${balance <= 0 ? 'var(--danger)' : 'var(--primary)'}; margin: 10px 0;">
-                        R$ ${formatWalletCurrency(balance)}
-                    </div>
-                    <div style="font-size: 14px; color: var(--muted);">
-                        Cada mensagem recebida e cada resposta enviada consomem credito no plano pre-pago.
-                    </div>
-                </div>
+            <div style="max-width: 800px; margin: 0 auto;">
 
-                <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:12px; margin-bottom: 24px;">
-                    <div style="padding:16px; border:1px solid var(--border-color); border-radius:12px; background:rgba(255,255,255,0.02);">
-                        <div style="font-size:12px; color:var(--muted); text-transform:uppercase; font-weight:600;">Custo por Mensagem</div>
-                        <div style="font-size:24px; font-weight:700; margin-top:8px;">R$ ${formatWalletCurrency(messagePrice)}</div>
-                    </div>
-                    <div style="padding:16px; border:1px solid var(--border-color); border-radius:12px; background:rgba(255,255,255,0.02);">
-                        <div style="font-size:12px; color:var(--muted); text-transform:uppercase; font-weight:600;">Mensagens Usadas</div>
-                        <div style="font-size:24px; font-weight:700; margin-top:8px;">${formatWalletInteger(messagesUsed)}</div>
-                        <div style="font-size:12px; color:var(--muted); margin-top:6px;">Historico total</div>
-                    </div>
-                    <div style="padding:16px; border:1px solid var(--border-color); border-radius:12px; background:rgba(255,255,255,0.02);">
-                        <div style="font-size:12px; color:var(--muted); text-transform:uppercase; font-weight:600;">Mensagens Restantes</div>
-                        <div style="font-size:24px; font-weight:700; margin-top:8px; color:${isPrePaid && balance <= 0 ? 'var(--danger)' : 'var(--primary)'};">${remainingLabel}</div>
-                        <div style="font-size:12px; color:var(--muted); margin-top:6px;">${isPrePaid ? 'Estimativa pelo saldo atual' : 'Nao bloqueia por saldo'}</div>
-                    </div>
-                </div>
+                <!-- Hero Balance Card -->
+                <div style="
+                    background: linear-gradient(135deg, #1a1d23 0%, #2d3748 100%);
+                    border-radius: 20px;
+                    padding: 40px 36px;
+                    margin-bottom: 24px;
+                    position: relative;
+                    overflow: hidden;
+                    box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+                ">
+                    <!-- Decorative circles -->
+                    <div style="position:absolute; top:-40px; right:-40px; width:160px; height:160px; border-radius:50%; background:rgba(26,188,156,0.08);"></div>
+                    <div style="position:absolute; bottom:-60px; right:60px; width:200px; height:200px; border-radius:50%; background:rgba(59,130,246,0.06);"></div>
 
-                <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:12px; margin-bottom: 28px;">
-                    <div style="padding:16px; border:1px solid var(--border-color); border-radius:12px;">
-                        <div style="font-size:12px; color:var(--muted); text-transform:uppercase; font-weight:600;">Recebidas do Usuario (IN)</div>
-                        <div style="font-size:22px; font-weight:700; margin-top:8px; color:var(--primary);">${formatWalletInteger(messagesIn)}</div>
-                        <div style="font-size:12px; color:var(--muted); margin-top:6px;">Inclui pedir mesa e demais mensagens do cliente</div>
-                    </div>
-                    <div style="padding:16px; border:1px solid var(--border-color); border-radius:12px;">
-                        <div style="font-size:12px; color:var(--muted); text-transform:uppercase; font-weight:600;">Respostas ao Usuario (OUT)</div>
-                        <div style="font-size:22px; font-weight:700; margin-top:8px; color:var(--primary);">${formatWalletInteger(messagesOut)}</div>
-                        <div style="font-size:12px; color:var(--muted); margin-top:6px;">Mensagens enviadas pelo sistema ao WhatsApp</div>
-                    </div>
-                </div>
-
-                <hr style="border: 0; border-top: 1px solid var(--border-color); margin: 30px 0;">
-
-                <h3 style="margin-bottom: 16px; font-family: var(--font-heading);">Recarregar Saldo (PIX Instantaneo)</h3>
-                <form id="wallet-recharge-form" style="display: flex; flex-direction: column; gap: 16px;">
-                    <div style="display:flex; flex-direction:column; gap:6px;">
-                        <label style="font-weight:600; font-size:14px;">Valor sugerido da Recarga (R$)</label>
-                        <input type="number" id="wallet-amount" style="padding:12px; border:1px solid var(--border-color); border-radius:6px; font-size:16px;" value="50.00" min="10" step="10" required>
-                    </div>
-                    <div style="display:flex; gap: 16px;">
-                        <div style="display:flex; flex-direction:column; gap:6px; flex:1;">
-                            <label style="font-weight:600; font-size:14px;">Seu E-mail</label>
-                            <input type="email" id="wallet-email" style="padding:12px; border:1px solid var(--border-color); border-radius:6px;" placeholder="admin@restaurante.com" required>
+                    <div style="position:relative; z-index:1;">
+                        <div style="display:flex; align-items:center; gap:10px; margin-bottom:16px;">
+                            <span style="
+                                display:inline-flex; align-items:center; gap:6px;
+                                padding:5px 14px; border-radius:20px; font-size:12px; font-weight:700;
+                                letter-spacing:1.5px; text-transform:uppercase;
+                                background:${planBadgeBg}; color:${planBadgeColor};
+                            ">${planIcon} ${plan}</span>
                         </div>
-                        <div style="display:flex; flex-direction:column; gap:6px; flex:1;">
-                            <label style="font-weight:600; font-size:14px;">Seu Nome Completo</label>
-                            <input type="text" id="wallet-name" style="padding:12px; border:1px solid var(--border-color); border-radius:6px;" placeholder="Joao Silva" required>
+
+                        <div style="font-size: 56px; font-weight: 800; color: #fff; font-family: 'Sora', sans-serif; line-height:1; margin-bottom:10px;">
+                            R$ ${formatWalletCurrency(balance)}
+                        </div>
+                        <div style="font-size: 14px; color: rgba(255,255,255,0.5); max-width:420px;">
+                            ${isPrePaid
+                ? 'Cada mensagem recebida e cada resposta enviada consomem crédito do seu saldo.'
+                : 'Seu plano pós-pago não bloqueia envios. O saldo reflete o consumo acumulado.'}
                         </div>
                     </div>
-                    <div style="display:flex; flex-direction:column; gap:6px;">
-                        <label style="font-weight:600; font-size:14px;">Seu CPF</label>
-                        <input type="text" id="wallet-cpf" style="padding:12px; border:1px solid var(--border-color); border-radius:6px;" placeholder="00011122233" required>
-                    </div>
-                    <button type="submit" class="btn btn-primary" style="width: 100%; padding: 16px; font-size: 16px; margin-top: 10px; cursor: pointer;">
-                        Gerar Pagamento PIX
-                    </button>
-                    <div style="font-size: 12px; text-align: center; color: var(--muted); margin-top: 8px;">
-                        Powered by Mercado Pago. O valor entra na hora em sua carteira.
-                    </div>
-                </form>
+                </div>
 
-                <div id="wallet-qr-container" style="display: none; text-align: center; margin-top: 30px; background: #f8f9fa; padding: 30px; border-radius: 12px; border: 1px dashed var(--border-color);">
-                    <h4 style="margin-bottom: 20px; color: #333;">Escaneie o QRCode Abaixo</h4>
-                    <img id="wallet-qr-image" src="" alt="QR Code" style="width: 200px; height: 200px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #ccc; background:#fff; padding:10px;">
-                    <div style="margin-bottom: 10px;">
-                        <input type="text" id="wallet-qr-copy-input" style="width:100%; padding:10px; font-family:monospace; font-size:12px; border:1px solid #ddd; border-radius:4px;" readonly>
+                <!-- Metrics Grid -->
+                <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:16px; margin-bottom:16px;">
+                    <div style="
+                        background: var(--card-bg); border-radius:16px; padding:24px;
+                        border:1px solid var(--border); box-shadow: var(--shadow);
+                        display:flex; flex-direction:column; gap:8px;
+                    ">
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <span style="width:32px; height:32px; border-radius:10px; background:rgba(249,115,22,0.1); display:flex; align-items:center; justify-content:center; font-size:16px;">💰</span>
+                            <span style="font-size:12px; color:var(--muted); text-transform:uppercase; font-weight:700; letter-spacing:0.5px;">Custo / Msg</span>
+                        </div>
+                        <div style="font-size:28px; font-weight:800; font-family:'Sora',sans-serif; color:var(--accent-orange);">R$ ${formatWalletCurrency(messagePrice)}</div>
+                        <div style="font-size:12px; color:var(--muted);">Valor deduzido por mensagem IN/OUT</div>
                     </div>
-                    <p style="color: var(--success); font-weight: 600; font-size: 14px; margin-top:15px;">Aguardando pagamento... O saldo sera atualizado automaticamente assim que compensar.</p>
+
+                    <div style="
+                        background: var(--card-bg); border-radius:16px; padding:24px;
+                        border:1px solid var(--border); box-shadow: var(--shadow);
+                        display:flex; flex-direction:column; gap:8px;
+                    ">
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <span style="width:32px; height:32px; border-radius:10px; background:rgba(59,130,246,0.1); display:flex; align-items:center; justify-content:center; font-size:16px;">📊</span>
+                            <span style="font-size:12px; color:var(--muted); text-transform:uppercase; font-weight:700; letter-spacing:0.5px;">Consumidas</span>
+                        </div>
+                        <div style="font-size:28px; font-weight:800; font-family:'Sora',sans-serif; color:var(--accent-blue);">${formatWalletInteger(messagesUsed)}</div>
+                        <div style="font-size:12px; color:var(--muted);">Total de mensagens processadas</div>
+                    </div>
+
+                    <div style="
+                        background: var(--card-bg); border-radius:16px; padding:24px;
+                        border:1px solid var(--border); box-shadow: var(--shadow);
+                        display:flex; flex-direction:column; gap:8px;
+                    ">
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <span style="width:32px; height:32px; border-radius:10px; background:${isPrePaid && balance <= 0 ? 'rgba(239,68,68,0.1)' : 'rgba(26,188,156,0.1)'}; display:flex; align-items:center; justify-content:center; font-size:16px;">${isPrePaid ? '⏳' : '♾️'}</span>
+                            <span style="font-size:12px; color:var(--muted); text-transform:uppercase; font-weight:700; letter-spacing:0.5px;">Restantes</span>
+                        </div>
+                        <div style="font-size:28px; font-weight:800; font-family:'Sora',sans-serif; color:${isPrePaid && balance <= 0 ? 'var(--accent-red)' : 'var(--teal)'};">${remainingLabel}</div>
+                        <div style="font-size:12px; color:var(--muted);">${isPrePaid ? 'Estimativa pelo saldo atual' : 'Sem limite no pós-pago'}</div>
+                    </div>
+                </div>
+
+                <!-- IN / OUT breakdown -->
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:28px;">
+                    <div style="
+                        background: var(--card-bg); border-radius:16px; padding:20px 24px;
+                        border:1px solid var(--border); box-shadow: var(--shadow);
+                        display:flex; align-items:center; gap:16px;
+                    ">
+                        <span style="
+                            width:44px; height:44px; border-radius:12px;
+                            background: linear-gradient(135deg, #e0f2fe, #bae6fd);
+                            display:flex; align-items:center; justify-content:center; font-size:20px;
+                        ">📥</span>
+                        <div>
+                            <div style="font-size:12px; color:var(--muted); text-transform:uppercase; font-weight:700; letter-spacing:0.5px;">Recebidas (IN)</div>
+                            <div style="font-size:24px; font-weight:800; font-family:'Sora',sans-serif; color:var(--text);">${formatWalletInteger(messagesIn)}</div>
+                        </div>
+                    </div>
+                    <div style="
+                        background: var(--card-bg); border-radius:16px; padding:20px 24px;
+                        border:1px solid var(--border); box-shadow: var(--shadow);
+                        display:flex; align-items:center; gap:16px;
+                    ">
+                        <span style="
+                            width:44px; height:44px; border-radius:12px;
+                            background: linear-gradient(135deg, #e8faf6, #a7f3d0);
+                            display:flex; align-items:center; justify-content:center; font-size:20px;
+                        ">📤</span>
+                        <div>
+                            <div style="font-size:12px; color:var(--muted); text-transform:uppercase; font-weight:700; letter-spacing:0.5px;">Enviadas (OUT)</div>
+                            <div style="font-size:24px; font-weight:800; font-family:'Sora',sans-serif; color:var(--text);">${formatWalletInteger(messagesOut)}</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- PIX Recharge Section -->
+                <div style="
+                    background: var(--card-bg); border-radius:20px; padding:32px;
+                    border:1px solid var(--border); box-shadow: var(--shadow-lg);
+                ">
+                    <div style="display:flex; align-items:center; gap:12px; margin-bottom:24px;">
+                        <span style="
+                            width:40px; height:40px; border-radius:12px;
+                            background: linear-gradient(135deg, #1abc9c, #16a085);
+                            display:flex; align-items:center; justify-content:center; font-size:18px; color:#fff;
+                        ">⚡</span>
+                        <div>
+                            <h3 style="font-family:'Sora',sans-serif; font-weight:700; font-size:18px; color:var(--dark); margin:0;">Recarregar Saldo</h3>
+                            <div style="font-size:13px; color:var(--muted);">PIX Instantâneo via Mercado Pago</div>
+                        </div>
+                    </div>
+
+                    <form id="wallet-recharge-form" style="display: flex; flex-direction: column; gap: 18px;">
+                        <div style="display:flex; flex-direction:column; gap:6px;">
+                            <label style="font-weight:600; font-size:13px; color:var(--text);">Valor da Recarga (R$)</label>
+                            <input type="number" id="wallet-amount" style="
+                                padding:14px 16px; border:2px solid var(--border); border-radius:12px;
+                                font-size:18px; font-weight:700; font-family:'JetBrains Mono',monospace;
+                                background:var(--bg); transition:border-color 0.2s; outline:none;
+                            " value="50.00" min="10" step="10" required
+                            onfocus="this.style.borderColor='#1abc9c'" onblur="this.style.borderColor='var(--border)'">
+                        </div>
+                        <div style="display:flex; gap: 16px;">
+                            <div style="display:flex; flex-direction:column; gap:6px; flex:1;">
+                                <label style="font-weight:600; font-size:13px; color:var(--text);">Seu E-mail</label>
+                                <input type="email" id="wallet-email" style="
+                                    padding:12px 14px; border:2px solid var(--border); border-radius:10px;
+                                    font-size:14px; background:var(--bg); transition:border-color 0.2s; outline:none;
+                                " placeholder="admin@restaurante.com" required
+                                onfocus="this.style.borderColor='#1abc9c'" onblur="this.style.borderColor='var(--border)'">
+                            </div>
+                            <div style="display:flex; flex-direction:column; gap:6px; flex:1;">
+                                <label style="font-weight:600; font-size:13px; color:var(--text);">Seu Nome Completo</label>
+                                <input type="text" id="wallet-name" style="
+                                    padding:12px 14px; border:2px solid var(--border); border-radius:10px;
+                                    font-size:14px; background:var(--bg); transition:border-color 0.2s; outline:none;
+                                " placeholder="João Silva" required
+                                onfocus="this.style.borderColor='#1abc9c'" onblur="this.style.borderColor='var(--border)'">
+                            </div>
+                        </div>
+                        <div style="display:flex; flex-direction:column; gap:6px;">
+                            <label style="font-weight:600; font-size:13px; color:var(--text);">Seu CPF</label>
+                            <input type="text" id="wallet-cpf" style="
+                                padding:12px 14px; border:2px solid var(--border); border-radius:10px;
+                                font-size:14px; font-family:'JetBrains Mono',monospace;
+                                background:var(--bg); transition:border-color 0.2s; outline:none;
+                            " placeholder="000.111.222-33" required
+                            onfocus="this.style.borderColor='#1abc9c'" onblur="this.style.borderColor='var(--border)'">
+                        </div>
+                        <button type="submit" style="
+                            width:100%; padding:16px; font-size:16px; font-weight:700;
+                            font-family:'Sora',sans-serif; cursor:pointer; border:none;
+                            border-radius:14px; color:#fff; letter-spacing:0.5px;
+                            background: linear-gradient(135deg, #1abc9c 0%, #16a085 100%);
+                            box-shadow: 0 4px 16px rgba(26,188,156,0.3);
+                            transition: transform 0.15s, box-shadow 0.15s;
+                        " onmouseover="this.style.transform='translateY(-1px)'; this.style.boxShadow='0 6px 20px rgba(26,188,156,0.4)';"
+                           onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 16px rgba(26,188,156,0.3)';">
+                            ⚡ Gerar Pagamento PIX
+                        </button>
+                        <div style="font-size: 12px; text-align: center; color: var(--muted);">
+                            Powered by Mercado Pago · O valor entra na hora em sua carteira
+                        </div>
+                    </form>
+
+                    <div id="wallet-qr-container" style="display: none; text-align: center; margin-top: 30px; background: #fafbfc; padding: 30px; border-radius: 16px; border: 2px dashed var(--border);">
+                        <div style="width:56px; height:56px; border-radius:16px; background:linear-gradient(135deg, #1abc9c, #16a085); display:flex; align-items:center; justify-content:center; font-size:24px; margin:0 auto 16px; color:#fff;">📱</div>
+                        <h4 style="margin-bottom: 20px; color: var(--dark); font-family:'Sora',sans-serif; font-weight:700;">Escaneie o QR Code</h4>
+                        <img id="wallet-qr-image" src="" alt="QR Code" style="width: 200px; height: 200px; border-radius: 12px; margin-bottom: 20px; border: 2px solid var(--border); background:#fff; padding:12px;">
+                        <div style="margin-bottom: 10px;">
+                            <input type="text" id="wallet-qr-copy-input" style="width:100%; padding:12px; font-family:'JetBrains Mono',monospace; font-size:12px; border:2px solid var(--border); border-radius:10px; background:var(--bg);" readonly>
+                        </div>
+                        <p style="color: var(--teal); font-weight: 700; font-size: 14px; margin-top:15px;">⏳ Aguardando pagamento... O saldo será atualizado automaticamente.</p>
+                    </div>
                 </div>
             </div>
         `;
@@ -151,6 +270,6 @@ async function loadWallet() {
             }
         });
     } catch (err) {
-        container.innerHTML = `<div style="padding: 40px; text-align: center; color: var(--danger);">Erro: ${err.message}</div>`;
+        container.innerHTML = `<div style="padding: 40px; text-align: center; color: var(--accent-red);">Erro: ${err.message}</div>`;
     }
 }

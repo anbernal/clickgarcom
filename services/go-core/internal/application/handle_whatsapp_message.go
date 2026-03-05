@@ -105,7 +105,7 @@ func (uc *HandleWhatsAppMessageUseCase) Execute(ctx context.Context, input Handl
 							}
 
 							msg := fmt.Sprintf("Olá! 😊 Vimos que a *Mesa %s* já está em andamento.\n\nVocê deseja entrar na comanda com seus amigos ou criar uma conta só para você?", tTable.Number)
-							if _, err := uc.sender.SendInteractiveButtons(ctx, input.From, msg, buttons); err != nil {
+							if _, err := uc.sender.SendInteractiveButtons(whatsapp.WithTenantID(ctx, input.TenantID), input.From, msg, buttons); err != nil {
 								uc.logger.Error("failed to send interactive buttons", zap.Error(err))
 							}
 							return uc.sessionRepo.Save(ctx, sess)
@@ -522,7 +522,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleCollabChoice(
 		openerSess.SetContext("pending_join_request_id", joinReq.ID.String())
 		uc.sessionRepo.Save(ctx, openerSess)
 
-		if _, err := uc.sender.SendInteractiveButtons(ctx, openerSess.UserPhone, msgOpener, buttons); err != nil {
+		if _, err := uc.sender.SendInteractiveButtons(whatsapp.WithTenantID(ctx, sess.TenantID), openerSess.UserPhone, msgOpener, buttons); err != nil {
 			uc.logger.Error("failed to send approval to opener", zap.Error(err))
 		}
 	} else {
@@ -646,6 +646,7 @@ func (uc *HandleWhatsAppMessageUseCase) sendTenantMessage(
 	message string,
 ) error {
 	decorated := whatsapp.WithRestaurantHeader(uc.resolveTenantName(ctx, tenantID), message)
+	ctx = whatsapp.WithTenantID(ctx, tenantID)
 	return uc.sender.SendText(ctx, to, decorated)
 }
 

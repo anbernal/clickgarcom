@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	domain "github.com/anbernal/clickgarcom/internal/domain/whatsapp"
+	tenantDomain "github.com/anbernal/clickgarcom/internal/domain/tenant"
+	whatsappDomain "github.com/anbernal/clickgarcom/internal/domain/whatsapp"
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
@@ -47,8 +48,11 @@ func NewSender(db *gorm.DB, apiClient *MetaAPIClient, logger *zap.Logger) *Sende
 }
 
 func (s *Sender) SendText(ctx context.Context, to string, message string) error {
+	tenantID, _ := whatsappDomain.TenantIDFromContext(ctx)
+
 	outbox := &OutboxMessage{
 		ID:          uuid.New(),
+		TenantID:    tenantID,
 		Destination: "whatsapp",
 		Recipient:   to,
 		Payload:     message,
@@ -71,9 +75,72 @@ func (s *Sender) SendText(ctx context.Context, to string, message string) error 
 }
 
 // Fase 14: Envia Botões Interativos Imediatamente, sem passar pelo Outbox (Prioridade Alta)
-func (s *Sender) SendInteractiveButtons(ctx context.Context, to, bodyText string, buttons []domain.InteractiveButton) (string, error) {
+func (s *Sender) SendInteractiveButtons(ctx context.Context, to, bodyText string, buttons []whatsappDomain.InteractiveButton) (string, error) {
 	if s.apiClient == nil {
 		return "", fmt.Errorf("MetaAPIClient is not initialized")
 	}
-	return s.apiClient.SendInteractiveButtons(ctx, to, bodyText, buttons)
+
+	billingTenant, err := s.loadTenantForBilling(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	if billingTenant != nil && billingTenant.BillingPlan == tenantDomain.PlanPrePaid && billingTenant.WalletBalance <= 0 {
+		return "", fmt.Errorf("tenant out of credits")
+	}
+
+	messageID, err := s.apiClient.SendInteractiveButtons(ctx, to, bodyText, buttons)
+	if err != nil {
+		return "", err
+	}
+
+	if billingTenant != nil {
+		if err := s.applyImmediateBilling(ctx, billingTenant, messageID); err != nil {
+			s.logger.Warn("failed to apply interactive message billing",
+				zap.String("tenant_id", billingTenant.ID.String()),
+				zap.Error(err),
+			)
+		}
+	}
+
+	return messageID, nil
+}
+
+func (s *Sender) loadTenantForBilling(ctx context.Context) (*tenantDomain.Tenant, error) {
+	tenantID, ok := whatsappDomain.TenantIDFromContext(ctx)
+	if !ok {
+		return nil, nil
+	}
+
+	var t tenantDomain.Tenant
+	if err := s.db.WithContext(ctx).First(&t, "id = ?", *tenantID).Error; err != nil {
+		return nil, fmt.Errorf("failed to load tenant for billing: %w", err)
+	}
+
+	return &t, nil
+}
+
+func (s *Sender) applyImmediateBilling(ctx context.Context, tenant *tenantDomain.Tenant, messageID string) error {
+	if tenant.BillingPlan == tenantDomain.PlanPrePaid {
+		if err := s.db.WithContext(ctx).
+			Model(&tenantDomain.Tenant{}).
+			Where("id = ?", tenant.ID).
+			UpdateColumn("wallet_balance", gorm.Expr("wallet_balance - ?", tenant.MessagePrice)).
+			Error; err != nil {
+			return fmt.Errorf("failed to deduct wallet balance: %w", err)
+		}
+	}
+
+	logEntry := &tenantDomain.MessageLog{
+		TenantID:  tenant.ID,
+		Direction: tenantDomain.DirectionOut,
+		MessageID: messageID,
+		Status:    "SENT",
+	}
+
+	if err := s.db.WithContext(ctx).Create(logEntry).Error; err != nil {
+		return fmt.Errorf("failed to save message log: %w", err)
+	}
+
+	return nil
 }

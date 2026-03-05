@@ -63,7 +63,7 @@ func (h *WhatsAppWebhookHandler) HandleVerification(c *fiber.Ctx) error {
 func (h *WhatsAppWebhookHandler) HandleWebhook(c *fiber.Ctx) error {
 	startTime := time.Now()
 
-	// 1. Extrair wamid para idempotência e wabaID para Tracking
+	// 1. Extrair wamid para idempotência e metadata do número para billing/tracking
 	var payload map[string]interface{}
 	if err := json.Unmarshal(c.Body(), &payload); err != nil {
 		h.logger.Error("failed to parse webhook payload", zap.Error(err))
@@ -71,41 +71,26 @@ func (h *WhatsAppWebhookHandler) HandleWebhook(c *fiber.Ctx) error {
 	}
 
 	wamid := extractWAMID(payload)
-	wabaID := extractWabaID(payload)
+	phoneNumberID, displayPhoneNumber := extractPhoneNumberMetadata(payload)
 
 	if wamid == "" {
 		h.logger.Warn("webhook without wamid, skipping")
 		return c.SendStatus(fiber.StatusOK)
 	}
 
-	// Tentar identificar o Inquilino (Restaurante) pelo Telefone Comercial pra Metrificação (Fase 11) e Bilhetagem (Fase 13)
-	if wabaID != "" && h.tenantRepo != nil {
-		tnt, err := h.tenantRepo.FindByWabaID(c.Context(), wabaID)
-		if err == nil {
-			// Phase 13: Verificação de Pedágio (Wallet Billing)
-			if tnt.BillingPlan == tenant.PlanPrePaid && tnt.WalletBalance <= 0 {
-				h.logger.Warn("tenant out of credits, dropping incoming message",
-					zap.String("waba_id", wabaID),
-					zap.Float64("balance", tnt.WalletBalance),
-				)
-				return c.SendStatus(fiber.StatusOK) // Dropar silenciosamente
-			}
+	var resolvedTenant *tenant.Tenant
+	if h.tenantRepo != nil {
+		resolvedTenant = h.resolveTenantForBilling(c.Context(), phoneNumberID, displayPhoneNumber)
+	}
 
-			// Debitar R$ 0,02 e logar recebimento
-			go func(tid uuid.UUID, mid string, billingPlan string, messagePrice float64) {
-				if billingPlan == tenant.PlanPrePaid {
-					_ = h.tenantRepo.DeductWalletBalance(context.Background(), tid, messagePrice)
-				}
-				if h.logRepo != nil {
-					h.logRepo.Save(context.Background(), &tenant.MessageLog{
-						TenantID:  tid,
-						Direction: tenant.DirectionIn,
-						MessageID: mid,
-						Status:    "RECEIVED",
-					})
-				}
-			}(tnt.ID, wamid, tnt.BillingPlan, tnt.MessagePrice)
-		}
+	if resolvedTenant != nil && resolvedTenant.BillingPlan == tenant.PlanPrePaid && resolvedTenant.WalletBalance <= 0 {
+		h.logger.Warn("tenant out of credits, dropping incoming message",
+			zap.String("tenant_id", resolvedTenant.ID.String()),
+			zap.String("phone_number_id", phoneNumberID),
+			zap.String("display_phone_number", displayPhoneNumber),
+			zap.Float64("balance", resolvedTenant.WalletBalance),
+		)
+		return c.SendStatus(fiber.StatusOK) // Dropar silenciosamente
 	}
 
 	// 2. Inbox Pattern - persistir RAW
@@ -117,6 +102,10 @@ func (h *WhatsAppWebhookHandler) HandleWebhook(c *fiber.Ctx) error {
 		Processed:         false,
 	}
 
+	if resolvedTenant != nil {
+		event.TenantID = &resolvedTenant.ID
+	}
+
 	if err := h.inboxRepo.Store(c.Context(), event); err != nil {
 		// Provavelmente duplicado (UNIQUE constraint)
 		h.logger.Debug("inbox store failed (likely duplicate)",
@@ -124,6 +113,22 @@ func (h *WhatsAppWebhookHandler) HandleWebhook(c *fiber.Ctx) error {
 			zap.Error(err),
 		)
 		return c.SendStatus(fiber.StatusOK)
+	}
+
+	if resolvedTenant != nil {
+		go func(tid uuid.UUID, mid string, billingPlan string, messagePrice float64) {
+			if billingPlan == tenant.PlanPrePaid {
+				_ = h.tenantRepo.DeductWalletBalance(context.Background(), tid, messagePrice)
+			}
+			if h.logRepo != nil {
+				_ = h.logRepo.Save(context.Background(), &tenant.MessageLog{
+					TenantID:  tid,
+					Direction: tenant.DirectionIn,
+					MessageID: mid,
+					Status:    "RECEIVED",
+				})
+			}
+		}(resolvedTenant.ID, wamid, resolvedTenant.BillingPlan, resolvedTenant.MessagePrice)
 	}
 
 	// 3. Publicar no RabbitMQ (async)
@@ -186,33 +191,49 @@ func extractWAMID(payload map[string]interface{}) string {
 	return wamid
 }
 
-// extractWabaID extrai o Telefone Comercial ID (WABA) que originou a recepção
-func extractWabaID(payload map[string]interface{}) string {
+// extractPhoneNumberMetadata extrai os metadados do número comercial que recebeu a mensagem.
+func extractPhoneNumberMetadata(payload map[string]interface{}) (string, string) {
 	entry, ok := payload["entry"].([]interface{})
 	if !ok || len(entry) == 0 {
-		return ""
+		return "", ""
 	}
 
 	changes, ok := entry[0].(map[string]interface{})["changes"].([]interface{})
 	if !ok || len(changes) == 0 {
-		return ""
+		return "", ""
 	}
 
 	value, ok := changes[0].(map[string]interface{})["value"].(map[string]interface{})
 	if !ok {
-		return ""
+		return "", ""
 	}
 
 	metadata, ok := value["metadata"].(map[string]interface{})
 	if !ok {
-		return ""
+		return "", ""
 	}
 
-	// Prioriza phone_number_id (ID oficial do número na Meta Cloud API).
-	// fallback para display_phone_number por compatibilidade.
-	wabaID, _ := metadata["phone_number_id"].(string)
-	if wabaID == "" {
-		wabaID, _ = metadata["display_phone_number"].(string)
+	phoneNumberID, _ := metadata["phone_number_id"].(string)
+	displayPhoneNumber, _ := metadata["display_phone_number"].(string)
+	return phoneNumberID, displayPhoneNumber
+}
+
+func (h *WhatsAppWebhookHandler) resolveTenantForBilling(ctx context.Context, phoneNumberID, displayPhoneNumber string) *tenant.Tenant {
+	if h.tenantRepo == nil {
+		return nil
 	}
-	return wabaID
+
+	if phoneNumberID != "" {
+		if tnt, err := h.tenantRepo.FindByWabaID(ctx, phoneNumberID); err == nil {
+			return tnt
+		}
+	}
+
+	if displayPhoneNumber != "" {
+		if tnt, err := h.tenantRepo.FindByWhatsAppNumber(ctx, displayPhoneNumber); err == nil {
+			return tnt
+		}
+	}
+
+	return nil
 }
