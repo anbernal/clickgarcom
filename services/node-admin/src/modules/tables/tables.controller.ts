@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Param, Query, Body, UseGuards, Request, NotFoundException } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Query, Body, UseGuards, Request, NotFoundException } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -46,6 +46,11 @@ export class TablesController {
         return this.tablesService.updateStatus(id, req.user.tenantId, status);
     }
 
+    @Delete(':id')
+    async remove(@Request() req, @Param('id') id: string) {
+        return this.tablesService.remove(id, req.user.tenantId);
+    }
+
     // --- Table Requests Endpoints ---
 
     @Get('requests/pending')
@@ -66,6 +71,30 @@ export class TablesController {
     @Post('requests/manual')
     async createManualRequest(@Request() req, @Body() body: { tableId: string, userPhone: string, paxCount: number }) {
         return this.tablesService.createManualRequest(req.user.tenantId, body);
+    }
+
+    @Get('waiter/chats/open')
+    async getOpenWaiterChats(@Request() req) {
+        return this.tablesService.getOpenWaiterChats(req.user.tenantId);
+    }
+
+    @Get('waiter/chats/:chatId/messages')
+    async getWaiterChatMessages(@Request() req, @Param('chatId') chatId: string) {
+        return this.tablesService.getWaiterChatMessages(chatId, req.user.tenantId);
+    }
+
+    @Post('waiter/chats/:chatId/messages')
+    async sendWaiterChatMessage(
+        @Request() req,
+        @Param('chatId') chatId: string,
+        @Body('message') message: string,
+    ) {
+        return this.tablesService.sendWaiterChatMessage(chatId, req.user.tenantId, message, req.user?.name);
+    }
+
+    @Post('waiter/chats/:chatId/close')
+    async closeWaiterChat(@Request() req, @Param('chatId') chatId: string) {
+        return this.tablesService.closeWaiterChat(chatId, req.user.tenantId, req.user?.name);
     }
 
     @Get(':id/tab')

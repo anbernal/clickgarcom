@@ -1,6 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { Table } from '../../entities/table.entity';
 import { Tab } from '../../entities/tab.entity';
 import { TableRequest, RequestStatus } from '../../entities/table-request.entity';
@@ -17,6 +17,7 @@ export class TablesService {
         @InjectRepository(TableRequest)
         private readonly tableRequestRepo: Repository<TableRequest>,
         private readonly amqpService: AmqpService,
+        private readonly dataSource: DataSource,
     ) { }
 
     async findAll(tenantId: string) {
@@ -52,6 +53,20 @@ export class TablesService {
     async updateStatus(id: string, tenantId: string, status: string) {
         await this.tableRepo.update({ id, tenantId }, { status });
         return this.tableRepo.findOne({ where: { id, tenantId } });
+    }
+
+    async remove(id: string, tenantId: string) {
+        const table = await this.tableRepo.findOne({ where: { id, tenantId } });
+        if (!table) {
+            throw new NotFoundException('Mesa não encontrada');
+        }
+
+        if (table.status !== 'AVAILABLE') {
+            throw new BadRequestException('Apenas mesas livres podem ser excluídas');
+        }
+
+        await this.tableRepo.delete({ id, tenantId });
+        return { success: true, id };
     }
 
     async getTab(tableId: string, tenantId: string) {
@@ -165,5 +180,212 @@ export class TablesService {
         await this.approveRequest(req.id, tenantId);
 
         return req;
+    }
+
+    async getOpenWaiterChats(tenantId: string) {
+        const rows = await this.dataSource.query(
+            `SELECT wc.id,
+                    wc.user_phone,
+                    wc.status,
+                    wc.opened_at,
+                    wc.last_message_at,
+                    wc.tab_id,
+                    wc.table_id,
+                    t.number AS table_number,
+                    lm.message AS last_message,
+                    lm.sender_type AS last_sender_type,
+                    lm.created_at AS last_message_created_at
+               FROM waiter_chats wc
+               LEFT JOIN tables t
+                 ON t.id = wc.table_id
+               LEFT JOIN LATERAL (
+                    SELECT m.message, m.sender_type, m.created_at
+                      FROM waiter_chat_messages m
+                     WHERE m.chat_id = wc.id
+                     ORDER BY m.created_at DESC
+                     LIMIT 1
+               ) lm ON TRUE
+              WHERE wc.tenant_id = $1
+                AND wc.status = 'OPEN'
+              ORDER BY COALESCE(wc.last_message_at, wc.opened_at) DESC`,
+            [tenantId],
+        );
+
+        return (rows || []).map((row: any) => ({
+            id: String(row.id),
+            userPhone: String(row.user_phone || ''),
+            status: String(row.status || 'OPEN'),
+            openedAt: row.opened_at,
+            lastMessageAt: row.last_message_at,
+            tabId: row.tab_id || null,
+            tableId: row.table_id || null,
+            tableNumber: row.table_number || null,
+            lastMessage: row.last_message || '',
+            lastSenderType: row.last_sender_type || null,
+            lastMessageCreatedAt: row.last_message_created_at || null,
+        }));
+    }
+
+    async getWaiterChatMessages(chatId: string, tenantId: string) {
+        const chatRows = await this.dataSource.query(
+            `SELECT id, user_phone, status, table_id, tab_id
+               FROM waiter_chats
+              WHERE id = $1
+                AND tenant_id = $2
+              LIMIT 1`,
+            [chatId, tenantId],
+        );
+        if (!chatRows?.[0]) {
+            throw new NotFoundException('Conversa não encontrada');
+        }
+
+        const rows = await this.dataSource.query(
+            `SELECT id, chat_id, sender_type, sender_name, message, created_at
+               FROM waiter_chat_messages
+              WHERE chat_id = $1
+                AND tenant_id = $2
+              ORDER BY created_at ASC
+              LIMIT 300`,
+            [chatId, tenantId],
+        );
+
+        return {
+            chat: {
+                id: String(chatRows[0].id),
+                userPhone: String(chatRows[0].user_phone || ''),
+                status: String(chatRows[0].status || 'OPEN'),
+                tableId: chatRows[0].table_id || null,
+                tabId: chatRows[0].tab_id || null,
+            },
+            messages: (rows || []).map((row: any) => ({
+                id: String(row.id),
+                chatId: String(row.chat_id),
+                senderType: String(row.sender_type || ''),
+                senderName: String(row.sender_name || ''),
+                message: String(row.message || ''),
+                createdAt: row.created_at,
+            })),
+        };
+    }
+
+    async sendWaiterChatMessage(chatId: string, tenantId: string, message: string, staffName?: string) {
+        const text = String(message || '').trim();
+        if (!text) {
+            throw new BadRequestException('Mensagem obrigatória');
+        }
+
+        await this.assertTenantCanSendWhatsApp(tenantId);
+
+        const rows = await this.dataSource.query(
+            `SELECT id, user_phone, status
+               FROM waiter_chats
+              WHERE id = $1
+                AND tenant_id = $2
+              LIMIT 1`,
+            [chatId, tenantId],
+        );
+        const chat = rows?.[0];
+        if (!chat) {
+            throw new NotFoundException('Conversa não encontrada');
+        }
+        if (String(chat.status) !== 'OPEN') {
+            throw new BadRequestException('Conversa já encerrada');
+        }
+
+        await this.dataSource.query(
+            `INSERT INTO waiter_chat_messages
+                (id, chat_id, tenant_id, sender_type, sender_name, message, created_at)
+             VALUES (gen_random_uuid(), $1, $2, 'STAFF', $3, $4, NOW())`,
+            [chatId, tenantId, String(staffName || 'Equipe').trim() || 'Equipe', text],
+        );
+
+        await this.dataSource.query(
+            `UPDATE waiter_chats
+                SET last_message_at = NOW()
+              WHERE id = $1
+                AND tenant_id = $2`,
+            [chatId, tenantId],
+        );
+
+        await this.dataSource.query(
+            `INSERT INTO outbox_messages
+                (tenant_id, destination, recipient, payload, sent, attempts, max_attempts, created_at)
+             VALUES ($1, 'whatsapp', $2, $3, false, 0, 3, NOW())`,
+            [tenantId, String(chat.user_phone || ''), text],
+        );
+
+        return { ok: true };
+    }
+
+    async closeWaiterChat(chatId: string, tenantId: string, staffName?: string) {
+        const rows = await this.dataSource.query(
+            `SELECT id, user_phone, status
+               FROM waiter_chats
+              WHERE id = $1
+                AND tenant_id = $2
+              LIMIT 1`,
+            [chatId, tenantId],
+        );
+        const chat = rows?.[0];
+        if (!chat) {
+            throw new NotFoundException('Conversa não encontrada');
+        }
+
+        if (String(chat.status) === 'OPEN') {
+            await this.dataSource.query(
+                `UPDATE waiter_chats
+                    SET status = 'CLOSED',
+                        closed_at = NOW(),
+                        closed_by = 'STAFF',
+                        last_message_at = NOW()
+                  WHERE id = $1
+                    AND tenant_id = $2`,
+                [chatId, tenantId],
+            );
+
+            const sender = String(staffName || 'Equipe').trim() || 'Equipe';
+            const closingMessage = '✅ Atendimento encerrado pela equipe. Se precisar novamente, digite 4 no menu principal.';
+
+            await this.dataSource.query(
+                `INSERT INTO waiter_chat_messages
+                    (id, chat_id, tenant_id, sender_type, sender_name, message, created_at)
+                 VALUES (gen_random_uuid(), $1, $2, 'SYSTEM', $3, $4, NOW())`,
+                [chatId, tenantId, sender, closingMessage],
+            );
+
+            await this.dataSource.query(
+                `INSERT INTO outbox_messages
+                    (tenant_id, destination, recipient, payload, sent, attempts, max_attempts, created_at)
+                 VALUES ($1, 'whatsapp', $2, $3, false, 0, 3, NOW())`,
+                [tenantId, String(chat.user_phone || ''), closingMessage],
+            );
+        }
+
+        return { ok: true };
+    }
+
+    private async assertTenantCanSendWhatsApp(tenantId: string) {
+        const rows = await this.dataSource.query(
+            `SELECT wallet_balance, message_price, billing_plan
+               FROM tenants
+              WHERE id = $1
+              LIMIT 1`,
+            [tenantId],
+        );
+
+        const tenant = rows?.[0];
+        if (!tenant) {
+            throw new NotFoundException('Tenant não encontrado');
+        }
+
+        const billingPlan = String(tenant.billing_plan || 'pre_paid').trim().toLowerCase();
+        if (billingPlan !== 'pre_paid') return;
+
+        const balance = Number.parseFloat(String(tenant.wallet_balance ?? '0')) || 0;
+        const messagePrice = Number.parseFloat(String(tenant.message_price ?? '0.02')) || 0.02;
+
+        if (balance < messagePrice) {
+            throw new BadRequestException('Saldo insuficiente para enviar mensagem WhatsApp');
+        }
     }
 }

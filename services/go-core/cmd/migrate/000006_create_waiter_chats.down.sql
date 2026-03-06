@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS waiter_chat_messages CASCADE;
+DROP TABLE IF EXISTS waiter_chats CASCADE;

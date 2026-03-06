@@ -85,6 +85,7 @@ func main() {
 	tabRepo := postgres.NewTabRepository(db.DB)
 	orderRepo := postgres.NewOrderRepository(db.DB)
 	tableRepo := postgres.NewTableRepository(db.DB)
+	waiterChatRepo := postgres.NewWaiterChatRepository(db.DB)
 
 	// 6. Infrastructure
 	whatsappAPI := infraWA.NewMetaAPIClient(
@@ -111,6 +112,7 @@ func main() {
 		menuRepo,
 		tabRepo,
 		tableRepo,
+		waiterChatRepo,
 		createOrderUC,
 		whatsappSender,
 		logger.Log,

@@ -1,4 +1,5 @@
 // Mesas Page
+let mesasTableCache = [];
 
 function formatTableNumber(value) {
   const raw = String(value || '--').trim();
@@ -51,6 +52,7 @@ function renderTableActions(table) {
       <button class="btn-sm btn-outline" style="flex:1" onclick="changeTableStatus('${table.id}', 'RESERVED')">Reservar</button>
       <button class="btn-sm btn-primary" style="flex:1" onclick="changeTableStatus('${table.id}', 'OCCUPIED')">Abrir Mesa</button>
     </div>
+    <button class="btn-sm btn-danger" style="margin-top:8px; width:100%" onclick="deleteTable('${table.id}')">Excluir Mesa</button>
   `;
 }
 
@@ -171,6 +173,7 @@ async function loadMesas() {
       api.get('/tables'),
       api.get('/tables/stats'),
     ]);
+    mesasTableCache = Array.isArray(tables) ? tables : [];
 
     const reservedCount = tables.filter((table) => table.status === 'RESERVED').length;
 
@@ -196,6 +199,7 @@ async function loadMesas() {
       </div>
     `;
   } catch (err) {
+    mesasTableCache = [];
     container.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><h3>Erro</h3><p>${escapeHTML(err.message)}</p></div>`;
   }
 }
@@ -247,6 +251,31 @@ async function changeTableStatus(id, status) {
     await loadMesas();
   } catch (err) {
     showToast(`Erro: ${err.message}`, 'error');
+  }
+}
+
+async function deleteTable(id) {
+  const table = mesasTableCache.find((item) => item.id === id);
+  if (!table) {
+    showToast('Mesa não encontrada na listagem atual', 'error');
+    return;
+  }
+
+  if (table.status !== 'AVAILABLE') {
+    showToast('Só é possível excluir mesas livres', 'error');
+    return;
+  }
+
+  const tableNumber = formatTableNumber(table.number);
+  const confirmed = window.confirm(`Excluir a Mesa ${tableNumber}? Esta ação não pode ser desfeita.`);
+  if (!confirmed) return;
+
+  try {
+    await api.delete(`/tables/${id}`);
+    showToast(`Mesa ${tableNumber} excluída com sucesso`);
+    await loadMesas();
+  } catch (err) {
+    showToast(`Erro ao excluir mesa: ${err.message}`, 'error');
   }
 }
 

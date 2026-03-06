@@ -77,6 +77,9 @@ let tablesSnapshot = [];
 let tableMetrics = { total: 0, available: 0, occupied: 0 };
 let tabMetaById = new Map();
 let assignModalState = { requestId: null, selectedTableId: null };
+let waiterChats = [];
+let waiterChatMessagesById = new Map();
+let activeWaiterChatId = null;
 const PANEL_ORDER = ['kitchen', 'bar', 'attendance', 'waiter'];
 
 function resolveInitialPanel() {
@@ -95,11 +98,19 @@ document.addEventListener('DOMContentLoaded', () => {
       startTimerUpdates();
     });
   });
-  Promise.all([loadPendingRequests(), loadTableState()]);
+  Promise.all([loadPendingRequests(), loadTableState(), loadWaiterChats()]);
   setInterval(() => {
     loadPendingRequests();
     loadTableState();
   }, 10000);
+  setInterval(() => {
+    loadWaiterChats();
+  }, 3000);
+  setInterval(() => {
+    if (activeWaiterChatId) {
+      loadWaiterChatMessages(activeWaiterChatId);
+    }
+  }, 2000);
 });
 
 function applySidebarTenantName() {
@@ -179,6 +190,23 @@ async function apiPatch(path, body) {
     throw new Error(err.error || `API ${r.status}`);
   }
   return r.json();
+}
+
+async function apiPost(path, body) {
+  const r = await fetch(`${CONFIG.API_URL}${path}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': authSession ? `Bearer ${authSession.token}` : ''
+    },
+    body: JSON.stringify(body || {}),
+  });
+  if (r.status === 401 || r.status === 403) window.location.href = '/login.html';
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({}));
+    throw new Error(err.error || err.message || `API ${r.status}`);
+  }
+  return r.json().catch(() => ({}));
 }
 
 async function loadOrders() {
@@ -464,6 +492,7 @@ function renderWaiter() {
   const readyOrders = Object.values(allOrders).filter(o => o.status === 'READY');
   const prepOrders = Object.values(allOrders).filter(o => o.status === 'ACCEPTED');
   const queuedOrders = Object.values(allOrders).filter(o => o.status === 'PENDING');
+  const openChats = waiterChats.filter((chat) => chat.status === 'OPEN').length;
 
   const statsEl = document.getElementById('stats-waiter');
   if (statsEl) {
@@ -471,7 +500,7 @@ function renderWaiter() {
       <div class="stat-card"><div class="stat-icon" style="background:var(--green-bg)">🍽</div><div><div class="stat-value" style="color:var(--green)">${readyOrders.length}</div><div class="stat-label">Prontos p/ entregar</div></div></div>
       <div class="stat-card"><div class="stat-icon" style="background:var(--yellow-bg)">⏱</div><div><div class="stat-value" style="color:#8a6e00">${prepOrders.length}</div><div class="stat-label">Em preparo</div></div></div>
       <div class="stat-card"><div class="stat-icon" style="background:var(--red-bg)">🧾</div><div><div class="stat-value" style="color:var(--red)">${queuedOrders.length}</div><div class="stat-label">Na fila da cozinha/bar</div></div></div>
-      <div class="stat-card"><div class="stat-icon" style="background:var(--blue-bg)">🛎</div><div><div class="stat-value" style="color:var(--blue)">${Object.keys(allOrders).length}</div><div class="stat-label">Pedidos ativos</div></div></div>`;
+      <div class="stat-card"><div class="stat-icon" style="background:var(--blue-bg)">💬</div><div><div class="stat-value" style="color:var(--blue)">${openChats}</div><div class="stat-label">Chats em atendimento</div></div></div>`;
   }
 
   // Ready list
@@ -522,6 +551,8 @@ function renderWaiter() {
     }
     document.getElementById('waiter-prep-count').textContent = prepOrders.length;
   }
+
+  renderWaiterChats();
 }
 
 function updateNavBadges() {
@@ -531,7 +562,7 @@ function updateNavBadges() {
   document.getElementById('nb-kitchen').textContent = kitchen;
   document.getElementById('nb-bar').textContent = bar;
   document.getElementById('nb-attendance').textContent = pendingRequests.length;
-  document.getElementById('nb-waiter').textContent = readyOrders;
+  document.getElementById('nb-waiter').textContent = readyOrders + waiterChats.length;
 }
 
 // ─── ACTIONS ───────────────────────────────────────────────────
@@ -754,7 +785,7 @@ const TITLES = {
   kitchen: ['Estação da Cozinha', '— aceite e gerencie os pedidos da cozinha'],
   bar: ['Estação do Bar', '— aceite e gerencie os pedidos do bar'],
   attendance: ['Painel de Atendimento', '— aceite o primeiro contato e aloque mesas'],
-  waiter: ['Painel do Garçom', '— acompanhe os pedidos prontos e chamados'],
+  waiter: ['Painel do Garçom', '— acompanhe pedidos e converse com clientes'],
 };
 
 function switchPanel(name) {
@@ -847,6 +878,170 @@ async function loadTableState() {
     tableMetrics = { total: 0, available: 0, occupied: 0 };
     renderAll();
   }
+}
+
+async function loadWaiterChats() {
+  try {
+    const data = await apiGet('/tables/waiter/chats/open');
+    waiterChats = Array.isArray(data) ? data : [];
+    renderWaiterChats();
+    updateNavBadges();
+
+    if (activeWaiterChatId) {
+      const stillOpen = waiterChats.some((chat) => chat.id === activeWaiterChatId);
+      if (!stillOpen) {
+        closeWaiterChatModal();
+      } else {
+        loadWaiterChatMessages(activeWaiterChatId);
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to load waiter chats:', e);
+  }
+}
+
+function renderWaiterChats() {
+  const list = document.getElementById('waiter-chat-list');
+  if (!list) return;
+
+  const countEl = document.getElementById('waiter-chat-count');
+  if (countEl) countEl.textContent = waiterChats.length;
+
+  if (waiterChats.length === 0) {
+    list.innerHTML = '<div class="empty-state">Nenhuma conversa em atendimento</div>';
+    return;
+  }
+
+  list.innerHTML = waiterChats.map((chat) => {
+    const lastAt = chat.lastMessageAt || chat.openedAt;
+    const elapsed = getElapsed(lastAt);
+    const tableRaw = String(chat.tableNumber || '').trim();
+    const tableLabel = tableRaw ? `Mesa ${formatTableNumber(tableRaw)}` : 'Sem mesa';
+    const lastText = String(chat.lastMessage || 'Aguardando mensagem do cliente...');
+    const sender = String(chat.lastSenderType || '').toUpperCase() === 'STAFF' ? 'Equipe' :
+      String(chat.lastSenderType || '').toUpperCase() === 'SYSTEM' ? 'Sistema' : 'Cliente';
+
+    return `<div class="ready-item">
+      <div style="font-size:20px;flex-shrink:0">💬</div>
+      <div class="ready-item-left">
+        <div class="ready-item-title">${escapeHTML(chat.userPhone || '')} · ${escapeHTML(tableLabel)}</div>
+        <div class="ready-item-sub">${escapeHTML(sender)}: ${escapeHTML(lastText)}</div>
+        <div class="waiter-chat-meta">Atualizado há ${escapeHTML(elapsed.text)}</div>
+      </div>
+      <div class="waiter-chat-actions">
+        <button class="action-btn accept-btn" style="flex-shrink:0" onclick="openWaiterChat('${escapeHTML(chat.id)}')">Abrir chat</button>
+        <button class="action-btn reject-btn" style="flex-shrink:0" onclick="closeWaiterChat('${escapeHTML(chat.id)}')">Encerrar</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function openWaiterChat(chatId) {
+  const chat = waiterChats.find((row) => row.id === chatId);
+  if (!chat) return;
+  activeWaiterChatId = chatId;
+
+  const tableRaw = String(chat.tableNumber || '').trim();
+  const tableLabel = tableRaw ? `Mesa ${formatTableNumber(tableRaw)}` : 'Sem mesa';
+  document.getElementById('waiter-chat-modal-title').textContent = `${chat.userPhone || ''} · ${tableLabel}`;
+  document.getElementById('waiterChatModal').classList.add('open');
+
+  await loadWaiterChatMessages(chatId);
+  document.getElementById('waiter-chat-input').focus();
+}
+
+function closeWaiterChatModal() {
+  document.getElementById('waiterChatModal').classList.remove('open');
+  activeWaiterChatId = null;
+}
+
+document.getElementById('waiterChatModal').addEventListener('click', (e) => {
+  if (e.target.id === 'waiterChatModal') {
+    closeWaiterChatModal();
+  }
+});
+
+async function loadWaiterChatMessages(chatId) {
+  try {
+    const payload = await apiGet(`/tables/waiter/chats/${chatId}/messages`);
+    const messages = Array.isArray(payload?.messages) ? payload.messages : [];
+    waiterChatMessagesById.set(chatId, messages);
+
+    if (activeWaiterChatId === chatId) {
+      renderWaiterChatThread(payload?.chat || null, messages);
+    }
+  } catch (e) {
+    console.warn('Failed to load waiter chat messages:', e);
+  }
+}
+
+function renderWaiterChatThread(chat, messages) {
+  const thread = document.getElementById('waiter-chat-thread');
+  if (!thread) return;
+
+  if (!messages || messages.length === 0) {
+    thread.innerHTML = '<div class="empty-state">Sem mensagens ainda</div>';
+    return;
+  }
+
+  thread.innerHTML = messages.map((msg) => {
+    const senderType = String(msg.senderType || '').toUpperCase();
+    const cls = senderType === 'STAFF' ? 'staff' : senderType === 'SYSTEM' ? 'system' : 'customer';
+    const sender = senderType === 'STAFF'
+      ? (msg.senderName || 'Equipe')
+      : senderType === 'SYSTEM'
+        ? 'Sistema'
+        : 'Cliente';
+    const when = msg.createdAt
+      ? new Date(msg.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+      : '--:--';
+
+    return `<div class="chat-bubble ${escapeHTML(cls)}">
+      <div class="chat-bubble-head">${escapeHTML(sender)}</div>
+      <div class="chat-bubble-text">${escapeHTML(msg.message || '')}</div>
+      <div class="chat-bubble-time">${escapeHTML(when)}</div>
+    </div>`;
+  }).join('');
+
+  thread.scrollTop = thread.scrollHeight;
+}
+
+async function sendWaiterChatMessage() {
+  if (!activeWaiterChatId) return;
+  const input = document.getElementById('waiter-chat-input');
+  const message = String(input?.value || '').trim();
+  if (!message) {
+    input?.focus();
+    return;
+  }
+
+  try {
+    await apiPost(`/tables/waiter/chats/${activeWaiterChatId}/messages`, { message });
+    input.value = '';
+    await Promise.all([loadWaiterChats(), loadWaiterChatMessages(activeWaiterChatId)]);
+    toast('t-success', '✅ Mensagem enviada', 'Cliente notificado no WhatsApp');
+  } catch (e) {
+    toast('t-error', '❌ Erro', e.message);
+  }
+}
+
+async function closeWaiterChat(chatId) {
+  try {
+    await apiPost(`/tables/waiter/chats/${chatId}/close`, {});
+    waiterChatMessagesById.delete(chatId);
+    if (activeWaiterChatId === chatId) {
+      closeWaiterChatModal();
+    }
+    await loadWaiterChats();
+    toast('t-success', '✅ Conversa encerrada', 'Atendimento finalizado com sucesso');
+  } catch (e) {
+    toast('t-error', '❌ Erro', e.message);
+  }
+}
+
+function closeWaiterChatByButton() {
+  if (!activeWaiterChatId) return;
+  closeWaiterChat(activeWaiterChatId);
 }
 
 function openAssignModal(requestId, phone, pax) {

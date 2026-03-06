@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
@@ -174,15 +175,10 @@ func (uc *HandleWhatsAppMessageUseCase) handleMainMenuSimplified(
 		return uc.buildTabSummaryResponse(ctx, sess, false)
 
 	case "3":
-		// Repetir rodada
-		return "🔄 *Repetir Rodada*\n\nEm breve!\n\n_Digite 0 para voltar ao menu_",
-			session.StateMainMenu, nil
+		return uc.handleRepeatLastRound(ctx, sess)
 
 	case "4":
-		// Chamar garçom
-		msg := whatsapp.ServiceRequestConfirmed("Chamar Garçom")
-		msg += "\n\n_Digite 0 para voltar ao menu_"
-		return msg, session.StateMainMenu, nil
+		return uc.handleCallWaiter(ctx, sess)
 
 	case "5":
 		return uc.buildTabSummaryResponse(ctx, sess, true)
@@ -191,6 +187,243 @@ func (uc *HandleWhatsAppMessageUseCase) handleMainMenuSimplified(
 		return whatsapp.InvalidOptionMessage() + "\n\n" + whatsapp.MainMenuMessage(),
 			session.StateMainMenu, nil
 	}
+}
+
+func (uc *HandleWhatsAppMessageUseCase) handleRepeatLastRound(
+	ctx context.Context,
+	sess *session.Session,
+) (string, session.ConversationState, error) {
+	userTab := uc.findSessionOpenTab(ctx, sess)
+	if userTab == nil {
+		return "🔄 *Repetir Última Rodada*\n\nAinda não encontrei um pedido anterior seu para repetir.\n\nAssim que você fizer um pedido, essa opção funciona automaticamente 😉\n\n" + whatsapp.MainMenuMessage(),
+			session.StateMainMenu, nil
+	}
+
+	if uc.createOrderUC == nil || uc.createOrderUC.orderRepo == nil {
+		uc.logger.Error("createOrder use case not configured for repeat round")
+		return "❌ Não consegui repetir seu último pedido agora. Tente novamente em instantes.\n\n" + whatsapp.MainMenuMessage(),
+			session.StateMainMenu, nil
+	}
+
+	orders, err := uc.createOrderUC.orderRepo.FindByTab(ctx, userTab.ID, sess.TenantID)
+	if err != nil {
+		uc.logger.Error("failed to load orders for repeat round",
+			zap.Error(err),
+			zap.String("tab_id", userTab.ID.String()),
+		)
+		return "❌ Não consegui buscar seu último pedido. Tente novamente.\n\n" + whatsapp.MainMenuMessage(),
+			session.StateMainMenu, nil
+	}
+
+	var fallbackOrder *order.Order
+	var lastOrder *order.Order
+	normalizedPhone := normalizePhoneDigits(sess.UserPhone)
+
+	for _, candidate := range orders {
+		if candidate == nil || candidate.Status == order.StatusCanceled || len(candidate.Items) == 0 {
+			continue
+		}
+
+		if fallbackOrder == nil {
+			fallbackOrder = candidate
+		}
+
+		if normalizedPhone != "" && strings.Contains(normalizePhoneDigits(candidate.Notes), normalizedPhone) {
+			lastOrder = candidate
+			break
+		}
+	}
+
+	if lastOrder == nil {
+		lastOrder = fallbackOrder
+	}
+
+	if lastOrder == nil {
+		return "🔄 *Repetir Última Rodada*\n\nNão encontrei um pedido anterior válido para repetir.\n\n" + whatsapp.MainMenuMessage(),
+			session.StateMainMenu, nil
+	}
+
+	repeatItems := make([]OrderItemInput, 0, len(lastOrder.Items))
+	for _, item := range lastOrder.Items {
+		if item.MenuItemID == uuid.Nil || item.Quantity <= 0 {
+			continue
+		}
+		repeatItems = append(repeatItems, OrderItemInput{
+			MenuItemID:   item.MenuItemID,
+			Quantity:     item.Quantity,
+			Observations: item.Observations,
+		})
+	}
+
+	if len(repeatItems) == 0 {
+		return "🔄 *Repetir Última Rodada*\n\nSeu último pedido não tem itens válidos para repetir.\n\n" + whatsapp.MainMenuMessage(),
+			session.StateMainMenu, nil
+	}
+
+	newOrderInput := CreateOrderInput{
+		TenantID: sess.TenantID,
+		TabID:    userTab.ID,
+		Items:    repeatItems,
+		Notes:    fmt.Sprintf("Repetir rodada via WhatsApp - %s (origem: %s)", sess.UserPhone, lastOrder.ID.String()),
+	}
+
+	newOrder, err := uc.createOrderUC.Execute(ctx, newOrderInput)
+	if err != nil {
+		uc.logger.Error("failed to repeat last round",
+			zap.Error(err),
+			zap.String("tab_id", userTab.ID.String()),
+			zap.String("source_order_id", lastOrder.ID.String()),
+		)
+		return "❌ Não consegui repetir sua última rodada agora. Verifique se os itens ainda estão disponíveis e tente novamente.\n\n" + whatsapp.MainMenuMessage(),
+			session.StateMainMenu, nil
+	}
+
+	itemsSummary := uc.buildRepeatRoundItemsSummary(ctx, sess.TenantID, repeatItems)
+	msg := "✅ *Perfeito! Já solicitei sua última rodada com a equipe 🤵*\n\n"
+	if itemsSummary != "" {
+		msg += "🧾 *Itens repetidos:*\n" + itemsSummary + "\n\n"
+	}
+	orderCode := uc.buildOrderDisplayCode(ctx, sess, userTab, newOrder)
+	msg += fmt.Sprintf("📦 Pedido #%s solicitado.\n⏱️ Te aviso quando o status avançar.\n\n%s",
+		orderCode,
+		whatsapp.MainMenuMessage(),
+	)
+
+	return msg, session.StateMainMenu, nil
+}
+
+func (uc *HandleWhatsAppMessageUseCase) buildRepeatRoundItemsSummary(
+	ctx context.Context,
+	tenantID uuid.UUID,
+	items []OrderItemInput,
+) string {
+	if len(items) == 0 {
+		return ""
+	}
+
+	ids := make([]uuid.UUID, 0, len(items))
+	seen := make(map[uuid.UUID]struct{})
+	for _, item := range items {
+		if item.MenuItemID == uuid.Nil {
+			continue
+		}
+		if _, ok := seen[item.MenuItemID]; ok {
+			continue
+		}
+		seen[item.MenuItemID] = struct{}{}
+		ids = append(ids, item.MenuItemID)
+	}
+
+	nameByID := make(map[uuid.UUID]string, len(ids))
+	menuItems, err := uc.menuRepo.FindItemsByIDs(ctx, ids, tenantID)
+	if err == nil {
+		for _, menuItem := range menuItems {
+			if menuItem != nil {
+				nameByID[menuItem.ID] = menuItem.Name
+			}
+		}
+	}
+
+	lines := make([]string, 0, len(items))
+	for _, item := range items {
+		name := nameByID[item.MenuItemID]
+		if name == "" {
+			name = fmt.Sprintf("Item %s", item.MenuItemID.String()[:8])
+		}
+		lines = append(lines, fmt.Sprintf("• %dx %s", item.Quantity, name))
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+func (uc *HandleWhatsAppMessageUseCase) buildOrderDisplayCode(
+	ctx context.Context,
+	sess *session.Session,
+	userTab *tab.Tab,
+	o *order.Order,
+) string {
+	phoneSuffix := phoneSuffixFromText(sess.UserPhone)
+	tableCode := uc.resolveTabTableCode(ctx, sess.TenantID, userTab)
+	orderSuffix := orderSuffixFromID(o)
+
+	switch {
+	case phoneSuffix != "" && tableCode != "" && orderSuffix != "":
+		return fmt.Sprintf("%s-%s-%s", phoneSuffix, tableCode, orderSuffix)
+	case phoneSuffix != "" && tableCode != "":
+		return fmt.Sprintf("%s-%s", phoneSuffix, tableCode)
+	case phoneSuffix != "" && orderSuffix != "":
+		return fmt.Sprintf("%s-%s", phoneSuffix, orderSuffix)
+	case tableCode != "" && orderSuffix != "":
+		return fmt.Sprintf("%s-%s", tableCode, orderSuffix)
+	case phoneSuffix != "":
+		return phoneSuffix
+	case tableCode != "":
+		return tableCode
+	case orderSuffix != "":
+		return orderSuffix
+	default:
+		return "----"
+	}
+}
+
+func (uc *HandleWhatsAppMessageUseCase) resolveTabTableCode(
+	ctx context.Context,
+	tenantID uuid.UUID,
+	userTab *tab.Tab,
+) string {
+	if userTab == nil || userTab.TableID == nil {
+		return ""
+	}
+
+	t, err := uc.tableRepo.FindByID(ctx, *userTab.TableID, tenantID)
+	if err != nil || t == nil {
+		return ""
+	}
+	return formatTableNumberForDisplay(t.Number)
+}
+
+func phoneSuffixFromText(raw string) string {
+	digits := normalizePhoneDigits(raw)
+	if len(digits) == 0 {
+		return ""
+	}
+	if len(digits) <= 4 {
+		return digits
+	}
+	return digits[len(digits)-4:]
+}
+
+func orderSuffixFromID(o *order.Order) string {
+	if o == nil {
+		return ""
+	}
+
+	id := strings.TrimSpace(o.ID.String())
+	if id == "" {
+		return ""
+	}
+	if len(id) <= 4 {
+		return id
+	}
+	return id[len(id)-4:]
+}
+
+func formatTableNumberForDisplay(number string) string {
+	raw := strings.TrimSpace(number)
+	if raw == "" {
+		return ""
+	}
+
+	for _, r := range raw {
+		if r < '0' || r > '9' {
+			return raw
+		}
+	}
+
+	if len(raw) >= 2 {
+		return raw
+	}
+	return "0" + raw
 }
 
 func (uc *HandleWhatsAppMessageUseCase) buildTabSummaryResponse(

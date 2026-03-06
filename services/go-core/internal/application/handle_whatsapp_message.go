@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
@@ -14,18 +15,20 @@ import (
 	"github.com/anbernal/clickgarcom/internal/domain/tab"
 	"github.com/anbernal/clickgarcom/internal/domain/table"
 	"github.com/anbernal/clickgarcom/internal/domain/tenant"
+	"github.com/anbernal/clickgarcom/internal/domain/waiterchat"
 	"github.com/anbernal/clickgarcom/internal/domain/whatsapp"
 )
 
 type HandleWhatsAppMessageUseCase struct {
-	sessionRepo   session.Repository
-	tenantRepo    tenant.Repository
-	menuRepo      menu.Repository
-	tabRepo       tab.Repository
-	tableRepo     table.Repository
-	createOrderUC *CreateOrderUseCase
-	sender        WhatsAppSender
-	logger        *zap.Logger
+	sessionRepo    session.Repository
+	tenantRepo     tenant.Repository
+	menuRepo       menu.Repository
+	tabRepo        tab.Repository
+	tableRepo      table.Repository
+	waiterChatRepo waiterchat.Repository
+	createOrderUC  *CreateOrderUseCase
+	sender         WhatsAppSender
+	logger         *zap.Logger
 }
 
 type WhatsAppSender interface {
@@ -39,19 +42,21 @@ func NewHandleWhatsAppMessageUseCase(
 	menuRepo menu.Repository,
 	tabRepo tab.Repository,
 	tableRepo table.Repository,
+	waiterChatRepo waiterchat.Repository,
 	createOrderUC *CreateOrderUseCase,
 	sender WhatsAppSender,
 	logger *zap.Logger,
 ) *HandleWhatsAppMessageUseCase {
 	return &HandleWhatsAppMessageUseCase{
-		sessionRepo:   sessionRepo,
-		tenantRepo:    tenantRepo,
-		menuRepo:      menuRepo,
-		tabRepo:       tabRepo,
-		tableRepo:     tableRepo,
-		createOrderUC: createOrderUC,
-		sender:        sender,
-		logger:        logger,
+		sessionRepo:    sessionRepo,
+		tenantRepo:     tenantRepo,
+		menuRepo:       menuRepo,
+		tabRepo:        tabRepo,
+		tableRepo:      tableRepo,
+		waiterChatRepo: waiterChatRepo,
+		createOrderUC:  createOrderUC,
+		sender:         sender,
+		logger:         logger,
 	}
 }
 
@@ -273,9 +278,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleMainMenu(
 			session.StateViewingTab, nil
 
 	case "3":
-		// Repetir rodada
-		return "🔄 *Repetir Rodada*\n\nEm breve!\n\n_Digite 0 para voltar ao menu_",
-			session.StateMainMenu, nil
+		return uc.handleRepeatLastRound(ctx, sess)
 
 	case "4":
 		// Chamar garçom
@@ -296,12 +299,19 @@ func (uc *HandleWhatsAppMessageUseCase) handleCallWaiter(
 	ctx context.Context,
 	sess *session.Session,
 ) (string, session.ConversationState, error) {
-	// TODO: Criar service request no banco
+	if _, err := uc.getOrCreateOpenWaiterChat(ctx, sess); err != nil {
+		uc.logger.Error("failed to start waiter chat",
+			zap.Error(err),
+			zap.String("user_phone", sess.UserPhone),
+		)
+		return "❌ Não consegui iniciar o atendimento agora. Tente novamente em instantes.\n\n" + whatsapp.MainMenuMessage(),
+			session.StateMainMenu, nil
+	}
 
-	msg := whatsapp.ServiceRequestConfirmed("Chamar Garçom")
-	msg += "\n\n_Digite 0 para voltar ao menu_"
-
-	return msg, session.StateMainMenu, nil
+	return "🙋 *Olá! Como posso te ajudar?*\n\n" +
+			"Pode me contar por aqui que nossa equipe já vai te atender.\n\n" +
+			"_Digite 0 para sair da conversa com a equipe_",
+		session.StateServiceRequest, nil
 }
 
 func (uc *HandleWhatsAppMessageUseCase) handleOrdering(
@@ -369,10 +379,102 @@ func (uc *HandleWhatsAppMessageUseCase) handleServiceRequest(
 ) (string, session.ConversationState, error) {
 
 	if text == "0" {
-		return whatsapp.MainMenuMessage(), session.StateMainMenu, nil
+		if uc.waiterChatRepo != nil {
+			chat, err := uc.waiterChatRepo.FindOpenByPhone(ctx, sess.TenantID, sess.UserPhone)
+			if err == nil && chat != nil {
+				_ = uc.waiterChatRepo.CloseChat(ctx, chat.ID, sess.TenantID, waiterchat.ClosedByCustomer)
+			}
+		}
+		return "✅ Conversa encerrada.\n\n" + whatsapp.MainMenuMessage(), session.StateMainMenu, nil
 	}
 
-	return whatsapp.MainMenuMessage(), session.StateMainMenu, nil
+	if strings.TrimSpace(text) == "" {
+		return "✍️ Me envie sua mensagem para eu acionar a equipe.\n\n_Digite 0 para sair da conversa_",
+			session.StateServiceRequest, nil
+	}
+
+	chat, err := uc.getOrCreateOpenWaiterChat(ctx, sess)
+	if err != nil {
+		uc.logger.Error("failed to get waiter chat for inbound message",
+			zap.Error(err),
+			zap.String("user_phone", sess.UserPhone),
+		)
+		return "❌ Tive um problema ao registrar sua mensagem agora. Pode tentar novamente?\n\n_Digite 0 para sair da conversa_",
+			session.StateServiceRequest, nil
+	}
+
+	msg := &waiterchat.Message{
+		ID:         uuid.New(),
+		ChatID:     chat.ID,
+		TenantID:   sess.TenantID,
+		SenderType: waiterchat.SenderCustomer,
+		SenderName: sess.UserPhone,
+		Message:    text,
+	}
+	if err := uc.waiterChatRepo.AppendMessage(ctx, msg); err != nil {
+		uc.logger.Error("failed to append waiter chat message",
+			zap.Error(err),
+			zap.String("chat_id", chat.ID.String()),
+		)
+		return "❌ Tive um problema ao registrar sua mensagem agora. Pode tentar novamente?\n\n_Digite 0 para sair da conversa_",
+			session.StateServiceRequest, nil
+	}
+
+	return "✅ Mensagem enviada para nossa equipe.\n\n_Digite 0 para sair da conversa com a equipe_",
+		session.StateServiceRequest, nil
+}
+
+func (uc *HandleWhatsAppMessageUseCase) getOrCreateOpenWaiterChat(
+	ctx context.Context,
+	sess *session.Session,
+) (*waiterchat.Chat, error) {
+	if uc.waiterChatRepo == nil {
+		return nil, fmt.Errorf("waiter chat repo not configured")
+	}
+
+	chat, err := uc.waiterChatRepo.FindOpenByPhone(ctx, sess.TenantID, sess.UserPhone)
+	if err != nil {
+		return nil, err
+	}
+	if chat != nil {
+		return chat, nil
+	}
+
+	openTab := uc.findSessionOpenTab(ctx, sess)
+	now := time.Now()
+	newChat := &waiterchat.Chat{
+		ID:            uuid.New(),
+		TenantID:      sess.TenantID,
+		UserPhone:     sess.UserPhone,
+		Status:        waiterchat.StatusOpen,
+		OpenedAt:      now,
+		LastMessageAt: now,
+	}
+	if openTab != nil {
+		newChat.TabID = &openTab.ID
+		newChat.TableID = openTab.TableID
+	}
+
+	if err := uc.waiterChatRepo.CreateChat(ctx, newChat); err != nil {
+		return nil, err
+	}
+
+	systemMsg := &waiterchat.Message{
+		ID:         uuid.New(),
+		ChatID:     newChat.ID,
+		TenantID:   sess.TenantID,
+		SenderType: waiterchat.SenderSystem,
+		SenderName: "system",
+		Message:    "Cliente iniciou atendimento pelo WhatsApp.",
+	}
+	if err := uc.waiterChatRepo.AppendMessage(ctx, systemMsg); err != nil {
+		uc.logger.Warn("failed to append waiter system message",
+			zap.Error(err),
+			zap.String("chat_id", newChat.ID.String()),
+		)
+	}
+
+	return newChat, nil
 }
 
 func (uc *HandleWhatsAppMessageUseCase) handleTableConfirmation(
