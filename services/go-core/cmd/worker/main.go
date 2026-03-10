@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/google/uuid"
@@ -85,6 +86,7 @@ func main() {
 	tabRepo := postgres.NewTabRepository(db.DB)
 	orderRepo := postgres.NewOrderRepository(db.DB)
 	tableRepo := postgres.NewTableRepository(db.DB)
+	serviceRequestRepo := postgres.NewServiceRequestRepository(db.DB)
 	waiterChatRepo := postgres.NewWaiterChatRepository(db.DB)
 
 	// 6. Infrastructure
@@ -112,9 +114,11 @@ func main() {
 		menuRepo,
 		tabRepo,
 		tableRepo,
+		serviceRequestRepo,
 		waiterChatRepo,
 		createOrderUC,
 		whatsappSender,
+		resolvePublicCheckoutBaseURL(),
 		logger.Log,
 	)
 	processWhatsAppMsg := application.NewProcessWhatsAppMessageUseCase(
@@ -184,4 +188,23 @@ func main() {
 
 	<-quit
 	logger.Info("Shutting down worker...")
+}
+
+func resolvePublicCheckoutBaseURL() string {
+	candidates := []string{
+		os.Getenv("PUBLIC_ADMIN_BASE_URL"),
+		os.Getenv("PUBLIC_WEB_BASE_URL"),
+		os.Getenv("PUBLIC_WEBHOOK_BASE_URL"),
+		os.Getenv("NGROK_PUBLIC_URL"),
+		"http://localhost:3002",
+	}
+
+	for _, candidate := range candidates {
+		base := strings.TrimRight(strings.TrimSpace(candidate), "/")
+		if base != "" {
+			return base
+		}
+	}
+
+	return "http://localhost:3002"
 }

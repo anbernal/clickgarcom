@@ -42,6 +42,14 @@ export class WalletService {
         return this.requestWithFallback('post', '/payments/pix', tenantId, payload);
     }
 
+    async createCardPayment(tenantId: string, payload: Record<string, unknown>) {
+        return this.requestWithFallback('post', '/payments/card', tenantId, payload);
+    }
+
+    async getPaymentStatus(tenantId: string, paymentId: string) {
+        return this.requestWithFallback('get', `/payments/mp/${paymentId}/status`, tenantId);
+    }
+
     private async requestWithFallback(
         method: Method,
         path: string,

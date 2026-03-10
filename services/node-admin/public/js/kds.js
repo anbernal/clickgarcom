@@ -80,6 +80,7 @@ let assignModalState = { requestId: null, selectedTableId: null };
 let waiterChats = [];
 let waiterChatMessagesById = new Map();
 let activeWaiterChatId = null;
+let closeBillRequests = [];
 const PANEL_ORDER = ['kitchen', 'bar', 'attendance', 'waiter'];
 
 function resolveInitialPanel() {
@@ -98,7 +99,7 @@ document.addEventListener('DOMContentLoaded', () => {
       startTimerUpdates();
     });
   });
-  Promise.all([loadPendingRequests(), loadTableState(), loadWaiterChats()]);
+  Promise.all([loadPendingRequests(), loadTableState(), loadWaiterChats(), loadCloseRequests()]);
   setInterval(() => {
     loadPendingRequests();
     loadTableState();
@@ -106,6 +107,9 @@ document.addEventListener('DOMContentLoaded', () => {
   setInterval(() => {
     loadWaiterChats();
   }, 3000);
+  setInterval(() => {
+    loadCloseRequests();
+  }, 5000);
   setInterval(() => {
     if (activeWaiterChatId) {
       loadWaiterChatMessages(activeWaiterChatId);
@@ -491,7 +495,6 @@ function renderAttendance() {
 function renderWaiter() {
   const readyOrders = Object.values(allOrders).filter(o => o.status === 'READY');
   const prepOrders = Object.values(allOrders).filter(o => o.status === 'ACCEPTED');
-  const queuedOrders = Object.values(allOrders).filter(o => o.status === 'PENDING');
   const openChats = waiterChats.filter((chat) => chat.status === 'OPEN').length;
 
   const statsEl = document.getElementById('stats-waiter');
@@ -499,7 +502,7 @@ function renderWaiter() {
     statsEl.innerHTML = `
       <div class="stat-card"><div class="stat-icon" style="background:var(--green-bg)">🍽</div><div><div class="stat-value" style="color:var(--green)">${readyOrders.length}</div><div class="stat-label">Prontos p/ entregar</div></div></div>
       <div class="stat-card"><div class="stat-icon" style="background:var(--yellow-bg)">⏱</div><div><div class="stat-value" style="color:#8a6e00">${prepOrders.length}</div><div class="stat-label">Em preparo</div></div></div>
-      <div class="stat-card"><div class="stat-icon" style="background:var(--red-bg)">🧾</div><div><div class="stat-value" style="color:var(--red)">${queuedOrders.length}</div><div class="stat-label">Na fila da cozinha/bar</div></div></div>
+      <div class="stat-card"><div class="stat-icon" style="background:var(--red-bg)">💰</div><div><div class="stat-value" style="color:var(--red)">${closeBillRequests.length}</div><div class="stat-label">Fechamentos pendentes</div></div></div>
       <div class="stat-card"><div class="stat-icon" style="background:var(--blue-bg)">💬</div><div><div class="stat-value" style="color:var(--blue)">${openChats}</div><div class="stat-label">Chats em atendimento</div></div></div>`;
   }
 
@@ -552,6 +555,7 @@ function renderWaiter() {
     document.getElementById('waiter-prep-count').textContent = prepOrders.length;
   }
 
+  renderCloseBillRequests();
   renderWaiterChats();
 }
 
@@ -562,7 +566,7 @@ function updateNavBadges() {
   document.getElementById('nb-kitchen').textContent = kitchen;
   document.getElementById('nb-bar').textContent = bar;
   document.getElementById('nb-attendance').textContent = pendingRequests.length;
-  document.getElementById('nb-waiter').textContent = readyOrders + waiterChats.length;
+  document.getElementById('nb-waiter').textContent = readyOrders + waiterChats.length + closeBillRequests.length;
 }
 
 // ─── ACTIONS ───────────────────────────────────────────────────
@@ -714,6 +718,10 @@ function normalizeOrder(order) {
 function formatTableNumber(value) {
   const raw = String(value || '--').trim();
   return /^\d+$/.test(raw) ? raw.padStart(2, '0') : raw;
+}
+
+function formatMoney(value) {
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value || 0));
 }
 
 function getOrderTabId(order) {
@@ -900,6 +908,17 @@ async function loadWaiterChats() {
   }
 }
 
+async function loadCloseRequests() {
+  try {
+    const data = await apiGet('/tables/waiter/close-requests');
+    closeBillRequests = Array.isArray(data) ? data : [];
+    renderWaiter();
+    updateNavBadges();
+  } catch (e) {
+    console.warn('Failed to load close bill requests:', e);
+  }
+}
+
 function renderWaiterChats() {
   const list = document.getElementById('waiter-chat-list');
   if (!list) return;
@@ -932,6 +951,35 @@ function renderWaiterChats() {
         <button class="action-btn accept-btn" style="flex-shrink:0" onclick="openWaiterChat('${escapeHTML(chat.id)}')">Abrir chat</button>
         <button class="action-btn reject-btn" style="flex-shrink:0" onclick="closeWaiterChat('${escapeHTML(chat.id)}')">Encerrar</button>
       </div>
+    </div>`;
+  }).join('');
+}
+
+function renderCloseBillRequests() {
+  const list = document.getElementById('waiter-close-request-list');
+  if (!list) return;
+
+  const countEl = document.getElementById('waiter-close-request-count');
+  if (countEl) countEl.textContent = closeBillRequests.length;
+
+  if (closeBillRequests.length === 0) {
+    list.innerHTML = '<div class="empty-state">Nenhum pedido de fechamento aguardando</div>';
+    return;
+  }
+
+  list.innerHTML = closeBillRequests.map((request) => {
+    const elapsed = getElapsed(request.createdAt);
+    const tableRaw = String(request.tableNumber || '').trim();
+    const tableLabel = tableRaw ? `Mesa ${formatTableNumber(tableRaw)}` : 'Sem mesa';
+    const amountDue = Number(request.amountDue || 0);
+
+    return `<div class="ready-item">
+      <div style="font-size:20px;flex-shrink:0">💰</div>
+      <div class="ready-item-left">
+        <div class="ready-item-title">${escapeHTML(request.userPhone || 'Cliente')} · ${escapeHTML(tableLabel)}</div>
+        <div class="ready-item-sub">Pendente ${escapeHTML(formatMoney(amountDue))} · solicitado há ${escapeHTML(elapsed.text)}</div>
+      </div>
+      <button class="action-btn accept-btn" style="flex-shrink:0" onclick="finalizeCloseBillRequest('${escapeHTML(request.id)}')">Conta finalizada</button>
     </div>`;
   }).join('');
 }
@@ -1042,6 +1090,16 @@ async function closeWaiterChat(chatId) {
 function closeWaiterChatByButton() {
   if (!activeWaiterChatId) return;
   closeWaiterChat(activeWaiterChatId);
+}
+
+async function finalizeCloseBillRequest(requestId) {
+  try {
+    await apiPost(`/tables/waiter/close-requests/${requestId}/finalize`, {});
+    await Promise.all([loadCloseRequests(), loadTableState()]);
+    toast('t-success', 'Conta finalizada', 'Comanda encerrada com sucesso');
+  } catch (e) {
+    toast('t-error', 'Erro ao finalizar', e.message);
+  }
 }
 
 function openAssignModal(requestId, phone, pax) {

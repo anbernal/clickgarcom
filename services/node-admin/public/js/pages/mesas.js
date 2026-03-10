@@ -314,6 +314,11 @@ async function viewComandas(tableId, tableNumber) {
             <span class="mono" style="color:var(--teal)">${formatCurrency(tab.total)}</span>
           </div>
         </div>
+        <div style="display:flex; justify-content:flex-end;">
+          <button class="btn-sm btn-primary" onclick="finalizeTabFromModal('${escapeHTML(String(tab.id))}', '${escapeHTML(String(tableId))}', '${escapeHTML(String(tableNumber))}')">
+            Conta finalizada
+          </button>
+        </div>
       </div>
     `).join('');
 
@@ -329,5 +334,24 @@ async function viewComandas(tableId, tableNumber) {
     `);
   } catch (err) {
     showToast(`Erro ao carregar as comandas: ${err.message}`, 'error');
+  }
+}
+
+async function finalizeTabFromModal(tabId, tableId, tableNumber) {
+  const confirmed = window.confirm('Confirmar que o pagamento foi recebido e finalizar esta comanda?');
+  if (!confirmed) return;
+
+  try {
+    await api.post(`/tables/tabs/${tabId}/finalize`, {});
+    await loadMesas();
+    const tabs = await api.get(`/tables/${tableId}/tabs`);
+    showToast('Conta finalizada com sucesso');
+    if (!tabs || tabs.length === 0) {
+      closeModal();
+      return;
+    }
+    await viewComandas(tableId, tableNumber);
+  } catch (err) {
+    showToast(`Erro ao finalizar a conta: ${err.message}`, 'error');
   }
 }

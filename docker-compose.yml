@@ -147,6 +147,8 @@ services:
       DATABASE_HOST: postgres
       REDIS_HOST: redis
       RABBITMQ_HOST: rabbitmq
+      PUBLIC_ADMIN_BASE_URL: ${PUBLIC_ADMIN_BASE_URL:-}
+      NGROK_PUBLIC_URL: ${NGROK_PUBLIC_URL:-}
     ports:
       - "8080:8080"
     depends_on:
@@ -182,6 +184,8 @@ services:
       DATABASE_HOST: postgres
       REDIS_HOST: redis
       RABBITMQ_HOST: rabbitmq
+      PUBLIC_ADMIN_BASE_URL: ${PUBLIC_ADMIN_BASE_URL:-}
+      NGROK_PUBLIC_URL: ${NGROK_PUBLIC_URL:-}
     command: ["./bin/worker"]
     depends_on:
       postgres:

@@ -83,6 +83,8 @@ func SetupRoutes(
 	{
 		payments.Post("/pix", paymentHandler.CreatePixPayment)
 		payments.Post("/card", paymentHandler.CreateCardPayment)
+		payments.Get("/:paymentId/status", paymentHandler.GetPaymentStatus)
+		payments.Get("/mp/:mpID/status", paymentHandler.GetMercadoPagoPaymentStatus)
 	}
 
 	// Wallet routes (Phase 13)

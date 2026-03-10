@@ -4,78 +4,185 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Checkout Seguríssimo — ClickGarçom</title>
+    <title>Checkout — ClickGarçom</title>
     <link rel="stylesheet" href="/css/design-system.css">
     <!-- Mercado Pago SDK V2 (PCI Compliant) -->
     <script src="https://sdk.mercadopago.com/js/v2"></script>
     <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
         body {
-            background: var(--bg-color);
-            font-family: var(--font-body);
-            padding: 20px;
+            min-height: 100vh;
+            font-family: 'Sora', sans-serif;
+            background: linear-gradient(160deg, #0f1923 0%, #1a2a3a 40%, #0d2b3e 100%);
             display: flex;
+            align-items: center;
             justify-content: center;
+            padding: 24px;
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        /* Decorative background orbs */
+        body::before {
+            content: '';
+            position: fixed;
+            top: -120px;
+            right: -120px;
+            width: 400px;
+            height: 400px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(26, 188, 156, 0.15) 0%, transparent 70%);
+            pointer-events: none;
+        }
+
+        body::after {
+            content: '';
+            position: fixed;
+            bottom: -160px;
+            left: -100px;
+            width: 500px;
+            height: 500px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(59, 130, 246, 0.1) 0%, transparent 70%);
+            pointer-events: none;
         }
 
         .checkout-container {
-            max-width: 480px;
+            max-width: 460px;
             width: 100%;
-            background: var(--card-bg);
-            border-radius: 12px;
-            padding: 32px;
-            box-shadow: var(--shadow-md);
+            position: relative;
+            z-index: 1;
         }
 
-        .header {
+        /* ── Hero Card ── */
+        .hero-card {
+            background: linear-gradient(135deg, rgba(26, 188, 156, 0.12) 0%, rgba(59, 130, 246, 0.08) 100%);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 24px;
+            padding: 32px 28px;
             text-align: center;
-            margin-bottom: 24px;
+            margin-bottom: 20px;
+            backdrop-filter: blur(20px);
+            position: relative;
+            overflow: hidden;
         }
 
-        .total-box {
-            background: var(--border);
-            padding: 24px;
-            border-radius: 8px;
-            text-align: center;
-            margin-bottom: 24px;
+        .hero-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, #1abc9c, #3b82f6, #1abc9c);
+            background-size: 200% 100%;
+            animation: shimmer 3s ease infinite;
         }
 
-        .total-text {
-            font-size: 14px;
-            color: var(--text-muted);
-            text-transform: uppercase;
+        @keyframes shimmer {
+            0% {
+                background-position: -200% 0;
+            }
+
+            100% {
+                background-position: 200% 0;
+            }
+        }
+
+        .hero-icon {
+            width: 56px;
+            height: 56px;
+            border-radius: 18px;
+            background: linear-gradient(135deg, #1abc9c, #16a085);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 26px;
+            margin: 0 auto 16px;
+            box-shadow: 0 8px 24px rgba(26, 188, 156, 0.25);
+        }
+
+        .hero-title {
+            font-size: 16px;
             font-weight: 600;
-            letter-spacing: 1px;
+            color: rgba(255, 255, 255, 0.6);
+            margin-bottom: 4px;
         }
 
-        .total-amount {
-            font-size: 32px;
+        .hero-tab-info {
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.4);
+            margin-bottom: 20px;
+        }
+
+        .hero-label {
+            font-size: 11px;
             font-weight: 700;
-            color: var(--primary);
-            margin-top: 8px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: rgba(255, 255, 255, 0.35);
+            margin-bottom: 8px;
         }
 
+        .hero-amount {
+            font-size: 48px;
+            font-weight: 800;
+            color: #fff;
+            font-family: 'Sora', sans-serif;
+            line-height: 1;
+            text-shadow: 0 4px 20px rgba(26, 188, 156, 0.3);
+        }
+
+        /* ── Payment Panel ── */
+        .payment-panel {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 24px;
+            padding: 28px;
+            backdrop-filter: blur(20px);
+        }
+
+        /* Tabs */
         .tabs {
             display: flex;
             gap: 8px;
-            margin-bottom: 24px;
+            margin-bottom: 28px;
+            background: rgba(255, 255, 255, 0.04);
+            border-radius: 14px;
+            padding: 4px;
         }
 
         .tab-btn {
             flex: 1;
-            padding: 12px;
-            border-radius: 6px;
-            border: 1px solid var(--border);
-            background: var(--bg-color);
-            color: var(--text-main);
-            font-weight: 600;
+            padding: 14px 8px;
+            border-radius: 11px;
+            border: none;
+            background: transparent;
+            color: rgba(255, 255, 255, 0.45);
+            font-weight: 700;
+            font-size: 14px;
+            font-family: 'Sora', sans-serif;
             cursor: pointer;
-            transition: 0.2s;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .tab-btn:hover {
+            color: rgba(255, 255, 255, 0.7);
         }
 
         .tab-btn.active {
-            background: var(--primary);
-            color: white;
-            border-color: var(--primary);
+            background: linear-gradient(135deg, #1abc9c, #16a085);
+            color: #fff;
+            box-shadow: 0 4px 16px rgba(26, 188, 156, 0.3);
         }
 
         .method-panel {
@@ -86,45 +193,330 @@
             display: block;
         }
 
-        /* Mercado Pago Iframe Wrapper */
-        #form-checkout {
+        /* ── PIX Section ── */
+        .pix-generate-btn {
+            width: 100%;
+            padding: 18px;
+            font-size: 16px;
+            font-weight: 700;
+            font-family: 'Sora', sans-serif;
+            border: none;
+            border-radius: 16px;
+            cursor: pointer;
+            color: #fff;
+            background: linear-gradient(135deg, #1abc9c 0%, #16a085 100%);
+            box-shadow: 0 6px 24px rgba(26, 188, 156, 0.3);
+            transition: transform 0.15s, box-shadow 0.15s;
             display: flex;
-            flex-direction: column;
-            gap: 16px;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
         }
 
-        .mp-input-wrapper {
-            background: #fff;
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            padding: 12px;
-            height: 48px;
-            box-sizing: border-box;
+        .pix-generate-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 28px rgba(26, 188, 156, 0.4);
         }
 
+        .pix-generate-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .pix-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-top: 20px;
+            padding: 14px 16px;
+            border-radius: 12px;
+            background: rgba(26, 188, 156, 0.08);
+            border: 1px solid rgba(26, 188, 156, 0.15);
+        }
+
+        .pix-info-icon {
+            width: 36px;
+            height: 36px;
+            flex-shrink: 0;
+            border-radius: 10px;
+            background: rgba(26, 188, 156, 0.15);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+        }
+
+        .pix-info-text {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.5);
+            line-height: 1.5;
+        }
+
+        /* QR Code Result */
         #pix-qrcode-container {
-            text-align: center;
             display: none;
-            padding: 20px;
-            background: white;
-            border-radius: 8px;
-            border: 2px dashed var(--primary);
+            text-align: center;
+            margin-top: 8px;
         }
 
-        #pix-qrcode-container img {
-            max-width: 250px;
-            margin: 0 auto 16px;
-            display: block;
+        .qr-wrapper {
+            background: #fff;
+            border-radius: 20px;
+            padding: 24px;
+            display: inline-block;
+            margin-bottom: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+        }
+
+        .qr-wrapper img {
+            width: 220px;
+            height: 220px;
+            border-radius: 12px;
+        }
+
+        .qr-title {
+            font-size: 16px;
+            font-weight: 700;
+            color: #fff;
+            margin-bottom: 16px;
+        }
+
+        .qr-copy-label {
+            font-size: 13px;
+            font-weight: 600;
+            color: rgba(255, 255, 255, 0.5);
+            margin-bottom: 8px;
         }
 
         .copy-paste-input {
             width: 100%;
-            padding: 12px;
-            font-family: monospace;
+            padding: 14px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.05);
+            color: rgba(255, 255, 255, 0.7);
+            resize: none;
+        }
+
+        .copy-btn {
+            width: 100%;
+            margin-top: 12px;
+            padding: 14px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            background: rgba(255, 255, 255, 0.06);
+            color: rgba(255, 255, 255, 0.7);
+            font-weight: 700;
+            font-size: 14px;
+            font-family: 'Sora', sans-serif;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .copy-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+        }
+
+        #pix-success-msg {
+            display: none;
+            margin-top: 20px;
+            padding: 16px;
+            border-radius: 14px;
+            background: rgba(26, 188, 156, 0.1);
+            border: 1px solid rgba(26, 188, 156, 0.2);
+            color: #1abc9c;
+            font-weight: 700;
+            font-size: 14px;
+        }
+
+        /* ── Card Form ── */
+        #form-checkout {
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+        }
+
+        .field-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .field-group label {
             font-size: 12px;
-            border: 1px solid var(--border);
-            border-radius: 4px;
-            background: var(--bg-color);
+            font-weight: 600;
+            color: rgba(255, 255, 255, 0.45);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .mp-input-wrapper {
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 14px;
+            height: 50px;
+            box-sizing: border-box;
+            color: #fff;
+            font-size: 14px;
+            transition: border-color 0.2s;
+        }
+
+        .mp-input-wrapper:focus,
+        .mp-input-wrapper:focus-within {
+            border-color: #1abc9c;
+            outline: none;
+        }
+
+        input.mp-input-wrapper {
+            font-family: 'Sora', sans-serif;
+        }
+
+        input.mp-input-wrapper::placeholder {
+            color: rgba(255, 255, 255, 0.25);
+        }
+
+        select.mp-input-wrapper {
+            font-family: 'Sora', sans-serif;
+            -webkit-appearance: none;
+            appearance: none;
+            cursor: pointer;
+        }
+
+        .row-2 {
+            display: flex;
+            gap: 12px;
+        }
+
+        .row-2>* {
+            flex: 1;
+        }
+
+        .card-submit-btn {
+            width: 100%;
+            padding: 18px;
+            font-size: 16px;
+            font-weight: 700;
+            font-family: 'Sora', sans-serif;
+            border: none;
+            border-radius: 16px;
+            cursor: pointer;
+            color: #fff;
+            background: linear-gradient(135deg, #3b82f6, #2563eb);
+            box-shadow: 0 6px 24px rgba(59, 130, 246, 0.3);
+            transition: transform 0.15s, box-shadow 0.15s;
+            margin-top: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .card-submit-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 28px rgba(59, 130, 246, 0.4);
+        }
+
+        .card-submit-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .card-secure-note {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.3);
+            margin-top: 8px;
+        }
+
+        /* ── Loading State ── */
+        .loading-state {
+            text-align: center;
+            padding: 60px 0;
+        }
+
+        .loading-spinner {
+            width: 48px;
+            height: 48px;
+            border: 3px solid rgba(26, 188, 156, 0.15);
+            border-top: 3px solid #1abc9c;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* ── Footer ── */
+        .checkout-footer {
+            text-align: center;
+            margin-top: 20px;
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.2);
+        }
+
+        .checkout-footer a {
+            color: rgba(255, 255, 255, 0.35);
+            text-decoration: none;
+        }
+
+        /* ── Progress ── */
+        progress {
+            width: 100%;
+            height: 4px;
+            border-radius: 2px;
+            appearance: none;
+            -webkit-appearance: none;
+        }
+
+        progress::-webkit-progress-bar {
+            background: rgba(255, 255, 255, 0.06);
+            border-radius: 2px;
+        }
+
+        progress::-webkit-progress-value {
+            background: #3b82f6;
+            border-radius: 2px;
+        }
+
+        /* ── Mobile ── */
+        @media (max-width: 480px) {
+            body {
+                padding: 16px;
+            }
+
+            .hero-card {
+                padding: 24px 20px;
+                border-radius: 20px;
+            }
+
+            .hero-amount {
+                font-size: 38px;
+            }
+
+            .payment-panel {
+                padding: 20px;
+                border-radius: 20px;
+            }
+
+            .row-2 {
+                flex-direction: column;
+                gap: 18px;
+            }
         }
     </style>
 </head>
@@ -132,112 +524,129 @@
 <body>
 
     <div class="checkout-container" id="checkout-container">
-        <!-- Carregando dados da comanda... -->
-        <div id="checkout-loading" style="text-align:center; padding: 40px 0">
-            <div style="font-size: 36px">🍽️</div>
-            <p style="color: var(--text-muted); margin-top: 12px">Carregando sua comanda...</p>
+
+        <!-- Loading -->
+        <div id="checkout-loading" class="loading-state">
+            <div class="loading-spinner"></div>
+            <p style="color: rgba(255,255,255,0.5); font-size: 14px;">Carregando sua comanda...</p>
         </div>
+
+        <!-- Content -->
         <div id="checkout-content" style="display:none">
-            <div class="header">
-                <h2 style="margin:0; font-family: var(--font-heading); font-size: 22px">🍕 Resumo do Pedido</h2>
-                <p id="checkout-tab-info" style="margin:4px 0 0; color: var(--text-muted); font-size: 14px;">
-                    Carregando...</p>
+
+            <!-- Hero Card -->
+            <div class="hero-card">
+                <div class="hero-icon">🍽</div>
+                <div class="hero-title">Resumo do Pedido</div>
+                <div id="checkout-tab-info" class="hero-tab-info">Carregando...</div>
+                <div class="hero-label">Total a Pagar</div>
+                <div id="checkout-total-amount" class="hero-amount">R$ —</div>
             </div>
 
-            <div class="total-box">
-                <div class="total-text">Total a Pagar</div>
-                <div id="checkout-total-amount" class="total-amount">R$ —</div>
-            </div>
+            <!-- Payment Panel -->
+            <div class="payment-panel">
+                <div class="tabs">
+                    <button class="tab-btn active" data-method="pix">
+                        <span>⚡</span> PIX
+                    </button>
+                    <button class="tab-btn" data-method="card">
+                        <span>💳</span> Cartão
+                    </button>
+                </div>
 
-            <div class="tabs">
-                <button class="tab-btn active" data-method="pix">PIX</button>
-                <button class="tab-btn" data-method="card">Cartão (Crédito/Débito)</button>
-            </div>
+                <!-- PIX PANEL -->
+                <div id="panel-pix" class="method-panel active">
+                    <button class="pix-generate-btn" id="btn-generate-pix">
+                        <span style="font-size:20px">⚡</span> Gerar QR Code PIX
+                    </button>
 
-            <!-- PIX PANEL -->
-            <div id="panel-pix" class="method-panel active">
-                <button class="btn btn-primary" id="btn-generate-pix"
-                    style="width: 100%; height: 50px; font-size: 16px">Gerar QR Code PIX ⚡</button>
+                    <div id="pix-qrcode-container">
+                        <div class="qr-title">Escaneie para pagar</div>
+                        <div class="qr-wrapper">
+                            <img id="pix-img" src="" alt="QR Code PIX">
+                        </div>
+                        <div class="qr-copy-label">Ou use o Copia e Cola:</div>
+                        <textarea class="copy-paste-input" id="pix-copy-paste" rows="3" readonly></textarea>
+                        <button class="copy-btn" onclick="copyPix()">
+                            📋 Copiar Código
+                        </button>
+                        <div id="pix-success-msg">✅ Pagamento Recebido! Pedido liberado na cozinha.</div>
+                    </div>
 
-                <div id="pix-qrcode-container">
-                    <h3 style="margin-top:0">Escaneie para pagar</h3>
-                    <img id="pix-img" src="" alt="QR Code PIX">
-                    <p style="font-size: 14px; font-weight: bold;">Ou use o Copia e Cola:</p>
-                    <textarea class="copy-paste-input" id="pix-copy-paste" rows="4" readonly></textarea>
-                    <button class="btn" onclick="copyPix()"
-                        style="width: 100%; margin-top: 12px; background:var(--border)">Copiar Código Copia e
-                        Cola</button>
-                    <div style="margin-top: 16px; font-size: 14px; color: var(--success); font-weight: bold; display: none;"
-                        id="pix-success-msg">✅ Pagamento Recebido! Pedido liberado na cozinha.</div>
+                    <div class="pix-info">
+                        <div class="pix-info-icon">🔒</div>
+                        <div class="pix-info-text">
+                            Pagamento 100% seguro via PIX.<br>
+                            O valor é creditado automaticamente na comanda.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- CARD PANEL -->
+                <div id="panel-card" class="method-panel">
+                    <form id="form-checkout">
+                        <div class="field-group">
+                            <label>Número do Cartão</label>
+                            <div id="form-checkout__cardNumber" class="mp-input-wrapper"></div>
+                        </div>
+
+                        <div class="row-2">
+                            <div class="field-group">
+                                <label>Validade</label>
+                                <div id="form-checkout__expirationDate" class="mp-input-wrapper"></div>
+                            </div>
+                            <div class="field-group">
+                                <label>CVV</label>
+                                <div id="form-checkout__securityCode" class="mp-input-wrapper"></div>
+                            </div>
+                        </div>
+
+                        <div class="field-group">
+                            <label>Nome do Titular</label>
+                            <input type="text" id="form-checkout__cardholderName" class="mp-input-wrapper"
+                                style="width:100%" placeholder="Nome impresso no cartão" />
+                        </div>
+
+                        <div class="field-group">
+                            <label>E-mail</label>
+                            <input type="email" id="form-checkout__cardholderEmail" class="mp-input-wrapper"
+                                style="width:100%" placeholder="E-mail do pagador" />
+                        </div>
+
+                        <div class="field-group">
+                            <label>Documento (CPF)</label>
+                            <div class="row-2">
+                                <select id="form-checkout__identificationType" class="mp-input-wrapper"
+                                    style="max-width: 90px"></select>
+                                <input type="text" id="form-checkout__identificationNumber" class="mp-input-wrapper"
+                                    style="flex:1" placeholder="000.000.000-00" />
+                            </div>
+                        </div>
+
+                        <div class="field-group">
+                            <label>Parcelas</label>
+                            <select id="form-checkout__installments" class="mp-input-wrapper"
+                                style="width:100%"></select>
+                        </div>
+
+                        <button type="submit" id="form-checkout__submit" class="card-submit-btn">
+                            <span>💳</span> Pagar com Cartão
+                        </button>
+                        <progress value="0" class="progress-bar" style="display:none"></progress>
+
+                        <div class="card-secure-note">
+                            🔒 Dados protegidos pelo Mercado Pago
+                        </div>
+                    </form>
                 </div>
             </div>
 
-            <!-- CARD PANEL (Mercado Pago SDK) -->
-            <div id="panel-card" class="method-panel">
-                <form id="form-checkout">
-                    <!-- MP PCI Inputs are injected here via JS -->
-                    <div>
-                        <label
-                            style="font-size: 12px; color: var(--text-muted); display:block; margin-bottom: 4px">Número
-                            do Cartão</label>
-                        <div id="form-checkout__cardNumber" class="mp-input-wrapper"></div>
-                    </div>
-
-                    <div style="display: flex; gap: 16px">
-                        <div style="flex:1">
-                            <label
-                                style="font-size: 12px; color: var(--text-muted); display:block; margin-bottom: 4px">Validade</label>
-                            <div id="form-checkout__expirationDate" class="mp-input-wrapper"></div>
-                        </div>
-                        <div style="flex:1">
-                            <label
-                                style="font-size: 12px; color: var(--text-muted); display:block; margin-bottom: 4px">CVV</label>
-                            <div id="form-checkout__securityCode" class="mp-input-wrapper"></div>
-                        </div>
-                    </div>
-
-                    <div>
-                        <label style="font-size: 12px; color: var(--text-muted); display:block; margin-bottom: 4px">Nome
-                            do
-                            Titular</label>
-                        <input type="text" id="form-checkout__cardholderName" class="mp-input-wrapper"
-                            style="width:100%" placeholder="Nome impresso no Cartão" />
-                    </div>
-
-                    <div>
-                        <label
-                            style="font-size: 12px; color: var(--text-muted); display:block; margin-bottom: 4px">E-mail</label>
-                        <input type="email" id="form-checkout__cardholderEmail" class="mp-input-wrapper"
-                            style="width:100%" placeholder="E-mail do pagador" />
-                    </div>
-
-                    <div>
-                        <label
-                            style="font-size: 12px; color: var(--text-muted); display:block; margin-bottom: 4px">Documento
-                            (CPF)</label>
-                        <div style="display: flex; gap: 8px">
-                            <select id="form-checkout__identificationType" class="mp-input-wrapper"
-                                style="width: 80px"></select>
-                            <input type="text" id="form-checkout__identificationNumber" class="mp-input-wrapper"
-                                style="flex:1" placeholder="Número do CPF" />
-                        </div>
-                    </div>
-
-                    <div>
-                        <label
-                            style="font-size: 12px; color: var(--text-muted); display:block; margin-bottom: 4px">Parcelas</label>
-                        <select id="form-checkout__installments" class="mp-input-wrapper" style="width:100%"></select>
-                    </div>
-
-                    <button type="submit" id="form-checkout__submit" class="btn btn-primary"
-                        style="height: 50px; font-size: 16px; margin-top: 16px;">
-                        Pagar com Cartão 💳
-                    </button>
-                    <progress value="0" class="progress-bar" style="display:none; width: 100%"></progress>
-                </form>
+            <!-- Footer -->
+            <div class="checkout-footer">
+                Powered by <strong>ClickGarçom</strong> · Pagamentos via Mercado Pago
             </div>
 
-        </div> <!-- end checkout-content -->
+        </div>
     </div>
 
     <script src="/js/checkout.js"></script>
@@ -246,7 +655,15 @@
             var copyText = document.getElementById("pix-copy-paste");
             copyText.select();
             document.execCommand("copy");
-            alert("Código PIX copiado para a área de transferência!");
+            // Visual feedback
+            var btn = event.currentTarget;
+            var original = btn.innerHTML;
+            btn.innerHTML = '✅ Copiado!';
+            btn.style.borderColor = 'rgba(26,188,156,0.3)';
+            setTimeout(() => {
+                btn.innerHTML = original;
+                btn.style.borderColor = '';
+            }, 2000);
         }
     </script>
 </body>

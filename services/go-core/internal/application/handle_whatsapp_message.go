@@ -12,6 +12,7 @@ import (
 
 	"github.com/anbernal/clickgarcom/internal/domain/inbox/session"
 	"github.com/anbernal/clickgarcom/internal/domain/menu"
+	"github.com/anbernal/clickgarcom/internal/domain/servicerequest"
 	"github.com/anbernal/clickgarcom/internal/domain/tab"
 	"github.com/anbernal/clickgarcom/internal/domain/table"
 	"github.com/anbernal/clickgarcom/internal/domain/tenant"
@@ -20,15 +21,17 @@ import (
 )
 
 type HandleWhatsAppMessageUseCase struct {
-	sessionRepo    session.Repository
-	tenantRepo     tenant.Repository
-	menuRepo       menu.Repository
-	tabRepo        tab.Repository
-	tableRepo      table.Repository
-	waiterChatRepo waiterchat.Repository
-	createOrderUC  *CreateOrderUseCase
-	sender         WhatsAppSender
-	logger         *zap.Logger
+	sessionRepo           session.Repository
+	tenantRepo            tenant.Repository
+	menuRepo              menu.Repository
+	tabRepo               tab.Repository
+	tableRepo             table.Repository
+	serviceRequestRepo    servicerequest.Repository
+	waiterChatRepo        waiterchat.Repository
+	createOrderUC         *CreateOrderUseCase
+	sender                WhatsAppSender
+	logger                *zap.Logger
+	publicCheckoutBaseURL string
 }
 
 type WhatsAppSender interface {
@@ -42,21 +45,25 @@ func NewHandleWhatsAppMessageUseCase(
 	menuRepo menu.Repository,
 	tabRepo tab.Repository,
 	tableRepo table.Repository,
+	serviceRequestRepo servicerequest.Repository,
 	waiterChatRepo waiterchat.Repository,
 	createOrderUC *CreateOrderUseCase,
 	sender WhatsAppSender,
+	publicCheckoutBaseURL string,
 	logger *zap.Logger,
 ) *HandleWhatsAppMessageUseCase {
 	return &HandleWhatsAppMessageUseCase{
-		sessionRepo:    sessionRepo,
-		tenantRepo:     tenantRepo,
-		menuRepo:       menuRepo,
-		tabRepo:        tabRepo,
-		tableRepo:      tableRepo,
-		waiterChatRepo: waiterChatRepo,
-		createOrderUC:  createOrderUC,
-		sender:         sender,
-		logger:         logger,
+		sessionRepo:           sessionRepo,
+		tenantRepo:            tenantRepo,
+		menuRepo:              menuRepo,
+		tabRepo:               tabRepo,
+		tableRepo:             tableRepo,
+		serviceRequestRepo:    serviceRequestRepo,
+		waiterChatRepo:        waiterChatRepo,
+		createOrderUC:         createOrderUC,
+		sender:                sender,
+		logger:                logger,
+		publicCheckoutBaseURL: publicCheckoutBaseURL,
 	}
 }
 
@@ -235,6 +242,9 @@ func (uc *HandleWhatsAppMessageUseCase) processMessage(
 	case session.StateViewingTab:
 		return uc.handleViewingTab(ctx, sess, text)
 
+	case session.StateClosingTab:
+		return uc.handleClosingTab(ctx, sess, text)
+
 	case session.StateServiceRequest:
 		return uc.handleServiceRequest(ctx, sess, text)
 
@@ -285,9 +295,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleMainMenu(
 		return uc.handleCallWaiter(ctx, sess)
 
 	case "5":
-		// Fechar conta
-		return "💰 *Fechar Conta*\n\nEm breve!\n\n_Digite 0 para voltar ao menu_",
-			session.StateMainMenu, nil
+		return uc.startClosingTabFlow(ctx, sess)
 
 	default:
 		return whatsapp.InvalidOptionMessage() + "\n\n" + whatsapp.MainMenuMessage(),

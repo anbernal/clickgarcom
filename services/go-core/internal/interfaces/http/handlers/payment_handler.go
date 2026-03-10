@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/anbernal/clickgarcom/internal/domain/payment"
 	"github.com/anbernal/clickgarcom/internal/domain/tenant"
@@ -201,6 +202,94 @@ func (h *PaymentHandler) CreateCardPayment(c *fiber.Ctx) error {
 		"payment_id": p.ID,
 		"mp_id":      mpResp.ID,
 		"status":     mpResp.Status,
+	})
+}
+
+// GetPaymentStatus handles GET /payments/:paymentId/status
+func (h *PaymentHandler) GetPaymentStatus(c *fiber.Ctx) error {
+	tenantID, err := extractTenantID(c)
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "tenant id missing or invalid"})
+	}
+
+	paymentID, err := uuid.Parse(c.Params("paymentId"))
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid payment_id"})
+	}
+
+	p, err := h.paymentRepo.FindByID(c.Context(), paymentID)
+	if err != nil || p == nil || p.TenantID != tenantID {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "payment not found"})
+	}
+
+	status := strings.TrimSpace(string(p.Status))
+	statusDetail := ""
+
+	tnt, tenantErr := h.tenantRepo.FindByID(c.Context(), tenantID)
+	if tenantErr == nil && tnt != nil && tnt.Settings.MPAccessToken != "" && strings.TrimSpace(p.ExternalReference) != "" {
+		mpPayment, mpErr := h.mpClient.GetPayment(c.Context(), tnt.Settings.MPAccessToken, p.ExternalReference)
+		if mpErr != nil {
+			h.logger.Warn("failed to fetch payment status from mercadopago",
+				zap.Error(mpErr),
+				zap.String("payment_id", paymentID.String()),
+				zap.String("mp_id", p.ExternalReference),
+			)
+		} else {
+			status = strings.ToLower(strings.TrimSpace(mpPayment.Status))
+			statusDetail = strings.TrimSpace(mpPayment.StatusDetail)
+			if payment.PaymentStatus(status) != p.Status {
+				if updateErr := h.paymentRepo.UpdateStatus(c.Context(), p.ID, payment.PaymentStatus(status)); updateErr != nil {
+					h.logger.Warn("failed to update payment status locally",
+						zap.Error(updateErr),
+						zap.String("payment_id", paymentID.String()),
+						zap.String("status", status),
+					)
+				}
+			}
+		}
+	}
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"payment_id":    p.ID,
+		"status":        status,
+		"status_detail": statusDetail,
+		"approved":      strings.EqualFold(status, string(payment.StatusApproved)),
+	})
+}
+
+// GetMercadoPagoPaymentStatus handles GET /payments/mp/:mpID/status
+func (h *PaymentHandler) GetMercadoPagoPaymentStatus(c *fiber.Ctx) error {
+	tenantID, err := extractTenantID(c)
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "tenant id missing or invalid"})
+	}
+
+	mpID := strings.TrimSpace(c.Params("mpID"))
+	if mpID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid mp_id"})
+	}
+
+	tnt, err := h.tenantRepo.FindByID(c.Context(), tenantID)
+	if err != nil || tnt == nil || strings.TrimSpace(tnt.Settings.MPAccessToken) == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "mercadopago not configured for this tenant"})
+	}
+
+	mpPayment, err := h.mpClient.GetPayment(c.Context(), tnt.Settings.MPAccessToken, mpID)
+	if err != nil {
+		h.logger.Warn("failed to fetch mercadopago payment status",
+			zap.Error(err),
+			zap.String("tenant_id", tenantID.String()),
+			zap.String("mp_id", mpID),
+		)
+		return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{"error": "failed to fetch payment status"})
+	}
+
+	status := strings.ToLower(strings.TrimSpace(mpPayment.Status))
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"mp_id":         mpID,
+		"status":        status,
+		"status_detail": strings.TrimSpace(mpPayment.StatusDetail),
+		"approved":      strings.EqualFold(status, string(payment.StatusApproved)),
 	})
 }
 

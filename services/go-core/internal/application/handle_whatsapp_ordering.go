@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 
 	"github.com/anbernal/clickgarcom/internal/domain/inbox/session"
 	"github.com/anbernal/clickgarcom/internal/domain/order"
+	"github.com/anbernal/clickgarcom/internal/domain/servicerequest"
 	"github.com/anbernal/clickgarcom/internal/domain/tab"
 	"github.com/anbernal/clickgarcom/internal/domain/whatsapp"
 )
@@ -181,12 +183,155 @@ func (uc *HandleWhatsAppMessageUseCase) handleMainMenuSimplified(
 		return uc.handleCallWaiter(ctx, sess)
 
 	case "5":
-		return uc.buildTabSummaryResponse(ctx, sess, true)
+		return uc.startClosingTabFlow(ctx, sess)
 
 	default:
 		return whatsapp.InvalidOptionMessage() + "\n\n" + whatsapp.MainMenuMessage(),
 			session.StateMainMenu, nil
 	}
+}
+
+func (uc *HandleWhatsAppMessageUseCase) startClosingTabFlow(
+	ctx context.Context,
+	sess *session.Session,
+) (string, session.ConversationState, error) {
+	userTab := uc.findSessionOpenTab(ctx, sess)
+	if userTab == nil {
+		return "💰 *Fechar Conta*\n\nAinda não encontrei uma comanda aberta no seu nome.\n\n_Digite 0 para voltar ao menu_",
+			session.StateClosingTab, nil
+	}
+
+	if userTab.Total <= userTab.PaidAmount {
+		return "✅ Sua conta já está sem valores pendentes no momento.\n\n" + whatsapp.MainMenuMessage(),
+			session.StateMainMenu, nil
+	}
+
+	items := uc.buildTabItemsList(ctx, sess.TenantID, userTab.ID)
+	message := whatsapp.TabSummaryMessage(items, userTab.Subtotal, userTab.ServiceFee, userTab.Total)
+
+	if tenantObj, err := uc.tenantRepo.FindByID(ctx, sess.TenantID); err == nil && tenantObj != nil {
+		message = whatsapp.TabSummaryMessage(
+			items,
+			userTab.Subtotal,
+			userTab.ServiceFee,
+			userTab.Total,
+			tenantObj.Settings.Messages,
+		)
+	}
+
+	message = "💰 *Fechar Conta*\n\n" + message + "\n\n" +
+		"Como você prefere finalizar?\n" +
+		"*1* - 💳 Pagar agora pelo celular\n" +
+		"*2* - 🙋 Pedir para a equipe fechar na mesa\n\n" +
+		"_Digite 0 para voltar ao menu_"
+
+	return message, session.StateClosingTab, nil
+}
+
+func (uc *HandleWhatsAppMessageUseCase) handleClosingTab(
+	ctx context.Context,
+	sess *session.Session,
+	text string,
+) (string, session.ConversationState, error) {
+	switch strings.TrimSpace(text) {
+	case "0":
+		return whatsapp.MainMenuMessage(), session.StateMainMenu, nil
+
+	case "1":
+		userTab := uc.findSessionOpenTab(ctx, sess)
+		if userTab == nil {
+			return "💰 *Fechar Conta*\n\nNão encontrei uma comanda aberta agora.\n\n" + whatsapp.MainMenuMessage(),
+				session.StateMainMenu, nil
+		}
+
+		checkoutBase := strings.TrimRight(strings.TrimSpace(uc.publicCheckoutBaseURL), "/")
+		if checkoutBase == "" {
+			checkoutBase = "http://localhost:3002"
+		}
+		checkoutURL := fmt.Sprintf("%s/checkout.html?tab_id=%s", checkoutBase, userTab.ID.String())
+
+		return "💳 *Pagamento pelo celular*\n\n" +
+				"Você pode fechar sua conta com segurança por este link:\n" +
+				checkoutURL + "\n\n" +
+				"Se preferir, volte aqui e escolha a opção *2* para pedir apoio da equipe.\n\n" +
+				whatsapp.MainMenuMessage(),
+			session.StateMainMenu, nil
+
+	case "2":
+		return uc.requestCloseBillByStaff(ctx, sess)
+
+	default:
+		return "❌ Opção inválida.\n\n*1* - 💳 Pagar agora pelo celular\n*2* - 🙋 Pedir para a equipe fechar na mesa\n\n_Digite 0 para voltar ao menu_",
+			session.StateClosingTab, nil
+	}
+}
+
+func (uc *HandleWhatsAppMessageUseCase) requestCloseBillByStaff(
+	ctx context.Context,
+	sess *session.Session,
+) (string, session.ConversationState, error) {
+	if uc.serviceRequestRepo == nil {
+		uc.logger.Error("service request repo not configured for close bill flow")
+		return "❌ Não consegui avisar a equipe agora. Tente novamente em instantes.\n\n" + whatsapp.MainMenuMessage(),
+			session.StateMainMenu, nil
+	}
+
+	userTab := uc.findSessionOpenTab(ctx, sess)
+	if userTab == nil {
+		return "💰 *Fechar Conta*\n\nNão encontrei uma comanda aberta para solicitar o fechamento agora.\n\n" + whatsapp.MainMenuMessage(),
+			session.StateMainMenu, nil
+	}
+
+	if userTab.TableID == nil {
+		return "💰 *Fechar Conta*\n\nNão consegui identificar a mesa dessa comanda para avisar a equipe.\n\nSe preferir, escolha *1* para pagar pelo celular.\n\n" + whatsapp.MainMenuMessage(),
+			session.StateMainMenu, nil
+	}
+
+	existing, err := uc.serviceRequestRepo.FindOpenByTabAndType(
+		ctx,
+		sess.TenantID,
+		userTab.ID,
+		servicerequest.RequestTypeCloseBill,
+	)
+	if err != nil {
+		uc.logger.Error("failed to search close bill request",
+			zap.Error(err),
+			zap.String("tab_id", userTab.ID.String()),
+		)
+		return "❌ Não consegui avisar a equipe agora. Tente novamente em instantes.\n\n" + whatsapp.MainMenuMessage(),
+			session.StateMainMenu, nil
+	}
+
+	if existing != nil {
+		return "🙋 Sua conta já está em atendimento pela equipe.\n\nAssim que o pagamento for concluído aí na mesa, finalizamos tudo para você.\n\n" + whatsapp.MainMenuMessage(),
+			session.StateMainMenu, nil
+	}
+
+	req := &servicerequest.ServiceRequest{
+		ID:          uuid.New(),
+		TenantID:    sess.TenantID,
+		TableID:     *userTab.TableID,
+		TabID:       &userTab.ID,
+		RequestType: servicerequest.RequestTypeCloseBill,
+		Description: fmt.Sprintf("Fechamento solicitado via WhatsApp por %s", sess.UserPhone),
+		Status:      servicerequest.StatusPending,
+		Priority:    4,
+		CreatedAt:   time.Now(),
+	}
+
+	if err := uc.serviceRequestRepo.Create(ctx, req); err != nil {
+		uc.logger.Error("failed to create close bill request",
+			zap.Error(err),
+			zap.String("tab_id", userTab.ID.String()),
+		)
+		return "❌ Não consegui registrar o pedido de fechamento agora. Tente novamente em instantes.\n\n" + whatsapp.MainMenuMessage(),
+			session.StateMainMenu, nil
+	}
+
+	return "🧾 *Já pedi o fechamento da sua conta para a equipe.*\n\n" +
+			"Assim que o pagamento for concluído por aí, a comanda será finalizada.\n\n" +
+			whatsapp.MainMenuMessage(),
+		session.StateMainMenu, nil
 }
 
 func (uc *HandleWhatsAppMessageUseCase) handleRepeatLastRound(

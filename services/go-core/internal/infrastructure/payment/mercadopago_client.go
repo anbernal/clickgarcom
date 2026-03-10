@@ -90,6 +90,42 @@ func (client *MercadoPagoClient) CreatePixPayment(ctx context.Context, accessTok
 	return &pixResp, nil
 }
 
+type PaymentStatusResponse struct {
+	ID           int64  `json:"id"`
+	Status       string `json:"status"`
+	StatusDetail string `json:"status_detail"`
+}
+
+func (client *MercadoPagoClient) GetPayment(ctx context.Context, accessToken string, paymentID string) (*PaymentStatusResponse, error) {
+	url := fmt.Sprintf("https://api.mercadopago.com/v1/payments/%s", paymentID)
+
+	httpReq, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+	httpReq.Header.Set("Authorization", "Bearer "+accessToken)
+
+	resp, err := client.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("mp api error: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		errorBody, _ := io.ReadAll(resp.Body)
+		client.logger.Error("MercadoPago payment lookup failed",
+			zap.Int("status", resp.StatusCode),
+			zap.String("response", string(errorBody)),
+			zap.String("payment_id", paymentID),
+		)
+		return nil, fmt.Errorf("mercadopago returned status %d", resp.StatusCode)
+	}
+
+	var paymentResp PaymentStatusResponse
+	if err := json.NewDecoder(resp.Body).Decode(&paymentResp); err != nil {
+		return nil, fmt.Errorf("failed to decode mp payment response: %w", err)
+	}
+
+	return &paymentResp, nil
+}
+
 // ==========================================
 // Cartão de Crédito / Débito (Tokenizado)
 // ==========================================

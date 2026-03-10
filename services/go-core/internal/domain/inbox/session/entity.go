@@ -16,6 +16,7 @@ const (
 	StateAddingNotes              ConversationState = "ADDING_NOTES"
 	StateConfirmingOrder          ConversationState = "CONFIRMING_ORDER"
 	StateViewingTab               ConversationState = "VIEWING_TAB"
+	StateClosingTab               ConversationState = "CLOSING_TAB"
 	StateServiceRequest           ConversationState = "SERVICE_REQUEST"
 	StateWaitingTableConfirmation ConversationState = "WAITING_TABLE_CONFIRMATION"
 	StateWaitingAdminApproval     ConversationState = "WAITING_ADMIN_APPROVAL"
