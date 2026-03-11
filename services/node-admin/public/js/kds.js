@@ -844,6 +844,36 @@ function playNotificationSound() {
   } catch (e) { /* Audio not available */ }
 }
 
+// ─── SIDEBAR TOGGLE ────────────────────────────────────────────
+function toggleSidebar() {
+  const sidebar = document.getElementById('kds-sidebar');
+  const icon = document.getElementById('toggle-icon');
+  const isMobile = window.innerWidth <= 900;
+
+  if (isMobile) {
+    sidebar.classList.toggle('expanded');
+    icon.textContent = sidebar.classList.contains('expanded') ? '✕' : '☰';
+  } else {
+    sidebar.classList.toggle('collapsed');
+    icon.textContent = sidebar.classList.contains('collapsed') ? '☰' : '◀';
+    const label = sidebar.querySelector('.toggle-label');
+    if (label) label.textContent = sidebar.classList.contains('collapsed') ? 'Expandir' : 'Recolher';
+  }
+}
+
+// Close mobile sidebar when clicking a nav item
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.sidebar-nav .nav-item').forEach(item => {
+    item.addEventListener('click', () => {
+      if (window.innerWidth <= 900) {
+        const sidebar = document.getElementById('kds-sidebar');
+        sidebar.classList.remove('expanded');
+        document.getElementById('toggle-icon').textContent = '☰';
+      }
+    });
+  });
+});
+
 // ─── CLOCK ─────────────────────────────────────────────────────
 function startClock() {
   const update = () => {
