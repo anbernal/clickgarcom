@@ -81,7 +81,7 @@ let waiterChats = [];
 let waiterChatMessagesById = new Map();
 let activeWaiterChatId = null;
 let closeBillRequests = [];
-const PANEL_ORDER = ['kitchen', 'bar', 'attendance', 'waiter'];
+const PANEL_ORDER = ['kitchen', 'bar', 'salao'];
 
 function resolveInitialPanel() {
   const panel = new URLSearchParams(window.location.search).get('panel');
@@ -318,8 +318,7 @@ function handleWSEvent(event) {
 function renderAll() {
   renderPanel('kitchen', 'KITCHEN');
   renderPanel('bar', 'BAR');
-  renderAttendance();
-  renderWaiter();
+  renderSalao();
   updateNavBadges();
 }
 
@@ -440,20 +439,30 @@ function renderStats(containerId, pending, accepted, ready, destination) {
     <div class="stat-card"><div class="stat-icon" style="background:var(--surface-2)">${icon}</div><div><div class="stat-value">${pending + accepted + ready}</div><div class="stat-label">Total ativos</div></div></div>`;
 }
 
-function renderAttendance() {
-  const statsEl = document.getElementById('stats-attendance');
+function renderSalao() {
+  const readyOrders = Object.values(allOrders).filter(o => o.status === 'READY');
+  const openChats = waiterChats.filter((chat) => chat.status === 'OPEN').length;
+
+  // --- Stats ---
+  const statsEl = document.getElementById('stats-salao');
   if (statsEl) {
     statsEl.innerHTML = `
-      <div class="stat-card"><div class="stat-icon" style="background:var(--yellow-bg)">👤</div><div><div class="stat-value" style="color:#8a6e00">${pendingRequests.length}</div><div class="stat-label">Aguardando aceite</div></div></div>
-      <div class="stat-card"><div class="stat-icon" style="background:var(--green-bg)">🪑</div><div><div class="stat-value" style="color:var(--green)">${tableMetrics.available}</div><div class="stat-label">Mesas livres</div></div></div>
-      <div class="stat-card"><div class="stat-icon" style="background:var(--red-bg)">🍽</div><div><div class="stat-value" style="color:var(--red)">${tableMetrics.occupied}</div><div class="stat-label">Mesas ocupadas</div></div></div>
-      <div class="stat-card"><div class="stat-icon" style="background:var(--blue-bg)">📋</div><div><div class="stat-value" style="color:var(--blue)">${tableMetrics.total}</div><div class="stat-label">Mesas cadastradas</div></div></div>`;
+      <div class="stat-card"><div class="stat-icon" style="background:var(--green-bg)">🪑</div><div><div class="stat-value" style="color:var(--green)">${tableMetrics.available}</div><div class="stat-label">Mesas Livres</div></div></div>
+      <div class="stat-card"><div class="stat-icon" style="background:var(--green-bg)">✅</div><div><div class="stat-value" style="color:var(--green)">${readyOrders.length}</div><div class="stat-label">Prontos p/ Entrega</div></div></div>
+      <div class="stat-card"><div class="stat-icon" style="background:var(--yellow-bg)">👤</div><div><div class="stat-value" style="color:#8a6e00">${pendingRequests.length}</div><div class="stat-label">Aguardando</div></div></div>
+      <div class="stat-card"><div class="stat-icon" style="background:var(--blue-bg)">💬</div><div><div class="stat-value" style="color:var(--blue)">${openChats}</div><div class="stat-label">WhatsApp</div></div></div>
+      <div class="stat-card"><div class="stat-icon" style="background:var(--red-bg)">💰</div><div><div class="stat-value" style="color:var(--red)">${closeBillRequests.length}</div><div class="stat-label">Fechando Conta</div></div></div>`;
   }
 
-  const newList = document.getElementById('attendance-new-list');
+  // --- Primeiro Contato ---
+  const newList = document.getElementById('salao-new-list');
   if (newList) {
     if (pendingRequests.length === 0) {
-      newList.innerHTML = '<div class="empty-state">Nenhum cliente aguardando</div>';
+      newList.innerHTML = `<div class="empty-state">
+        <div class="empty-icon">👤</div>
+        Nenhum cliente aguardando
+        <div class="empty-sub">Clientes serão listados aqui</div>
+      </div>`;
     } else {
       newList.innerHTML = pendingRequests.map(req => {
         const elapsed = getElapsed(req.createdAt || req.created_at);
@@ -469,48 +478,18 @@ function renderAttendance() {
         </div>`;
       }).join('');
     }
-    document.getElementById('attendance-new-count').textContent = pendingRequests.length;
+    document.getElementById('salao-new-count').textContent = pendingRequests.length;
   }
 
-  const tablesList = document.getElementById('attendance-tables-list');
-  if (tablesList) {
-    if (availableTables.length === 0) {
-      tablesList.innerHTML = '<div class="empty-state">Nenhuma mesa livre agora</div>';
-    } else {
-      tablesList.innerHTML = availableTables.map(table => {
-        const capacity = table.capacity ? `${escapeHTML(String(table.capacity))} lugares` : 'Capacidade n/d';
-        return `<div class="ready-item">
-          <div style="font-size:20px;flex-shrink:0">🪑</div>
-          <div class="ready-item-left">
-            <div class="ready-item-title">Mesa ${escapeHTML(table.number || '--')}</div>
-            <div class="ready-item-sub">${capacity}</div>
-          </div>
-        </div>`;
-      }).join('');
-    }
-    document.getElementById('attendance-available-count').textContent = availableTables.length;
-  }
-}
-
-function renderWaiter() {
-  const readyOrders = Object.values(allOrders).filter(o => o.status === 'READY');
-  const prepOrders = Object.values(allOrders).filter(o => o.status === 'ACCEPTED');
-  const openChats = waiterChats.filter((chat) => chat.status === 'OPEN').length;
-
-  const statsEl = document.getElementById('stats-waiter');
-  if (statsEl) {
-    statsEl.innerHTML = `
-      <div class="stat-card"><div class="stat-icon" style="background:var(--green-bg)">🍽</div><div><div class="stat-value" style="color:var(--green)">${readyOrders.length}</div><div class="stat-label">Prontos p/ entregar</div></div></div>
-      <div class="stat-card"><div class="stat-icon" style="background:var(--yellow-bg)">⏱</div><div><div class="stat-value" style="color:#8a6e00">${prepOrders.length}</div><div class="stat-label">Em preparo</div></div></div>
-      <div class="stat-card"><div class="stat-icon" style="background:var(--red-bg)">💰</div><div><div class="stat-value" style="color:var(--red)">${closeBillRequests.length}</div><div class="stat-label">Fechamentos pendentes</div></div></div>
-      <div class="stat-card"><div class="stat-icon" style="background:var(--blue-bg)">💬</div><div><div class="stat-value" style="color:var(--blue)">${openChats}</div><div class="stat-label">Chats em atendimento</div></div></div>`;
-  }
-
-  // Ready list
-  const readyList = document.getElementById('waiter-ready-list');
+  // --- Prontos para Entrega ---
+  const readyList = document.getElementById('salao-ready-list');
   if (readyList) {
     if (readyOrders.length === 0) {
-      readyList.innerHTML = '<div class="empty-state">Nenhum pedido pronto</div>';
+      readyList.innerHTML = `<div class="empty-state">
+        <div class="empty-icon">🍽</div>
+        Nenhum pedido pronto
+        <div class="empty-sub">Pedidos prontos aparecerão aqui</div>
+      </div>`;
     } else {
       readyList.innerHTML = readyOrders.map(o => {
         const elapsed = getElapsed(o.ready_at || o.created_at);
@@ -531,32 +510,65 @@ function renderWaiter() {
         </div>`;
       }).join('');
     }
-    document.getElementById('waiter-ready-count').textContent = readyOrders.length;
+    document.getElementById('salao-ready-count').textContent = readyOrders.length;
   }
 
-  // Prep list
-  const prepList = document.getElementById('waiter-prep-list');
-  if (prepList) {
-    if (prepOrders.length === 0) {
-      prepList.innerHTML = '<div class="empty-state">Nenhum pedido em preparo</div>';
-    } else {
-      prepList.innerHTML = prepOrders.map(o => {
-        const elapsed = getElapsed(o.accepted_at || o.created_at);
-        const icon = o.destination === 'KITCHEN' ? '🍳' : '🍹';
-        return `<div class="ready-item">
-          <div style="font-size:20px;flex-shrink:0">${icon}</div>
-          <div class="ready-item-left">
-            <div class="ready-item-title">Pedido #${escapeHTML(getOrderDisplayCode(o))}</div>
-            <div class="ready-item-sub">Em preparo há ${elapsed.text}</div>
-          </div>
-        </div>`;
-      }).join('');
-    }
-    document.getElementById('waiter-prep-count').textContent = prepOrders.length;
-  }
-
+  // --- Fechar Conta + Chats + Mesas ---
   renderCloseBillRequests();
   renderWaiterChats();
+  renderSalaoTables();
+}
+
+// --- Table capacity filter ---
+let salaoTableFilter = 'all';
+
+function setSalaoTableFilter(filter) {
+  salaoTableFilter = filter;
+  renderSalaoTables();
+}
+
+function renderSalaoTables() {
+  // Filter tabs
+  const filtersEl = document.getElementById('salao-table-filters');
+  if (filtersEl) {
+    const capacities = ['all', '2', '4', '8+'];
+    const labels = { 'all': 'Todas', '2': '2 lugares', '4': '4 lugares', '8+': '8+ lugares' };
+    filtersEl.innerHTML = capacities.map(c =>
+      `<button class="table-filter-tab ${salaoTableFilter === c ? 'active' : ''}" onclick="setSalaoTableFilter('${c}')">${labels[c]}</button>`
+    ).join('');
+  }
+
+  // Filter tables
+  let filtered = availableTables;
+  if (salaoTableFilter === '2') filtered = availableTables.filter(t => (t.capacity || 0) <= 2);
+  else if (salaoTableFilter === '4') filtered = availableTables.filter(t => (t.capacity || 0) >= 3 && (t.capacity || 0) <= 6);
+  else if (salaoTableFilter === '8+') filtered = availableTables.filter(t => (t.capacity || 0) >= 7);
+
+  const tablesList = document.getElementById('salao-tables-list');
+  if (!tablesList) return;
+
+  if (filtered.length === 0) {
+    tablesList.innerHTML = `<div class="empty-state" style="padding:24px 16px;">
+      <div class="empty-icon">🪑</div>
+      Nenhuma mesa disponível
+      <div class="empty-sub">${salaoTableFilter !== 'all' ? 'Tente outro filtro de capacidade' : 'Todas as mesas estão ocupadas'}</div>
+    </div>`;
+  } else {
+    tablesList.innerHTML = filtered.map(table => {
+      const cap = table.capacity || '?';
+      const section = table.section || table.location || '';
+      const meta = [cap + ' lugares', section].filter(Boolean).join(' · ');
+      return `<div class="table-row">
+        <div class="table-row-icon">🪑</div>
+        <div class="table-row-info">
+          <div class="table-row-name">Mesa ${escapeHTML(table.number || '--')}</div>
+          <div class="table-row-meta">${escapeHTML(meta)}</div>
+        </div>
+        <span class="table-row-cap">${escapeHTML(String(cap))} lug.</span>
+      </div>`;
+    }).join('');
+  }
+  document.getElementById('salao-tables-count').textContent = availableTables.length;
 }
 
 function updateNavBadges() {
@@ -565,8 +577,7 @@ function updateNavBadges() {
   const readyOrders = Object.values(allOrders).filter(o => o.status === 'READY').length;
   document.getElementById('nb-kitchen').textContent = kitchen;
   document.getElementById('nb-bar').textContent = bar;
-  document.getElementById('nb-attendance').textContent = pendingRequests.length;
-  document.getElementById('nb-waiter').textContent = readyOrders + waiterChats.length + closeBillRequests.length;
+  document.getElementById('nb-salao').textContent = pendingRequests.length + readyOrders + waiterChats.length + closeBillRequests.length;
 }
 
 // ─── ACTIONS ───────────────────────────────────────────────────
@@ -792,8 +803,7 @@ function startTimerUpdates() {
 const TITLES = {
   kitchen: ['Estação da Cozinha', '— aceite e gerencie os pedidos da cozinha'],
   bar: ['Estação do Bar', '— aceite e gerencie os pedidos do bar'],
-  attendance: ['Painel de Atendimento', '— aceite o primeiro contato e aloque mesas'],
-  waiter: ['Painel do Garçom', '— acompanhe pedidos e converse com clientes'],
+  salao: ['Painel do Salão', '— gerencie clientes, entregas, contas e conversas'],
 };
 
 function switchPanel(name) {
@@ -848,7 +858,7 @@ async function loadPendingRequests() {
   try {
     const data = await apiGet('/tables/requests/pending');
     pendingRequests = Array.isArray(data) ? data : [];
-    renderAttendance();
+    renderSalao();
     updateNavBadges();
   } catch (e) {
     console.warn('Failed to load pending requests:', e);
@@ -912,7 +922,7 @@ async function loadCloseRequests() {
   try {
     const data = await apiGet('/tables/waiter/close-requests');
     closeBillRequests = Array.isArray(data) ? data : [];
-    renderWaiter();
+    renderSalao();
     updateNavBadges();
   } catch (e) {
     console.warn('Failed to load close bill requests:', e);
@@ -920,14 +930,18 @@ async function loadCloseRequests() {
 }
 
 function renderWaiterChats() {
-  const list = document.getElementById('waiter-chat-list');
+  const list = document.getElementById('salao-chat-list');
   if (!list) return;
 
-  const countEl = document.getElementById('waiter-chat-count');
+  const countEl = document.getElementById('salao-chat-count');
   if (countEl) countEl.textContent = waiterChats.length;
 
   if (waiterChats.length === 0) {
-    list.innerHTML = '<div class="empty-state">Nenhuma conversa em atendimento</div>';
+    list.innerHTML = `<div class="empty-state">
+      <div class="empty-icon">💬</div>
+      Nenhuma conversa em atendimento
+      <div class="empty-sub">Conversas ativas aparecerão aqui</div>
+    </div>`;
     return;
   }
 
@@ -956,14 +970,18 @@ function renderWaiterChats() {
 }
 
 function renderCloseBillRequests() {
-  const list = document.getElementById('waiter-close-request-list');
+  const list = document.getElementById('salao-close-list');
   if (!list) return;
 
-  const countEl = document.getElementById('waiter-close-request-count');
+  const countEl = document.getElementById('salao-close-count');
   if (countEl) countEl.textContent = closeBillRequests.length;
 
   if (closeBillRequests.length === 0) {
-    list.innerHTML = '<div class="empty-state">Nenhum pedido de fechamento aguardando</div>';
+    list.innerHTML = `<div class="empty-state">
+      <div class="empty-icon">💰</div>
+      Nenhum pedido de fechamento aguardando
+      <div class="empty-sub">Solicitações de fechamento aparecerão aqui</div>
+    </div>`;
     return;
   }
 
