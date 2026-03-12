@@ -107,19 +107,16 @@ func (uc *HandleWhatsAppMessageUseCase) getOrCreateTab(
 	ctx context.Context,
 	sess *session.Session,
 ) (*tab.Tab, error) {
-
-	// Se já tem tab ID na sessão, buscar
-	if sess.TabID != nil {
-		existingTab, err := uc.tabRepo.FindByID(ctx, *sess.TabID, sess.TenantID)
-		if err == nil && existingTab.Status == tab.StatusOpen {
-			return existingTab, nil
-		}
+	existingTab := uc.findSessionOpenTab(ctx, sess)
+	if existingTab != nil {
+		return existingTab, nil
 	}
 
 	// Criar nova tab
 	newTab := &tab.Tab{
 		ID:        uuid.New(),
 		TenantID:  sess.TenantID,
+		TableID:   sess.TableID,
 		UserPhone: sess.UserPhone,
 		Status:    tab.StatusOpen,
 	}
@@ -283,8 +280,17 @@ func (uc *HandleWhatsAppMessageUseCase) requestCloseBillByStaff(
 	}
 
 	if userTab.TableID == nil {
-		return "💰 *Fechar Conta*\n\nNão consegui identificar a mesa dessa comanda para avisar a equipe.\n\nSe preferir, escolha *1* para pagar pelo celular.\n\n" + whatsapp.MainMenuMessage(),
-			session.StateMainMenu, nil
+		if _, err := uc.getOrCreateOpenWaiterChat(ctx, sess); err != nil {
+			uc.logger.Warn("failed to open waiter chat as close bill fallback",
+				zap.Error(err),
+				zap.String("user_phone", sess.UserPhone),
+			)
+			return "💰 *Fechar Conta*\n\nNão consegui identificar sua mesa com segurança agora.\n\nSe preferir, escolha *1* para pagar pelo celular.\n\n" + whatsapp.MainMenuMessage(),
+				session.StateMainMenu, nil
+		}
+
+		return "💰 *Fechar Conta*\n\nNão consegui localizar sua mesa automaticamente agora, então já abri um atendimento com a equipe por aqui.\n\nMe envie o número da mesa ou alguma referência, ou *digite 0* para sair da conversa.\n\n",
+			session.StateServiceRequest, nil
 	}
 
 	existing, err := uc.serviceRequestRepo.FindOpenByTabAndType(
@@ -613,26 +619,124 @@ func (uc *HandleWhatsAppMessageUseCase) findSessionOpenTab(
 	ctx context.Context,
 	sess *session.Session,
 ) *tab.Tab {
+	var candidate *tab.Tab
+
 	if sess.TabID != nil {
 		existingTab, err := uc.tabRepo.FindByID(ctx, *sess.TabID, sess.TenantID)
 		if err == nil && existingTab != nil && existingTab.Status == tab.StatusOpen {
-			return existingTab
+			candidate = existingTab
 		}
 	}
 
-	openTabs, err := uc.tabRepo.FindByTenantAndStatus(ctx, sess.TenantID, tab.StatusOpen)
-	if err != nil {
+	if candidate == nil && sess.TableID != nil {
+		byTable, err := uc.tabRepo.FindOpenByTable(ctx, *sess.TableID, sess.TenantID)
+		if err == nil && byTable != nil {
+			candidate = byTable
+		}
+	}
+
+	if candidate == nil {
+		openTabs, err := uc.tabRepo.FindByTenantAndStatus(ctx, sess.TenantID, tab.StatusOpen)
+		if err != nil {
+			return nil
+		}
+
+		normalizedPhone := normalizePhoneDigits(sess.UserPhone)
+		for _, openTab := range openTabs {
+			if normalizePhoneDigits(openTab.UserPhone) == normalizedPhone {
+				candidate = openTab
+				break
+			}
+		}
+	}
+
+	if candidate == nil {
+		latestReq, err := uc.tableRepo.FindLatestApprovedRequestByPhone(ctx, sess.UserPhone, sess.TenantID)
+		if err == nil && latestReq != nil && latestReq.TableID != nil {
+			byTable, tabErr := uc.tabRepo.FindOpenByTable(ctx, *latestReq.TableID, sess.TenantID)
+			if tabErr == nil && byTable != nil {
+				candidate = byTable
+			}
+		}
+	}
+
+	if candidate == nil {
 		return nil
 	}
 
-	normalizedPhone := normalizePhoneDigits(sess.UserPhone)
-	for _, candidate := range openTabs {
-		if normalizePhoneDigits(candidate.UserPhone) == normalizedPhone {
-			return candidate
+	uc.reconcileOpenTabMetadata(ctx, sess, candidate)
+	return candidate
+}
+
+func (uc *HandleWhatsAppMessageUseCase) reconcileOpenTabMetadata(
+	ctx context.Context,
+	sess *session.Session,
+	userTab *tab.Tab,
+) {
+	if userTab == nil {
+		return
+	}
+
+	tabChanged := false
+
+	if strings.TrimSpace(userTab.UserPhone) == "" && strings.TrimSpace(sess.UserPhone) != "" {
+		userTab.UserPhone = sess.UserPhone
+		tabChanged = true
+	}
+
+	if userTab.TableID == nil {
+		recoveredTableID, err := uc.recoverSessionTableID(ctx, sess)
+		if err != nil {
+			uc.logger.Warn("failed to recover table id for open tab",
+				zap.Error(err),
+				zap.String("user_phone", sess.UserPhone),
+			)
+		} else if recoveredTableID != nil {
+			userTab.TableID = recoveredTableID
+			tabChanged = true
 		}
 	}
 
-	return nil
+	if tabChanged {
+		if err := uc.tabRepo.Update(ctx, userTab); err != nil {
+			uc.logger.Warn("failed to reconcile open tab metadata",
+				zap.Error(err),
+				zap.String("tab_id", userTab.ID.String()),
+			)
+		}
+	}
+
+	if sess.TabID == nil || *sess.TabID != userTab.ID {
+		tabID := userTab.ID
+		sess.TabID = &tabID
+	}
+
+	if userTab.TableID != nil && (sess.TableID == nil || *sess.TableID != *userTab.TableID) {
+		tableID := *userTab.TableID
+		sess.TableID = &tableID
+	}
+}
+
+func (uc *HandleWhatsAppMessageUseCase) recoverSessionTableID(
+	ctx context.Context,
+	sess *session.Session,
+) (*uuid.UUID, error) {
+	if sess.TableID != nil {
+		tableID := *sess.TableID
+		return &tableID, nil
+	}
+
+	latestReq, err := uc.tableRepo.FindLatestApprovedRequestByPhone(ctx, sess.UserPhone, sess.TenantID)
+	if err != nil {
+		return nil, err
+	}
+	if latestReq == nil || latestReq.TableID == nil {
+		return nil, nil
+	}
+
+	tableID := *latestReq.TableID
+	sess.TableID = &tableID
+	return &tableID, nil
 }
 
 func (uc *HandleWhatsAppMessageUseCase) buildTabItemsList(

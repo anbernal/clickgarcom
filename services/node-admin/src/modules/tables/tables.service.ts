@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { Table } from '../../entities/table.entity';
@@ -10,6 +10,8 @@ import { v4 as uuidv4 } from 'uuid';
 
 @Injectable()
 export class TablesService {
+    private readonly logger = new Logger(TablesService.name);
+
     constructor(
         @InjectRepository(Table)
         private readonly tableRepo: Repository<Table>,
@@ -263,6 +265,15 @@ export class TablesService {
             resolvedByUserId: staffUserId,
         });
 
+        return {
+            ok: true,
+            alreadyClosed: result.alreadyClosed,
+            tab: result.tab,
+        };
+    }
+
+    async confirmApprovedPaymentSettlement(tenantId: string, tabId: string) {
+        const result = await this.finalizeTabInternal(tabId, tenantId, {});
         return {
             ok: true,
             alreadyClosed: result.alreadyClosed,
@@ -572,7 +583,16 @@ export class TablesService {
 
         try {
             const tabRows = await queryRunner.query(
-                `SELECT id, tenant_id, table_id, total, paid_amount, status, opened_at, closed_at
+                `SELECT id,
+                        tenant_id,
+                        table_id,
+                        user_phone,
+                        total,
+                        paid_amount,
+                        status,
+                        opened_at,
+                        closed_at,
+                        closed_notified_at
                    FROM tabs
                   WHERE id = $1
                     AND tenant_id = $2
@@ -661,6 +681,12 @@ export class TablesService {
             );
 
             await queryRunner.commitTransaction();
+
+            try {
+                await this.notifyTabClosed(tabId, tenantId);
+            } catch (error) {
+                this.logger.warn(`Failed to queue tab closed notification for ${tabId}: ${(error as Error).message}`);
+            }
 
             return {
                 alreadyClosed,
@@ -768,6 +794,90 @@ export class TablesService {
     private resolveCpf(value: unknown) {
         const digits = String(value || '').replace(/\D/g, '');
         return digits || '19119119100';
+    }
+
+    private async notifyTabClosed(tabId: string, tenantId: string) {
+        const rows = await this.dataSource.query(
+            `WITH claimed AS (
+                UPDATE tabs
+                   SET closed_notified_at = NOW()
+                 WHERE id = $1
+                   AND tenant_id = $2
+                   AND closed_notified_at IS NULL
+                   AND COALESCE(NULLIF(TRIM(user_phone), ''), '') <> ''
+             RETURNING id, tenant_id, user_phone, total
+            )
+            SELECT c.id,
+                   c.tenant_id,
+                   c.user_phone,
+                   c.total,
+                   tn.name AS tenant_name,
+                   tn.settings AS tenant_settings
+              FROM claimed c
+              JOIN tenants tn
+                ON tn.id = c.tenant_id`,
+            [tabId, tenantId],
+        );
+
+        const row = rows?.[0];
+        if (!row) {
+            return;
+        }
+
+        const phone = String(row.user_phone || '').trim();
+        if (!phone) {
+            return;
+        }
+
+        const tenantSettings = this.parseTenantSettings(row.tenant_settings);
+        const message = this.buildPaymentConfirmedMessage(tenantSettings, Number(row.total || 0));
+
+        try {
+            await this.dataSource.query(
+                `INSERT INTO outbox_messages
+                    (tenant_id, destination, recipient, payload, sent, attempts, max_attempts, created_at)
+                 VALUES ($1, 'whatsapp', $2, $3, false, 0, 3, NOW())`,
+                [tenantId, phone, message],
+            );
+        } catch (error) {
+            await this.dataSource.query(
+                `UPDATE tabs
+                    SET closed_notified_at = NULL
+                  WHERE id = $1
+                    AND tenant_id = $2`,
+                [tabId, tenantId],
+            );
+            throw error;
+        }
+    }
+
+    private buildPaymentConfirmedMessage(settings: Record<string, any>, total: number) {
+        const custom = String(settings?.messages?.msg_payment_confirmed || '').trim();
+        const fallback = `✅ *Pagamento confirmado!*
+
+Valor: R$ {total}
+
+Obrigado pela preferência!
+Esperamos te receber novamente em breve! 😊`;
+
+        const template = custom || fallback;
+        const normalized = template.replace(/\{total\}/g, this.roundMoney(total).toFixed(2));
+        const sanitized = this.sanitizePaymentConfirmedMessage(normalized);
+
+        if (sanitized) {
+            return sanitized;
+        }
+
+        return this.sanitizePaymentConfirmedMessage(
+            fallback.replace(/\{total\}/g, this.roundMoney(total).toFixed(2)),
+        );
+    }
+
+    private sanitizePaymentConfirmedMessage(message: string) {
+        return String(message || '')
+            .replace(/_Como foi sua experi[êe]ncia\?_\s*\n*Avalie de 0 a 10:\s*/gi, '')
+            .replace(/\n{3,}/g, '\n\n')
+            .trim();
     }
 
     private parseTenantSettings(value: unknown) {

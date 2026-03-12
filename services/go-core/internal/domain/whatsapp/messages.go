@@ -124,10 +124,7 @@ const defaultPaymentConfirmed = `✅ *Pagamento confirmado!*
 Valor: R$ {total}
 
 Obrigado pela preferência! 
-Esperamos vê-lo novamente em breve! 😊
-
-_Como foi sua experiência?_
-Avalie de 0 a 10:`
+Esperamos te receber novamente em breve! 😊`
 
 // ─────────────────────────────────────────────────
 // Funções públicas (com suporte a template custom)

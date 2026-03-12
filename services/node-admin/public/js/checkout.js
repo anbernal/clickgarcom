@@ -5,6 +5,7 @@ let currentTabId = null;
 let currentTabData = null;
 let currentAmount = 0;
 let pixPollingTimer = null;
+let pendingCardReconciliation = false;
 
 function getURLParam(param) {
     return new URLSearchParams(window.location.search).get(param);
@@ -74,20 +75,59 @@ function stopPixPolling() {
     }
 }
 
+function renderPixDetails(status) {
+    const qrBase64 = String(status?.qr_code_base64 || '').trim();
+    const qrCode = String(status?.qr_code || '').trim();
+    if (!qrBase64 && !qrCode) {
+        return;
+    }
+
+    if (qrBase64) {
+        document.getElementById('pix-img').src = `data:image/jpeg;base64,${qrBase64}`;
+    }
+    if (qrCode) {
+        document.getElementById('pix-copy-paste').value = qrCode;
+    }
+    document.getElementById('pix-qrcode-container').style.display = 'block';
+}
+
+function showPaymentInfo(message) {
+    const successEl = document.getElementById('pix-success-msg');
+    if (!successEl) return;
+    successEl.style.display = 'block';
+    successEl.textContent = message;
+}
+
 async function refreshTabState() {
     if (!currentTabId) return;
     const tab = await loadTabData(currentTabId);
     setCheckoutState(tab);
 }
 
-async function startPixPolling(paymentId) {
+async function startPaymentPolling(paymentId, options = {}) {
     stopPixPolling();
     pixPollingTimer = window.setInterval(async () => {
         try {
             const status = await fetchJson(`${PUBLIC_API_URL}/tabs/${currentTabId}/payments/${paymentId}/status`);
+            renderPixDetails(status);
             if (status?.approved) {
                 stopPixPolling();
                 await refreshTabState();
+                pendingCardReconciliation = false;
+                if (options.onApproved) {
+                    options.onApproved();
+                }
+                return;
+            }
+
+            const normalizedStatus = String(status?.status || '').trim().toLowerCase();
+            if (normalizedStatus === 'rejected' || normalizedStatus === 'cancelled' || normalizedStatus === 'expired') {
+                stopPixPolling();
+                pendingCardReconciliation = false;
+                if (options.onFailed) {
+                    options.onFailed(status);
+                }
+                return;
             }
         } catch (error) {
             console.warn('Falha ao consultar status do PIX:', error);
@@ -150,13 +190,15 @@ document.addEventListener('DOMContentLoaded', async () => {
                     return;
                 }
 
-                document.getElementById('pix-img').src = `data:image/jpeg;base64,${data.qr_code_base64}`;
-                document.getElementById('pix-copy-paste').value = data.qr_code || '';
-                document.getElementById('pix-qrcode-container').style.display = 'block';
-                btn.style.display = 'none';
+                renderPixDetails(data);
+                if (data?.qr_code || data?.qr_code_base64) {
+                    btn.style.display = 'none';
+                } else {
+                    showPaymentInfo('⏳ Estamos confirmando a geracao do PIX. Aguarde alguns segundos.');
+                }
 
-                if (data?.mp_id || data?.payment_id) {
-                    startPixPolling(String(data.mp_id || data.payment_id));
+                if (data?.payment_id) {
+                    startPaymentPolling(String(data.payment_id));
                 }
             } catch (error) {
                 alert(error.message || 'Erro ao gerar PIX');
@@ -192,6 +234,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             const submitBtn = document.getElementById('form-checkout__submit');
             submitBtn.innerHTML = 'Processando pagamento...';
             submitBtn.disabled = true;
+            pendingCardReconciliation = false;
 
             try {
                 const tokenResp = await mp.fields.createCardToken({
@@ -219,12 +262,31 @@ document.addEventListener('DOMContentLoaded', async () => {
                     return;
                 }
 
+                if (response?.payment_id && (response?.pending_confirmation || ['processing', 'unknown', 'pending', 'in_process'].includes(String(response?.status || '').trim().toLowerCase()))) {
+                    pendingCardReconciliation = true;
+                    showPaymentInfo('⏳ Pagamento enviado. Estamos confirmando com a operadora e te atualizo em instantes.');
+                    startPaymentPolling(String(response.payment_id), {
+                        onApproved: () => {
+                            document.getElementById('form-checkout').innerHTML =
+                                '<h3 style="color:var(--success);text-align:center">Pagamento aprovado</h3><p style="text-align:center">Sua conta foi finalizada com sucesso.</p>';
+                        },
+                        onFailed: (status) => {
+                            submitBtn.disabled = false;
+                            submitBtn.innerHTML = 'Pagar com Cartao 💳';
+                            alert(`Pagamento retornou status: ${status?.status || 'desconhecido'}`);
+                        },
+                    });
+                    return;
+                }
+
                 alert(`Pagamento retornou status: ${response?.status || 'desconhecido'}`);
             } catch (error) {
                 alert(error.message || 'Falha ao processar o pagamento');
             } finally {
-                submitBtn.innerHTML = 'Pagar com Cartao 💳';
-                submitBtn.disabled = false;
+                if (!pendingCardReconciliation) {
+                    submitBtn.innerHTML = 'Pagar com Cartao 💳';
+                    submitBtn.disabled = false;
+                }
             }
         });
     } catch (error) {

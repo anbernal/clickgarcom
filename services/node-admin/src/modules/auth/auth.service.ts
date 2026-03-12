@@ -84,10 +84,7 @@ Nosso garçom já foi avisado e virá te atender em breve! 🙋`,
 Valor: R$ {total}
 
 Obrigado pela preferência! 
-Esperamos vê-lo novamente em breve! 😊
-
-_Como foi sua experiência?_
-Avalie de 0 a 10:`,
+Esperamos te receber novamente em breve! 😊`,
 };
 
 const MESSAGE_TEMPLATE_KEYS: Array<keyof MessageTemplates> = [

@@ -39,6 +39,7 @@ func SetupRoutes(
 	tenantRepo := postgres.NewTenantRepository(db.DB)
 	logRepo := postgres.NewMessageLogRepository(db.DB)
 	paymentRepo := postgres.NewPaymentRepository(db.DB)
+	paymentAttemptRepo := postgres.NewPaymentAttemptRepository(db.DB)
 
 	// Payment Client
 	mpClient := infraMP.NewMercadoPagoClient(logger)
@@ -51,7 +52,7 @@ func SetupRoutes(
 
 	// Handlers
 	whatsappHandler := handlers.NewWhatsAppWebhookHandler(inboxRepo, tenantRepo, logRepo, rabbitMQ, logger)
-	paymentHandler := handlers.NewPaymentHandler(paymentRepo, tenantRepo, mpClient, rabbitMQ, logger)
+	paymentHandler := handlers.NewPaymentHandler(paymentRepo, paymentAttemptRepo, orderRepo, tenantRepo, mpClient, rabbitMQ, logger)
 	menuHandler := handlers.NewMenuHandler(menuRepo, logger)
 	orderHandler := handlers.NewOrderHandler(updateOrderStatusUC, logger)
 	listOrdersHandler := handlers.NewListOrdersHandler(orderRepo, logger)

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 
 	"go.uber.org/zap"
@@ -32,6 +33,7 @@ type PixPaymentRequest struct {
 	TransactionAmount float64 `json:"transaction_amount"`
 	Description       string  `json:"description"`
 	PaymentMethodID   string  `json:"payment_method_id"` // "pix"
+	ExternalReference string  `json:"external_reference,omitempty"`
 	Payer             struct {
 		Email          string `json:"email"`
 		FirstName      string `json:"first_name"`
@@ -47,6 +49,7 @@ type PixPaymentResponse struct {
 	ID                 int64  `json:"id"`
 	Status             string `json:"status"` // "pending", "approved", etc
 	StatusDetail       string `json:"status_detail"`
+	ExternalReference  string `json:"external_reference"`
 	PointOfInteraction struct {
 		TransactionData struct {
 			QRCode       string `json:"qr_code"`
@@ -91,9 +94,16 @@ func (client *MercadoPagoClient) CreatePixPayment(ctx context.Context, accessTok
 }
 
 type PaymentStatusResponse struct {
-	ID           int64  `json:"id"`
-	Status       string `json:"status"`
-	StatusDetail string `json:"status_detail"`
+	ID                 int64  `json:"id"`
+	Status             string `json:"status"`
+	StatusDetail       string `json:"status_detail"`
+	ExternalReference  string `json:"external_reference"`
+	PointOfInteraction struct {
+		TransactionData struct {
+			QRCode       string `json:"qr_code"`
+			QRCodeBase64 string `json:"qr_code_base64"`
+		} `json:"transaction_data"`
+	} `json:"point_of_interaction"`
 }
 
 func (client *MercadoPagoClient) GetPayment(ctx context.Context, accessToken string, paymentID string) (*PaymentStatusResponse, error) {
@@ -137,6 +147,7 @@ type CardPaymentRequest struct {
 	Installments      int     `json:"installments"`
 	PaymentMethodID   string  `json:"payment_method_id"` // "visa", "master", "debvisa"...
 	IssuerID          string  `json:"issuer_id"`
+	ExternalReference string  `json:"external_reference,omitempty"`
 	Payer             struct {
 		Email          string `json:"email"`
 		Identification struct {
@@ -147,9 +158,10 @@ type CardPaymentRequest struct {
 }
 
 type CardPaymentResponse struct {
-	ID           int64  `json:"id"`
-	Status       string `json:"status"` // "approved", "rejected", "in_process"
-	StatusDetail string `json:"status_detail"`
+	ID                int64  `json:"id"`
+	Status            string `json:"status"` // "approved", "rejected", "in_process"
+	StatusDetail      string `json:"status_detail"`
+	ExternalReference string `json:"external_reference"`
 }
 
 func (client *MercadoPagoClient) CreateCardPayment(ctx context.Context, accessToken string, idempotencyKey string, req CardPaymentRequest) (*CardPaymentResponse, error) {
@@ -183,4 +195,54 @@ func (client *MercadoPagoClient) CreateCardPayment(ctx context.Context, accessTo
 	}
 
 	return &cardResp, nil
+}
+
+type PaymentSearchResponse struct {
+	Results []PaymentStatusResponse `json:"results"`
+}
+
+func (client *MercadoPagoClient) SearchPaymentsByExternalReference(
+	ctx context.Context,
+	accessToken string,
+	externalReference string,
+) (*PaymentStatusResponse, error) {
+	if externalReference == "" {
+		return nil, nil
+	}
+
+	query := url.Values{}
+	query.Set("external_reference", externalReference)
+	query.Set("sort", "date_created")
+	query.Set("criteria", "desc")
+	query.Set("limit", "1")
+
+	endpoint := fmt.Sprintf("https://api.mercadopago.com/v1/payments/search?%s", query.Encode())
+	httpReq, _ := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
+	httpReq.Header.Set("Authorization", "Bearer "+accessToken)
+
+	resp, err := client.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("mp api error: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		errorBody, _ := io.ReadAll(resp.Body)
+		client.logger.Error("MercadoPago payment search failed",
+			zap.Int("status", resp.StatusCode),
+			zap.String("response", string(errorBody)),
+			zap.String("external_reference", externalReference),
+		)
+		return nil, fmt.Errorf("mercadopago returned status %d", resp.StatusCode)
+	}
+
+	var searchResp PaymentSearchResponse
+	if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
+		return nil, fmt.Errorf("failed to decode mp payment search response: %w", err)
+	}
+	if len(searchResp.Results) == 0 {
+		return nil, nil
+	}
+
+	return &searchResp.Results[0], nil
 }

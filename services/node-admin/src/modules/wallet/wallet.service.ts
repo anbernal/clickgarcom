@@ -47,7 +47,7 @@ export class WalletService {
     }
 
     async getPaymentStatus(tenantId: string, paymentId: string) {
-        return this.requestWithFallback('get', `/payments/mp/${paymentId}/status`, tenantId);
+        return this.requestWithFallback('get', `/payments/${paymentId}/status`, tenantId);
     }
 
     private async requestWithFallback(

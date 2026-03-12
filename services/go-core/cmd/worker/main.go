@@ -14,6 +14,8 @@ import (
 
 	"github.com/anbernal/clickgarcom/internal/application"
 	"github.com/anbernal/clickgarcom/internal/config"
+	adminclient "github.com/anbernal/clickgarcom/internal/infrastructure/nodeadmin"
+	infraMP "github.com/anbernal/clickgarcom/internal/infrastructure/payment"
 	"github.com/anbernal/clickgarcom/internal/infrastructure/persistence/postgres"
 	"github.com/anbernal/clickgarcom/internal/infrastructure/queue/rabbitmq"
 	"github.com/anbernal/clickgarcom/pkg/database"
@@ -88,6 +90,8 @@ func main() {
 	tableRepo := postgres.NewTableRepository(db.DB)
 	serviceRequestRepo := postgres.NewServiceRequestRepository(db.DB)
 	waiterChatRepo := postgres.NewWaiterChatRepository(db.DB)
+	paymentRepo := postgres.NewPaymentRepository(db.DB)
+	paymentAttemptRepo := postgres.NewPaymentAttemptRepository(db.DB)
 
 	// 6. Infrastructure
 	whatsappAPI := infraWA.NewMetaAPIClient(
@@ -97,6 +101,12 @@ func main() {
 	)
 	whatsappSender := infraWA.NewSender(db.DB, whatsappAPI, logger.Log)
 	rabbitPublisher := rabbitmq.NewPublisher(rabbitMQClient.GetChannel(), logger.Log)
+	mpClient := infraMP.NewMercadoPagoClient(logger.Log)
+	settlementClient := adminclient.NewSettlementClient(
+		resolveNodeAdminInternalBaseURL(),
+		resolveInternalServiceToken(),
+		logger.Log,
+	)
 
 	// 7. Use Cases
 	createOrderUC := application.NewCreateOrderUseCase(
@@ -140,6 +150,14 @@ func main() {
 		whatsappSender,
 		logger.Log,
 	)
+	reconcilePaymentWebhookUC := application.NewReconcilePaymentWebhookUseCase(
+		paymentRepo,
+		paymentAttemptRepo,
+		tenantRepo,
+		mpClient,
+		settlementClient,
+		logger.Log,
+	)
 
 	// 8. Handler de mensagens do WhatsApp
 	handleWhatsAppMessage := func(ctx context.Context, body []byte) error {
@@ -171,6 +189,11 @@ func main() {
 		return processTableEventUC.Execute(ctx, body)
 	}
 
+	handlePaymentWebhook := func(ctx context.Context, body []byte) error {
+		logger.Debug("processing payment webhook event")
+		return reconcilePaymentWebhookUC.Execute(ctx, body)
+	}
+
 	// 9. Iniciar consumers
 	if err := consumer.Consume("whatsapp.messages", handleWhatsAppMessage); err != nil {
 		logger.Fatal("Failed to start whatsapp consumer", zap.Error(err))
@@ -178,6 +201,10 @@ func main() {
 
 	if err := consumer.Consume("admin.table.events", handleTableEvent); err != nil {
 		logger.Fatal("Failed to start admin table consumer", zap.Error(err))
+	}
+
+	if err := consumer.Consume("payment.webhooks", handlePaymentWebhook); err != nil {
+		logger.Fatal("Failed to start payment webhook consumer", zap.Error(err))
 	}
 
 	logger.Info("Worker is running, waiting for messages...")
@@ -207,4 +234,29 @@ func resolvePublicCheckoutBaseURL() string {
 	}
 
 	return "http://localhost:3002"
+}
+
+func resolveNodeAdminInternalBaseURL() string {
+	candidates := []string{
+		os.Getenv("ADMIN_INTERNAL_BASE_URL"),
+		"http://node-admin:3002",
+		"http://localhost:3002",
+	}
+
+	for _, candidate := range candidates {
+		base := strings.TrimRight(strings.TrimSpace(candidate), "/")
+		if base != "" {
+			return base
+		}
+	}
+
+	return "http://node-admin:3002"
+}
+
+func resolveInternalServiceToken() string {
+	token := strings.TrimSpace(os.Getenv("INTERNAL_SERVICE_TOKEN"))
+	if token == "" {
+		return "clickgarcom-internal-token"
+	}
+	return token
 }

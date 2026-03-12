@@ -112,10 +112,11 @@ func (uc *ProcessTableEventUseCase) Execute(ctx context.Context, payloadBytes []
 
 	if activeTab == nil {
 		newTab := &tab.Tab{
-			ID:       uuid.New(),
-			TenantID: t.TenantID,
-			TableID:  &t.ID,
-			Status:   tab.StatusOpen,
+			ID:        uuid.New(),
+			TenantID:  t.TenantID,
+			TableID:   &t.ID,
+			UserPhone: req.UserPhone,
+			Status:    tab.StatusOpen,
 		}
 		if err := uc.tabRepo.Create(ctx, newTab); err != nil {
 			return fmt.Errorf("failed to create tab: %w", err)

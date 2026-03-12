@@ -185,6 +185,8 @@ services:
       REDIS_HOST: redis
       RABBITMQ_HOST: rabbitmq
       PUBLIC_ADMIN_BASE_URL: ${PUBLIC_ADMIN_BASE_URL:-}
+      ADMIN_INTERNAL_BASE_URL: http://node-admin:3002
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-clickgarcom-internal-token}
       NGROK_PUBLIC_URL: ${NGROK_PUBLIC_URL:-}
     command: ["./bin/worker"]
     depends_on:
@@ -244,6 +246,7 @@ services:
       RABBITMQ_URL: amqp://clickgarcom:clickgarcom123@rabbitmq:5672/
       NGROK_API_URL: http://ngrok:4040
       NGROK_PUBLIC_URL: ${NGROK_PUBLIC_URL:-}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-clickgarcom-internal-token}
     ports:
       - "3002:3002"
     depends_on:

@@ -17,5 +17,6 @@ type Repository interface {
 	CreateRequest(ctx context.Context, req *TableRequest) error
 	FindRequestByID(ctx context.Context, id uuid.UUID) (*TableRequest, error)
 	FindPendingRequestByPhone(ctx context.Context, phone string, tenantID uuid.UUID) (*TableRequest, error)
+	FindLatestApprovedRequestByPhone(ctx context.Context, phone string, tenantID uuid.UUID) (*TableRequest, error)
 	UpdateRequest(ctx context.Context, req *TableRequest) error
 }

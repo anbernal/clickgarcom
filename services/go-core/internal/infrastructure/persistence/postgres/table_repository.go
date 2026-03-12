@@ -88,6 +88,21 @@ func (r *tableRepository) FindPendingRequestByPhone(ctx context.Context, phone s
 	return &req, nil
 }
 
+func (r *tableRepository) FindLatestApprovedRequestByPhone(ctx context.Context, phone string, tenantID uuid.UUID) (*table.TableRequest, error) {
+	var req table.TableRequest
+	err := r.db.WithContext(ctx).
+		Where("user_phone = ? AND tenant_id = ? AND status = ? AND table_id IS NOT NULL", phone, tenantID, table.RequestStatusApproved).
+		Order("updated_at DESC, created_at DESC").
+		First(&req).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &req, nil
+}
+
 func (r *tableRepository) UpdateRequest(ctx context.Context, req *table.TableRequest) error {
 	return r.db.WithContext(ctx).Save(req).Error
 }
