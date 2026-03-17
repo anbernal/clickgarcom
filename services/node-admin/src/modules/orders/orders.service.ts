@@ -2,6 +2,8 @@ import { Injectable, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
 import { Order } from '../../entities/order.entity';
+import { Tenant } from '../../entities/tenant.entity';
+import { DEFAULT_MESSAGE_TEMPLATES, resolveMessageTemplate } from '../../shared/message-templates';
 
 const VALID_TRANSITIONS: Record<string, string[]> = {
     PENDING: ['ACCEPTED', 'CANCELED'],
@@ -16,6 +18,8 @@ export class OrdersService {
     constructor(
         @InjectRepository(Order)
         private readonly orderRepo: Repository<Order>,
+        @InjectRepository(Tenant)
+        private readonly tenantRepository: Repository<Tenant>,
         private readonly dataSource: DataSource,
     ) { }
 
@@ -84,6 +88,9 @@ export class OrdersService {
         if (newStatus === 'ACCEPTED') {
             await this.enqueueAcceptedMessage(saved, tenantId, prepMinutes);
         }
+        if (newStatus === 'READY') {
+            await this.enqueueReadyMessage(saved, tenantId);
+        }
         if (newStatus === 'CANCELED') {
             await this.recalculateTabTotals(saved.tabId, tenantId);
             await this.enqueueCanceledMessage(saved, tenantId);
@@ -138,6 +145,37 @@ export class OrdersService {
             `Esse item não será cobrado na sua comanda.\n` +
             `Você pode fazer um novo pedido pelo menu principal.`;
         const message = this.withRestaurantHeader(tenantName, messageBody);
+
+        await this.dataSource.query(
+            `INSERT INTO outbox_messages
+                (tenant_id, destination, recipient, payload, sent, attempts, max_attempts, created_at)
+             VALUES ($1, 'whatsapp', $2, $3, false, 0, 3, NOW())`,
+            [tenantId, recipient, message],
+        );
+    }
+
+    private async enqueueReadyMessage(order: Order, tenantId: string) {
+        const rows = await this.dataSource.query(
+            'SELECT user_phone FROM tabs WHERE id = $1 AND tenant_id = $2 LIMIT 1',
+            [order.tabId, tenantId],
+        );
+
+        const recipient = this.resolveRecipient(rows?.[0]?.user_phone, order.notes || '');
+        if (!recipient) return;
+
+        const tenant = await this.tenantRepository.findOne({ where: { id: tenantId } });
+        const orderCode = this.resolveOrderMessageCode(order);
+        const message = resolveMessageTemplate(
+            tenant?.settings?.messages?.msg_order_ready,
+            DEFAULT_MESSAGE_TEMPLATES.msg_order_ready || '',
+            {
+                '{numero_pedido}': orderCode,
+                '{codigo_pedido}': orderCode,
+                '{nome_restaurante}': String(tenant?.name || '').trim(),
+            },
+        ).replace(/\n{3,}/g, '\n\n');
+
+        if (!message) return;
 
         await this.dataSource.query(
             `INSERT INTO outbox_messages
@@ -243,6 +281,12 @@ export class OrdersService {
         if (!title) return body;
 
         return `🍽️ ${title}\n_______________________\n\n${body}`;
+    }
+
+    private resolveOrderMessageCode(order: Order): string {
+        const orderId = String(order?.id || '').replace(/-/g, '').trim();
+        if (!orderId) return 'PEDIDO';
+        return orderId.slice(0, 8).toUpperCase();
     }
 
     private resolveRecipient(tabPhone?: string, orderNotes?: string): string | null {

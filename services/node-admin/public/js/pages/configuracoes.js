@@ -37,8 +37,8 @@ const MessageGroups = [
         color: 'var(--accent-blue)',
         colorBg: 'var(--prep-bg)',
         templates: [
-            { key: 'msg_order_confirmed', label: 'Pedido Confirmado', desc: 'Enviada quando o pedido é criado com sucesso.', vars: ['{codigo_pedido}'] },
-            { key: 'msg_order_ready', label: 'Pedido Pronto', desc: 'Quando a cozinha finaliza o preparo (via Painel KDS).', vars: ['{codigo_pedido}'] },
+            { key: 'msg_order_confirmed', label: 'Pedido Confirmado', desc: 'Enviada quando o pedido é criado com sucesso.', vars: ['{numero_pedido}'] },
+            { key: 'msg_order_ready', label: 'Pedido Pronto', desc: 'Quando a cozinha finaliza o preparo e o pedido entra na fila de entrega.', vars: ['{numero_pedido}'] },
             { key: 'msg_tab_summary', label: 'Resumo da Comanda', desc: 'Quando o cliente pede o extrato ou conta parcial.', vars: ['{resumo}', '{total}'] },
             { key: 'msg_service_request', label: 'Chamada de Garçom', desc: 'Confirmação ao solicitar atendimento na mesa.', vars: ['{servico}'] },
         ],

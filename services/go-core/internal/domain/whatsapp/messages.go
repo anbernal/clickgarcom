@@ -96,9 +96,9 @@ Número do pedido: *#{numero_pedido}*
 Seu pedido está sendo preparado.
 Você receberá uma notificação quando estiver pronto! 🍳`
 
-const defaultOrderReady = `🔔 *Pedido #{numero_pedido} está pronto!*
+const defaultOrderReady = `Seu pedido já está pronto! 😊🍽️
 
-Nosso garçom já está levando até você! 🚶`
+Nossa equipe já vai levar até você aí na mesa. 🚶‍♂️✨`
 
 const defaultTabSummary = `📋 *Sua Comanda*
 
