@@ -1,6 +1,10 @@
 package routes
 
 import (
+	"encoding/json"
+	"os"
+	"strings"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/adaptor"
 	fiberws "github.com/gofiber/websocket/v2"
@@ -10,6 +14,7 @@ import (
 
 	"github.com/anbernal/clickgarcom/internal/application"
 	"github.com/anbernal/clickgarcom/internal/application/auth"
+	sessiondomain "github.com/anbernal/clickgarcom/internal/domain/inbox/session"
 	"github.com/anbernal/clickgarcom/internal/domain/tenant"
 	whatsappDomain "github.com/anbernal/clickgarcom/internal/domain/whatsapp"
 	infraMP "github.com/anbernal/clickgarcom/internal/infrastructure/payment"
@@ -63,6 +68,11 @@ func SetupRoutes(
 		c.Locals("whatsapp_verify_token", whatsappVerifyToken)
 		return c.Next()
 	})
+
+	internalToken := strings.TrimSpace(os.Getenv("INTERNAL_SERVICE_TOKEN"))
+	if internalToken == "" {
+		internalToken = "clickgarcom-internal-token"
+	}
 
 	// Auth routes
 	authGrp := app.Group("/auth")
@@ -132,6 +142,85 @@ func SetupRoutes(
 			return c.Status(500).JSON(fiber.Map{"error": "Failed to clear sessions"})
 		}
 		return c.JSON(fiber.Map{"status": "success", "cleared": count})
+	})
+
+	app.Post("/internal/sessions/release", func(c *fiber.Ctx) error {
+		if strings.TrimSpace(c.Get("X-Internal-Token")) != internalToken {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid internal token"})
+		}
+
+		var req struct {
+			TenantID  string `json:"tenant_id"`
+			UserPhone string `json:"user_phone"`
+			TabID     string `json:"tab_id"`
+		}
+		if err := c.BodyParser(&req); err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid body"})
+		}
+
+		tenantID := strings.TrimSpace(req.TenantID)
+		userPhone := strings.TrimSpace(req.UserPhone)
+		tabIDRaw := strings.TrimSpace(req.TabID)
+		if tenantID == "" {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "tenant_id is required"})
+		}
+		if userPhone == "" && tabIDRaw == "" {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "user_phone or tab_id is required"})
+		}
+
+		var targetTabID uuid.UUID
+		hasTabID := false
+		if tabIDRaw != "" {
+			parsedTabID, err := uuid.Parse(tabIDRaw)
+			if err != nil {
+				return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid tab_id"})
+			}
+			targetTabID = parsedTabID
+			hasTabID = true
+		}
+
+		ctx := c.Context()
+		iter := redisClient.Client.Scan(ctx, 0, "session:"+tenantID+":*", 0).Iterator()
+		scanned := 0
+		cleared := 0
+
+		for iter.Next(ctx) {
+			key := iter.Val()
+			scanned++
+
+			rawSession, err := redisClient.Client.Get(ctx, key).Bytes()
+			if err != nil {
+				continue
+			}
+
+			var sess sessiondomain.Session
+			if err := json.Unmarshal(rawSession, &sess); err != nil {
+				continue
+			}
+
+			matchesPhone := userPhone != "" && strings.TrimSpace(sess.UserPhone) == userPhone
+			matchesTab := hasTabID && sess.TabID != nil && *sess.TabID == targetTabID
+			if !matchesPhone && !matchesTab {
+				continue
+			}
+
+			if err := redisClient.Client.Del(ctx, key).Err(); err == nil {
+				cleared++
+			}
+		}
+
+		if err := iter.Err(); err != nil {
+			logger.Error("failed to scan redis sessions for targeted release", zap.Error(err))
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to release sessions"})
+		}
+
+		return c.JSON(fiber.Map{
+			"status":    "success",
+			"tenant_id": tenantID,
+			"tab_id":    tabIDRaw,
+			"cleared":   cleared,
+			"scanned":   scanned,
+		})
 	})
 
 	// Menu routes

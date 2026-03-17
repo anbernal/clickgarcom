@@ -5,7 +5,9 @@ O **Go-Core Worker** é responsável por consumir os eventos (`whatsapp.messages
 ## 1. Gestão da Sessão (`Session`)
 Uma Sessão representa a jornada atual do cliente com o estabelecimento.
 - **Identificação Única**: A chave da Sessão é composta por `[Telefone do Usuário] + [Tenant ID]`.
+- **Vínculo Operacional**: Enquanto a conta está ativa, a sessão pode carregar `TableID` e `TabID` para permitir pedidos, visualização de comanda e fechamento.
 - **Duração e Limpeza**: As sessões podem ter um Tempo de Vida e expiram/são reiniciadas se o ciclo não for concluído em tempo hábil.
+- **Limpeza por Fechamento de Conta**: Quando a `Tab` é encerrada (`CLOSED`), as sessões ligadas àquele `TabID` devem ser invalidadas imediatamente, sem esperar TTL, para evitar novos pedidos na mesa já finalizada.
 - **Transições de Estado (`Session.TransitionTo`)**: A alteração de estado só ocorre se for válida para o macroprocesso do negócio.
 
 ## 2. Mapa de Estados (State Machine)
@@ -35,3 +37,7 @@ Uma Sessão representa a jornada atual do cliente com o estabelecimento.
 ## 3. Comportamentos Notáveis e Tolerância a Falhas
 - **Regex e Parse Int**: O bot deve suportar descrições vagas. Se o usuário mandar "Eu quero duas águas", o fluxo semântico ou numérico extrai o correspondente do estado de seleção de quantidade.
 - **Comandos de Escape**: Expressões padronizadas de recuo como `0`, `"cancelar"`, ou `"sair"` devem ser perfeitamente lidas para devolver a Sessão ao `MAIN_MENU` sem bloquear o fluxo lógico e liberar instâncias residuais da tabela da memória.
+- **Fechamento de Conta**: Sessão válida nunca é prova suficiente de que a mesa continua aberta. O Go-Core deve sempre tratar `Tab` fechada como fonte de verdade e recusar o reaproveitamento operacional daquela sessão.
+- **Split Check**:
+  - Em `Tab` individual, apenas a sessão da comanda encerrada deve ser removida.
+  - Em `Tab` compartilhada, todas as sessões que apontam para o mesmo `TabID` devem ser removidas juntas.

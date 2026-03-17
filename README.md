@@ -288,6 +288,9 @@ Documentação detalhada disponível em:
 - [x] Permite que múltiplos clientes na mesma mesa física possuam comandas diferentes abertas em simultâneo.
 - [x] Clientes escolhem via WhatsApp "Entrar na Comanda" (compartilhada) ou "Comanda Individual".
 - [x] O sistema rastreia comandas principais vs individuais para checkout independente.
+- [x] No fechamento, comandas individuais liberam apenas a sessão vinculada àquela `Tab`.
+- [x] No fechamento de comanda compartilhada, todas as sessões que apontam para o mesmo `TabID` são desalocadas juntas.
+- [x] A mesa só volta para `AVAILABLE` quando a última comanda aberta for encerrada, tanto no pagamento na mesa quanto no Mercado Pago.
 
 ### ✅ Fase 15: Autorização de Entrada na Mesa (Tab Join Approval) (CONCLUÍDA)
 - [x] Quando o Cliente B (convidado) tenta entrar na Mesa 05 já ocupada, um request assíncrono é gerado.

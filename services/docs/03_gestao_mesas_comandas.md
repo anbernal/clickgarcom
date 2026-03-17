@@ -6,8 +6,8 @@ A infraestrutura de Mesa (Table) e Comanda (Tab) dita o faturamento lógico de q
 Representa um espaço físico ou alocação abstrata de assentos dentro do restaurante.
 - Um restaurante (`Tenant`) possui `1..N` Mesas.
 - **Regras de Status das Mesas**:
-  - `AVAILABLE` (Livre): A mesa não detém nenhuma Sessão de WhatsApp ou Comanda aberta.
-  - `OCCUPIED` (Ocupada): Há usuários atrelados fisicamente/digitalmente a esta mesa consumindo via WhatsApp ou análogo. **Requer uma `Tab` vinculada.**
+  - `AVAILABLE` (Livre): A mesa não possui nenhuma `Tab` aberta no momento. Sessões históricas do WhatsApp não mantêm uma mesa ocupada por si só.
+  - `OCCUPIED` (Ocupada): Existe ao menos uma `Tab` aberta vinculada à mesa. A ocupação lógica é derivada das comandas abertas, não apenas do status visual no painel.
   - `RESERVED` (Reservada): Aguarda a ocupação.
   - `CLEANING` (Em Limpeza): A conta foi paga e o garçom marcou via dashboard que a mesa deve ser checada.
 
@@ -47,6 +47,16 @@ Para lidar com a realidade de dividir a conta de maneira precisa, uma única mes
   - **Entrar na Comanda** (Compartilhada: Todos veem e pedem na mesma conta primária).
   - **Comanda Individual** (Uma nova `Tab` secundária é criada vinculada à mesma mesa, permitindo que a pessoa peça e pague apenas o dela).
 
+### Regras operacionais do Split Check
+- **Comanda Compartilhada**:
+  - Múltiplos clientes podem apontar para o mesmo `TabID`.
+  - Todos os pedidos, saldo e fechamento pertencem à mesma comanda.
+  - Ao fechar essa comanda, todas as sessões de WhatsApp vinculadas ao mesmo `TabID` devem ser desalocadas.
+- **Comanda Individual**:
+  - Cada cliente recebe sua própria `Tab`, ainda que a `Table` física seja a mesma.
+  - O fechamento de uma `Tab` individual não afeta as demais comandas abertas naquela mesa.
+  - A mesa continua `OCCUPIED` enquanto restar ao menos uma `Tab` em `OPEN`.
+
 ## 5. Autorização para Entrar na Mesa (Tab Join Approval - Fase 15)
 Como segurança, a entrada de convidados na mesa (mesmo para Split Checks) não é feita automaticamente.
 1. O novo cliente escaneia o QRCode e seleciona a modalidade de entrada (Compartilhada/Individual).
@@ -54,3 +64,27 @@ Como segurança, a entrada de convidados na mesa (mesmo para Split Checks) não 
 3. O cliente fica em estado de espera no WhatsApp (`StateWaitingJoinApproval`).
 4. O cliente original que abriu a mesa (o `Opener`) recebe uma notificação interativa com opções para `✅ Aprovar` ou `❌ Recusar` (`StateWaitingOpenerDecision`).
 5. Apenas com a aprovação do dono a pessoa acessa o cardápio e os pedidos da mesa.
+
+## 6. Fechamento da Conta e Liberação da Mesa
+O fechamento da comanda possui um único comportamento de negócio, independentemente do meio de pagamento:
+- **Pagamento na mesa com a equipe**: quando o garçom conclui o recebimento e finaliza a comanda no painel.
+- **Pagamento via Mercado Pago**: quando o checkout público aprova o pagamento e dispara a finalização da comanda.
+
+### Regras obrigatórias no fechamento
+1. A `Tab` finalizada deve ser persistida com status `CLOSED`, `paid_amount` compatível com o valor total e `closed_at` preenchido.
+2. Solicitações de fechamento (`CLOSE_BILL`) vinculadas àquela `Tab` devem ser resolvidas.
+3. Todas as sessões de WhatsApp vinculadas ao `TabID` fechado devem ser invalidadas para impedir que o cliente continue pedindo como se ainda estivesse alocado na mesa.
+4. A `Table` só pode ser marcada como `AVAILABLE` quando não houver nenhuma outra `Tab` aberta para aquela mesa.
+
+### Resultado esperado por cenário
+- **Mesa com múltiplas comandas individuais**:
+  - Fechar a comanda de uma pessoa remove apenas a sessão daquela comanda.
+  - A mesa permanece `OCCUPIED` enquanto existirem outras comandas `OPEN`.
+  - A mesa só vira `AVAILABLE` quando a última comanda aberta for encerrada.
+- **Mesa com comanda compartilhada**:
+  - Vários clientes podem compartilhar o mesmo `TabID`.
+  - Ao fechar a comanda compartilhada, todas as sessões associadas a esse `TabID` devem ser removidas em conjunto.
+  - Se essa era a última comanda da mesa, a mesa deve voltar para `AVAILABLE`.
+
+### Regra anti-regressão
+Sessão ativa de WhatsApp não pode, sozinha, "reabrir" o contexto operacional de uma mesa já encerrada. Depois que a comanda fecha, o cliente precisa passar por um novo fluxo de associação de mesa para voltar a pedir.

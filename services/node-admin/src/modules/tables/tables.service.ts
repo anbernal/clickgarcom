@@ -683,6 +683,12 @@ export class TablesService {
             await queryRunner.commitTransaction();
 
             try {
+                await this.releaseGoCoreSessions(tenantId, tabId, String(tab.user_phone || ''));
+            } catch (error) {
+                this.logger.warn(`Failed to release WhatsApp session for ${tabId}: ${(error as Error).message}`);
+            }
+
+            try {
                 await this.notifyTabClosed(tabId, tenantId);
             } catch (error) {
                 this.logger.warn(`Failed to queue tab closed notification for ${tabId}: ${(error as Error).message}`);
@@ -880,6 +886,46 @@ Esperamos te receber novamente em breve! 😊`;
             .trim();
     }
 
+    private async releaseGoCoreSessions(tenantId: string, tabId: string, userPhone?: string) {
+        const payload = {
+            tenant_id: tenantId,
+            tab_id: tabId,
+            user_phone: String(userPhone || '').trim(),
+        };
+
+        const token = String(process.env.INTERNAL_SERVICE_TOKEN || 'clickgarcom-internal-token').trim()
+            || 'clickgarcom-internal-token';
+
+        let lastError: Error | null = null;
+
+        for (const baseUrl of this.getGoCoreBaseUrls()) {
+            try {
+                const response = await fetch(`${baseUrl}/internal/sessions/release`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Internal-Token': token,
+                    },
+                    body: JSON.stringify(payload),
+                    signal: AbortSignal.timeout(5000),
+                });
+
+                if (response.ok) {
+                    return;
+                }
+
+                const body = await response.text().catch(() => '');
+                lastError = new Error(`go-core release returned status ${response.status}: ${body || response.statusText}`);
+            } catch (error) {
+                lastError = error as Error;
+            }
+        }
+
+        if (lastError) {
+            throw lastError;
+        }
+    }
+
     private parseTenantSettings(value: unknown) {
         if (!value) return {};
         if (typeof value === 'object') return value as Record<string, unknown>;
@@ -906,6 +952,11 @@ Esperamos te receber novamente em breve! 😊`;
 
     private roundMoney(value: number) {
         return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
+    }
+
+    private getGoCoreBaseUrls() {
+        const configured = (process.env.GO_CORE_BASE_URL || '').trim();
+        return [...new Set([configured, 'http://go-api:8080', 'http://localhost:8080'].filter(Boolean))];
     }
 
     private async assertTenantCanSendWhatsApp(tenantId: string) {
