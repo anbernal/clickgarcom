@@ -162,30 +162,11 @@ func (uc *HandleWhatsAppMessageUseCase) Execute(ctx context.Context, input Handl
 			return nil
 		}
 
-		// Create TableRequest without a table_id
-		req := &table.TableRequest{
-			ID:        uuid.New(),
-			TenantID:  sess.TenantID,
-			TableID:   nil,
-			UserPhone: sess.UserPhone,
-			PaxCount:  1, // Defaulting to adult 1 passenger
-			Status:    table.RequestStatusPending,
+		introMsg := whatsapp.WelcomeMenuMessage(t.Name, t.Settings.Messages)
+		if err := uc.sendTenantMessagePlain(ctx, input.From, input.TenantID, introMsg); err != nil {
+			return fmt.Errorf("failed to send intro menu: %w", err)
 		}
 
-		if err := uc.tableRepo.CreateRequest(ctx, req); err != nil {
-			uc.logger.Error("failed to create initial table request", zap.Error(err))
-			fallbackMsg := whatsapp.WelcomeMessage(t.Name, t.Settings.Messages) + "\n\n⚠️ Tivemos uma instabilidade ao solicitar sua mesa agora. Pode tentar novamente em alguns segundos?"
-			if sendErr := uc.sendTenantMessagePlain(ctx, input.From, input.TenantID, fallbackMsg); sendErr != nil {
-				return fmt.Errorf("failed to send fallback message: %w", sendErr)
-			}
-		} else {
-			introMsg := whatsapp.WelcomeAndTablePendingMessage(t.Name, t.Settings.Messages)
-			if err := uc.sendTenantMessagePlain(ctx, input.From, input.TenantID, introMsg); err != nil {
-				return fmt.Errorf("failed to send intro message: %w", err)
-			}
-		}
-
-		sess.TransitionTo(session.StateWaitingAdminApproval)
 		if err := uc.sessionRepo.Save(ctx, sess); err != nil {
 			return fmt.Errorf("failed to save session: %w", err)
 		}
@@ -200,7 +181,11 @@ func (uc *HandleWhatsAppMessageUseCase) Execute(ctx context.Context, input Handl
 
 	// 3. Enviar resposta
 	if response != "" {
-		if err := uc.sendTenantMessage(ctx, input.From, input.TenantID, response); err != nil {
+		sendMessage := uc.sendTenantMessage
+		if sess.State == session.StateWelcome {
+			sendMessage = uc.sendTenantMessagePlain
+		}
+		if err := sendMessage(ctx, input.From, input.TenantID, response); err != nil {
 			return fmt.Errorf("failed to send response: %w", err)
 		}
 	}
@@ -227,6 +212,9 @@ func (uc *HandleWhatsAppMessageUseCase) processMessage(
 	text = strings.TrimSpace(text)
 
 	switch sess.State {
+	case session.StateWelcome:
+		return uc.handleWelcomeMenu(ctx, sess, text)
+
 	case session.StateMainMenu:
 		return uc.handleMainMenuSimplified(ctx, sess, text)
 
@@ -266,6 +254,70 @@ func (uc *HandleWhatsAppMessageUseCase) processMessage(
 	default:
 		return whatsapp.MainMenuMessage(), session.StateMainMenu, nil
 	}
+}
+
+func (uc *HandleWhatsAppMessageUseCase) handleWelcomeMenu(
+	ctx context.Context,
+	sess *session.Session,
+	text string,
+) (string, session.ConversationState, error) {
+	t, err := uc.tenantRepo.FindByID(ctx, sess.TenantID)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to find tenant: %w", err)
+	}
+
+	if uc.isInitialTableRequestChoice(text) {
+		existingReq, err := uc.tableRepo.FindPendingRequestByPhone(ctx, sess.UserPhone, sess.TenantID)
+		if err != nil {
+			return "", "", fmt.Errorf("failed to find pending request by phone: %w", err)
+		}
+		if existingReq != nil {
+			return whatsapp.AlreadyInQueueMessage(), session.StateWaitingAdminApproval, nil
+		}
+
+		req := &table.TableRequest{
+			ID:        uuid.New(),
+			TenantID:  sess.TenantID,
+			TableID:   nil,
+			UserPhone: sess.UserPhone,
+			PaxCount:  1,
+			Status:    table.RequestStatusPending,
+		}
+
+		if err := uc.tableRepo.CreateRequest(ctx, req); err != nil {
+			uc.logger.Error("failed to create initial table request", zap.Error(err))
+			return "⚠️ Tivemos uma instabilidade ao solicitar sua mesa agora. Pode tentar novamente em alguns segundos.\n\n" +
+				whatsapp.WelcomeMenuMessage(t.Name, t.Settings.Messages), session.StateWelcome, nil
+		}
+
+		return whatsapp.TableRequestPendingMessage(t.Settings.Messages), session.StateWaitingAdminApproval, nil
+	}
+
+	return whatsapp.InvalidOptionMessage(t.Settings.Messages) + "\n\n" +
+		whatsapp.WelcomeMenuMessage(t.Name, t.Settings.Messages), session.StateWelcome, nil
+}
+
+func (uc *HandleWhatsAppMessageUseCase) isInitialTableRequestChoice(text string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(text))
+	if normalized == "" {
+		return false
+	}
+
+	if strings.Contains(normalized, "não") || strings.Contains(normalized, "nao") {
+		return false
+	}
+
+	switch normalized {
+	case "1", "btn_request_table", "sim", "quero", "solicitar mesa", "quero mesa", "quero uma mesa":
+		return true
+	}
+
+	hasMesa := strings.Contains(normalized, "mesa")
+	hasIntent := strings.Contains(normalized, "solicit") ||
+		strings.Contains(normalized, "ped") ||
+		strings.Contains(normalized, "quero")
+
+	return hasMesa && hasIntent
 }
 
 func (uc *HandleWhatsAppMessageUseCase) handleMainMenu(

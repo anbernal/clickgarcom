@@ -39,6 +39,12 @@ func resolveTemplate(custom, defaultTpl string, replacements map[string]string) 
 
 const defaultWelcome = `🍽️ Oi! Seja muito bem-vindo ao *{nome_restaurante}*! 😊`
 
+const defaultWelcomeMenu = `Como podemos começar por aqui?
+
+*1* - 🙋 Solicitar mesa
+
+_Digite o número da opção_`
+
 const defaultRestaurantClosed = `🚪 *O restaurante ainda não está aberto.*
 
 Agradecemos o seu contato, mas nossas atividades estão encerradas no momento.
@@ -139,6 +145,21 @@ func WelcomeMessage(restaurantName string, msgs ...tenant.MessageTemplates) stri
 	return resolveTemplate(custom, defaultWelcome, map[string]string{
 		"{nome_restaurante}": restaurantName,
 	})
+}
+
+// WelcomeMenuMessage apresenta o menu inicial para o primeiro contato sem QR Code.
+func WelcomeMenuMessage(restaurantName string, msgs ...tenant.MessageTemplates) string {
+	welcome := strings.TrimSpace(WelcomeMessage(restaurantName, msgs...))
+	menu := strings.TrimSpace(defaultWelcomeMenu)
+
+	switch {
+	case welcome == "":
+		return menu
+	case menu == "":
+		return welcome
+	default:
+		return welcome + "\n\n" + menu
+	}
 }
 
 // RestaurantClosedMessage mensagem exibida quando restaurante está fechado
