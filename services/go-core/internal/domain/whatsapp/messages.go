@@ -16,6 +16,17 @@ type InteractiveButton struct {
 	} `json:"reply"`
 }
 
+type InteractiveListRow struct {
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Description string `json:"description,omitempty"`
+}
+
+type InteractiveListSection struct {
+	Title string               `json:"title,omitempty"`
+	Rows  []InteractiveListRow `json:"rows"`
+}
+
 // ─────────────────────────────────────────────────
 // Helper: resolve template personalizado ou padrão
 // ─────────────────────────────────────────────────
@@ -37,11 +48,15 @@ func resolveTemplate(custom, defaultTpl string, replacements map[string]string) 
 // Mensagens padrão do sistema (fallback)
 // ─────────────────────────────────────────────────
 
-const defaultWelcome = `🍽️ Oi! Seja muito bem-vindo ao *{nome_restaurante}*! 😊`
+const defaultWelcome = `Olá! Que bom ter você aqui. 😊
 
-const defaultWelcomeMenu = `Como podemos começar por aqui?
+Bem-vindo ao *{nome_restaurante}*!
+um lugar pensado nos mínimos detalhes
+para que você viva uma experiência única. ✨🍽️
 
-*1* - 🙋 Solicitar mesa
+Posso te ajudar a começar?`
+
+const defaultWelcomeMenu = `*1* - 🙋 Solicitar mesa
 
 _Digite o número da opção_`
 
@@ -73,9 +88,9 @@ const defaultTableApproved = `✅ *Mesa liberada!*
 
 Você está na *Mesa {numero_mesa}*.
 
-Você já pode acessar nosso menu principal:
+Escolha como deseja começar:`
 
-*1* - 🛒 Fazer pedido
+const defaultTableApprovedMenuOptions = `*1* - 🛒 Fazer pedido
 *2* - 📋 Ver minha comanda
 *4* - 🙋 Chamar garçom
 
@@ -83,7 +98,9 @@ _Digite o número da opção_`
 
 const defaultMainMenu = `📱 *Menu Principal*
 
-*1* - 🛒 Fazer pedido
+Escolha a opção que você deseja abrir:`
+
+const defaultMainMenuOptions = `*1* - 🛒 Fazer pedido
 *2* - 📋 Ver minha comanda
 *3* - 🔄 Repetir última rodada
 *4* - 🙋 Chamar garçom
@@ -240,13 +257,43 @@ func TableRequestApprovedMessage(tableNumber string, msgs ...tenant.MessageTempl
 	return msg
 }
 
-// MainMenuMessage menu principal
-func MainMenuMessage(msgs ...tenant.MessageTemplates) string {
+// TableRequestApprovedMenuMessage adiciona as opções em texto quando o canal não suporta interações.
+func TableRequestApprovedMenuMessage(tableNumber string, msgs ...tenant.MessageTemplates) string {
+	body := strings.TrimSpace(TableRequestApprovedMessage(tableNumber, msgs...))
+	menu := strings.TrimSpace(defaultTableApprovedMenuOptions)
+
+	switch {
+	case body == "":
+		return menu
+	case menu == "":
+		return body
+	default:
+		return body + "\n\n" + menu
+	}
+}
+
+// MainMenuBodyMessage retorna apenas o cabeçalho/introdução do menu principal.
+func MainMenuBodyMessage(msgs ...tenant.MessageTemplates) string {
 	custom := ""
 	if len(msgs) > 0 {
 		custom = msgs[0].MainMenu
 	}
 	return resolveTemplate(custom, defaultMainMenu, nil)
+}
+
+// MainMenuMessage menu principal com fallback textual completo.
+func MainMenuMessage(msgs ...tenant.MessageTemplates) string {
+	body := strings.TrimSpace(MainMenuBodyMessage(msgs...))
+	menu := strings.TrimSpace(defaultMainMenuOptions)
+
+	switch {
+	case body == "":
+		return menu
+	case menu == "":
+		return body
+	default:
+		return body + "\n\n" + menu
+	}
 }
 
 // InvalidOptionMessage opção inválida

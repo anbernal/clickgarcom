@@ -209,6 +209,7 @@ go test -v -race ./internal/infrastructure/websocket/...
 
 Documentação detalhada disponível em:
 - [`services/docs/walkthrough.md`](services/docs/walkthrough.md) - Guia completo das features implementadas
+- [`services/docs/06_bot_config_architecture.md`](services/docs/06_bot_config_architecture.md) - Evolução recomendada para templates, menus e conversation flows
 - [`services/docs/implementation_plan.md`](services/docs/implementation_plan.md) - Plano de implementação
 
 ## Roadmap

@@ -15,6 +15,12 @@ import (
 	"github.com/anbernal/clickgarcom/internal/domain/whatsapp"
 )
 
+const (
+	mainMenuOrderOption  = "1"
+	mainMenuTabOption    = "2"
+	mainMenuWaiterOption = "4"
+)
+
 type ProcessTableEventUseCase struct {
 	tableRepo   table.Repository
 	tabRepo     tab.Repository
@@ -141,17 +147,51 @@ func (uc *ProcessTableEventUseCase) Execute(ctx context.Context, payloadBytes []
 		}
 
 		// 6. Enviar Mensagem de Aprovação via WhatsApp
-		msg := whatsapp.TableRequestApprovedMessage(t.Number)
-		if tenantObj, tenantErr := uc.tenantRepo.FindByID(ctx, req.TenantID); tenantErr == nil && tenantObj != nil {
-			msg = whatsapp.TableRequestApprovedMessage(t.Number, tenantObj.Settings.Messages)
-			msg = whatsapp.WithRestaurantHeader(tenantObj.Name, msg)
+		tenantObj, tenantErr := uc.tenantRepo.FindByID(ctx, req.TenantID)
+		msgBody := whatsapp.TableRequestApprovedMessage(t.Number)
+		msgFallback := whatsapp.TableRequestApprovedMenuMessage(t.Number)
+		if tenantErr == nil && tenantObj != nil {
+			msgBody = whatsapp.TableRequestApprovedMessage(t.Number, tenantObj.Settings.Messages)
+			msgFallback = whatsapp.TableRequestApprovedMenuMessage(t.Number, tenantObj.Settings.Messages)
+			msgBody = whatsapp.WithRestaurantHeader(tenantObj.Name, msgBody)
+			msgFallback = whatsapp.WithRestaurantHeader(tenantObj.Name, msgFallback)
 		}
+
 		ctx = whatsapp.WithTenantID(ctx, req.TenantID)
-		if err := uc.sender.SendText(ctx, sess.UserPhone, msg); err != nil {
-			uc.logger.Error("failed to send wa approval message", zap.Error(err))
+		if _, err := uc.sender.SendInteractiveButtons(ctx, sess.UserPhone, msgBody, buildTableApprovedButtons()); err != nil {
+			uc.logger.Warn("failed to send interactive table approval, falling back to text", zap.Error(err))
+			if err := uc.sender.SendText(ctx, sess.UserPhone, msgFallback); err != nil {
+				uc.logger.Error("failed to send wa approval message", zap.Error(err))
+			}
 		}
 	}
 
 	uc.logger.Info("table request approved successfully", zap.String("request_id", req.ID.String()))
 	return nil
+}
+
+func buildTableApprovedButtons() []whatsapp.InteractiveButton {
+	return []whatsapp.InteractiveButton{
+		{
+			Type: "reply",
+			Reply: struct {
+				ID    string `json:"id"`
+				Title string `json:"title"`
+			}{ID: mainMenuOrderOption, Title: "🛒 Fazer pedido"},
+		},
+		{
+			Type: "reply",
+			Reply: struct {
+				ID    string `json:"id"`
+				Title string `json:"title"`
+			}{ID: mainMenuTabOption, Title: "📋 Ver comanda"},
+		},
+		{
+			Type: "reply",
+			Reply: struct {
+				ID    string `json:"id"`
+				Title string `json:"title"`
+			}{ID: mainMenuWaiterOption, Title: "🙋 Chamar garçom"},
+		},
+	}
 }

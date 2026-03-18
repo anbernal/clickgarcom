@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 
+	"github.com/anbernal/clickgarcom/internal/domain/botconfig"
 	"github.com/anbernal/clickgarcom/internal/domain/inbox/session"
 	"github.com/anbernal/clickgarcom/internal/domain/table"
 	"github.com/anbernal/clickgarcom/internal/domain/tenant"
@@ -27,6 +28,7 @@ func TestHandleWhatsAppMessageFirstContactShowsWelcomeMenu(t *testing.T) {
 	uc := NewHandleWhatsAppMessageUseCase(
 		sessionRepo,
 		&testTenantRepo{tenant: testTenant(tenantID)},
+		nil,
 		nil,
 		nil,
 		tableRepo,
@@ -56,7 +58,7 @@ func TestHandleWhatsAppMessageFirstContactShowsWelcomeMenu(t *testing.T) {
 	}
 
 	message := sender.textMessages[0]
-	if !strings.Contains(message, "Seja muito bem-vindo") {
+	if !strings.Contains(message, "Que bom ter você aqui") {
 		t.Fatalf("expected welcome message, got %q", message)
 	}
 	if !strings.Contains(message, "Solicitar mesa") {
@@ -90,6 +92,7 @@ func TestHandleWhatsAppMessageWelcomeOptionCreatesTableRequest(t *testing.T) {
 	uc := NewHandleWhatsAppMessageUseCase(
 		sessionRepo,
 		&testTenantRepo{tenant: testTenant(tenantID)},
+		nil,
 		nil,
 		nil,
 		tableRepo,
@@ -165,6 +168,7 @@ func TestHandleWhatsAppMessagePendingRequestSkipsWelcomeMenu(t *testing.T) {
 		&testTenantRepo{tenant: testTenant(tenantID)},
 		nil,
 		nil,
+		nil,
 		tableRepo,
 		nil,
 		nil,
@@ -203,6 +207,198 @@ func TestHandleWhatsAppMessagePendingRequestSkipsWelcomeMenu(t *testing.T) {
 	}
 	if sess.State != session.StateWaitingAdminApproval {
 		t.Fatalf("expected session state %s, got %s", session.StateWaitingAdminApproval, sess.State)
+	}
+}
+
+func TestHandleWhatsAppMessageUsesPublishedWelcomeFlow(t *testing.T) {
+	ctx := context.Background()
+	tenantID := uuid.New()
+	phone := "5511966666666"
+
+	sessionRepo := newTestSessionRepo()
+	tableRepo := newTestTableRepo()
+	sender := &testWhatsAppSender{}
+	botConfigRepo := &testBotConfigRepo{
+		publishedByKey: map[string]*botconfig.FlowDefinition{
+			testBotFlowKey(tenantID, welcomeMenuFlowKey): {
+				ID:       uuid.New(),
+				TenantID: tenantID,
+				Key:      welcomeMenuFlowKey,
+				Channel:  botconfig.ChannelWhatsApp,
+				Status:   botconfig.StatusPublished,
+				Version:  1,
+				Definition: botconfig.Definition{
+					"presentation": "reply_buttons",
+					"body":         "Fluxo customizado para *{nome_restaurante}*.",
+					"actions": []map[string]interface{}{
+						{
+							"id":              requestTableActionID,
+							"label":           "Solicitar mesa",
+							"accepted_inputs": []string{"pedir mesa custom"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	uc := NewHandleWhatsAppMessageUseCase(
+		sessionRepo,
+		&testTenantRepo{tenant: testTenant(tenantID)},
+		botConfigRepo,
+		nil,
+		nil,
+		tableRepo,
+		nil,
+		nil,
+		nil,
+		sender,
+		"",
+		zap.NewNop(),
+	)
+
+	err := uc.Execute(ctx, HandleMessageInput{
+		From:     phone,
+		Text:     "oi",
+		TenantID: tenantID,
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if got := len(sender.interactiveMessages); got != 1 {
+		t.Fatalf("expected 1 interactive outbound message, got %d", got)
+	}
+	if got := len(sender.textMessages); got != 0 {
+		t.Fatalf("expected no plain text messages, got %d", got)
+	}
+	if !strings.Contains(sender.interactiveMessages[0].Body, "Fluxo customizado para *Anderson's Restaurant*") {
+		t.Fatalf("expected custom published flow body, got %q", sender.interactiveMessages[0].Body)
+	}
+	if len(sender.interactiveMessages[0].Buttons) != 1 {
+		t.Fatalf("expected 1 button, got %d", len(sender.interactiveMessages[0].Buttons))
+	}
+	if sender.interactiveMessages[0].Buttons[0].Reply.ID != requestTableActionID {
+		t.Fatalf("expected button id %q, got %q", requestTableActionID, sender.interactiveMessages[0].Buttons[0].Reply.ID)
+	}
+}
+
+func TestHandleWhatsAppMessageUsesPublishedWelcomeActionInputs(t *testing.T) {
+	ctx := context.Background()
+	tenantID := uuid.New()
+	phone := "5511955555555"
+
+	sessionRepo := newTestSessionRepo()
+	if err := sessionRepo.Save(ctx, session.NewSession(phone, tenantID)); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	tableRepo := newTestTableRepo()
+	sender := &testWhatsAppSender{}
+	botConfigRepo := &testBotConfigRepo{
+		publishedByKey: map[string]*botconfig.FlowDefinition{
+			testBotFlowKey(tenantID, welcomeMenuFlowKey): {
+				ID:       uuid.New(),
+				TenantID: tenantID,
+				Key:      welcomeMenuFlowKey,
+				Channel:  botconfig.ChannelWhatsApp,
+				Status:   botconfig.StatusPublished,
+				Version:  1,
+				Definition: botconfig.Definition{
+					"presentation": "reply_buttons",
+					"body":         "Flow custom",
+					"actions": []map[string]interface{}{
+						{
+							"id":              requestTableActionID,
+							"label":           "Solicitar mesa",
+							"accepted_inputs": []string{"pedir mesa custom"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	uc := NewHandleWhatsAppMessageUseCase(
+		sessionRepo,
+		&testTenantRepo{tenant: testTenant(tenantID)},
+		botConfigRepo,
+		nil,
+		nil,
+		tableRepo,
+		nil,
+		nil,
+		nil,
+		sender,
+		"",
+		zap.NewNop(),
+	)
+
+	err := uc.Execute(ctx, HandleMessageInput{
+		From:     phone,
+		Text:     "pedir mesa custom",
+		TenantID: tenantID,
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if got := len(tableRepo.createdRequests); got != 1 {
+		t.Fatalf("expected 1 table request, got %d", got)
+	}
+}
+
+func TestSendTenantMessageUsesInteractiveMainMenuList(t *testing.T) {
+	ctx := context.Background()
+	tenantID := uuid.New()
+	phone := "5511944444444"
+
+	sender := &testWhatsAppSender{}
+	uc := NewHandleWhatsAppMessageUseCase(
+		nil,
+		&testTenantRepo{tenant: testTenant(tenantID)},
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		sender,
+		"",
+		zap.NewNop(),
+	)
+
+	err := uc.sendTenantMessage(ctx, phone, tenantID, "✅ Pedido confirmado!\n\n"+whatsapp.MainMenuMessage())
+	if err != nil {
+		t.Fatalf("sendTenantMessage() error = %v", err)
+	}
+
+	if got := len(sender.listMessages); got != 1 {
+		t.Fatalf("expected 1 interactive list message, got %d", got)
+	}
+	if got := len(sender.textMessages); got != 0 {
+		t.Fatalf("expected no plain text messages, got %d", got)
+	}
+
+	message := sender.listMessages[0]
+	if message.ButtonText != mainMenuListButtonText {
+		t.Fatalf("expected button text %q, got %q", mainMenuListButtonText, message.ButtonText)
+	}
+	if !strings.Contains(message.Body, "Pedido confirmado!") {
+		t.Fatalf("expected prefix to be preserved, got %q", message.Body)
+	}
+	if !strings.Contains(message.Body, "Menu Principal") {
+		t.Fatalf("expected main menu body, got %q", message.Body)
+	}
+	if len(message.Sections) != 1 {
+		t.Fatalf("expected 1 section, got %d", len(message.Sections))
+	}
+	if len(message.Sections[0].Rows) != 5 {
+		t.Fatalf("expected 5 rows, got %d", len(message.Sections[0].Rows))
+	}
+	if message.Sections[0].Rows[4].ID != "5" {
+		t.Fatalf("expected last row id %q, got %q", "5", message.Sections[0].Rows[4].ID)
 	}
 }
 
@@ -355,8 +551,39 @@ func (r *testTableRepo) UpdateRequest(_ context.Context, req *table.TableRequest
 	return nil
 }
 
+type testBotConfigRepo struct {
+	publishedByKey map[string]*botconfig.FlowDefinition
+}
+
+func (r *testBotConfigRepo) FindPublishedByKey(
+	_ context.Context,
+	tenantID uuid.UUID,
+	key string,
+	channel botconfig.Channel,
+) (*botconfig.FlowDefinition, error) {
+	if r == nil {
+		return nil, nil
+	}
+	flow, ok := r.publishedByKey[testBotFlowKey(tenantID, key)]
+	if !ok {
+		return nil, nil
+	}
+	cloned := *flow
+	return &cloned, nil
+}
+
+func (r *testBotConfigRepo) ListPublishedByTenant(
+	_ context.Context,
+	tenantID uuid.UUID,
+	channel botconfig.Channel,
+) ([]*botconfig.FlowDefinition, error) {
+	return nil, nil
+}
+
 type testWhatsAppSender struct {
-	textMessages []string
+	textMessages        []string
+	interactiveMessages []testInteractiveMessage
+	listMessages        []testInteractiveListMessage
 }
 
 func (s *testWhatsAppSender) SendText(_ context.Context, to string, message string) error {
@@ -365,7 +592,46 @@ func (s *testWhatsAppSender) SendText(_ context.Context, to string, message stri
 }
 
 func (s *testWhatsAppSender) SendInteractiveButtons(_ context.Context, to, bodyText string, buttons []whatsapp.InteractiveButton) (string, error) {
+	clonedButtons := make([]whatsapp.InteractiveButton, len(buttons))
+	copy(clonedButtons, buttons)
+	s.interactiveMessages = append(s.interactiveMessages, testInteractiveMessage{
+		To:      to,
+		Body:    bodyText,
+		Buttons: clonedButtons,
+	})
 	return "", nil
+}
+
+func (s *testWhatsAppSender) SendInteractiveList(_ context.Context, to, bodyText, buttonText string, sections []whatsapp.InteractiveListSection) (string, error) {
+	clonedSections := make([]whatsapp.InteractiveListSection, len(sections))
+	for i, section := range sections {
+		rows := make([]whatsapp.InteractiveListRow, len(section.Rows))
+		copy(rows, section.Rows)
+		clonedSections[i] = whatsapp.InteractiveListSection{
+			Title: section.Title,
+			Rows:  rows,
+		}
+	}
+	s.listMessages = append(s.listMessages, testInteractiveListMessage{
+		To:         to,
+		Body:       bodyText,
+		ButtonText: buttonText,
+		Sections:   clonedSections,
+	})
+	return "", nil
+}
+
+type testInteractiveMessage struct {
+	To      string
+	Body    string
+	Buttons []whatsapp.InteractiveButton
+}
+
+type testInteractiveListMessage struct {
+	To         string
+	Body       string
+	ButtonText string
+	Sections   []whatsapp.InteractiveListSection
 }
 
 func testTenant(tenantID uuid.UUID) *tenant.Tenant {
@@ -377,6 +643,10 @@ func testTenant(tenantID uuid.UUID) *tenant.Tenant {
 
 func testRepoKey(phone string, tenantID uuid.UUID) string {
 	return tenantID.String() + ":" + phone
+}
+
+func testBotFlowKey(tenantID uuid.UUID, key string) string {
+	return tenantID.String() + ":" + key
 }
 
 func cloneSession(sess *session.Session) *session.Session {

@@ -70,6 +70,11 @@ type WhatsAppInboundMessage struct {
 			ID    string `json:"id"`
 			Title string `json:"title"`
 		} `json:"button_reply"`
+		ListReply struct {
+			ID          string `json:"id"`
+			Title       string `json:"title"`
+			Description string `json:"description"`
+		} `json:"list_reply"`
 	} `json:"interactive,omitempty"`
 }
 
@@ -304,8 +309,11 @@ func extractSupportedInput(msg WhatsAppInboundMessage) string {
 	case "text":
 		return strings.TrimSpace(msg.Text.Body)
 	case "interactive":
-		if strings.ToLower(strings.TrimSpace(msg.Interactive.Type)) == "button_reply" {
+		switch strings.ToLower(strings.TrimSpace(msg.Interactive.Type)) {
+		case "button_reply":
 			return strings.TrimSpace(msg.Interactive.ButtonReply.ID)
+		case "list_reply":
+			return strings.TrimSpace(msg.Interactive.ListReply.ID)
 		}
 	}
 	return ""
@@ -321,9 +329,12 @@ func isUnsupportedNonTextMessage(msg WhatsAppInboundMessage) bool {
 		return false
 	}
 
-	// button_reply é tratado como input suportado.
-	if msgType == "interactive" && strings.ToLower(strings.TrimSpace(msg.Interactive.Type)) == "button_reply" {
-		return false
+	// button_reply e list_reply são tratados como input suportado.
+	if msgType == "interactive" {
+		switch strings.ToLower(strings.TrimSpace(msg.Interactive.Type)) {
+		case "button_reply", "list_reply":
+			return false
+		}
 	}
 
 	return true

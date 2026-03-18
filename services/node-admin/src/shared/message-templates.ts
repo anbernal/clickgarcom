@@ -1,17 +1,13 @@
 import { MessageTemplates } from '../entities/tenant.entity';
 
 export const DEFAULT_MESSAGE_TEMPLATES: MessageTemplates = {
-    msg_welcome: `🍽️ Olá! Bem-vindo ao *{nome_restaurante}*!
+    msg_welcome: `Olá! Que bom ter você aqui. 😊
 
-Como posso te ajudar hoje?
+Bem-vindo ao *{nome_restaurante}*!
+um lugar pensado nos mínimos detalhes
+para que você viva uma experiência única. ✨🍽️
 
-*1* - 🛒 Fazer pedido
-*2* - 📋 Ver minha comanda
-*3* - 🔄 Repetir última rodada
-*4* - 🙋 Chamar garçom
-*5* - 💰 Fechar conta
-
-_Digite o número da opção desejada_`,
+Posso te ajudar a começar?`,
     msg_restaurant_closed: `🚪 *O restaurante ainda não está aberto.*
 
 Agradecemos o seu contato, mas nossas atividades estão encerradas no momento.
@@ -29,22 +25,10 @@ Aguarde um momento enquanto nossa equipe libera o acesso ao cardápio para sua m
 
 Você está na *Mesa {numero_mesa}*.
 
-Você já pode acessar nosso menu principal:
-
-*1* - 🛒 Fazer pedido
-*2* - 📋 Ver minha comanda
-*4* - 🙋 Chamar garçom
-
-_Digite o número da opção_`,
+Escolha como deseja começar:`,
     msg_main_menu: `📱 *Menu Principal*
 
-*1* - 🛒 Fazer pedido
-*2* - 📋 Ver minha comanda
-*3* - 🔄 Repetir última rodada
-*4* - 🙋 Chamar garçom
-*5* - 💰 Fechar conta
-
-_Digite o número da opção_`,
+Escolha a opção que você deseja abrir:`,
     msg_invalid_option: `❌ Opção inválida.
 
 Por favor, digite um número válido do menu.`,

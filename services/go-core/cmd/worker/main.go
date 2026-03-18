@@ -84,6 +84,7 @@ func main() {
 	inboxRepo := postgres.NewInboxRepository(db.DB)
 	tenantRepo := postgres.NewTenantRepository(db.DB)
 	sessionRepo := redisRepo.NewSessionRepository(redisClient.Client)
+	botConfigRepo := postgres.NewBotConfigRepository(db.DB)
 	menuRepo := postgres.NewMenuRepository(db.DB)
 	tabRepo := postgres.NewTabRepository(db.DB)
 	orderRepo := postgres.NewOrderRepository(db.DB)
@@ -121,6 +122,7 @@ func main() {
 	handleWhatsAppMsg := application.NewHandleWhatsAppMessageUseCase(
 		sessionRepo,
 		tenantRepo,
+		botConfigRepo,
 		menuRepo,
 		tabRepo,
 		tableRepo,

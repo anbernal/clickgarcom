@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 
+	"github.com/anbernal/clickgarcom/internal/domain/botconfig"
 	"github.com/anbernal/clickgarcom/internal/domain/inbox/session"
 	"github.com/anbernal/clickgarcom/internal/domain/menu"
 	"github.com/anbernal/clickgarcom/internal/domain/servicerequest"
@@ -23,6 +25,7 @@ import (
 type HandleWhatsAppMessageUseCase struct {
 	sessionRepo           session.Repository
 	tenantRepo            tenant.Repository
+	botConfigRepo         botconfig.Repository
 	menuRepo              menu.Repository
 	tabRepo               tab.Repository
 	tableRepo             table.Repository
@@ -37,11 +40,13 @@ type HandleWhatsAppMessageUseCase struct {
 type WhatsAppSender interface {
 	SendText(ctx context.Context, to string, message string) error
 	SendInteractiveButtons(ctx context.Context, to, bodyText string, buttons []whatsapp.InteractiveButton) (string, error) // Fase 14
+	SendInteractiveList(ctx context.Context, to, bodyText, buttonText string, sections []whatsapp.InteractiveListSection) (string, error)
 }
 
 func NewHandleWhatsAppMessageUseCase(
 	sessionRepo session.Repository,
 	tenantRepo tenant.Repository,
+	botConfigRepo botconfig.Repository,
 	menuRepo menu.Repository,
 	tabRepo tab.Repository,
 	tableRepo table.Repository,
@@ -55,6 +60,7 @@ func NewHandleWhatsAppMessageUseCase(
 	return &HandleWhatsAppMessageUseCase{
 		sessionRepo:           sessionRepo,
 		tenantRepo:            tenantRepo,
+		botConfigRepo:         botConfigRepo,
 		menuRepo:              menuRepo,
 		tabRepo:               tabRepo,
 		tableRepo:             tableRepo,
@@ -72,6 +78,26 @@ type HandleMessageInput struct {
 	Text      string
 	TenantID  uuid.UUID
 	Timestamp string
+}
+
+const (
+	welcomeMenuFlowKey       = "welcome_menu"
+	requestTableActionID     = "request_table"
+	defaultWelcomeMenuAction = "btn_request_table"
+	mainMenuListButtonText   = "Abrir menu"
+)
+
+type botFlowActionDefinition struct {
+	ID             string   `json:"id"`
+	Label          string   `json:"label"`
+	AcceptedInputs []string `json:"accepted_inputs"`
+}
+
+type botFlowDefinitionPayload struct {
+	Presentation       string                    `json:"presentation"`
+	Body               string                    `json:"body"`
+	UseWelcomeTemplate bool                      `json:"use_welcome_template"`
+	Actions            []botFlowActionDefinition `json:"actions"`
 }
 
 func (uc *HandleWhatsAppMessageUseCase) Execute(ctx context.Context, input HandleMessageInput) error {
@@ -162,8 +188,7 @@ func (uc *HandleWhatsAppMessageUseCase) Execute(ctx context.Context, input Handl
 			return nil
 		}
 
-		introMsg := whatsapp.WelcomeMenuMessage(t.Name, t.Settings.Messages)
-		if err := uc.sendTenantMessagePlain(ctx, input.From, input.TenantID, introMsg); err != nil {
+		if err := uc.sendWelcomeMenu(ctx, input.From, t, ""); err != nil {
 			return fmt.Errorf("failed to send intro menu: %w", err)
 		}
 
@@ -183,10 +208,27 @@ func (uc *HandleWhatsAppMessageUseCase) Execute(ctx context.Context, input Handl
 	if response != "" {
 		sendMessage := uc.sendTenantMessage
 		if sess.State == session.StateWelcome {
-			sendMessage = uc.sendTenantMessagePlain
+			t, tenantErr := uc.tenantRepo.FindByID(ctx, input.TenantID)
+			if tenantErr != nil {
+				return fmt.Errorf("failed to find tenant: %w", tenantErr)
+			}
+			if t == nil {
+				return fmt.Errorf("tenant not found: %s", input.TenantID.String())
+			}
+
+			if newState == "" || newState == session.StateWelcome {
+				if err := uc.sendWelcomeMenu(ctx, input.From, t, response); err != nil {
+					return fmt.Errorf("failed to send welcome menu response: %w", err)
+				}
+				sendMessage = nil
+			} else {
+				sendMessage = uc.sendTenantMessagePlain
+			}
 		}
-		if err := sendMessage(ctx, input.From, input.TenantID, response); err != nil {
-			return fmt.Errorf("failed to send response: %w", err)
+		if sendMessage != nil {
+			if err := sendMessage(ctx, input.From, input.TenantID, response); err != nil {
+				return fmt.Errorf("failed to send response: %w", err)
+			}
 		}
 	}
 
@@ -266,7 +308,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleWelcomeMenu(
 		return "", "", fmt.Errorf("failed to find tenant: %w", err)
 	}
 
-	if uc.isInitialTableRequestChoice(text) {
+	if uc.isInitialTableRequestChoice(ctx, sess.TenantID, text) {
 		existingReq, err := uc.tableRepo.FindPendingRequestByPhone(ctx, sess.UserPhone, sess.TenantID)
 		if err != nil {
 			return "", "", fmt.Errorf("failed to find pending request by phone: %w", err)
@@ -286,18 +328,20 @@ func (uc *HandleWhatsAppMessageUseCase) handleWelcomeMenu(
 
 		if err := uc.tableRepo.CreateRequest(ctx, req); err != nil {
 			uc.logger.Error("failed to create initial table request", zap.Error(err))
-			return "⚠️ Tivemos uma instabilidade ao solicitar sua mesa agora. Pode tentar novamente em alguns segundos.\n\n" +
-				whatsapp.WelcomeMenuMessage(t.Name, t.Settings.Messages), session.StateWelcome, nil
+			return "⚠️ Tivemos uma instabilidade ao solicitar sua mesa agora. Pode tentar novamente em alguns segundos.", session.StateWelcome, nil
 		}
 
 		return whatsapp.TableRequestPendingMessage(t.Settings.Messages), session.StateWaitingAdminApproval, nil
 	}
 
-	return whatsapp.InvalidOptionMessage(t.Settings.Messages) + "\n\n" +
-		whatsapp.WelcomeMenuMessage(t.Name, t.Settings.Messages), session.StateWelcome, nil
+	return whatsapp.InvalidOptionMessage(t.Settings.Messages), session.StateWelcome, nil
 }
 
-func (uc *HandleWhatsAppMessageUseCase) isInitialTableRequestChoice(text string) bool {
+func (uc *HandleWhatsAppMessageUseCase) isInitialTableRequestChoice(
+	ctx context.Context,
+	tenantID uuid.UUID,
+	text string,
+) bool {
 	normalized := strings.ToLower(strings.TrimSpace(text))
 	if normalized == "" {
 		return false
@@ -307,8 +351,12 @@ func (uc *HandleWhatsAppMessageUseCase) isInitialTableRequestChoice(text string)
 		return false
 	}
 
+	if uc.matchesPublishedBotFlowActionInput(ctx, tenantID, welcomeMenuFlowKey, requestTableActionID, text) {
+		return true
+	}
+
 	switch normalized {
-	case "1", "btn_request_table", "sim", "quero", "solicitar mesa", "quero mesa", "quero uma mesa":
+	case "1", defaultWelcomeMenuAction, "sim", "quero", "solicitar mesa", "quero mesa", "quero uma mesa":
 		return true
 	}
 
@@ -318,6 +366,311 @@ func (uc *HandleWhatsAppMessageUseCase) isInitialTableRequestChoice(text string)
 		strings.Contains(normalized, "quero")
 
 	return hasMesa && hasIntent
+}
+
+func (uc *HandleWhatsAppMessageUseCase) resolveWelcomeMenuMessage(
+	ctx context.Context,
+	tenantObj *tenant.Tenant,
+) string {
+	fallback := whatsapp.WelcomeMenuMessage(tenantObj.Name, tenantObj.Settings.Messages)
+	flow := uc.findPublishedBotFlow(ctx, tenantObj.ID, welcomeMenuFlowKey)
+	if flow == nil {
+		return fallback
+	}
+
+	definition, err := uc.decodeBotFlowDefinition(flow)
+	if err != nil {
+		uc.logger.Warn("failed to decode welcome bot flow definition",
+			zap.Error(err),
+			zap.String("tenant_id", tenantObj.ID.String()),
+			zap.String("flow_key", flow.Key),
+		)
+		return fallback
+	}
+
+	body := strings.TrimSpace(definition.Body)
+	if definition.UseWelcomeTemplate {
+		body = uc.composeWelcomeMenuBody(tenantObj, definition, "")
+	}
+	if body == "" {
+		return fallback
+	}
+
+	return uc.applyFlowReplacements(body, map[string]string{
+		"{nome_restaurante}": tenantObj.Name,
+	})
+}
+
+func (uc *HandleWhatsAppMessageUseCase) matchesPublishedBotFlowActionInput(
+	ctx context.Context,
+	tenantID uuid.UUID,
+	flowKey string,
+	actionID string,
+	text string,
+) bool {
+	normalizedInput := normalizeBotFlowInput(text)
+	if normalizedInput == "" {
+		return false
+	}
+
+	flow := uc.findPublishedBotFlow(ctx, tenantID, flowKey)
+	if flow == nil {
+		return false
+	}
+
+	definition, err := uc.decodeBotFlowDefinition(flow)
+	if err != nil {
+		uc.logger.Warn("failed to decode bot flow definition while matching action",
+			zap.Error(err),
+			zap.String("tenant_id", tenantID.String()),
+			zap.String("flow_key", flowKey),
+			zap.String("action_id", actionID),
+		)
+		return false
+	}
+
+	for _, action := range definition.Actions {
+		if strings.TrimSpace(action.ID) != actionID {
+			continue
+		}
+
+		if normalizeBotFlowInput(action.ID) == normalizedInput {
+			return true
+		}
+
+		if normalizeBotFlowInput(action.Label) == normalizedInput {
+			return true
+		}
+
+		for _, acceptedInput := range action.AcceptedInputs {
+			if normalizeBotFlowInput(acceptedInput) == normalizedInput {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func (uc *HandleWhatsAppMessageUseCase) findPublishedBotFlow(
+	ctx context.Context,
+	tenantID uuid.UUID,
+	flowKey string,
+) *botconfig.FlowDefinition {
+	if uc.botConfigRepo == nil {
+		return nil
+	}
+
+	flow, err := uc.botConfigRepo.FindPublishedByKey(ctx, tenantID, flowKey, botconfig.ChannelWhatsApp)
+	if err != nil {
+		uc.logger.Warn("failed to load published bot flow",
+			zap.Error(err),
+			zap.String("tenant_id", tenantID.String()),
+			zap.String("flow_key", flowKey),
+		)
+		return nil
+	}
+
+	return flow
+}
+
+func (uc *HandleWhatsAppMessageUseCase) sendWelcomeMenu(
+	ctx context.Context,
+	to string,
+	tenantObj *tenant.Tenant,
+	prefix string,
+) error {
+	flow := uc.findPublishedBotFlow(ctx, tenantObj.ID, welcomeMenuFlowKey)
+	if flow == nil {
+		return uc.sendTenantMessagePlain(ctx, to, tenantObj.ID, uc.composeWelcomeMenuText(ctx, tenantObj, prefix))
+	}
+
+	definition, err := uc.decodeBotFlowDefinition(flow)
+	if err != nil {
+		uc.logger.Warn("failed to decode welcome bot flow definition for send",
+			zap.Error(err),
+			zap.String("tenant_id", tenantObj.ID.String()),
+			zap.String("flow_key", flow.Key),
+		)
+		return uc.sendTenantMessagePlain(ctx, to, tenantObj.ID, uc.composeWelcomeMenuText(ctx, tenantObj, prefix))
+	}
+
+	buttons := uc.buildInteractiveButtons(definition.Actions)
+	if !uc.shouldSendInteractiveWelcome(definition, buttons) {
+		return uc.sendTenantMessagePlain(ctx, to, tenantObj.ID, uc.composeWelcomeMenuText(ctx, tenantObj, prefix))
+	}
+
+	body := uc.composeWelcomeMenuBody(tenantObj, definition, prefix)
+	if _, err := uc.sender.SendInteractiveButtons(whatsapp.WithTenantID(ctx, tenantObj.ID), to, body, buttons); err != nil {
+		uc.logger.Warn("failed to send interactive welcome menu, falling back to text",
+			zap.Error(err),
+			zap.String("tenant_id", tenantObj.ID.String()),
+			zap.String("to", to),
+		)
+		return uc.sendTenantMessagePlain(ctx, to, tenantObj.ID, uc.composeWelcomeMenuText(ctx, tenantObj, prefix))
+	}
+
+	return nil
+}
+
+func (uc *HandleWhatsAppMessageUseCase) decodeBotFlowDefinition(
+	flow *botconfig.FlowDefinition,
+) (*botFlowDefinitionPayload, error) {
+	if flow == nil {
+		return nil, fmt.Errorf("flow definition is nil")
+	}
+
+	raw, err := json.Marshal(flow.Definition)
+	if err != nil {
+		return nil, err
+	}
+
+	var definition botFlowDefinitionPayload
+	if err := json.Unmarshal(raw, &definition); err != nil {
+		return nil, err
+	}
+
+	return &definition, nil
+}
+
+func (uc *HandleWhatsAppMessageUseCase) applyFlowReplacements(
+	body string,
+	replacements map[string]string,
+) string {
+	rendered := strings.TrimSpace(body)
+	for placeholder, value := range replacements {
+		rendered = strings.ReplaceAll(rendered, placeholder, value)
+	}
+	return strings.TrimSpace(rendered)
+}
+
+func (uc *HandleWhatsAppMessageUseCase) composeWelcomeMenuText(
+	ctx context.Context,
+	tenantObj *tenant.Tenant,
+	prefix string,
+) string {
+	body := uc.resolveWelcomeMenuText(ctx, tenantObj)
+	if strings.TrimSpace(prefix) == "" {
+		return body
+	}
+
+	return strings.TrimSpace(prefix) + "\n\n" + body
+}
+
+func (uc *HandleWhatsAppMessageUseCase) resolveWelcomeMenuText(
+	ctx context.Context,
+	tenantObj *tenant.Tenant,
+) string {
+	fallback := whatsapp.WelcomeMenuMessage(tenantObj.Name, tenantObj.Settings.Messages)
+	flow := uc.findPublishedBotFlow(ctx, tenantObj.ID, welcomeMenuFlowKey)
+	if flow == nil {
+		return fallback
+	}
+
+	definition, err := uc.decodeBotFlowDefinition(flow)
+	if err != nil {
+		return fallback
+	}
+
+	body := uc.composeWelcomeMenuBody(tenantObj, definition, "")
+	if strings.TrimSpace(body) == "" {
+		return fallback
+	}
+
+	if len(definition.Actions) == 0 {
+		return body
+	}
+
+	lines := make([]string, 0, len(definition.Actions)+1)
+	for index, action := range definition.Actions {
+		label := strings.TrimSpace(action.Label)
+		if label == "" {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("*%d* - %s", index+1, label))
+	}
+	if len(lines) == 0 {
+		return body
+	}
+
+	return strings.TrimSpace(body) + "\n\n" + strings.Join(lines, "\n") + "\n\n_Digite o número da opção_"
+}
+
+func (uc *HandleWhatsAppMessageUseCase) composeWelcomeMenuBody(
+	tenantObj *tenant.Tenant,
+	definition *botFlowDefinitionPayload,
+	prefix string,
+) string {
+	body := ""
+	if definition != nil && definition.UseWelcomeTemplate {
+		body = whatsapp.WelcomeMessage(tenantObj.Name, tenantObj.Settings.Messages)
+	}
+
+	if definition != nil {
+		rendered := uc.applyFlowReplacements(definition.Body, map[string]string{
+			"{nome_restaurante}": tenantObj.Name,
+		})
+		switch {
+		case strings.TrimSpace(body) == "":
+			body = rendered
+		case strings.TrimSpace(rendered) != "":
+			body = strings.TrimSpace(body) + "\n\n" + rendered
+		}
+	}
+
+	if strings.TrimSpace(body) == "" {
+		body = whatsapp.WelcomeMenuMessage(tenantObj.Name, tenantObj.Settings.Messages)
+	}
+
+	if strings.TrimSpace(prefix) == "" {
+		return body
+	}
+
+	return strings.TrimSpace(prefix) + "\n\n" + body
+}
+
+func (uc *HandleWhatsAppMessageUseCase) buildInteractiveButtons(
+	actions []botFlowActionDefinition,
+) []whatsapp.InteractiveButton {
+	buttons := make([]whatsapp.InteractiveButton, 0, len(actions))
+	for _, action := range actions {
+		title := strings.TrimSpace(action.Label)
+		if title == "" {
+			continue
+		}
+
+		button := whatsapp.InteractiveButton{Type: "reply"}
+		button.Reply.ID = strings.TrimSpace(action.ID)
+		if button.Reply.ID == "" {
+			continue
+		}
+
+		if len(title) > 20 {
+			title = strings.TrimSpace(title[:20])
+		}
+		button.Reply.Title = title
+		buttons = append(buttons, button)
+	}
+	return buttons
+}
+
+func (uc *HandleWhatsAppMessageUseCase) shouldSendInteractiveWelcome(
+	definition *botFlowDefinitionPayload,
+	buttons []whatsapp.InteractiveButton,
+) bool {
+	if definition == nil {
+		return false
+	}
+
+	if strings.TrimSpace(strings.ToLower(definition.Presentation)) != "reply_buttons" {
+		return false
+	}
+
+	return len(buttons) > 0 && len(buttons) <= 3
+}
+
+func normalizeBotFlowInput(input string) string {
+	return strings.ToLower(strings.TrimSpace(input))
 }
 
 func (uc *HandleWhatsAppMessageUseCase) handleMainMenu(
@@ -823,7 +1176,14 @@ func (uc *HandleWhatsAppMessageUseCase) sendTenantMessage(
 	tenantID uuid.UUID,
 	message string,
 ) error {
-	decorated := whatsapp.WithRestaurantHeader(uc.resolveTenantName(ctx, tenantID), message)
+	tenantObj, _ := uc.tenantRepo.FindByID(ctx, tenantID)
+	if prefix, ok := uc.extractMainMenuPrefix(message, tenantObj); ok {
+		if err := uc.sendInteractiveMainMenu(ctx, to, tenantID, tenantObj, prefix); err == nil {
+			return nil
+		}
+	}
+
+	decorated := whatsapp.WithRestaurantHeader(uc.resolveTenantName(ctx, tenantID), uc.resolveTenantMessage(message, tenantObj))
 	ctx = whatsapp.WithTenantID(ctx, tenantID)
 	return uc.sender.SendText(ctx, to, decorated)
 }
@@ -844,4 +1204,111 @@ func (uc *HandleWhatsAppMessageUseCase) resolveTenantName(ctx context.Context, t
 		return ""
 	}
 	return strings.TrimSpace(t.Name)
+}
+
+func (uc *HandleWhatsAppMessageUseCase) resolveTenantMessage(message string, tenantObj *tenant.Tenant) string {
+	body := strings.TrimSpace(message)
+	if tenantObj == nil {
+		return body
+	}
+
+	defaultMainMenu := strings.TrimSpace(whatsapp.MainMenuMessage())
+	customMainMenu := strings.TrimSpace(whatsapp.MainMenuMessage(tenantObj.Settings.Messages))
+	resolvedMainMenu := customMainMenu
+	if resolvedMainMenu == "" {
+		resolvedMainMenu = defaultMainMenu
+	}
+
+	if body == defaultMainMenu || body == customMainMenu {
+		return resolvedMainMenu
+	}
+
+	for _, candidate := range []string{defaultMainMenu, customMainMenu} {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		if strings.HasSuffix(body, "\n\n"+candidate) {
+			prefix := strings.TrimSpace(strings.TrimSuffix(body, "\n\n"+candidate))
+			if prefix == "" {
+				return resolvedMainMenu
+			}
+			return prefix + "\n\n" + resolvedMainMenu
+		}
+	}
+
+	return body
+}
+
+func (uc *HandleWhatsAppMessageUseCase) extractMainMenuPrefix(message string, tenantObj *tenant.Tenant) (string, bool) {
+	body := strings.TrimSpace(message)
+	if body == "" {
+		return "", false
+	}
+
+	candidates := []string{strings.TrimSpace(whatsapp.MainMenuMessage())}
+	if tenantObj != nil {
+		candidates = append(candidates, strings.TrimSpace(whatsapp.MainMenuMessage(tenantObj.Settings.Messages)))
+	}
+
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		if body == candidate {
+			return "", true
+		}
+		if strings.HasSuffix(body, "\n\n"+candidate) {
+			return strings.TrimSpace(strings.TrimSuffix(body, "\n\n"+candidate)), true
+		}
+	}
+
+	return "", false
+}
+
+func (uc *HandleWhatsAppMessageUseCase) sendInteractiveMainMenu(
+	ctx context.Context,
+	to string,
+	tenantID uuid.UUID,
+	tenantObj *tenant.Tenant,
+	prefix string,
+) error {
+	body := uc.composeMainMenuBody(tenantObj, prefix)
+	decorated := whatsapp.WithRestaurantHeader(uc.resolveTenantName(ctx, tenantID), body)
+	ctx = whatsapp.WithTenantID(ctx, tenantID)
+	_, err := uc.sender.SendInteractiveList(ctx, to, decorated, mainMenuListButtonText, buildMainMenuSections())
+	return err
+}
+
+func (uc *HandleWhatsAppMessageUseCase) composeMainMenuBody(
+	tenantObj *tenant.Tenant,
+	prefix string,
+) string {
+	body := strings.TrimSpace(whatsapp.MainMenuBodyMessage())
+	if tenantObj != nil {
+		body = strings.TrimSpace(whatsapp.MainMenuBodyMessage(tenantObj.Settings.Messages))
+	}
+
+	if strings.TrimSpace(prefix) == "" {
+		return body
+	}
+	if body == "" {
+		return strings.TrimSpace(prefix)
+	}
+	return strings.TrimSpace(prefix) + "\n\n" + body
+}
+
+func buildMainMenuSections() []whatsapp.InteractiveListSection {
+	return []whatsapp.InteractiveListSection{
+		{
+			Title: "Atendimento",
+			Rows: []whatsapp.InteractiveListRow{
+				{ID: "1", Title: "Fazer pedido", Description: "Ver os itens do cardápio"},
+				{ID: "2", Title: "Ver minha comanda", Description: "Consultar itens e valores"},
+				{ID: "3", Title: "Repetir última rodada", Description: "Refazer seu último pedido"},
+				{ID: "4", Title: "Chamar garçom", Description: "Falar com nossa equipe"},
+				{ID: "5", Title: "Fechar conta", Description: "Pagar ou pedir fechamento"},
+			},
+		},
+	}
 }

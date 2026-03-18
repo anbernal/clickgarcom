@@ -106,6 +106,41 @@ func (s *Sender) SendInteractiveButtons(ctx context.Context, to, bodyText string
 	return messageID, nil
 }
 
+func (s *Sender) SendInteractiveList(
+	ctx context.Context,
+	to, bodyText, buttonText string,
+	sections []whatsappDomain.InteractiveListSection,
+) (string, error) {
+	if s.apiClient == nil {
+		return "", fmt.Errorf("MetaAPIClient is not initialized")
+	}
+
+	billingTenant, err := s.loadTenantForBilling(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	if billingTenant != nil && billingTenant.BillingPlan == tenantDomain.PlanPrePaid && billingTenant.WalletBalance <= 0 {
+		return "", fmt.Errorf("tenant out of credits")
+	}
+
+	messageID, err := s.apiClient.SendInteractiveList(ctx, to, bodyText, buttonText, sections)
+	if err != nil {
+		return "", err
+	}
+
+	if billingTenant != nil {
+		if err := s.applyImmediateBilling(ctx, billingTenant, messageID); err != nil {
+			s.logger.Warn("failed to apply interactive list billing",
+				zap.String("tenant_id", billingTenant.ID.String()),
+				zap.Error(err),
+			)
+		}
+	}
+
+	return messageID, nil
+}
+
 // MarkAsRead envia o evento nativo "mensagem lida" sem passar pelo Outbox.
 // Não gera cobrança interna pois não cria outbox nem billing log.
 func (s *Sender) MarkAsRead(ctx context.Context, messageID string) error {
