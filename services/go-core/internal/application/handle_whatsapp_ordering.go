@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
@@ -14,6 +15,7 @@ import (
 	"github.com/anbernal/clickgarcom/internal/domain/order"
 	"github.com/anbernal/clickgarcom/internal/domain/servicerequest"
 	"github.com/anbernal/clickgarcom/internal/domain/tab"
+	"github.com/anbernal/clickgarcom/internal/domain/tenant"
 	"github.com/anbernal/clickgarcom/internal/domain/whatsapp"
 )
 
@@ -204,17 +206,28 @@ func (uc *HandleWhatsAppMessageUseCase) startClosingTabFlow(
 	}
 
 	items := uc.buildTabItemsList(ctx, sess.TenantID, userTab.ID)
-	message := whatsapp.TabSummaryMessage(items, userTab.Subtotal, userTab.ServiceFee, userTab.Total)
-
-	if tenantObj, err := uc.tenantRepo.FindByID(ctx, sess.TenantID); err == nil && tenantObj != nil {
-		message = whatsapp.TabSummaryMessage(
-			items,
-			userTab.Subtotal,
-			userTab.ServiceFee,
-			userTab.Total,
-			tenantObj.Settings.Messages,
-		)
+	tenantObj, _ := uc.tenantRepo.FindByID(ctx, sess.TenantID)
+	restaurantName := ""
+	msgs := tenant.MessageTemplates{}
+	serviceFeePercent := 10.0
+	if tenantObj != nil {
+		restaurantName = tenantObj.Name
+		msgs = tenantObj.Settings.Messages
+		if tenantObj.Settings.ServiceFeePercent > 0 {
+			serviceFeePercent = tenantObj.Settings.ServiceFeePercent
+		}
 	}
+	tableCode := uc.resolveTabTableCode(ctx, sess.TenantID, userTab)
+	message := whatsapp.TabSummaryMessage(
+		restaurantName,
+		tableCode,
+		items,
+		serviceFeePercent,
+		userTab.Subtotal,
+		userTab.ServiceFee,
+		userTab.Total,
+		msgs,
+	)
 
 	message = "💰 *Fechar Conta*\n\n" + message + "\n\n" +
 		"Como você prefere finalizar?\n" +
@@ -583,36 +596,92 @@ func (uc *HandleWhatsAppMessageUseCase) buildTabSummaryResponse(
 	isCloseFlow bool,
 ) (string, session.ConversationState, error) {
 	userTab := uc.findSessionOpenTab(ctx, sess)
+	tenantObj, _ := uc.tenantRepo.FindByID(ctx, sess.TenantID)
+	restaurantName := ""
+	msgs := tenant.MessageTemplates{}
+	serviceFeePercent := 10.0
+	if tenantObj != nil {
+		restaurantName = tenantObj.Name
+		msgs = tenantObj.Settings.Messages
+		if tenantObj.Settings.ServiceFeePercent > 0 {
+			serviceFeePercent = tenantObj.Settings.ServiceFeePercent
+		}
+	}
+
 	if userTab == nil {
 		if isCloseFlow {
 			return "💰 *Fechar Conta*\n\nAinda não há itens na comanda.\n\n_Digite 0 para voltar ao menu_",
 				session.StateViewingTab, nil
 		}
-		return "📋 *Sua Comanda*\n\nAinda não há itens na comanda.\n\n_Digite 0 para voltar ao menu_",
+		tableCode := uc.resolveLatestApprovedTableCode(ctx, sess)
+		return whatsapp.TabSummaryMenuMessage(
+				restaurantName,
+				tableCode,
+				[]string{},
+				serviceFeePercent,
+				0,
+				0,
+				0,
+				msgs,
+			),
 			session.StateViewingTab, nil
 	}
 
 	items := uc.buildTabItemsList(ctx, sess.TenantID, userTab.ID)
-	message := whatsapp.TabSummaryMessage(items, userTab.Subtotal, userTab.ServiceFee, userTab.Total)
-
-	if tenantObj, err := uc.tenantRepo.FindByID(ctx, sess.TenantID); err == nil && tenantObj != nil {
-		message = whatsapp.TabSummaryMessage(
-			items,
-			userTab.Subtotal,
-			userTab.ServiceFee,
-			userTab.Total,
-			tenantObj.Settings.Messages,
-		)
-	}
+	tableCode := uc.resolveTabTableCode(ctx, sess.TenantID, userTab)
+	bodyMessage := whatsapp.TabSummaryMessage(
+		restaurantName,
+		tableCode,
+		items,
+		serviceFeePercent,
+		userTab.Subtotal,
+		userTab.ServiceFee,
+		userTab.Total,
+		msgs,
+	)
+	message := whatsapp.TabSummaryMenuMessage(
+		restaurantName,
+		tableCode,
+		items,
+		serviceFeePercent,
+		userTab.Subtotal,
+		userTab.ServiceFee,
+		userTab.Total,
+		msgs,
+	)
 
 	if isCloseFlow {
-		message = "💰 *Fechar Conta*\n\n" + message + "\n\n" +
+		message = "💰 *Fechar Conta*\n\n" + bodyMessage + "\n\n" +
 			"Para encerrar a conta, solicite nossa equipe.\n\n_Digite 0 para voltar ao menu_"
 		return message, session.StateViewingTab, nil
 	}
 
-	message += "\n\n_Digite 0 para voltar ao menu_"
 	return message, session.StateViewingTab, nil
+}
+
+func (uc *HandleWhatsAppMessageUseCase) resolveLatestApprovedTableCode(
+	ctx context.Context,
+	sess *session.Session,
+) string {
+	if sess == nil {
+		return ""
+	}
+	if sess.TableID != nil {
+		if t, err := uc.tableRepo.FindByID(ctx, *sess.TableID, sess.TenantID); err == nil && t != nil {
+			return formatTableNumberForDisplay(t.Number)
+		}
+	}
+
+	latestReq, err := uc.tableRepo.FindLatestApprovedRequestByPhone(ctx, sess.UserPhone, sess.TenantID)
+	if err != nil || latestReq == nil || latestReq.TableID == nil {
+		return ""
+	}
+
+	t, err := uc.tableRepo.FindByID(ctx, *latestReq.TableID, sess.TenantID)
+	if err != nil || t == nil {
+		return ""
+	}
+	return formatTableNumberForDisplay(t.Number)
 }
 
 func (uc *HandleWhatsAppMessageUseCase) findSessionOpenTab(
@@ -820,8 +889,34 @@ func (uc *HandleWhatsAppMessageUseCase) buildTabItemsList(
 			name = fmt.Sprintf("Item %s", id.String()[:8])
 		}
 
-		lines = append(lines, fmt.Sprintf("%dx %s - R$ %.2f", agg.Quantity, name, agg.Total))
+		label := fmt.Sprintf("%dx %s", agg.Quantity, name)
+		label = truncateTabSummaryLabel(label, 24)
+		padding := 26 - utf8.RuneCountInString(label)
+		if padding < 2 {
+			padding = 2
+		}
+
+		lines = append(lines, fmt.Sprintf("%s%sR$ %s", label, strings.Repeat(" ", padding), formatBRLCurrency(agg.Total)))
 	}
 
 	return lines
+}
+
+func formatBRLCurrency(value float64) string {
+	return strings.ReplaceAll(fmt.Sprintf("%.2f", value), ".", ",")
+}
+
+func truncateTabSummaryLabel(value string, maxRunes int) string {
+	if maxRunes <= 0 {
+		return ""
+	}
+
+	runes := []rune(strings.TrimSpace(value))
+	if len(runes) <= maxRunes {
+		return string(runes)
+	}
+	if maxRunes <= 3 {
+		return string(runes[:maxRunes])
+	}
+	return string(runes[:maxRunes-3]) + "..."
 }

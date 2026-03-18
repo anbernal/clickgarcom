@@ -123,16 +123,21 @@ const defaultOrderReady = `Seu pedido já está pronto! 😊🍽️
 
 Nossa equipe já vai levar até você aí na mesa. 🚶‍♂️✨`
 
-const defaultTabSummary = `📋 *Sua Comanda*
-
+const defaultTabSummary = `🧾 *Sua Comanda{mesa_label}*
+┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
 {itens}
-━━━━━━━━━━━━━━━━
+┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
 Subtotal: R$ {subtotal}
-Taxa de serviço (10%): R$ {taxa}
-━━━━━━━━━━━━━━━━
-*Total: R$ {total}*
+Serviço ({percentual_taxa}%): R$ {taxa}
+┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+✦ *Total a pagar:* *R$ {total}*
+┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
 
-_Use o menu para fazer mais pedidos ou fechar a conta_`
+_Obrigado por escolher o {nome_restaurante}!_ 🙏✨`
+
+const defaultTabSummaryOptions = `*1* · ➕ Novo pedido
+*2* · ✅ Fechar a conta
+*0* · ◂ Menu principal`
 
 const defaultServiceRequest = `✅ *Solicitação registrada!*
 
@@ -328,23 +333,73 @@ func OrderReadyMessage(orderNumber int, msgs ...tenant.MessageTemplates) string 
 }
 
 // TabSummaryMessage resumo da comanda
-func TabSummaryMessage(items []string, subtotal, serviceFee, total float64, msgs ...tenant.MessageTemplates) string {
+func TabSummaryMessage(
+	restaurantName string,
+	tableLabel string,
+	items []string,
+	serviceFeePercent float64,
+	subtotal, serviceFee, total float64,
+	msgs ...tenant.MessageTemplates,
+) string {
 	custom := ""
 	if len(msgs) > 0 {
 		custom = msgs[0].TabSummary
 	}
 
 	itemsList := ""
-	for _, item := range items {
-		itemsList += fmt.Sprintf("• %s\n", item)
+	if len(items) == 0 {
+		itemsList = "_Nenhum item lançado até agora._"
+	} else {
+		for _, item := range items {
+			itemsList += fmt.Sprintf("%s\n", strings.TrimSpace(item))
+		}
+		itemsList = strings.TrimSpace(itemsList)
+	}
+
+	mesaLabel := ""
+	if strings.TrimSpace(tableLabel) != "" {
+		mesaLabel = " · Mesa " + strings.TrimSpace(tableLabel)
 	}
 
 	return resolveTemplate(custom, defaultTabSummary, map[string]string{
-		"{itens}":    itemsList,
-		"{subtotal}": fmt.Sprintf("%.2f", subtotal),
-		"{taxa}":     fmt.Sprintf("%.2f", serviceFee),
-		"{total}":    fmt.Sprintf("%.2f", total),
+		"{nome_restaurante}": restaurantName,
+		"{mesa_label}":       mesaLabel,
+		"{itens}":            itemsList,
+		"{subtotal}":         formatCurrencyBR(subtotal),
+		"{taxa}":             formatCurrencyBR(serviceFee),
+		"{total}":            formatCurrencyBR(total),
+		"{percentual_taxa}":  formatPercentBR(serviceFeePercent),
 	})
+}
+
+func TabSummaryMenuMessage(
+	restaurantName string,
+	tableLabel string,
+	items []string,
+	serviceFeePercent float64,
+	subtotal, serviceFee, total float64,
+	msgs ...tenant.MessageTemplates,
+) string {
+	body := strings.TrimSpace(TabSummaryMessage(
+		restaurantName,
+		tableLabel,
+		items,
+		serviceFeePercent,
+		subtotal,
+		serviceFee,
+		total,
+		msgs...,
+	))
+	menu := strings.TrimSpace(defaultTabSummaryOptions)
+
+	switch {
+	case body == "":
+		return menu
+	case menu == "":
+		return body
+	default:
+		return body + "\n\n" + menu
+	}
 }
 
 // ServiceRequestConfirmed solicitação de garçom
@@ -394,6 +449,20 @@ func WithRestaurantHeader(restaurantName, message string) string {
 	}
 
 	return fmt.Sprintf("🍽️ %s\n_______________________\n\n%s", name, body)
+}
+
+func formatCurrencyBR(value float64) string {
+	return strings.ReplaceAll(fmt.Sprintf("%.2f", value), ".", ",")
+}
+
+func formatPercentBR(value float64) string {
+	if value <= 0 {
+		value = 10
+	}
+	if value == float64(int(value)) {
+		return fmt.Sprintf("%d", int(value))
+	}
+	return strings.ReplaceAll(fmt.Sprintf("%.2f", value), ".", ",")
 }
 
 // ─────────────────────────────────────────────────

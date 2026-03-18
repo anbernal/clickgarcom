@@ -11,6 +11,7 @@ import (
 
 	"github.com/anbernal/clickgarcom/internal/domain/botconfig"
 	"github.com/anbernal/clickgarcom/internal/domain/inbox/session"
+	"github.com/anbernal/clickgarcom/internal/domain/tab"
 	"github.com/anbernal/clickgarcom/internal/domain/table"
 	"github.com/anbernal/clickgarcom/internal/domain/tenant"
 	"github.com/anbernal/clickgarcom/internal/domain/user"
@@ -402,6 +403,109 @@ func TestSendTenantMessageUsesInteractiveMainMenuList(t *testing.T) {
 	}
 }
 
+func TestHandleWhatsAppMessageMainMenuOptionShowsInteractiveTabSummary(t *testing.T) {
+	ctx := context.Background()
+	tenantID := uuid.New()
+	phone := "5511933333333"
+	tableID := uuid.New()
+	tabID := uuid.New()
+
+	sessionRepo := newTestSessionRepo()
+	sess := session.NewSession(phone, tenantID)
+	sess.TableID = &tableID
+	sess.TabID = &tabID
+	sess.TransitionTo(session.StateMainMenu)
+	if err := sessionRepo.Save(ctx, sess); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	tableRepo := newTestTableRepo()
+	tableRepo.tablesByID[tableID] = &table.Table{
+		ID:       tableID,
+		TenantID: tenantID,
+		Number:   "5",
+	}
+	tabRepo := &testTabRepo{
+		byID: map[uuid.UUID]*tab.Tab{
+			tabID: {
+				ID:         tabID,
+				TenantID:   tenantID,
+				TableID:    &tableID,
+				UserPhone:  phone,
+				Subtotal:   250,
+				ServiceFee: 25,
+				Total:      275,
+				Status:     tab.StatusOpen,
+			},
+		},
+	}
+	sender := &testWhatsAppSender{}
+	uc := NewHandleWhatsAppMessageUseCase(
+		sessionRepo,
+		&testTenantRepo{tenant: testTenant(tenantID)},
+		nil,
+		nil,
+		tabRepo,
+		tableRepo,
+		nil,
+		nil,
+		nil,
+		sender,
+		"",
+		zap.NewNop(),
+	)
+
+	err := uc.Execute(ctx, HandleMessageInput{
+		From:     phone,
+		Text:     "2",
+		TenantID: tenantID,
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if got := len(sender.interactiveMessages); got != 1 {
+		t.Fatalf("expected 1 interactive message, got %d", got)
+	}
+	if got := len(sender.textMessages); got != 0 {
+		t.Fatalf("expected no plain text messages, got %d", got)
+	}
+
+	message := sender.interactiveMessages[0]
+	if !strings.Contains(message.Body, "Sua Comanda") {
+		t.Fatalf("expected tab summary body, got %q", message.Body)
+	}
+	if !strings.Contains(message.Body, "Mesa 05") {
+		t.Fatalf("expected table number, got %q", message.Body)
+	}
+	if !strings.Contains(message.Body, "275,00") {
+		t.Fatalf("expected total formatted in BRL, got %q", message.Body)
+	}
+	if len(message.Buttons) != 3 {
+		t.Fatalf("expected 3 buttons, got %d", len(message.Buttons))
+	}
+	if message.Buttons[0].Reply.ID != tabSummaryNewOrderID {
+		t.Fatalf("expected first button id %q, got %q", tabSummaryNewOrderID, message.Buttons[0].Reply.ID)
+	}
+	if message.Buttons[1].Reply.ID != tabSummaryCloseTabID {
+		t.Fatalf("expected second button id %q, got %q", tabSummaryCloseTabID, message.Buttons[1].Reply.ID)
+	}
+	if message.Buttons[2].Reply.ID != tabSummaryBackMenuID {
+		t.Fatalf("expected third button id %q, got %q", tabSummaryBackMenuID, message.Buttons[2].Reply.ID)
+	}
+
+	updatedSession, err := sessionRepo.Find(ctx, phone, tenantID.String())
+	if err != nil {
+		t.Fatalf("Find() error = %v", err)
+	}
+	if updatedSession == nil {
+		t.Fatal("expected session to be saved")
+	}
+	if updatedSession.State != session.StateViewingTab {
+		t.Fatalf("expected session state %s, got %s", session.StateViewingTab, updatedSession.State)
+	}
+}
+
 type testSessionRepo struct {
 	sessions map[string]*session.Session
 }
@@ -496,19 +600,31 @@ func (r *testTenantRepo) GetUsersByTenant(_ context.Context, tenantID string) ([
 type testTableRepo struct {
 	createdRequests []*table.TableRequest
 	pendingByPhone  map[string]*table.TableRequest
+	tablesByID      map[uuid.UUID]*table.Table
 }
 
 func newTestTableRepo() *testTableRepo {
 	return &testTableRepo{
 		pendingByPhone: make(map[string]*table.TableRequest),
+		tablesByID:     make(map[uuid.UUID]*table.Table),
 	}
 }
 
 func (r *testTableRepo) FindByID(_ context.Context, id uuid.UUID, tenantID uuid.UUID) (*table.Table, error) {
+	if tbl, ok := r.tablesByID[id]; ok && tbl.TenantID == tenantID {
+		cloned := *tbl
+		return &cloned, nil
+	}
 	return nil, nil
 }
 
 func (r *testTableRepo) FindByNumber(_ context.Context, number string, tenantID uuid.UUID) (*table.Table, error) {
+	for _, tbl := range r.tablesByID {
+		if tbl.TenantID == tenantID && tbl.Number == number {
+			cloned := *tbl
+			return &cloned, nil
+		}
+	}
 	return nil, nil
 }
 
@@ -553,6 +669,96 @@ func (r *testTableRepo) UpdateRequest(_ context.Context, req *table.TableRequest
 
 type testBotConfigRepo struct {
 	publishedByKey map[string]*botconfig.FlowDefinition
+}
+
+type testTabRepo struct {
+	byID map[uuid.UUID]*tab.Tab
+}
+
+func (r *testTabRepo) FindByID(_ context.Context, id uuid.UUID, tenantID uuid.UUID) (*tab.Tab, error) {
+	if r == nil {
+		return nil, nil
+	}
+	if openTab, ok := r.byID[id]; ok && openTab.TenantID == tenantID {
+		cloned := *openTab
+		return &cloned, nil
+	}
+	return nil, nil
+}
+
+func (r *testTabRepo) FindOpenByTable(_ context.Context, tableID uuid.UUID, tenantID uuid.UUID) (*tab.Tab, error) {
+	if r == nil {
+		return nil, nil
+	}
+	for _, openTab := range r.byID {
+		if openTab.TenantID == tenantID && openTab.TableID != nil && *openTab.TableID == tableID && openTab.Status == tab.StatusOpen {
+			cloned := *openTab
+			return &cloned, nil
+		}
+	}
+	return nil, nil
+}
+
+func (r *testTabRepo) FindAllOpenByTable(_ context.Context, tableID uuid.UUID, tenantID uuid.UUID) ([]*tab.Tab, error) {
+	var tabs []*tab.Tab
+	if r == nil {
+		return tabs, nil
+	}
+	for _, openTab := range r.byID {
+		if openTab.TenantID == tenantID && openTab.TableID != nil && *openTab.TableID == tableID && openTab.Status == tab.StatusOpen {
+			cloned := *openTab
+			tabs = append(tabs, &cloned)
+		}
+	}
+	return tabs, nil
+}
+
+func (r *testTabRepo) FindByTenantAndStatus(_ context.Context, tenantID uuid.UUID, status tab.Status) ([]*tab.Tab, error) {
+	var tabs []*tab.Tab
+	if r == nil {
+		return tabs, nil
+	}
+	for _, openTab := range r.byID {
+		if openTab.TenantID == tenantID && openTab.Status == status {
+			cloned := *openTab
+			tabs = append(tabs, &cloned)
+		}
+	}
+	return tabs, nil
+}
+
+func (r *testTabRepo) Create(_ context.Context, openTab *tab.Tab) error {
+	if r.byID == nil {
+		r.byID = make(map[uuid.UUID]*tab.Tab)
+	}
+	cloned := *openTab
+	r.byID[openTab.ID] = &cloned
+	return nil
+}
+
+func (r *testTabRepo) Update(_ context.Context, openTab *tab.Tab) error {
+	if r.byID == nil {
+		r.byID = make(map[uuid.UUID]*tab.Tab)
+	}
+	cloned := *openTab
+	r.byID[openTab.ID] = &cloned
+	return nil
+}
+
+func (r *testTabRepo) CreateJoinRequest(_ context.Context, req *tab.TabJoinRequest) error {
+	return nil
+}
+
+func (r *testTabRepo) FindPendingJoinRequestByOpener(_ context.Context, openerPhone string, tenantID uuid.UUID) (*tab.TabJoinRequest, error) {
+	return nil, nil
+}
+
+func (r *testTabRepo) FindJoinRequestByID(_ context.Context, id uuid.UUID) (*tab.TabJoinRequest, error) {
+	return nil, nil
+}
+
+func (r *testTabRepo) UpdateJoinRequestStatus(_ context.Context, id uuid.UUID, status tab.JoinRequestStatus) error {
+	return nil
 }
 
 func (r *testBotConfigRepo) FindPublishedByKey(

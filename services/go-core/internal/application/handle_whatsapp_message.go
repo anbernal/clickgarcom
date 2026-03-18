@@ -85,6 +85,9 @@ const (
 	requestTableActionID     = "request_table"
 	defaultWelcomeMenuAction = "btn_request_table"
 	mainMenuListButtonText   = "Abrir menu"
+	tabSummaryNewOrderID     = "1"
+	tabSummaryCloseTabID     = "2"
+	tabSummaryBackMenuID     = "0"
 )
 
 type botFlowActionDefinition struct {
@@ -224,6 +227,11 @@ func (uc *HandleWhatsAppMessageUseCase) Execute(ctx context.Context, input Handl
 			} else {
 				sendMessage = uc.sendTenantMessagePlain
 			}
+		} else if newState == session.StateViewingTab {
+			if err := uc.sendTabSummaryMenu(ctx, input.From, sess); err != nil {
+				return fmt.Errorf("failed to send tab summary response: %w", err)
+			}
+			sendMessage = nil
 		}
 		if sendMessage != nil {
 			if err := sendMessage(ctx, input.From, input.TenantID, response); err != nil {
@@ -777,12 +785,16 @@ func (uc *HandleWhatsAppMessageUseCase) handleViewingTab(
 	sess *session.Session,
 	text string,
 ) (string, session.ConversationState, error) {
-
-	if text == "0" {
+	switch strings.TrimSpace(text) {
+	case tabSummaryBackMenuID:
 		return whatsapp.MainMenuMessage(), session.StateMainMenu, nil
+	case tabSummaryNewOrderID:
+		return uc.handleMainMenuSimplified(ctx, sess, "1")
+	case tabSummaryCloseTabID:
+		return uc.startClosingTabFlow(ctx, sess)
+	default:
+		return uc.buildTabSummaryResponse(ctx, sess, false)
 	}
-
-	return whatsapp.MainMenuMessage(), session.StateMainMenu, nil
 }
 
 func (uc *HandleWhatsAppMessageUseCase) handleServiceRequest(
@@ -1309,6 +1321,98 @@ func buildMainMenuSections() []whatsapp.InteractiveListSection {
 				{ID: "4", Title: "Chamar garçom", Description: "Falar com nossa equipe"},
 				{ID: "5", Title: "Fechar conta", Description: "Pagar ou pedir fechamento"},
 			},
+		},
+	}
+}
+
+func (uc *HandleWhatsAppMessageUseCase) sendTabSummaryMenu(
+	ctx context.Context,
+	to string,
+	sess *session.Session,
+) error {
+	tenantObj, _ := uc.tenantRepo.FindByID(ctx, sess.TenantID)
+	restaurantName := ""
+	msgs := tenant.MessageTemplates{}
+	serviceFeePercent := 10.0
+	if tenantObj != nil {
+		restaurantName = tenantObj.Name
+		msgs = tenantObj.Settings.Messages
+		if tenantObj.Settings.ServiceFeePercent > 0 {
+			serviceFeePercent = tenantObj.Settings.ServiceFeePercent
+		}
+	}
+
+	userTab := uc.findSessionOpenTab(ctx, sess)
+	tableCode := uc.resolveLatestApprovedTableCode(ctx, sess)
+	items := []string{}
+	subtotal := 0.0
+	serviceFee := 0.0
+	total := 0.0
+	if userTab != nil {
+		tableCode = uc.resolveTabTableCode(ctx, sess.TenantID, userTab)
+		items = uc.buildTabItemsList(ctx, sess.TenantID, userTab.ID)
+		subtotal = userTab.Subtotal
+		serviceFee = userTab.ServiceFee
+		total = userTab.Total
+	}
+
+	body := whatsapp.TabSummaryMessage(
+		restaurantName,
+		tableCode,
+		items,
+		serviceFeePercent,
+		subtotal,
+		serviceFee,
+		total,
+		msgs,
+	)
+	fallback := whatsapp.TabSummaryMenuMessage(
+		restaurantName,
+		tableCode,
+		items,
+		serviceFeePercent,
+		subtotal,
+		serviceFee,
+		total,
+		msgs,
+	)
+
+	decoratedBody := whatsapp.WithRestaurantHeader(restaurantName, body)
+	ctx = whatsapp.WithTenantID(ctx, sess.TenantID)
+	if _, err := uc.sender.SendInteractiveButtons(ctx, to, decoratedBody, buildTabSummaryButtons()); err != nil {
+		uc.logger.Warn("failed to send interactive tab summary, falling back to text",
+			zap.Error(err),
+			zap.String("tenant_id", sess.TenantID.String()),
+			zap.String("to", to),
+		)
+		return uc.sender.SendText(ctx, to, whatsapp.WithRestaurantHeader(restaurantName, fallback))
+	}
+
+	return nil
+}
+
+func buildTabSummaryButtons() []whatsapp.InteractiveButton {
+	return []whatsapp.InteractiveButton{
+		{
+			Type: "reply",
+			Reply: struct {
+				ID    string `json:"id"`
+				Title string `json:"title"`
+			}{ID: tabSummaryNewOrderID, Title: "➕ Novo pedido"},
+		},
+		{
+			Type: "reply",
+			Reply: struct {
+				ID    string `json:"id"`
+				Title string `json:"title"`
+			}{ID: tabSummaryCloseTabID, Title: "✅ Fechar conta"},
+		},
+		{
+			Type: "reply",
+			Reply: struct {
+				ID    string `json:"id"`
+				Title string `json:"title"`
+			}{ID: tabSummaryBackMenuID, Title: "◂ Menu principal"},
 		},
 	}
 }

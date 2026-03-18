@@ -41,16 +41,17 @@ Você receberá uma notificação quando estiver pronto! 🍳`,
     msg_order_ready: `Seu pedido já está pronto! 😊🍽️
 
 Nossa equipe já vai levar até você aí na mesa. 🚶‍♂️✨`,
-    msg_tab_summary: `📋 *Sua Comanda*
-
+    msg_tab_summary: `🧾 *Sua Comanda{mesa_label}*
+┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
 {itens}
-━━━━━━━━━━━━━━━━
+┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
 Subtotal: R$ {subtotal}
-Taxa de serviço (10%): R$ {taxa}
-━━━━━━━━━━━━━━━━
-*Total: R$ {total}*
+Serviço ({percentual_taxa}%): R$ {taxa}
+┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+✦ *Total a pagar:* *R$ {total}*
+┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
 
-_Use o menu para fazer mais pedidos ou fechar a conta_`,
+_Obrigado por escolher o {nome_restaurante}!_ 🙏✨`,
     msg_service_request: `✅ *Solicitação registrada!*
 
 Tipo: {tipo_servico}
