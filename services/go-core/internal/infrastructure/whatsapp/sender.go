@@ -74,6 +74,37 @@ func (s *Sender) SendText(ctx context.Context, to string, message string) error 
 	return nil
 }
 
+func (s *Sender) SendImage(ctx context.Context, to, imageURL, caption string) (string, error) {
+	if s.apiClient == nil {
+		return "", fmt.Errorf("MetaAPIClient is not initialized")
+	}
+
+	billingTenant, err := s.loadTenantForBilling(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	if billingTenant != nil && billingTenant.BillingPlan == tenantDomain.PlanPrePaid && billingTenant.WalletBalance <= 0 {
+		return "", fmt.Errorf("tenant out of credits")
+	}
+
+	messageID, err := s.apiClient.SendImage(ctx, to, imageURL, caption)
+	if err != nil {
+		return "", err
+	}
+
+	if billingTenant != nil {
+		if err := s.applyImmediateBilling(ctx, billingTenant, messageID); err != nil {
+			s.logger.Warn("failed to apply image message billing",
+				zap.String("tenant_id", billingTenant.ID.String()),
+				zap.Error(err),
+			)
+		}
+	}
+
+	return messageID, nil
+}
+
 // Fase 14: Envia Botões Interativos Imediatamente, sem passar pelo Outbox (Prioridade Alta)
 func (s *Sender) SendInteractiveButtons(ctx context.Context, to, bodyText string, buttons []whatsappDomain.InteractiveButton) (string, error) {
 	if s.apiClient == nil {

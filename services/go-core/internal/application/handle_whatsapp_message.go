@@ -39,6 +39,7 @@ type HandleWhatsAppMessageUseCase struct {
 
 type WhatsAppSender interface {
 	SendText(ctx context.Context, to string, message string) error
+	SendImage(ctx context.Context, to, imageURL, caption string) (string, error)
 	SendInteractiveButtons(ctx context.Context, to, bodyText string, buttons []whatsapp.InteractiveButton) (string, error) // Fase 14
 	SendInteractiveList(ctx context.Context, to, bodyText, buttonText string, sections []whatsapp.InteractiveListSection) (string, error)
 }
@@ -740,14 +741,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleOrdering(
 	sess *session.Session,
 	text string,
 ) (string, session.ConversationState, error) {
-
-	if text == "0" {
-		return whatsapp.MainMenuMessage(), session.StateMainMenu, nil
-	}
-
-	// TODO: Implementar seleção de produtos
-	return "Selecione um item do cardápio\n\n_Digite 0 para voltar_",
-		session.StateOrdering, nil
+	return uc.handleOrderingSimplified(ctx, sess, text)
 }
 
 func (uc *HandleWhatsAppMessageUseCase) handleQuantitySelection(
@@ -755,14 +749,67 @@ func (uc *HandleWhatsAppMessageUseCase) handleQuantitySelection(
 	sess *session.Session,
 	text string,
 ) (string, session.ConversationState, error) {
+	text = strings.TrimSpace(text)
 
-	if text == "0" {
+	if text == "0" || text == orderingBackToMenuID {
+		uc.clearOrderingContext(sess)
 		return whatsapp.MainMenuMessage(), session.StateMainMenu, nil
 	}
 
-	// TODO: Processar quantidade
-	return "Quantidade selecionada!\n\n_Digite 0 para voltar_",
-		session.StateMainMenu, nil
+	selectedItemID := uc.getContextString(sess, orderingSelectedItemIDKey)
+	if selectedItemID == "" {
+		return uc.startOrderingFlow(ctx, sess)
+	}
+
+	itemID, err := uuid.Parse(selectedItemID)
+	if err != nil {
+		uc.clearOrderingContext(sess)
+		return "❌ Perdi a referência do item selecionado. Vamos reabrir o cardápio.\n\n" + whatsapp.MainMenuMessage(),
+			session.StateMainMenu, nil
+	}
+
+	selectedItem, err := uc.menuRepo.FindItemByID(ctx, itemID, sess.TenantID)
+	if err != nil || selectedItem == nil {
+		uc.logger.Error("failed to reload selected item for quantity",
+			zap.Error(err),
+			zap.String("tenant_id", sess.TenantID.String()),
+			zap.String("item_id", itemID.String()),
+		)
+		uc.clearOrderingContext(sess)
+		return "❌ Não consegui continuar esse pedido agora. Tente novamente pelo menu principal.",
+			session.StateMainMenu, nil
+	}
+
+	quantity := 0
+	switch {
+	case strings.HasPrefix(text, orderingQuantityPrefix):
+		quantity, err = strconv.Atoi(strings.TrimPrefix(text, orderingQuantityPrefix))
+	case text == orderingChangeItemID:
+		if categoryID := uc.getContextString(sess, orderingSelectedCategoryIDKey); categoryID != "" {
+			return uc.handleOrderingCategorySelection(ctx, sess, orderingCategoryPrefix+categoryID)
+		}
+		return uc.startOrderingFlow(ctx, sess)
+	default:
+		quantity, err = strconv.Atoi(text)
+	}
+
+	if err != nil || quantity < 1 || quantity > 20 {
+		return fmt.Sprintf("❌ Quantidade inválida para *%s*. Escolha um dos botões ou envie um número entre 1 e 20.\n\n_Digite 0 para voltar ao menu principal_",
+				selectedItem.Name),
+			session.StateSelectingQty, nil
+	}
+
+	sess.SetContext(orderingSelectedQuantityKey, quantity)
+	cart := uc.addItemToOrderingCart(sess, selectedItem, quantity)
+	sess.SetContext(orderingSelectedQuantityKey, quantity)
+	cartMessage := uc.buildOrderingCartMessage(ctx, sess, cart)
+	uc.clearOrderingSelectionContext(sess)
+
+	if err := uc.sendCartConfirmationMenu(ctx, sess.UserPhone, sess.TenantID, cartMessage); err == nil {
+		return "", session.StateConfirmingOrder, nil
+	}
+
+	return uc.buildCartConfirmationFallback(cartMessage), session.StateConfirmingOrder, nil
 }
 
 func (uc *HandleWhatsAppMessageUseCase) handleOrderConfirmation(
@@ -770,14 +817,97 @@ func (uc *HandleWhatsAppMessageUseCase) handleOrderConfirmation(
 	sess *session.Session,
 	text string,
 ) (string, session.ConversationState, error) {
+	text = strings.TrimSpace(text)
 
-	if text == "0" {
+	switch text {
+	case "0", orderingBackToMenuID:
+		uc.clearOrderingContext(sess)
 		return whatsapp.MainMenuMessage(), session.StateMainMenu, nil
+	case orderingChangeItemID, "2":
+		if categoryID := uc.getContextString(sess, orderingSelectedCategoryIDKey); categoryID != "" {
+			return uc.handleOrderingCategorySelection(ctx, sess, orderingCategoryPrefix+categoryID)
+		}
+		return uc.startOrderingFlow(ctx, sess)
+	case orderingConfirmOrderID, "1":
+	default:
+		return "❌ Opção inválida. Use *Enviar pedido*, *Outro item* ou digite *0* para voltar ao menu principal.",
+			session.StateConfirmingOrder, nil
 	}
 
-	// TODO: Confirmar pedido
-	return "Pedido confirmado!\n\n" + whatsapp.MainMenuMessage(),
-		session.StateMainMenu, nil
+	cart := uc.getOrderingCart(sess)
+	if len(cart) == 0 {
+		return uc.startOrderingFlow(ctx, sess)
+	}
+
+	if uc.createOrderUC == nil {
+		uc.clearOrderingContext(sess)
+		return "❌ Não consegui enviar pedidos agora. Tente novamente em instantes.\n\n" + whatsapp.MainMenuMessage(),
+			session.StateMainMenu, nil
+	}
+
+	userTab, err := uc.getOrCreateTab(ctx, sess)
+	if err != nil {
+		uc.logger.Error("failed to get/create tab for whatsapp order", zap.Error(err))
+		return "❌ Não consegui abrir sua comanda agora. Tente novamente em instantes.\n\n" + whatsapp.MainMenuMessage(),
+			session.StateMainMenu, nil
+	}
+
+	orderInput := CreateOrderInput{
+		TenantID: sess.TenantID,
+		TabID:    userTab.ID,
+		Items:    nil,
+		Notes:    fmt.Sprintf("Pedido via WhatsApp - %s", sess.UserPhone),
+	}
+
+	orderItems, err := uc.buildOrderingCartOrderInput(ctx, sess, cart)
+	if err != nil {
+		uc.logger.Error("failed to build order input from cart",
+			zap.Error(err),
+			zap.String("tenant_id", sess.TenantID.String()),
+		)
+		uc.clearOrderingContext(sess)
+		return "❌ Não consegui montar esse pedido agora. Vamos reabrir o cardápio para você tentar novamente.\n\n" + whatsapp.MainMenuMessage(),
+			session.StateMainMenu, nil
+	}
+	orderInput.Items = orderItems
+
+	createdOrder, err := uc.createOrderUC.Execute(ctx, orderInput)
+	if err != nil {
+		uc.logger.Error("failed to create whatsapp interactive order",
+			zap.Error(err),
+			zap.String("tenant_id", sess.TenantID.String()),
+		)
+		return "❌ Não consegui enviar esse pedido agora. Tente novamente em instantes.\n\n" + whatsapp.MainMenuMessage(),
+			session.StateMainMenu, nil
+	}
+
+	orderCode := uc.buildOrderDisplayCode(ctx, sess, userTab, createdOrder)
+	itemsSummary := uc.buildOrderingCartItemsSummary(ctx, sess, cart)
+	uc.clearOrderingContext(sess)
+
+	return fmt.Sprintf(
+		"✅ *Pedido enviado!*\n\n%s\n\n🧾 Código: *#%s*\n\nSeu pedido já foi encaminhado para a equipe. Vamos te avisar por aqui conforme o status avançar.\n\n%s",
+		itemsSummary,
+		orderCode,
+		whatsapp.MainMenuMessage(),
+	), session.StateMainMenu, nil
+}
+
+func orderingQuantityFromContext(value interface{}) (int, error) {
+	switch typed := value.(type) {
+	case int:
+		return typed, nil
+	case int32:
+		return int(typed), nil
+	case int64:
+		return int(typed), nil
+	case float64:
+		return int(typed), nil
+	case string:
+		return strconv.Atoi(strings.TrimSpace(typed))
+	default:
+		return strconv.Atoi(strings.TrimSpace(fmt.Sprintf("%v", typed)))
+	}
 }
 
 func (uc *HandleWhatsAppMessageUseCase) handleViewingTab(

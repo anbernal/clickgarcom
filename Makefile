@@ -94,13 +94,13 @@ ngrok-url: ## Mostra a URL publica do ngrok para o webhook
 
 # ============ DATABASE ============
 migrate-up: ## Executa migrations
-	cd services/go-core && go run cmd/migrate/main.go up
+	cd services/go-core && go run cmd/migrate/main.go -direction up
 
 migrate-down: ## Reverte última migration
-	cd services/go-core && go run cmd/migrate/main.go down
+	cd services/go-core && go run cmd/migrate/main.go -direction down
 
 migrate-create: ## Cria nova migration (use: make migrate-create name=add_users)
-	cd services/go-core && migrate create -ext sql -dir migrations -seq $(name)
+	cd services/go-core && migrate create -ext sql -dir cmd/migrate -seq $(name)
 
 db-reset: ## Reseta database (CUIDADO!)
 	docker-compose down -v
@@ -138,8 +138,8 @@ run-worker: ## Roda Worker localmente
 run-outbox: ## Roda Outbox Worker localmente
 	cd services/go-core && go run cmd/outbox-worker/main.go
 
-run-realtime: ## Roda servidor WebSocket
-	cd services/go-core && go run cmd/realtime/main.go
+run-realtime: ## Roda a API com o hub WebSocket integrado
+	cd services/go-core && go run cmd/api/main.go
 
 test: ## Roda testes
 	cd services/go-core && go test -v ./...

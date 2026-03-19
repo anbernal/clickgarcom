@@ -8,6 +8,6 @@ Construir o Split de Contas (Divisão de conta na mesa) no Go Core.
 Começar a Gateway de Pagamentos (PIX etc).
 
 
-https://unstoical-subgranularly-sidney.ngrok-free.app/webhook/whatsapp
+https://unstoical-subgranularly-sidney.ngrok-free.app/webhooks/whatsapp
 
 -  ter uma tela para configuracao de mensagem e os cardapios

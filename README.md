@@ -209,8 +209,10 @@ go test -v -race ./internal/infrastructure/websocket/...
 
 Documentação detalhada disponível em:
 - [`services/docs/walkthrough.md`](services/docs/walkthrough.md) - Guia completo das features implementadas
+- [`services/docs/project_architecture.md`](services/docs/project_architecture.md) - Arquitetura do sistema e responsabilidades dos serviços
+- [`services/docs/quick_reference.md`](services/docs/quick_reference.md) - Comandos, workflows e troubleshooting rápido
 - [`services/docs/06_bot_config_architecture.md`](services/docs/06_bot_config_architecture.md) - Evolução recomendada para templates, menus e conversation flows
-- [`services/docs/implementation_plan.md`](services/docs/implementation_plan.md) - Plano de implementação
+- [`services/docs/07_whatsapp_interactive_menu_architecture.md`](services/docs/07_whatsapp_interactive_menu_architecture.md) - Desenho do cardapio conversacional com imagens, carrinho e split para KDS
 
 ## Roadmap
 

@@ -709,6 +709,10 @@ function normalizeOrder(order) {
   const items = Array.isArray(order.items) ? order.items : [];
   return {
     ...order,
+    batch_id: order.batch_id || order.batchId || null,
+    batchId: order.batchId || order.batch_id || null,
+    batch_display_code: order.batch_display_code || order.batchDisplayCode || '',
+    batchDisplayCode: order.batchDisplayCode || order.batch_display_code || '',
     tab_id: order.tab_id || order.tabId || null,
     tabId: order.tabId || order.tab_id || null,
     created_at: order.created_at || order.createdAt || null,
@@ -764,16 +768,18 @@ function getOrderTableLabel(order) {
 function getOrderDisplayCode(order) {
   const phoneSuffix = getOrderPhoneSuffix(order);
   const tableCode = getOrderTableCode(order);
+  const batchDisplayCode = String(order?.batch_display_code || order?.batchDisplayCode || '').trim();
+  const batchId = String(order?.batch_id || order?.batchId || '').trim();
   const orderId = String(order?.id || '').trim();
-  const orderSuffix = orderId ? orderId.slice(-4) : '';
+  const logicalSuffix = batchDisplayCode || (batchId ? batchId.slice(-4) : '') || (orderId ? orderId.slice(-4) : '');
 
-  if (phoneSuffix && tableCode && orderSuffix) return `${phoneSuffix}-${tableCode}-${orderSuffix}`;
+  if (phoneSuffix && tableCode && logicalSuffix) return `${phoneSuffix}-${tableCode}-${logicalSuffix}`;
   if (phoneSuffix && tableCode) return `${phoneSuffix}-${tableCode}`;
-  if (phoneSuffix && orderSuffix) return `${phoneSuffix}-${orderSuffix}`;
-  if (tableCode && orderSuffix) return `${tableCode}-${orderSuffix}`;
+  if (phoneSuffix && logicalSuffix) return `${phoneSuffix}-${logicalSuffix}`;
+  if (tableCode && logicalSuffix) return `${tableCode}-${logicalSuffix}`;
   if (phoneSuffix) return phoneSuffix;
   if (tableCode) return tableCode;
-  if (orderSuffix) return orderSuffix;
+  if (logicalSuffix) return logicalSuffix;
   return shortId(orderId);
 }
 

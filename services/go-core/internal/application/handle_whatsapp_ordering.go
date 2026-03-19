@@ -12,6 +12,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/anbernal/clickgarcom/internal/domain/inbox/session"
+	"github.com/anbernal/clickgarcom/internal/domain/menu"
 	"github.com/anbernal/clickgarcom/internal/domain/order"
 	"github.com/anbernal/clickgarcom/internal/domain/servicerequest"
 	"github.com/anbernal/clickgarcom/internal/domain/tab"
@@ -19,24 +20,188 @@ import (
 	"github.com/anbernal/clickgarcom/internal/domain/whatsapp"
 )
 
+const (
+	orderingStepKey               = "ordering_step"
+	orderingStepCategorySelection = "category_selection"
+	orderingStepItemSelection     = "item_selection"
+	orderingCategoryIDsKey        = "ordering_category_ids"
+	orderingItemIDsKey            = "ordering_item_ids"
+	orderingSelectedCategoryIDKey = "ordering_selected_category_id"
+	orderingSelectedItemIDKey     = "ordering_selected_item_id"
+	orderingSelectedQuantityKey   = "ordering_selected_quantity"
+	orderingCartKey               = "ordering_cart"
+
+	orderingCategoryPrefix = "menu:category:"
+	orderingItemPrefix     = "menu:item:"
+	orderingQuantityPrefix = "qty:"
+	orderingConfirmOrderID = "order:confirm"
+	orderingChangeItemID   = "order:change_item"
+	orderingBackToMenuID   = "order:menu"
+)
+
+type orderingCartItem struct {
+	MenuItemID    string `json:"menu_item_id"`
+	Quantity      int    `json:"quantity"`
+	Observations  string `json:"observations,omitempty"`
+	MenuItemName  string `json:"menu_item_name,omitempty"`
+	UnitPrice     string `json:"unit_price,omitempty"`
+	CategoryLabel string `json:"category_label,omitempty"`
+}
+
 // handleOrderingSimplified - fluxo simplificado de pedidos
-// Usuário digita número do item (1-N) e sistema cria pedido com 1 unidade
-// CORRIGIDO: Busca itens do banco ao invés de confiar no contexto da sessão
+// Evoluído para categorias -> itens -> quantidade -> confirmação,
+// mantendo fallback textual quando o canal interativo falha.
 func (uc *HandleWhatsAppMessageUseCase) handleOrderingSimplified(
 	ctx context.Context,
 	sess *session.Session,
 	text string,
 ) (string, session.ConversationState, error) {
+	text = strings.TrimSpace(text)
 
 	if text == "0" {
+		uc.clearOrderingContext(sess)
 		return whatsapp.MainMenuMessage(), session.StateMainMenu, nil
 	}
 
-	// Buscar itens do menu novamente (mais confiável que contexto)
+	switch uc.getContextString(sess, orderingStepKey) {
+	case orderingStepCategorySelection:
+		return uc.handleOrderingCategorySelection(ctx, sess, text)
+	case orderingStepItemSelection:
+		return uc.handleOrderingItemSelection(ctx, sess, text)
+	default:
+		return uc.startOrderingFlow(ctx, sess)
+	}
+}
+
+func (uc *HandleWhatsAppMessageUseCase) startOrderingFlow(
+	ctx context.Context,
+	sess *session.Session,
+) (string, session.ConversationState, error) {
+	if uc.menuRepo == nil {
+		return "📋 Ainda não consegui carregar o cardápio agora. Tente novamente em instantes.\n\n" + whatsapp.MainMenuMessage(),
+			session.StateMainMenu, nil
+	}
+
+	categories, err := uc.menuRepo.FindCategoriesByTenant(ctx, sess.TenantID)
+	if err != nil {
+		uc.logger.Error("failed to fetch menu categories", zap.Error(err))
+		return "❌ Erro ao buscar categorias do cardápio. Tente novamente.\n\n" + whatsapp.MainMenuMessage(),
+			session.StateMainMenu, nil
+	}
+
+	activeCategories := make([]*menu.Category, 0, len(categories))
+	for _, category := range categories {
+		if category != nil && category.Active {
+			activeCategories = append(activeCategories, category)
+		}
+	}
+
+	uc.clearOrderingSelectionContext(sess)
+	sess.SetContext(orderingStepKey, orderingStepCategorySelection)
+	sess.SetContext(orderingCategoryIDsKey, menuCategoryIDs(activeCategories))
+
+	if len(activeCategories) == 0 {
+		return uc.showAllItemsForOrdering(ctx, sess)
+	}
+
+	if err := uc.sendOrderingCategoryMenu(ctx, sess.UserPhone, sess.TenantID, activeCategories); err == nil {
+		return "", session.StateOrdering, nil
+	}
+
+	return uc.buildOrderingCategoryFallback(activeCategories), session.StateOrdering, nil
+}
+
+func (uc *HandleWhatsAppMessageUseCase) handleOrderingCategorySelection(
+	ctx context.Context,
+	sess *session.Session,
+	text string,
+) (string, session.ConversationState, error) {
+	categoryID, ok := uc.resolveOrderingCategorySelection(sess, text)
+	if !ok {
+		return "❌ Categoria inválida. Escolha uma opção da lista enviada ou digite *0* para voltar ao menu principal.",
+			session.StateOrdering, nil
+	}
+
+	items, err := uc.menuRepo.FindItemsByCategory(ctx, categoryID, sess.TenantID, true)
+	if err != nil {
+		uc.logger.Error("failed to fetch category items",
+			zap.Error(err),
+			zap.String("tenant_id", sess.TenantID.String()),
+			zap.String("category_id", categoryID.String()),
+		)
+		return "❌ Não consegui abrir essa categoria agora. Tente novamente.\n\n" + whatsapp.MainMenuMessage(),
+			session.StateMainMenu, nil
+	}
+
+	category, _ := uc.menuRepo.FindCategoryByID(ctx, categoryID, sess.TenantID)
+	categoryName := "Cardápio"
+	if category != nil && strings.TrimSpace(category.Name) != "" {
+		categoryName = category.Name
+	}
+
+	if len(items) == 0 {
+		return fmt.Sprintf("📋 A categoria *%s* ainda não tem itens disponíveis.\n\nEscolha outra categoria ou digite *0* para voltar ao menu principal.", categoryName),
+			session.StateOrdering, nil
+	}
+
+	sess.SetContext(orderingStepKey, orderingStepItemSelection)
+	sess.SetContext(orderingSelectedCategoryIDKey, categoryID.String())
+	sess.SetContext(orderingItemIDsKey, menuItemIDs(items))
+
+	if err := uc.sendOrderingItemsMenu(ctx, sess.UserPhone, sess.TenantID, categoryName, items); err == nil {
+		return "", session.StateOrdering, nil
+	}
+
+	return uc.buildOrderingItemsFallback(categoryName, items), session.StateOrdering, nil
+}
+
+func (uc *HandleWhatsAppMessageUseCase) handleOrderingItemSelection(
+	ctx context.Context,
+	sess *session.Session,
+	text string,
+) (string, session.ConversationState, error) {
+	itemID, ok := uc.resolveOrderingItemSelection(sess, text)
+	if !ok {
+		return "❌ Item inválido. Escolha um item da lista enviada ou digite *0* para voltar ao menu principal.",
+			session.StateOrdering, nil
+	}
+
+	selectedItem, err := uc.menuRepo.FindItemByID(ctx, itemID, sess.TenantID)
+	if err != nil || selectedItem == nil {
+		uc.logger.Error("failed to load menu item",
+			zap.Error(err),
+			zap.String("tenant_id", sess.TenantID.String()),
+			zap.String("item_id", itemID.String()),
+		)
+		return "❌ Não consegui abrir esse item agora. Tente novamente.\n\n" + whatsapp.MainMenuMessage(),
+			session.StateMainMenu, nil
+	}
+
+	if !selectedItem.Available {
+		return fmt.Sprintf("⚠️ O item *%s* não está disponível agora.\n\nEscolha outro item ou digite *0* para voltar ao menu principal.", selectedItem.Name),
+			session.StateOrdering, nil
+	}
+
+	sess.SetContext(orderingSelectedItemIDKey, selectedItem.ID.String())
+	delete(sess.Context, orderingSelectedQuantityKey)
+
+	uc.sendOrderingItemImagePreview(ctx, sess.UserPhone, sess.TenantID, selectedItem)
+
+	if err := uc.sendQuantityMenu(ctx, sess.UserPhone, sess.TenantID, selectedItem); err == nil {
+		return "", session.StateSelectingQty, nil
+	}
+
+	return uc.buildQuantityFallback(selectedItem), session.StateSelectingQty, nil
+}
+
+func (uc *HandleWhatsAppMessageUseCase) showAllItemsForOrdering(
+	ctx context.Context,
+	sess *session.Session,
+) (string, session.ConversationState, error) {
 	items, err := uc.menuRepo.FindItemsByTenant(ctx, sess.TenantID, true)
 	if err != nil {
-		uc.logger.Error("failed to fetch menu items", zap.Error(err))
-		return "❌ Erro ao buscar cardápio. Tente novamente.\n\n" + whatsapp.MainMenuMessage(),
+		uc.logger.Error("failed to fetch tenant menu items", zap.Error(err))
+		return "❌ Não consegui carregar o cardápio agora. Tente novamente.\n\n" + whatsapp.MainMenuMessage(),
 			session.StateMainMenu, nil
 	}
 
@@ -45,63 +210,14 @@ func (uc *HandleWhatsAppMessageUseCase) handleOrderingSimplified(
 			session.StateMainMenu, nil
 	}
 
-	// Parsear número do item
-	itemNum, err := strconv.Atoi(text)
-	if err != nil || itemNum < 1 || itemNum > len(items) {
-		return fmt.Sprintf("❌ Número inválido. Digite um número entre 1 e %d\n\n_Digite 0 para voltar_",
-			len(items)), session.StateOrdering, nil
+	sess.SetContext(orderingStepKey, orderingStepItemSelection)
+	sess.SetContext(orderingItemIDsKey, menuItemIDs(items))
+
+	if err := uc.sendOrderingItemsMenu(ctx, sess.UserPhone, sess.TenantID, "Cardápio", items); err == nil {
+		return "", session.StateOrdering, nil
 	}
 
-	selectedItem := items[itemNum-1]
-
-	// Buscar ou criar tab para o usuário
-	userTab, err := uc.getOrCreateTab(ctx, sess)
-	if err != nil {
-		uc.logger.Error("failed to get/create tab", zap.Error(err))
-		return "❌ Erro ao processar pedido. Tente novamente.\n\n" + whatsapp.MainMenuMessage(),
-			session.StateMainMenu, nil
-	}
-
-	// Criar pedido com 1 unidade
-	orderInput := CreateOrderInput{
-		TenantID: sess.TenantID,
-		TabID:    userTab.ID,
-		Items: []OrderItemInput{
-			{
-				MenuItemID:   selectedItem.ID,
-				Quantity:     1,
-				Observations: "",
-			},
-		},
-		Notes: fmt.Sprintf("Pedido via WhatsApp - %s", sess.UserPhone),
-	}
-
-	order, err := uc.createOrderUC.Execute(ctx, orderInput)
-	if err != nil {
-		uc.logger.Error("failed to create order", zap.Error(err))
-		return "❌ Erro ao criar pedido. Tente novamente.\n\n" + whatsapp.MainMenuMessage(),
-			session.StateMainMenu, nil
-	}
-
-	// Mensagem após criação: pedido enviado e aguardando confirmação
-	msg := fmt.Sprintf(`⏳ *Pedido enviado!*
-
-📦 Item: %s
-💰 Valor: R$ %.2f
-🔢 Quantidade: 1
-
-Seu pedido foi enviado. Aguarde a confirmação da equipe.
-Assim que for aceito, vamos informar o tempo estimado de entrega.
-
-%s`, selectedItem.Name, selectedItem.Price, whatsapp.MainMenuMessage())
-
-	uc.logger.Info("order created via whatsapp",
-		zap.String("order_id", order.ID.String()),
-		zap.String("user_phone", sess.UserPhone),
-		zap.String("item_name", selectedItem.Name),
-	)
-
-	return msg, session.StateMainMenu, nil
+	return uc.buildOrderingItemsFallback("Cardápio", items), session.StateOrdering, nil
 }
 
 // getOrCreateTab busca ou cria uma tab para o usuário
@@ -147,30 +263,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleMainMenuSimplified(
 
 	switch text {
 	case "1":
-		// Fazer pedido - mostrar todos os itens disponíveis
-		items, err := uc.menuRepo.FindItemsByTenant(ctx, sess.TenantID, true)
-		if err != nil {
-			uc.logger.Error("failed to fetch menu items", zap.Error(err))
-			return "❌ Erro ao buscar cardápio. Tente novamente.\n\n" + whatsapp.MainMenuMessage(),
-				session.StateMainMenu, nil
-		}
-
-		if len(items) == 0 {
-			return "📋 Cardápio ainda não disponível.\n\n" + whatsapp.MainMenuMessage(),
-				session.StateMainMenu, nil
-		}
-
-		// Montar mensagem com itens
-		msg := "🛒 *Fazer Pedido*\n\nItens disponíveis:\n\n"
-		for i, item := range items {
-			msg += fmt.Sprintf("*%d* - %s - R$ %.2f\n", i+1, item.Name, item.Price)
-		}
-		msg += "\n_Digite o número do item para pedir 1 unidade_"
-		msg += "\n_Digite 0 para voltar ao menu_"
-
-		// Não precisa mais salvar no contexto - vamos buscar do banco na próxima mensagem
-
-		return msg, session.StateOrdering, nil
+		return uc.startOrderingFlow(ctx, sess)
 
 	case "2":
 		return uc.buildTabSummaryResponse(ctx, sess, false)
@@ -188,6 +281,692 @@ func (uc *HandleWhatsAppMessageUseCase) handleMainMenuSimplified(
 		return whatsapp.InvalidOptionMessage() + "\n\n" + whatsapp.MainMenuMessage(),
 			session.StateMainMenu, nil
 	}
+}
+
+func (uc *HandleWhatsAppMessageUseCase) sendOrderingCategoryMenu(
+	ctx context.Context,
+	to string,
+	tenantID uuid.UUID,
+	categories []*menu.Category,
+) error {
+	if len(categories) == 0 || len(categories) > 10 {
+		return fmt.Errorf("interactive category menu unavailable for %d categories", len(categories))
+	}
+
+	rows := make([]whatsapp.InteractiveListRow, 0, len(categories))
+	for _, category := range categories {
+		if category == nil {
+			continue
+		}
+		rows = append(rows, whatsapp.InteractiveListRow{
+			ID:          orderingCategoryPrefix + category.ID.String(),
+			Title:       truncateInteractiveTitle(category.Name),
+			Description: truncateInteractiveDescription(orderingCategoryDescription(category)),
+		})
+	}
+
+	if len(rows) == 0 {
+		return fmt.Errorf("no category rows available")
+	}
+
+	body := whatsapp.WithRestaurantHeader(
+		uc.resolveTenantName(ctx, tenantID),
+		"🍽️ *Cardápio Interativo*\n\nEscolha uma categoria para começar seu pedido.",
+	)
+
+	_, err := uc.sender.SendInteractiveList(
+		whatsapp.WithTenantID(ctx, tenantID),
+		to,
+		body,
+		"Ver categorias",
+		[]whatsapp.InteractiveListSection{{Title: "Categorias", Rows: rows}},
+	)
+	return err
+}
+
+func (uc *HandleWhatsAppMessageUseCase) sendOrderingItemsMenu(
+	ctx context.Context,
+	to string,
+	tenantID uuid.UUID,
+	categoryName string,
+	items []*menu.Item,
+) error {
+	if len(items) == 0 || len(items) > 10 {
+		return fmt.Errorf("interactive item menu unavailable for %d items", len(items))
+	}
+
+	rows := make([]whatsapp.InteractiveListRow, 0, len(items))
+	for _, item := range items {
+		if item == nil {
+			continue
+		}
+		rows = append(rows, whatsapp.InteractiveListRow{
+			ID:          orderingItemPrefix + item.ID.String(),
+			Title:       truncateInteractiveTitle(item.Name),
+			Description: truncateInteractiveDescription(orderingItemDescription(item)),
+		})
+	}
+
+	if len(rows) == 0 {
+		return fmt.Errorf("no item rows available")
+	}
+
+	body := whatsapp.WithRestaurantHeader(
+		uc.resolveTenantName(ctx, tenantID),
+		fmt.Sprintf("🛒 *%s*\n\nEscolha o item que você quer adicionar ao pedido.", strings.TrimSpace(categoryName)),
+	)
+
+	_, err := uc.sender.SendInteractiveList(
+		whatsapp.WithTenantID(ctx, tenantID),
+		to,
+		body,
+		"Ver itens",
+		[]whatsapp.InteractiveListSection{{Title: truncateInteractiveTitle(categoryName), Rows: rows}},
+	)
+	return err
+}
+
+func (uc *HandleWhatsAppMessageUseCase) sendQuantityMenu(
+	ctx context.Context,
+	to string,
+	tenantID uuid.UUID,
+	item *menu.Item,
+) error {
+	if item == nil {
+		return fmt.Errorf("nil item")
+	}
+
+	body := whatsapp.WithRestaurantHeader(
+		uc.resolveTenantName(ctx, tenantID),
+		fmt.Sprintf(
+			"✨ *%s*\n%s\n\n💰 Valor unitário: *R$ %s*\n\nEscolha a quantidade ou responda com outro número.",
+			item.Name,
+			orderingItemDetail(item),
+			formatBRLCurrency(item.Price),
+		),
+	)
+
+	_, err := uc.sender.SendInteractiveButtons(
+		whatsapp.WithTenantID(ctx, tenantID),
+		to,
+		body,
+		buildQuantityButtons(),
+	)
+	return err
+}
+
+func (uc *HandleWhatsAppMessageUseCase) sendCartConfirmationMenu(
+	ctx context.Context,
+	to string,
+	tenantID uuid.UUID,
+	cartBody string,
+) error {
+	if strings.TrimSpace(cartBody) == "" {
+		return fmt.Errorf("empty cart confirmation payload")
+	}
+
+	body := whatsapp.WithRestaurantHeader(uc.resolveTenantName(ctx, tenantID), cartBody)
+	_, err := uc.sender.SendInteractiveButtons(
+		whatsapp.WithTenantID(ctx, tenantID),
+		to,
+		body,
+		buildOrderConfirmationButtons(),
+	)
+	return err
+}
+
+func (uc *HandleWhatsAppMessageUseCase) buildOrderingCategoryFallback(categories []*menu.Category) string {
+	if len(categories) == 0 {
+		return "📋 Cardápio ainda não disponível.\n\n" + whatsapp.MainMenuMessage()
+	}
+
+	lines := make([]string, 0, len(categories))
+	for index, category := range categories {
+		if category == nil {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("*%d* - %s", index+1, category.Name))
+	}
+
+	return "🍽️ *Cardápio Interativo*\n\nEscolha uma categoria:\n\n" +
+		strings.Join(lines, "\n") +
+		"\n\n_Digite o número da categoria ou 0 para voltar ao menu principal_"
+}
+
+func (uc *HandleWhatsAppMessageUseCase) buildOrderingItemsFallback(categoryName string, items []*menu.Item) string {
+	lines := make([]string, 0, len(items))
+	for index, item := range items {
+		if item == nil {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("*%d* - %s · R$ %s", index+1, item.Name, formatBRLCurrency(item.Price)))
+	}
+
+	return fmt.Sprintf(
+		"🛒 *%s*\n\n%s\n\n_Digite o número do item ou 0 para voltar ao menu principal_",
+		categoryName,
+		strings.Join(lines, "\n"),
+	)
+}
+
+func (uc *HandleWhatsAppMessageUseCase) buildQuantityFallback(item *menu.Item) string {
+	return fmt.Sprintf(
+		"✨ *%s*\n%s\n\n💰 Valor unitário: *R$ %s*\n\nDigite a quantidade desejada (ex: 1, 2, 3) ou *0* para voltar ao menu principal.",
+		item.Name,
+		orderingItemDetail(item),
+		formatBRLCurrency(item.Price),
+	)
+}
+
+func (uc *HandleWhatsAppMessageUseCase) buildCartConfirmationFallback(cartBody string) string {
+	return strings.TrimSpace(cartBody) + "\n\n*1* - ✅ Enviar pedido\n*2* - ➕ Adicionar mais itens\n*0* - ◂ Menu principal"
+}
+
+func (uc *HandleWhatsAppMessageUseCase) resolveOrderingCategorySelection(sess *session.Session, text string) (uuid.UUID, bool) {
+	if strings.HasPrefix(text, orderingCategoryPrefix) {
+		id, err := uuid.Parse(strings.TrimPrefix(text, orderingCategoryPrefix))
+		return id, err == nil
+	}
+
+	index, err := strconv.Atoi(text)
+	if err != nil || index < 1 {
+		return uuid.Nil, false
+	}
+
+	ids := uc.getContextStringSlice(sess, orderingCategoryIDsKey)
+	if index > len(ids) {
+		return uuid.Nil, false
+	}
+
+	id, err := uuid.Parse(ids[index-1])
+	return id, err == nil
+}
+
+func (uc *HandleWhatsAppMessageUseCase) resolveOrderingItemSelection(sess *session.Session, text string) (uuid.UUID, bool) {
+	if strings.HasPrefix(text, orderingItemPrefix) {
+		id, err := uuid.Parse(strings.TrimPrefix(text, orderingItemPrefix))
+		return id, err == nil
+	}
+
+	index, err := strconv.Atoi(text)
+	if err != nil || index < 1 {
+		return uuid.Nil, false
+	}
+
+	ids := uc.getContextStringSlice(sess, orderingItemIDsKey)
+	if index > len(ids) {
+		return uuid.Nil, false
+	}
+
+	id, err := uuid.Parse(ids[index-1])
+	return id, err == nil
+}
+
+func (uc *HandleWhatsAppMessageUseCase) clearOrderingContext(sess *session.Session) {
+	if sess == nil || sess.Context == nil {
+		return
+	}
+
+	for _, key := range []string{
+		orderingStepKey,
+		orderingCategoryIDsKey,
+		orderingItemIDsKey,
+		orderingSelectedCategoryIDKey,
+		orderingSelectedItemIDKey,
+		orderingSelectedQuantityKey,
+		orderingCartKey,
+	} {
+		delete(sess.Context, key)
+	}
+}
+
+func (uc *HandleWhatsAppMessageUseCase) clearOrderingSelectionContext(sess *session.Session) {
+	if sess == nil || sess.Context == nil {
+		return
+	}
+
+	for _, key := range []string{
+		orderingStepKey,
+		orderingCategoryIDsKey,
+		orderingItemIDsKey,
+		orderingSelectedCategoryIDKey,
+		orderingSelectedItemIDKey,
+		orderingSelectedQuantityKey,
+	} {
+		delete(sess.Context, key)
+	}
+}
+
+func (uc *HandleWhatsAppMessageUseCase) getContextString(sess *session.Session, key string) string {
+	if sess == nil {
+		return ""
+	}
+	value, ok := sess.GetContext(key)
+	if !ok || value == nil {
+		return ""
+	}
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed)
+	default:
+		return strings.TrimSpace(fmt.Sprintf("%v", typed))
+	}
+}
+
+func (uc *HandleWhatsAppMessageUseCase) getContextStringSlice(sess *session.Session, key string) []string {
+	if sess == nil {
+		return nil
+	}
+	value, ok := sess.GetContext(key)
+	if !ok || value == nil {
+		return nil
+	}
+
+	switch typed := value.(type) {
+	case []string:
+		return append([]string(nil), typed...)
+	case []interface{}:
+		values := make([]string, 0, len(typed))
+		for _, raw := range typed {
+			if raw == nil {
+				continue
+			}
+			values = append(values, strings.TrimSpace(fmt.Sprintf("%v", raw)))
+		}
+		return values
+	default:
+		return nil
+	}
+}
+
+func orderingCategoryDescription(category *menu.Category) string {
+	if category == nil {
+		return ""
+	}
+	description := strings.TrimSpace(category.Description)
+	if description != "" {
+		return description
+	}
+	return "Abrir categoria"
+}
+
+func orderingItemDescription(item *menu.Item) string {
+	if item == nil {
+		return ""
+	}
+	description := strings.TrimSpace(item.Description)
+	if description == "" {
+		description = "Escolher item"
+	}
+	return fmt.Sprintf("R$ %s · %s", formatBRLCurrency(item.Price), description)
+}
+
+func orderingItemDetail(item *menu.Item) string {
+	if item == nil {
+		return ""
+	}
+	description := strings.TrimSpace(item.Description)
+	if description == "" {
+		return "Escolha quantas unidades deseja pedir."
+	}
+	return description
+}
+
+func menuCategoryIDs(categories []*menu.Category) []string {
+	ids := make([]string, 0, len(categories))
+	for _, category := range categories {
+		if category != nil && category.ID != uuid.Nil {
+			ids = append(ids, category.ID.String())
+		}
+	}
+	return ids
+}
+
+func menuItemIDs(items []*menu.Item) []string {
+	ids := make([]string, 0, len(items))
+	for _, item := range items {
+		if item != nil && item.ID != uuid.Nil {
+			ids = append(ids, item.ID.String())
+		}
+	}
+	return ids
+}
+
+func (uc *HandleWhatsAppMessageUseCase) getOrderingCart(sess *session.Session) []orderingCartItem {
+	if sess == nil {
+		return nil
+	}
+	value, ok := sess.GetContext(orderingCartKey)
+	if !ok || value == nil {
+		return nil
+	}
+
+	switch typed := value.(type) {
+	case []orderingCartItem:
+		return append([]orderingCartItem(nil), typed...)
+	case []interface{}:
+		cart := make([]orderingCartItem, 0, len(typed))
+		for _, raw := range typed {
+			entry, ok := raw.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			cart = append(cart, orderingCartItem{
+				MenuItemID:    strings.TrimSpace(fmt.Sprintf("%v", entry["menu_item_id"])),
+				Quantity:      parseOrderingIntValue(entry["quantity"]),
+				Observations:  strings.TrimSpace(fmt.Sprintf("%v", entry["observations"])),
+				MenuItemName:  strings.TrimSpace(fmt.Sprintf("%v", entry["menu_item_name"])),
+				UnitPrice:     strings.TrimSpace(fmt.Sprintf("%v", entry["unit_price"])),
+				CategoryLabel: strings.TrimSpace(fmt.Sprintf("%v", entry["category_label"])),
+			})
+		}
+		return cart
+	default:
+		return nil
+	}
+}
+
+func (uc *HandleWhatsAppMessageUseCase) setOrderingCart(sess *session.Session, cart []orderingCartItem) {
+	if sess == nil {
+		return
+	}
+	sess.SetContext(orderingCartKey, cart)
+}
+
+func (uc *HandleWhatsAppMessageUseCase) addItemToOrderingCart(sess *session.Session, item *menu.Item, quantity int) []orderingCartItem {
+	cart := uc.getOrderingCart(sess)
+	if item == nil || quantity <= 0 {
+		return cart
+	}
+
+	for index := range cart {
+		if cart[index].MenuItemID != item.ID.String() {
+			continue
+		}
+		cart[index].Quantity += quantity
+		if strings.TrimSpace(cart[index].MenuItemName) == "" {
+			cart[index].MenuItemName = item.Name
+		}
+		if strings.TrimSpace(cart[index].UnitPrice) == "" {
+			cart[index].UnitPrice = fmt.Sprintf("%.2f", item.Price)
+		}
+		uc.setOrderingCart(sess, cart)
+		return cart
+	}
+
+	cart = append(cart, orderingCartItem{
+		MenuItemID:    item.ID.String(),
+		Quantity:      quantity,
+		MenuItemName:  item.Name,
+		UnitPrice:     fmt.Sprintf("%.2f", item.Price),
+		CategoryLabel: uc.getContextString(sess, orderingSelectedCategoryIDKey),
+	})
+	uc.setOrderingCart(sess, cart)
+	return cart
+}
+
+func (uc *HandleWhatsAppMessageUseCase) buildOrderingCartMessage(
+	ctx context.Context,
+	sess *session.Session,
+	cart []orderingCartItem,
+) string {
+	if len(cart) == 0 {
+		return "🛒 *Seu pedido ainda está vazio.*\n\nEscolha um item para começar."
+	}
+
+	itemIDs := make([]uuid.UUID, 0, len(cart))
+	for _, entry := range cart {
+		id, err := uuid.Parse(strings.TrimSpace(entry.MenuItemID))
+		if err == nil {
+			itemIDs = append(itemIDs, id)
+		}
+	}
+
+	menuItemsByID := make(map[string]*menu.Item, len(itemIDs))
+	if len(itemIDs) > 0 {
+		menuItems, err := uc.menuRepo.FindItemsByIDs(ctx, itemIDs, sess.TenantID)
+		if err == nil {
+			for _, item := range menuItems {
+				if item != nil {
+					menuItemsByID[item.ID.String()] = item
+				}
+			}
+		}
+	}
+
+	lines := make([]string, 0, len(cart))
+	subtotal := 0.0
+	for _, entry := range cart {
+		quantity := entry.Quantity
+		if quantity <= 0 {
+			continue
+		}
+
+		itemName := strings.TrimSpace(entry.MenuItemName)
+		unitPrice := 0.0
+
+		if item := menuItemsByID[entry.MenuItemID]; item != nil {
+			itemName = item.Name
+			unitPrice = item.Price
+		} else {
+			unitPrice = parseOrderingFloatValue(entry.UnitPrice)
+		}
+
+		if itemName == "" {
+			itemName = "Item"
+		}
+
+		lineTotal := unitPrice * float64(quantity)
+		subtotal += lineTotal
+		lines = append(lines, fmt.Sprintf("• %dx %s — R$ %s", quantity, itemName, formatBRLCurrency(lineTotal)))
+	}
+
+	if len(lines) == 0 {
+		return "🛒 *Seu pedido ainda está vazio.*\n\nEscolha um item para começar."
+	}
+
+	return fmt.Sprintf(
+		"🛒 *Seu pedido*\n\n%s\n\nSubtotal parcial: *R$ %s*\n\nDeseja adicionar mais itens ou enviar agora?",
+		strings.Join(lines, "\n"),
+		formatBRLCurrency(subtotal),
+	)
+}
+
+func (uc *HandleWhatsAppMessageUseCase) buildOrderingCartOrderInput(
+	ctx context.Context,
+	sess *session.Session,
+	cart []orderingCartItem,
+) ([]OrderItemInput, error) {
+	inputs := make([]OrderItemInput, 0, len(cart))
+	for _, entry := range cart {
+		itemID, err := uuid.Parse(strings.TrimSpace(entry.MenuItemID))
+		if err != nil || entry.Quantity <= 0 {
+			continue
+		}
+
+		menuItem, err := uc.menuRepo.FindItemByID(ctx, itemID, sess.TenantID)
+		if err != nil || menuItem == nil {
+			return nil, fmt.Errorf("menu item not found for cart entry %s", entry.MenuItemID)
+		}
+
+		inputs = append(inputs, OrderItemInput{
+			MenuItemID:   menuItem.ID,
+			Quantity:     entry.Quantity,
+			Observations: strings.TrimSpace(entry.Observations),
+		})
+	}
+
+	if len(inputs) == 0 {
+		return nil, fmt.Errorf("empty ordering cart")
+	}
+
+	return inputs, nil
+}
+
+func (uc *HandleWhatsAppMessageUseCase) buildOrderingCartItemsSummary(
+	ctx context.Context,
+	sess *session.Session,
+	cart []orderingCartItem,
+) string {
+	itemIDs := make([]uuid.UUID, 0, len(cart))
+	for _, entry := range cart {
+		id, err := uuid.Parse(strings.TrimSpace(entry.MenuItemID))
+		if err == nil {
+			itemIDs = append(itemIDs, id)
+		}
+	}
+
+	menuItemsByID := make(map[string]*menu.Item, len(itemIDs))
+	if len(itemIDs) > 0 {
+		menuItems, err := uc.menuRepo.FindItemsByIDs(ctx, itemIDs, sess.TenantID)
+		if err == nil {
+			for _, item := range menuItems {
+				if item != nil {
+					menuItemsByID[item.ID.String()] = item
+				}
+			}
+		}
+	}
+
+	lines := make([]string, 0, len(cart))
+	for _, entry := range cart {
+		if entry.Quantity <= 0 {
+			continue
+		}
+		itemName := strings.TrimSpace(entry.MenuItemName)
+		if item := menuItemsByID[entry.MenuItemID]; item != nil {
+			itemName = item.Name
+		}
+		if itemName == "" {
+			itemName = "Item"
+		}
+		lines = append(lines, fmt.Sprintf("• %dx %s", entry.Quantity, itemName))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (uc *HandleWhatsAppMessageUseCase) sendOrderingItemImagePreview(
+	ctx context.Context,
+	to string,
+	tenantID uuid.UUID,
+	item *menu.Item,
+) {
+	if item == nil || strings.TrimSpace(item.ImageURL) == "" {
+		return
+	}
+
+	caption := fmt.Sprintf("%s\nR$ %s", item.Name, formatBRLCurrency(item.Price))
+	if description := strings.TrimSpace(item.Description); description != "" {
+		caption += "\n" + truncateInteractiveDescription(description)
+	}
+
+	if _, err := uc.sender.SendImage(
+		whatsapp.WithTenantID(ctx, tenantID),
+		to,
+		strings.TrimSpace(item.ImageURL),
+		caption,
+	); err != nil {
+		uc.logger.Warn("failed to send item preview image",
+			zap.Error(err),
+			zap.String("tenant_id", tenantID.String()),
+			zap.String("item_id", item.ID.String()),
+		)
+	}
+}
+
+func parseOrderingIntValue(value interface{}) int {
+	switch typed := value.(type) {
+	case int:
+		return typed
+	case int32:
+		return int(typed)
+	case int64:
+		return int(typed)
+	case float64:
+		return int(typed)
+	case string:
+		n, _ := strconv.Atoi(strings.TrimSpace(typed))
+		return n
+	default:
+		n, _ := strconv.Atoi(strings.TrimSpace(fmt.Sprintf("%v", typed)))
+		return n
+	}
+}
+
+func parseOrderingFloatValue(raw string) float64 {
+	value, _ := strconv.ParseFloat(strings.TrimSpace(raw), 64)
+	return value
+}
+
+func buildQuantityButtons() []whatsapp.InteractiveButton {
+	quantities := []struct {
+		ID    string
+		Title string
+	}{
+		{ID: orderingQuantityPrefix + "1", Title: "1 unidade"},
+		{ID: orderingQuantityPrefix + "2", Title: "2 unidades"},
+		{ID: orderingQuantityPrefix + "3", Title: "3 unidades"},
+	}
+
+	buttons := make([]whatsapp.InteractiveButton, 0, len(quantities))
+	for _, quantity := range quantities {
+		buttons = append(buttons, whatsapp.InteractiveButton{
+			Type: "reply",
+			Reply: struct {
+				ID    string `json:"id"`
+				Title string `json:"title"`
+			}{ID: quantity.ID, Title: quantity.Title},
+		})
+	}
+	return buttons
+}
+
+func buildOrderConfirmationButtons() []whatsapp.InteractiveButton {
+	return []whatsapp.InteractiveButton{
+		{
+			Type: "reply",
+			Reply: struct {
+				ID    string `json:"id"`
+				Title string `json:"title"`
+			}{ID: orderingConfirmOrderID, Title: "✅ Enviar pedido"},
+		},
+		{
+			Type: "reply",
+			Reply: struct {
+				ID    string `json:"id"`
+				Title string `json:"title"`
+			}{ID: orderingChangeItemID, Title: "➕ Adicionar mais"},
+		},
+		{
+			Type: "reply",
+			Reply: struct {
+				ID    string `json:"id"`
+				Title string `json:"title"`
+			}{ID: orderingBackToMenuID, Title: "◂ Menu principal"},
+		},
+	}
+}
+
+func truncateInteractiveTitle(value string) string {
+	return truncateInteractiveText(value, 24)
+}
+
+func truncateInteractiveDescription(value string) string {
+	return truncateInteractiveText(value, 72)
+}
+
+func truncateInteractiveText(value string, maxRunes int) string {
+	if maxRunes <= 0 {
+		return ""
+	}
+	runes := []rune(strings.TrimSpace(value))
+	if len(runes) <= maxRunes {
+		return string(runes)
+	}
+	if maxRunes <= 3 {
+		return string(runes[:maxRunes])
+	}
+	return string(runes[:maxRunes-3]) + "..."
 }
 
 func (uc *HandleWhatsAppMessageUseCase) startClosingTabFlow(
@@ -560,6 +1339,14 @@ func phoneSuffixFromText(raw string) string {
 func orderSuffixFromID(o *order.Order) string {
 	if o == nil {
 		return ""
+	}
+
+	if o.BatchID != nil && *o.BatchID != uuid.Nil {
+		id := strings.TrimSpace(o.BatchID.String())
+		if len(id) <= 4 {
+			return id
+		}
+		return id[len(id)-4:]
 	}
 
 	id := strings.TrimSpace(o.ID.String())

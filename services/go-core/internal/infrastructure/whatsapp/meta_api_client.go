@@ -43,6 +43,17 @@ type SendTextMessageRequest struct {
 	} `json:"text"`
 }
 
+type SendImageMessageRequest struct {
+	MessagingProduct string `json:"messaging_product"`
+	RecipientType    string `json:"recipient_type"`
+	To               string `json:"to"`
+	Type             string `json:"type"`
+	Image            struct {
+		Link    string `json:"link"`
+		Caption string `json:"caption,omitempty"`
+	} `json:"image"`
+}
+
 type SendMessageResponse struct {
 	MessagingProduct string `json:"messaging_product"`
 	Contacts         []struct {
@@ -120,6 +131,61 @@ func (c *MetaAPIClient) SendTextMessage(ctx context.Context, to, message string)
 	)
 
 	return messageID, nil
+}
+
+func (c *MetaAPIClient) SendImage(ctx context.Context, to, imageURL, caption string) (string, error) {
+	url := fmt.Sprintf("https://graph.facebook.com/v18.0/%s/messages", c.phoneNumberID)
+
+	reqBody := SendImageMessageRequest{
+		MessagingProduct: "whatsapp",
+		RecipientType:    "individual",
+		To:               to,
+		Type:             "image",
+	}
+	reqBody.Image.Link = imageURL
+	reqBody.Image.Caption = caption
+
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal image request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return "", fmt.Errorf("failed to create image request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+c.apiToken)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to send image request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read image response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		c.logger.Error("whatsapp api error image",
+			zap.Int("status", resp.StatusCode),
+			zap.String("response", string(body)),
+		)
+		return "", fmt.Errorf("api error: %d - %s", resp.StatusCode, string(body))
+	}
+
+	var apiResp SendMessageResponse
+	if err := json.Unmarshal(body, &apiResp); err != nil {
+		return "", fmt.Errorf("failed to unmarshal image response: %w", err)
+	}
+	if len(apiResp.Messages) == 0 {
+		return "", fmt.Errorf("no message id in image response")
+	}
+
+	return apiResp.Messages[0].ID, nil
 }
 
 // SendTemplateMessage dispara templates aprovados (necessário para iniciar conversas / burlar o bloqueio de 24h na Sandbox)

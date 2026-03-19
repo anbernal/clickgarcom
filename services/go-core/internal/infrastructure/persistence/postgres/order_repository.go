@@ -42,6 +42,17 @@ func (r *OrderRepository) FindByIDWithItems(ctx context.Context, id uuid.UUID, t
 	return &o, nil
 }
 
+func (r *OrderRepository) FindByBatchID(ctx context.Context, batchID uuid.UUID, tenantID uuid.UUID) ([]*order.Order, error) {
+	var orders []*order.Order
+	err := r.db.WithContext(ctx).
+		Preload("Items").
+		Where("batch_id = ? AND tenant_id = ?", batchID, tenantID).
+		Order("created_at ASC").
+		Find(&orders).Error
+
+	return orders, err
+}
+
 func (r *OrderRepository) FindByTab(ctx context.Context, tabID uuid.UUID, tenantID uuid.UUID) ([]*order.Order, error) {
 	var orders []*order.Order
 	err := r.db.WithContext(ctx).

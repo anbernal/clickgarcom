@@ -40,11 +40,12 @@ func main() {
 
 	// Repositories
 	orderRepo := postgres.NewOrderRepository(db.DB)
+	orderBatchRepo := postgres.NewOrderBatchRepository(db.DB)
 	tabRepo := postgres.NewTabRepository(db.DB)
 	menuRepo := postgres.NewMenuRepository(db.DB)
 
 	// Use Case
-	createOrderUC := application.NewCreateOrderUseCase(orderRepo, tabRepo, menuRepo, nil, nil, logger.Log)
+	createOrderUC := application.NewCreateOrderUseCase(orderRepo, orderBatchRepo, tabRepo, menuRepo, nil, nil, logger.Log)
 
 	// Input (SUBSTITUA <MENU_ITEM_ID> pelo ID do item do menu)
 	input := application.CreateOrderInput{

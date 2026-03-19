@@ -6,6 +6,7 @@ import { MenuCategory } from './entities/menu-category.entity';
 import { MenuItem } from './entities/menu-item.entity';
 import { Order } from './entities/order.entity';
 import { OrderItem } from './entities/order-item.entity';
+import { OrderBatch } from './entities/order-batch.entity';
 import { Table } from './entities/table.entity';
 import { Tab } from './entities/tab.entity';
 import { TableRequest } from './entities/table-request.entity';
@@ -36,7 +37,7 @@ import { AppController } from './app.controller';
             username: process.env.DATABASE_USER || 'postgres',
             password: process.env.DATABASE_PASSWORD || 'postgres123',
             database: process.env.DATABASE_NAME || 'clickgarcom_db',
-            entities: [MenuCategory, MenuItem, Order, OrderItem, Table, Tab, TableRequest, User, Tenant, MessageLog, BotFlowDefinition],
+            entities: [MenuCategory, MenuItem, Order, OrderItem, OrderBatch, Table, Tab, TableRequest, User, Tenant, MessageLog, BotFlowDefinition],
             synchronize: false,
         }),
         AmqpModule,

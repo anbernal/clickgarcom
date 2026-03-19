@@ -41,6 +41,7 @@ func SetupRoutes(
 	inboxRepo := postgres.NewInboxRepository(db.DB)
 	menuRepo := postgres.NewMenuRepository(db.DB)
 	orderRepo := postgres.NewOrderRepository(db.DB)
+	orderBatchRepo := postgres.NewOrderBatchRepository(db.DB)
 	tenantRepo := postgres.NewTenantRepository(db.DB)
 	logRepo := postgres.NewMessageLogRepository(db.DB)
 	paymentRepo := postgres.NewPaymentRepository(db.DB)
@@ -53,7 +54,7 @@ func SetupRoutes(
 	whatsappSender := whatsapp.NewSender(db.DB, apiClient, logger)
 
 	// Use cases
-	updateOrderStatusUC := application.NewUpdateOrderStatusUseCase(orderRepo, whatsappSender, wsHub, logger)
+	updateOrderStatusUC := application.NewUpdateOrderStatusUseCase(orderRepo, orderBatchRepo, whatsappSender, wsHub, logger)
 
 	// Handlers
 	whatsappHandler := handlers.NewWhatsAppWebhookHandler(inboxRepo, tenantRepo, logRepo, rabbitMQ, logger)

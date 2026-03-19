@@ -88,6 +88,7 @@ func main() {
 	menuRepo := postgres.NewMenuRepository(db.DB)
 	tabRepo := postgres.NewTabRepository(db.DB)
 	orderRepo := postgres.NewOrderRepository(db.DB)
+	orderBatchRepo := postgres.NewOrderBatchRepository(db.DB)
 	tableRepo := postgres.NewTableRepository(db.DB)
 	serviceRequestRepo := postgres.NewServiceRequestRepository(db.DB)
 	waiterChatRepo := postgres.NewWaiterChatRepository(db.DB)
@@ -112,6 +113,7 @@ func main() {
 	// 7. Use Cases
 	createOrderUC := application.NewCreateOrderUseCase(
 		orderRepo,
+		orderBatchRepo,
 		tabRepo,
 		menuRepo,
 		nil, // wsHub not available in worker

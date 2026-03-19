@@ -11,6 +11,7 @@ import (
 
 	"github.com/anbernal/clickgarcom/internal/domain/botconfig"
 	"github.com/anbernal/clickgarcom/internal/domain/inbox/session"
+	"github.com/anbernal/clickgarcom/internal/domain/menu"
 	"github.com/anbernal/clickgarcom/internal/domain/tab"
 	"github.com/anbernal/clickgarcom/internal/domain/table"
 	"github.com/anbernal/clickgarcom/internal/domain/tenant"
@@ -506,6 +507,274 @@ func TestHandleWhatsAppMessageMainMenuOptionShowsInteractiveTabSummary(t *testin
 	}
 }
 
+func TestHandleWhatsAppMessageMainMenuOptionShowsInteractiveCategoryMenu(t *testing.T) {
+	ctx := context.Background()
+	tenantID := uuid.New()
+	phone := "5511911111111"
+	categoryFoodID := uuid.New()
+	categoryDrinkID := uuid.New()
+
+	sessionRepo := newTestSessionRepo()
+	sess := session.NewSession(phone, tenantID)
+	sess.TransitionTo(session.StateMainMenu)
+	if err := sessionRepo.Save(ctx, sess); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	menuRepo := &testCreateOrderMenuRepo{
+		categoriesByID: map[uuid.UUID]*menu.Category{
+			categoryFoodID: {
+				ID:           categoryFoodID,
+				TenantID:     tenantID,
+				Name:         "Comidas",
+				Description:  "Pratos quentes e porções",
+				DisplayOrder: 1,
+				Active:       true,
+			},
+			categoryDrinkID: {
+				ID:           categoryDrinkID,
+				TenantID:     tenantID,
+				Name:         "Bebidas",
+				Description:  "Sucos, drinks e refrigerantes",
+				DisplayOrder: 2,
+				Active:       true,
+			},
+		},
+		itemsByID: map[uuid.UUID]*menu.Item{},
+	}
+
+	sender := &testWhatsAppSender{}
+	uc := NewHandleWhatsAppMessageUseCase(
+		sessionRepo,
+		&testTenantRepo{tenant: testTenant(tenantID)},
+		nil,
+		menuRepo,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		sender,
+		"",
+		zap.NewNop(),
+	)
+
+	if err := uc.Execute(ctx, HandleMessageInput{
+		From:     phone,
+		Text:     "1",
+		TenantID: tenantID,
+	}); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if got := len(sender.listMessages); got != 1 {
+		t.Fatalf("expected 1 interactive category list, got %d", got)
+	}
+	if got := len(sender.textMessages); got != 0 {
+		t.Fatalf("expected no plain text messages, got %d", got)
+	}
+
+	message := sender.listMessages[0]
+	if !strings.Contains(message.Body, "Cardápio Interativo") {
+		t.Fatalf("expected category menu body, got %q", message.Body)
+	}
+	if len(message.Sections) != 1 || len(message.Sections[0].Rows) != 2 {
+		t.Fatalf("expected 2 category rows, got %+v", message.Sections)
+	}
+	if message.Sections[0].Rows[0].ID != orderingCategoryPrefix+categoryFoodID.String() {
+		t.Fatalf("expected first row id %q, got %q", orderingCategoryPrefix+categoryFoodID.String(), message.Sections[0].Rows[0].ID)
+	}
+
+	updatedSession, err := sessionRepo.Find(ctx, phone, tenantID.String())
+	if err != nil {
+		t.Fatalf("Find() error = %v", err)
+	}
+	if updatedSession == nil {
+		t.Fatal("expected session to be saved")
+	}
+	if updatedSession.State != session.StateOrdering {
+		t.Fatalf("expected session state %s, got %s", session.StateOrdering, updatedSession.State)
+	}
+	if got := updatedSession.Context[orderingStepKey]; got != orderingStepCategorySelection {
+		t.Fatalf("expected ordering step %q, got %#v", orderingStepCategorySelection, got)
+	}
+}
+
+func TestHandleWhatsAppMessageInteractiveOrderingCreatesOrder(t *testing.T) {
+	ctx := context.Background()
+	tenantID := uuid.New()
+	phone := "5511922222222"
+	tableID := uuid.New()
+	categoryFoodID := uuid.New()
+	categoryDrinkID := uuid.New()
+	itemFoodID := uuid.New()
+	itemDrinkID := uuid.New()
+
+	sessionRepo := newTestSessionRepo()
+	sess := session.NewSession(phone, tenantID)
+	sess.TableID = &tableID
+	sess.TransitionTo(session.StateMainMenu)
+	if err := sessionRepo.Save(ctx, sess); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	menuRepo := &testCreateOrderMenuRepo{
+		categoriesByID: map[uuid.UUID]*menu.Category{
+			categoryFoodID: {
+				ID:           categoryFoodID,
+				TenantID:     tenantID,
+				Name:         "Comidas",
+				Description:  "Pratos da casa",
+				DisplayOrder: 1,
+				Active:       true,
+			},
+			categoryDrinkID: {
+				ID:           categoryDrinkID,
+				TenantID:     tenantID,
+				Name:         "Bebidas",
+				Description:  "Drinks e bebidas sem álcool",
+				DisplayOrder: 2,
+				Active:       true,
+			},
+		},
+		itemsByID: map[uuid.UUID]*menu.Item{
+			itemFoodID: {
+				ID:           itemFoodID,
+				TenantID:     tenantID,
+				CategoryID:   &categoryFoodID,
+				Name:         "Picanha na Brasa",
+				Description:  "Acompanha farofa e fritas",
+				Price:        119,
+				Available:    true,
+				Destination:  "KITCHEN",
+				ImageURL:     "https://cdn.example.com/menu/picanha.jpg",
+				DisplayOrder: 1,
+			},
+			itemDrinkID: {
+				ID:           itemDrinkID,
+				TenantID:     tenantID,
+				CategoryID:   &categoryDrinkID,
+				Name:         "Água com Gás",
+				Description:  "Garrafa 500ml",
+				Price:        9,
+				Available:    true,
+				Destination:  "BAR",
+				DisplayOrder: 1,
+			},
+		},
+	}
+
+	tabRepo := &testCreateOrderTabRepo{
+		tabsByID: map[uuid.UUID]*tab.Tab{},
+	}
+	orderRepo := &testCreateOrderRepo{}
+	orderBatchRepo := &testCreateOrderBatchRepo{}
+	publisher := &testKDSEventPublisher{}
+	createOrderUC := NewCreateOrderUseCase(
+		orderRepo,
+		orderBatchRepo,
+		tabRepo,
+		menuRepo,
+		nil,
+		publisher,
+		zap.NewNop(),
+	)
+
+	sender := &testWhatsAppSender{}
+	uc := NewHandleWhatsAppMessageUseCase(
+		sessionRepo,
+		&testTenantRepo{tenant: testTenant(tenantID)},
+		nil,
+		menuRepo,
+		tabRepo,
+		&testTableRepo{tablesByID: map[uuid.UUID]*table.Table{
+			tableID: {ID: tableID, TenantID: tenantID, Number: "7"},
+		}},
+		nil,
+		nil,
+		createOrderUC,
+		sender,
+		"",
+		zap.NewNop(),
+	)
+
+	steps := []string{
+		"1",
+		orderingCategoryPrefix + categoryFoodID.String(),
+		orderingItemPrefix + itemFoodID.String(),
+		orderingQuantityPrefix + "2",
+		orderingChangeItemID,
+		orderingCategoryPrefix + categoryDrinkID.String(),
+		orderingItemPrefix + itemDrinkID.String(),
+		orderingQuantityPrefix + "1",
+		orderingConfirmOrderID,
+	}
+	for _, step := range steps {
+		if err := uc.Execute(ctx, HandleMessageInput{
+			From:     phone,
+			Text:     step,
+			TenantID: tenantID,
+		}); err != nil {
+			t.Fatalf("Execute(%q) error = %v", step, err)
+		}
+	}
+
+	if got := len(sender.listMessages); got < 3 {
+		t.Fatalf("expected at least 3 list messages across the flow, got %d", got)
+	}
+	if got := len(sender.interactiveMessages); got < 3 {
+		t.Fatalf("expected at least 3 interactive button messages, got %d", got)
+	}
+	if got := len(sender.imageMessages); got != 1 {
+		t.Fatalf("expected 1 image preview message, got %d", got)
+	}
+	if got := len(orderRepo.created); got != 2 {
+		t.Fatalf("expected 2 created orders split by destination, got %d", got)
+	}
+	if got := len(orderBatchRepo.created); got != 1 {
+		t.Fatalf("expected 1 order batch, got %d", got)
+	}
+
+	createdByDestination := map[string]int{}
+	for _, createdOrder := range orderRepo.created {
+		createdByDestination[string(createdOrder.Destination)] += len(createdOrder.Items)
+	}
+	if got := createdByDestination["KITCHEN"]; got != 1 {
+		t.Fatalf("expected 1 kitchen item, got %d", got)
+	}
+	if got := createdByDestination["BAR"]; got != 1 {
+		t.Fatalf("expected 1 bar item, got %d", got)
+	}
+
+	lastList := sender.listMessages[len(sender.listMessages)-1]
+	if !strings.Contains(lastList.Body, "Pedido enviado!") {
+		t.Fatalf("expected success prefix on final main menu message, got %q", lastList.Body)
+	}
+	if !strings.Contains(lastList.Body, "2x Picanha na Brasa") {
+		t.Fatalf("expected food item summary on final main menu message, got %q", lastList.Body)
+	}
+	if !strings.Contains(lastList.Body, "1x Água com Gás") {
+		t.Fatalf("expected drink item summary on final main menu message, got %q", lastList.Body)
+	}
+
+	updatedSession, err := sessionRepo.Find(ctx, phone, tenantID.String())
+	if err != nil {
+		t.Fatalf("Find() error = %v", err)
+	}
+	if updatedSession == nil {
+		t.Fatal("expected session to be saved")
+	}
+	if updatedSession.State != session.StateMainMenu {
+		t.Fatalf("expected session state %s, got %s", session.StateMainMenu, updatedSession.State)
+	}
+	if _, ok := updatedSession.Context[orderingCartKey]; ok {
+		t.Fatalf("expected ordering cart to be cleared, got %#v", updatedSession.Context)
+	}
+	if _, ok := updatedSession.Context[orderingSelectedItemIDKey]; ok {
+		t.Fatalf("expected ordering context to be cleared, got %#v", updatedSession.Context)
+	}
+}
+
 type testSessionRepo struct {
 	sessions map[string]*session.Session
 }
@@ -788,6 +1057,7 @@ func (r *testBotConfigRepo) ListPublishedByTenant(
 
 type testWhatsAppSender struct {
 	textMessages        []string
+	imageMessages       []testImageMessage
 	interactiveMessages []testInteractiveMessage
 	listMessages        []testInteractiveListMessage
 }
@@ -795,6 +1065,15 @@ type testWhatsAppSender struct {
 func (s *testWhatsAppSender) SendText(_ context.Context, to string, message string) error {
 	s.textMessages = append(s.textMessages, message)
 	return nil
+}
+
+func (s *testWhatsAppSender) SendImage(_ context.Context, to, imageURL, caption string) (string, error) {
+	s.imageMessages = append(s.imageMessages, testImageMessage{
+		To:       to,
+		ImageURL: imageURL,
+		Caption:  caption,
+	})
+	return "", nil
 }
 
 func (s *testWhatsAppSender) SendInteractiveButtons(_ context.Context, to, bodyText string, buttons []whatsapp.InteractiveButton) (string, error) {
@@ -831,6 +1110,12 @@ type testInteractiveMessage struct {
 	To      string
 	Body    string
 	Buttons []whatsapp.InteractiveButton
+}
+
+type testImageMessage struct {
+	To       string
+	ImageURL string
+	Caption  string
 }
 
 type testInteractiveListMessage struct {

@@ -158,7 +158,6 @@ clickgarcom/
         │   ├── api/           # HTTP API (webhooks)
         │   ├── worker/        # RabbitMQ consumer
         │   ├── outbox-worker/ # Outbox processor
-        │   ├── realtime/      # WebSocket server
         │   ├── migrate/       # Database migrations
         │   └── setup-rabbitmq/# RabbitMQ setup
         │
@@ -180,13 +179,12 @@ clickgarcom/
         │   │   ├── queue/
         │   │   │   └── rabbitmq/
         │   │   └── whatsapp/
-        │   │       ├── meta_client.go
+        │   │       ├── meta_api_client.go
         │   │       ├── outbox_processor.go
-        │   │       └── session_manager.go
+        │   │       └── sender.go
         │   │
         │   └── interfaces/    # Controllers/Handlers
-        │       ├── http/
-        │       └── queue/
+        │       └── http/
         │
         └── pkg/               # Código público/compartilhado
             └── logger/
@@ -202,8 +200,8 @@ clickgarcom/
 
 ```go
 // Endpoints principais:
-POST /webhook/whatsapp  // Recebe mensagens do WhatsApp
-GET  /webhook/whatsapp  // Verificação do Meta
+POST /webhooks/whatsapp  // Recebe mensagens do WhatsApp
+GET  /webhooks/whatsapp  // Verificação do Meta
 GET  /health            // Health check
 ```
 
@@ -227,8 +225,8 @@ GET  /health            // Health check
 
 **State Machine**:
 ```
-INITIAL → MENU_BROWSING → ITEM_SELECTED → QUANTITY_INPUT → 
-CONFIRM_ORDER → ORDER_PLACED → PAYMENT_FLOW → COMPLETED
+WELCOME → MAIN_MENU → ORDERING → SELECTING_QTY →
+CONFIRMING_ORDER → VIEWING_TAB / CLOSING_TAB / SERVICE_REQUEST
 ```
 
 ### 3. **Outbox Worker** (`cmd/outbox-worker`)
@@ -241,9 +239,9 @@ CONFIRM_ORDER → ORDER_PLACED → PAYMENT_FLOW → COMPLETED
 - Marca mensagens como enviadas
 - Registra erros para análise
 
-### 4. **Realtime Server** (`cmd/realtime`)
+### 4. **Realtime Hub** (`cmd/api`)
 
-**Responsabilidade**: WebSocket para KDS em tempo real
+**Responsabilidade**: WebSocket para KDS em tempo real, hospedado no mesmo processo da API Fiber
 
 **Eventos**:
 - `order.created` - Novo pedido
@@ -255,7 +253,7 @@ CONFIRM_ORDER → ORDER_PLACED → PAYMENT_FLOW → COMPLETED
 ### 5. **Migrations** (`cmd/migrate`)
 
 **Migrations disponíveis**:
-- [000001_initial_schema.up.sql](file:///Users/macbook/projects/clickgarcom/services/go-core/cmd/migrate/000001_initial_schema.up.sql) - Schema completo
+- `000001_initial_schema.up.sql` - Schema completo
 - `000002_fix_outbox_payload.up.sql` - Ajuste no Outbox
 
 ---
@@ -335,16 +333,16 @@ CREATE TABLE outbox_messages (
 type ConversationState string
 
 const (
-    StateInitial        ConversationState = "INITIAL"
-    StateMenuBrowsing   ConversationState = "MENU_BROWSING"
-    StateItemSelected   ConversationState = "ITEM_SELECTED"
-    StateQuantityInput  ConversationState = "QUANTITY_INPUT"
-    StateConfirmOrder   ConversationState = "CONFIRM_ORDER"
+    StateWelcome         ConversationState = "WELCOME"
+    StateMainMenu        ConversationState = "MAIN_MENU"
+    StateOrdering        ConversationState = "ORDERING"
+    StateSelectingQty    ConversationState = "SELECTING_QTY"
+    StateConfirmingOrder ConversationState = "CONFIRMING_ORDER"
     // ...
 )
 ```
 
-**Armazenamento**: Redis com TTL de 30 minutos
+**Armazenamento**: Redis com expiracao de sessao
 
 ### 5. **Repository Pattern**
 
@@ -382,16 +380,16 @@ sequenceDiagram
     participant M as Meta API
     
     C->>W: "Olá"
-    W->>API: POST /webhook (message)
+    W->>API: POST /webhooks/whatsapp (message)
     API->>I: Salva no inbox
     API->>R: Publica evento
     API-->>W: 200 OK
     
     R->>WK: Consome evento
     WK->>RD: Busca sessão
-    RD-->>WK: Estado: INITIAL
-    WK->>SM: Processa(INITIAL, "Olá")
-    SM-->>WK: Próximo: MENU_BROWSING
+    RD-->>WK: Estado: WELCOME
+    WK->>SM: Processa(WELCOME, "Olá")
+    SM-->>WK: Próximo: MAIN_MENU
     WK->>DB: Busca cardápio
     DB-->>WK: Lista de itens
     WK->>O: Cria mensagem com menu
@@ -476,37 +474,53 @@ Envio confiável
 
 ## Configuração
 
-### Variáveis de Ambiente ([.env](file:///Users/macbook/projects/clickgarcom/services/go-core/.env))
+### Variáveis de Ambiente (`services/go-core/.env`)
 
 ```bash
+# Application
+APP_NAME=clickgarcom
+APP_ENV=development
+APP_PORT=8080
+
 # Database
-DATABASE_URL=postgres://postgres:postgres123@localhost:5432/clickgarcom_db
+DATABASE_HOST=localhost
+DATABASE_PORT=5432
+DATABASE_USER=postgres
+DATABASE_PASSWORD=postgres123
+DATABASE_NAME=clickgarcom_db
+DATABASE_SSL_MODE=disable
 
 # Redis
-REDIS_URL=redis://localhost:6379
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_PASSWORD=
+REDIS_DB=0
 
 # RabbitMQ
-RABBITMQ_URL=amqp://clickgarcom:clickgarcom123@localhost:5672/
+RABBITMQ_HOST=localhost
+RABBITMQ_PORT=5672
+RABBITMQ_USER=clickgarcom
+RABBITMQ_PASSWORD=clickgarcom123
+RABBITMQ_VHOST=/
 
 # WhatsApp Meta API
-META_VERIFY_TOKEN=seu_token_secreto
-META_ACCESS_TOKEN=seu_access_token
-META_PHONE_NUMBER_ID=seu_phone_id
+WHATSAPP_VERIFY_TOKEN=seu_token_secreto
+WHATSAPP_API_TOKEN=seu_access_token
+WHATSAPP_PHONE_NUMBER_ID=seu_phone_id
 
-# Server
-PORT=3000
-ENV=development
+# Logging
 LOG_LEVEL=debug
+LOG_FORMAT=json
 ```
 
 ---
 
 ## Comandos Úteis
 
-Ver [quick_reference.md](file:///Users/macbook/.gemini/antigravity/brain/ff2e4978-1ec1-4f5f-8784-1e7c7c54809b/quick_reference.md) para lista completa de comandos do Makefile.
+Ver [quick_reference.md](quick_reference.md) para lista completa de comandos do Makefile.
 
 ---
 
 ## Próximos Passos
 
-Consulte [implementation_phases.md](file:///Users/macbook/.gemini/antigravity/brain/ff2e4978-1ec1-4f5f-8784-1e7c7c54809b/implementation_phases.md) para ver o que foi construído e o que vem a seguir.
+Consulte [walkthrough.md](walkthrough.md) e [../../README.md](../../README.md) para o mapa atual da documentação e status do projeto.

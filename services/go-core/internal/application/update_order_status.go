@@ -10,6 +10,7 @@ import (
 
 	"github.com/anbernal/clickgarcom/internal/domain/events"
 	"github.com/anbernal/clickgarcom/internal/domain/order"
+	"github.com/anbernal/clickgarcom/internal/domain/orderbatch"
 	"github.com/anbernal/clickgarcom/internal/infrastructure/websocket"
 )
 
@@ -28,6 +29,7 @@ type UpdateOrderStatusInput struct {
 // UpdateOrderStatusUseCase implementa a lógica de atualização de status
 type UpdateOrderStatusUseCase struct {
 	orderRepo      order.Repository
+	orderBatchRepo orderbatch.Repository
 	whatsappSender WhatsAppSender
 	wsHub          *websocket.Hub
 	logger         *zap.Logger
@@ -35,12 +37,14 @@ type UpdateOrderStatusUseCase struct {
 
 func NewUpdateOrderStatusUseCase(
 	orderRepo order.Repository,
+	orderBatchRepo orderbatch.Repository,
 	whatsappSender WhatsAppSender,
 	wsHub *websocket.Hub,
 	logger *zap.Logger,
 ) *UpdateOrderStatusUseCase {
 	return &UpdateOrderStatusUseCase{
 		orderRepo:      orderRepo,
+		orderBatchRepo: orderBatchRepo,
 		whatsappSender: whatsappSender,
 		wsHub:          wsHub,
 		logger:         logger,
@@ -56,6 +60,7 @@ func (uc *UpdateOrderStatusUseCase) Execute(ctx context.Context, input UpdateOrd
 	}
 
 	// 2. Validar transição de status
+	previousStatus := existingOrder.Status
 	if err := existingOrder.CanTransitionTo(input.NewStatus); err != nil {
 		uc.logger.Warn("invalid status transition",
 			zap.String("order_id", input.OrderID.String()),
@@ -84,11 +89,17 @@ func (uc *UpdateOrderStatusUseCase) Execute(ctx context.Context, input UpdateOrd
 
 	uc.logger.Info("order status updated",
 		zap.String("order_id", existingOrder.ID.String()),
-		zap.String("old_status", string(existingOrder.Status)),
+		zap.String("old_status", string(previousStatus)),
 		zap.String("new_status", string(input.NewStatus)),
 	)
 
-	// 6. Broadcast evento WebSocket
+	// 6. Recalcular status agregado do batch quando aplicável
+	if err := uc.syncOrderBatch(ctx, existingOrder); err != nil {
+		uc.logger.Error("failed to sync order batch", zap.Error(err), zap.String("order_id", existingOrder.ID.String()))
+		return nil, fmt.Errorf("failed to sync order batch: %w", err)
+	}
+
+	// 7. Broadcast evento WebSocket
 	if uc.wsHub != nil {
 		event := events.NewOrderStatusChangedEvent(existingOrder)
 		uc.wsHub.BroadcastToTenant(existingOrder.TenantID, event)
@@ -98,10 +109,32 @@ func (uc *UpdateOrderStatusUseCase) Execute(ctx context.Context, input UpdateOrd
 		)
 	}
 
-	// 7. Enviar notificação WhatsApp (assíncrono, não bloqueia)
+	// 8. Enviar notificação WhatsApp (assíncrono, não bloqueia)
 	go uc.sendStatusNotification(existingOrder)
 
 	return existingOrder, nil
+}
+
+func (uc *UpdateOrderStatusUseCase) syncOrderBatch(ctx context.Context, currentOrder *order.Order) error {
+	if uc.orderBatchRepo == nil || currentOrder == nil || currentOrder.BatchID == nil || *currentOrder.BatchID == uuid.Nil {
+		return nil
+	}
+
+	batch, err := uc.orderBatchRepo.FindByID(ctx, *currentOrder.BatchID, currentOrder.TenantID)
+	if err != nil || batch == nil {
+		return err
+	}
+
+	orders, err := uc.orderRepo.FindByBatchID(ctx, *currentOrder.BatchID, currentOrder.TenantID)
+	if err != nil {
+		return err
+	}
+
+	if !applyAggregatedOrderBatchState(batch, orders) {
+		return nil
+	}
+
+	return uc.orderBatchRepo.Update(ctx, batch)
 }
 
 func (uc *UpdateOrderStatusUseCase) sendStatusNotification(o *order.Order) {

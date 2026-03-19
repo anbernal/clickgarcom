@@ -3,12 +3,11 @@ import {
     PrimaryColumn,
     Column,
     CreateDateColumn,
-    OneToMany,
+    UpdateDateColumn,
 } from 'typeorm';
-import { OrderItem } from './order-item.entity';
 
-@Entity('orders')
-export class Order {
+@Entity('order_batches')
+export class OrderBatch {
     @PrimaryColumn('uuid')
     id!: string;
 
@@ -18,20 +17,17 @@ export class Order {
     @Column('uuid', { name: 'tab_id' })
     tabId!: string;
 
-    @Column('uuid', { name: 'batch_id', nullable: true })
-    batchId!: string | null;
-
-    @Column({ type: 'varchar', length: 20 })
-    destination!: string;
+    @Column({ type: 'varchar', length: 30, name: 'customer_phone', nullable: true })
+    customerPhone!: string | null;
 
     @Column({ type: 'varchar', length: 20 })
     status!: string;
 
-    @Column({ type: 'text', nullable: true })
-    notes!: string | null;
-
     @CreateDateColumn({ name: 'created_at' })
     createdAt!: Date;
+
+    @UpdateDateColumn({ name: 'updated_at' })
+    updatedAt!: Date;
 
     @Column({ name: 'accepted_at', nullable: true })
     acceptedAt!: Date | null;
@@ -47,7 +43,4 @@ export class Order {
 
     @Column({ type: 'text', name: 'cancel_reason', nullable: true })
     cancelReason!: string | null;
-
-    @OneToMany(() => OrderItem, (item) => item.order, { eager: true })
-    items!: OrderItem[];
 }

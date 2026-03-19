@@ -7,7 +7,8 @@ export class AmqpService implements OnModuleInit, OnModuleDestroy {
     private connection: any = null;
     private channel: any = null;
     private readonly url = process.env.RABBITMQ_URL || 'amqp://clickgarcom:clickgarcom123@localhost:5672/';
-    private readonly queueName = 'admin.table.events';
+    private readonly tableEventsQueue = 'admin.table.events';
+    private readonly kdsEventsQueue = 'kds.events';
 
     async onModuleInit() {
         await this.connect();
@@ -29,7 +30,8 @@ export class AmqpService implements OnModuleInit, OnModuleDestroy {
             try {
                 this.connection = await connect(this.url);
                 this.channel = await this.connection.createChannel();
-                await this.channel.assertQueue(this.queueName, { durable: true });
+                await this.channel.assertQueue(this.tableEventsQueue, { durable: true });
+                await this.channel.assertQueue(this.kdsEventsQueue, { durable: true });
                 this.logger.log('Connected to RabbitMQ successfully');
                 return;
             } catch (error) {
@@ -42,6 +44,23 @@ export class AmqpService implements OnModuleInit, OnModuleDestroy {
     }
 
     async publishTableEvent(requestId: string, action: 'APPROVE' | 'REJECT') {
+        await this.publishToQueue(
+            this.tableEventsQueue,
+            {
+                request_id: requestId,
+                action,
+            },
+            'admin.table.event',
+        );
+
+        this.logger.debug(`Published table event for request ${requestId} with action ${action}`);
+    }
+
+    async publishKDSEvent(payload: Record<string, unknown>, eventType: string) {
+        await this.publishToQueue(this.kdsEventsQueue, payload, eventType);
+    }
+
+    private async publishToQueue(queueName: string, payload: Record<string, unknown>, eventType: string) {
         if (!this.channel) {
             await this.connect();
         }
@@ -50,20 +69,12 @@ export class AmqpService implements OnModuleInit, OnModuleDestroy {
             throw new Error('RabbitMQ channel is not available');
         }
 
-        const payload = Buffer.from(
-            JSON.stringify({
-                request_id: requestId,
-                action,
-            }),
-        );
-
-        this.channel.sendToQueue(this.queueName, payload, {
+        await this.channel.assertQueue(queueName, { durable: true });
+        this.channel.sendToQueue(queueName, Buffer.from(JSON.stringify(payload)), {
             contentType: 'application/json',
             persistent: true,
-            type: 'admin.table.event',
+            type: eventType,
             timestamp: Date.now(),
         });
-
-        this.logger.debug(`Published table event for request ${requestId} with action ${action}`);
     }
 }

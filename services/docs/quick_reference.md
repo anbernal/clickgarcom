@@ -82,7 +82,7 @@ make run-worker
 # Rodar Outbox Worker localmente
 make run-outbox
 
-# Rodar servidor WebSocket
+# Rodar a API com o hub WebSocket integrado
 make run-realtime
 
 # Rodar testes
@@ -203,7 +203,7 @@ make ps
 make rabbitmq-ui
 
 # 3. Enviar webhook de teste (via Postman/curl)
-curl -X POST http://localhost:3000/webhook/whatsapp \
+curl -X POST http://localhost:8080/webhooks/whatsapp \
   -H "Content-Type: application/json" \
   -d '{...}'
 
@@ -395,8 +395,8 @@ ORDER BY t.opened_at DESC;
 | **RabbitMQ Management** | http://localhost:15672 | clickgarcom / clickgarcom123 |
 | **Grafana** | http://localhost:3001 | admin / admin123 |
 | **Prometheus** | http://localhost:9090 | - |
-| **API Health** | http://localhost:3000/health | - |
-| **API Webhook** | http://localhost:3000/webhook/whatsapp | - |
+| **API Health** | http://localhost:8080/health | - |
+| **API Webhook** | http://localhost:8080/webhooks/whatsapp | - |
 
 ---
 
@@ -428,24 +428,40 @@ clickgarcom/
 ## 🔑 Variáveis de Ambiente (.env)
 
 ```bash
+# Application
+APP_NAME=clickgarcom
+APP_ENV=development
+APP_PORT=8080
+
 # Database
-DATABASE_URL=postgres://postgres:postgres123@localhost:5432/clickgarcom_db
+DATABASE_HOST=localhost
+DATABASE_PORT=5432
+DATABASE_USER=postgres
+DATABASE_PASSWORD=postgres123
+DATABASE_NAME=clickgarcom_db
+DATABASE_SSL_MODE=disable
 
 # Redis
-REDIS_URL=redis://localhost:6379
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_PASSWORD=
+REDIS_DB=0
 
 # RabbitMQ
-RABBITMQ_URL=amqp://clickgarcom:clickgarcom123@localhost:5672/
+RABBITMQ_HOST=localhost
+RABBITMQ_PORT=5672
+RABBITMQ_USER=clickgarcom
+RABBITMQ_PASSWORD=clickgarcom123
+RABBITMQ_VHOST=/
 
 # WhatsApp Meta API
-META_VERIFY_TOKEN=seu_token_secreto_aqui
-META_ACCESS_TOKEN=seu_access_token_aqui
-META_PHONE_NUMBER_ID=seu_phone_number_id_aqui
+WHATSAPP_VERIFY_TOKEN=seu_token_secreto_aqui
+WHATSAPP_API_TOKEN=seu_access_token_aqui
+WHATSAPP_PHONE_NUMBER_ID=seu_phone_number_id_aqui
 
-# Server
-PORT=3000
-ENV=development
+# Logging
 LOG_LEVEL=debug
+LOG_FORMAT=json
 ```
 
 ---
@@ -454,9 +470,9 @@ LOG_LEVEL=debug
 
 Para continuar o desenvolvimento, consulte:
 
-- **[Fases Implementadas](file:///Users/macbook/.gemini/antigravity/brain/ff2e4978-1ec1-4f5f-8784-1e7c7c54809b/implementation_phases.md)** - O que já foi feito
-- **[Arquitetura](file:///Users/macbook/.gemini/antigravity/brain/ff2e4978-1ec1-4f5f-8784-1e7c7c54809b/project_architecture.md)** - Visão completa do sistema
-- **[README](file:///Users/macbook/projects/clickgarcom/README.md)** - Documentação principal do projeto
+- **[Arquitetura](project_architecture.md)** - Visão completa do sistema
+- **[Walkthrough](walkthrough.md)** - Mapa da documentação do repositório
+- **[README](../../README.md)** - Documentação principal do projeto
 
 ---
 

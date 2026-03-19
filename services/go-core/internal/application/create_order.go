@@ -12,6 +12,7 @@ import (
 	"github.com/anbernal/clickgarcom/internal/domain/events"
 	"github.com/anbernal/clickgarcom/internal/domain/menu"
 	"github.com/anbernal/clickgarcom/internal/domain/order"
+	"github.com/anbernal/clickgarcom/internal/domain/orderbatch"
 	"github.com/anbernal/clickgarcom/internal/domain/tab"
 	"github.com/anbernal/clickgarcom/internal/infrastructure/websocket"
 )
@@ -48,12 +49,13 @@ type OrderItemInput struct {
 
 // CreateOrderUseCase implementa a lógica de criação de pedidos
 type CreateOrderUseCase struct {
-	orderRepo order.Repository
-	tabRepo   tab.Repository
-	menuRepo  menu.Repository
-	wsHub     *websocket.Hub
-	publisher KDSEventPublisher
-	logger    *zap.Logger
+	orderRepo      order.Repository
+	orderBatchRepo orderbatch.Repository
+	tabRepo        tab.Repository
+	menuRepo       menu.Repository
+	wsHub          *websocket.Hub
+	publisher      KDSEventPublisher
+	logger         *zap.Logger
 }
 
 type KDSEventPublisher interface {
@@ -62,6 +64,7 @@ type KDSEventPublisher interface {
 
 func NewCreateOrderUseCase(
 	orderRepo order.Repository,
+	orderBatchRepo orderbatch.Repository,
 	tabRepo tab.Repository,
 	menuRepo menu.Repository,
 	wsHub *websocket.Hub,
@@ -69,12 +72,13 @@ func NewCreateOrderUseCase(
 	logger *zap.Logger,
 ) *CreateOrderUseCase {
 	return &CreateOrderUseCase{
-		orderRepo: orderRepo,
-		tabRepo:   tabRepo,
-		menuRepo:  menuRepo,
-		wsHub:     wsHub,
-		publisher: publisher,
-		logger:    logger,
+		orderRepo:      orderRepo,
+		orderBatchRepo: orderBatchRepo,
+		tabRepo:        tabRepo,
+		menuRepo:       menuRepo,
+		wsHub:          wsHub,
+		publisher:      publisher,
+		logger:         logger,
 	}
 }
 
@@ -117,9 +121,9 @@ func (uc *CreateOrderUseCase) Execute(ctx context.Context, input CreateOrderInpu
 		menuItemsMap[item.ID] = item
 	}
 
-	// 4. Validar cada item e construir order items
-	orderItems := make([]order.OrderItem, 0, len(input.Items))
-	var primaryDestination order.Destination
+	// 4. Validar cada item e agrupar por destino operacional
+	groupedItems := make(map[order.Destination][]order.OrderItem)
+	destinationOrder := make([]order.Destination, 0)
 	destinationCounts := make(map[order.Destination]int)
 
 	for _, inputItem := range input.Items {
@@ -146,7 +150,11 @@ func (uc *CreateOrderUseCase) Execute(ctx context.Context, input CreateOrderInpu
 			return nil, ErrItemNotAvailable
 		}
 
-		// Criar order item
+		dest := order.Destination(menuItem.Destination)
+		if _, ok := groupedItems[dest]; !ok {
+			destinationOrder = append(destinationOrder, dest)
+		}
+
 		orderItem := order.OrderItem{
 			ID:           uuid.New(),
 			MenuItemID:   menuItem.ID,
@@ -155,15 +163,13 @@ func (uc *CreateOrderUseCase) Execute(ctx context.Context, input CreateOrderInpu
 			Observations: inputItem.Observations,
 			CreatedAt:    time.Now(),
 		}
-		orderItems = append(orderItems, orderItem)
-
-		// Contar destinations para determinar o principal
-		dest := order.Destination(menuItem.Destination)
+		groupedItems[dest] = append(groupedItems[dest], orderItem)
 		destinationCounts[dest]++
 	}
 
 	// 5. Determinar destination principal (onde há mais itens)
 	maxCount := 0
+	var primaryDestination order.Destination
 	for dest, count := range destinationCounts {
 		if count > maxCount {
 			maxCount = count
@@ -176,27 +182,81 @@ func (uc *CreateOrderUseCase) Execute(ctx context.Context, input CreateOrderInpu
 		primaryDestination = order.DestinationKitchen
 	}
 
-	// 6. Criar o pedido
-	newOrder := &order.Order{
-		ID:          uuid.New(),
-		TenantID:    input.TenantID,
-		TabID:       input.TabID,
-		Destination: primaryDestination,
-		Status:      order.StatusPending,
-		Notes:       input.Notes,
-		Items:       orderItems,
-		CreatedAt:   time.Now(),
+	// 6. Criar o batch lógico do carrinho
+	var batchID *uuid.UUID
+	if uc.orderBatchRepo != nil {
+		newBatch := &orderbatch.OrderBatch{
+			ID:            uuid.New(),
+			TenantID:      input.TenantID,
+			TabID:         input.TabID,
+			CustomerPhone: existingTab.UserPhone,
+			Status:        orderbatch.StatusPending,
+			CreatedAt:     time.Now(),
+			UpdatedAt:     time.Now(),
+		}
+		if err := uc.orderBatchRepo.Create(ctx, newBatch); err != nil {
+			uc.logger.Error("failed to create order batch", zap.Error(err))
+			return nil, fmt.Errorf("failed to create order batch: %w", err)
+		}
+		batchID = &newBatch.ID
 	}
 
-	// 7. Salvar no banco
-	if err := uc.orderRepo.Create(ctx, newOrder); err != nil {
-		uc.logger.Error("failed to create order", zap.Error(err))
-		return nil, fmt.Errorf("failed to create order: %w", err)
+	// 7. Criar os pedidos operacionais por destino
+	createdOrders := make([]*order.Order, 0, len(destinationOrder))
+	var representativeOrder *order.Order
+	totalBatchAmount := 0.0
+
+	for _, dest := range destinationOrder {
+		items := groupedItems[dest]
+		if len(items) == 0 {
+			continue
+		}
+
+		newOrder := &order.Order{
+			ID:          uuid.New(),
+			TenantID:    input.TenantID,
+			TabID:       input.TabID,
+			BatchID:     batchID,
+			Destination: dest,
+			Status:      order.StatusPending,
+			Notes:       input.Notes,
+			Items:       items,
+			CreatedAt:   time.Now(),
+		}
+
+		if err := uc.orderRepo.Create(ctx, newOrder); err != nil {
+			uc.logger.Error("failed to create operational order",
+				zap.Error(err),
+				zap.String("destination", string(dest)),
+			)
+			return nil, fmt.Errorf("failed to create operational order: %w", err)
+		}
+
+		orderTotal := newOrder.CalculateTotal()
+		totalBatchAmount += orderTotal
+		createdOrders = append(createdOrders, newOrder)
+
+		if representativeOrder == nil || dest == primaryDestination {
+			representativeOrder = newOrder
+		}
+
+		uc.logger.Info("operational order created successfully",
+			zap.String("order_id", newOrder.ID.String()),
+			zap.String("tab_id", input.TabID.String()),
+			zap.String("destination", string(newOrder.Destination)),
+			zap.Int("items_count", len(newOrder.Items)),
+			zap.Float64("order_total", orderTotal),
+		)
+
+		uc.publishOrderCreatedEvent(input.TenantID, newOrder)
 	}
 
-	// 8. Atualizar totais da tab
-	orderTotal := newOrder.CalculateTotal()
-	existingTab.AddOrderTotal(orderTotal)
+	if representativeOrder == nil {
+		return nil, ErrInvalidItems
+	}
+
+	// 8. Atualizar totais da tab uma vez pelo valor total do carrinho
+	existingTab.AddOrderTotal(totalBatchAmount)
 	existingTab.CalculateTotal(ServiceFeePercent)
 
 	if err := uc.tabRepo.Update(ctx, existingTab); err != nil {
@@ -204,50 +264,60 @@ func (uc *CreateOrderUseCase) Execute(ctx context.Context, input CreateOrderInpu
 		// Não retorna erro pois o pedido já foi criado
 		// TODO: considerar usar transação no futuro
 	} else {
-		uc.logger.Info("tab totals updated",
+		uc.logger.Info("tab totals updated after order batch",
 			zap.String("tab_id", existingTab.ID.String()),
+			zap.String("batch_id", uuidPointerString(batchID)),
 			zap.Float64("subtotal", existingTab.Subtotal),
 			zap.Float64("service_fee", existingTab.ServiceFee),
 			zap.Float64("total", existingTab.Total),
 		)
 	}
 
-	uc.logger.Info("order created successfully",
-		zap.String("order_id", newOrder.ID.String()),
+	uc.logger.Info("order batch created successfully",
+		zap.String("batch_id", uuidPointerString(batchID)),
+		zap.String("representative_order_id", representativeOrder.ID.String()),
 		zap.String("tab_id", input.TabID.String()),
-		zap.String("destination", string(newOrder.Destination)),
-		zap.Int("items_count", len(orderItems)),
-		zap.Float64("order_total", orderTotal),
+		zap.Int("orders_count", len(createdOrders)),
+		zap.Float64("batch_total", totalBatchAmount),
 	)
 
-	// 9. Publicar evento de pedido criado
+	return representativeOrder, nil
+}
+
+func (uc *CreateOrderUseCase) publishOrderCreatedEvent(
+	tenantID uuid.UUID,
+	newOrder *order.Order,
+) {
 	event := events.NewOrderCreatedEvent(newOrder)
 
-	// 9.1 Broadcast local (quando o use case roda no processo da API)
 	if uc.wsHub != nil {
-		uc.wsHub.BroadcastToTenant(input.TenantID, event)
+		uc.wsHub.BroadcastToTenant(tenantID, event)
 		uc.logger.Info("order.created event broadcast",
 			zap.String("order_id", newOrder.ID.String()),
-			zap.String("tenant_id", input.TenantID.String()),
+			zap.String("tenant_id", tenantID.String()),
 		)
 	}
 
-	// 9.2 Bridge via fila (quando o use case roda no worker)
 	if uc.publisher != nil {
 		if err := uc.publisher.PublishJSON("", KDSEventsQueue, event); err != nil {
 			uc.logger.Error("failed to publish order.created event to kds queue",
 				zap.Error(err),
 				zap.String("order_id", newOrder.ID.String()),
-				zap.String("tenant_id", input.TenantID.String()),
+				zap.String("tenant_id", tenantID.String()),
 			)
 		} else {
 			uc.logger.Info("order.created event published to kds queue",
 				zap.String("order_id", newOrder.ID.String()),
-				zap.String("tenant_id", input.TenantID.String()),
+				zap.String("tenant_id", tenantID.String()),
 				zap.String("queue", KDSEventsQueue),
 			)
 		}
 	}
+}
 
-	return newOrder, nil
+func uuidPointerString(value *uuid.UUID) string {
+	if value == nil {
+		return ""
+	}
+	return value.String()
 }
