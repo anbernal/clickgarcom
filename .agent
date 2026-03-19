@@ -1,0 +1,69 @@
+Projeto: ClickGarcom
+
+Objetivo:
+- Sistema multi-tenant para restaurantes com atendimento via WhatsApp, KDS em tempo real e painel admin web.
+- O repositorio e um monorepo com servicos acoplados por banco, filas e contratos de dominio.
+
+Arquitetura do projeto:
+- `services/go-core`: dono de webhook, worker, sessao, fluxo conversacional, carrinho, pedidos, pagamentos, outbox e eventos para KDS.
+- `services/node-admin`: dono do conteudo do cardapio, painel administrativo, APIs do painel e operacao interna do restaurante.
+- `services/super-admin`: painel estatico/global.
+- Infra local: PostgreSQL, Redis, RabbitMQ, Prometheus e Grafana.
+
+Ownership obrigatorio:
+- Nao mover a responsabilidade do cardapio para o Go sem pedido explicito.
+- Nao mover a responsabilidade da conversa WhatsApp, carrinho ou criacao de pedidos para o Node sem pedido explicito.
+- Antes de criar nova logica, verificar se ela pertence ao dominio do `go-core` ou ao dominio do `node-admin`.
+
+Invariantes de dominio:
+- Tudo e multi-tenant. Preserve `tenant_id` em queries, eventos, sessoes, endpoints internos e payloads.
+- Um pedido do cliente pode representar 1 carrinho logico e ser desdobrado em N pedidos operacionais por `destination`.
+- `destination` atual relevante: `KITCHEN` e `BAR`.
+- Ao mexer em pedidos, considere `order_batches` e nao apenas `orders`.
+- Ao mexer em mesas/comandas, considere que o sistema ja suporta mais de uma tab aberta por mesa em cenarios de split.
+- Preserve fallback/retrocompatibilidade onde o codigo ainda assume uma "primeira tab aberta".
+
+Regras para WhatsApp:
+- Prefira mensagens interativas nativas do WhatsApp.
+- Sempre mantenha fallback textual quando o canal interativo falhar.
+- Todo novo fluxo conversacional deve definir:
+  - estado da sessao
+  - chaves de contexto
+  - regra de reset/saida
+  - tratamento de entrada invalida
+  - comportamento de erro e fallback
+- Nao introduza parser livre complexo para pedidos em texto se o fluxo atual puder ser resolvido com botoes/listas.
+
+Regras para mudancas cross-service:
+- Mudancas de status, enums, schema, contratos AMQP ou payloads exigem revisao coordenada entre Go, Node, SQL/migrations e frontend admin.
+- Se mudar modelo de pedido, comanda, mesa, sessao ou pagamento, procure referencias duplicadas nos dois servicos antes de editar.
+- Nao confie apenas na documentacao: valide sempre no codigo atual antes de assumir que um fluxo existe ou ainda funciona daquele jeito.
+
+Regras de implementacao por servico:
+- Em `go-core`, respeite a separacao `domain` -> `application` -> `infrastructure` -> `interfaces`.
+- Em `node-admin`, preserve o estilo atual: NestJS no backend e HTML/CSS/JS puro no frontend. Nao introduza React, Vite ou outro framework sem pedido explicito.
+- Em telas/admin, preserve o cliente `public/js/api.js` e o padrao atual de autenticacao via JWT.
+
+Dados, filas e integracao:
+- Se mexer em webhook, fila, consumer ou outbox, valide impacto em idempotencia e retries.
+- Preserve comportamento de inbox/outbox e fluxos assincronos via RabbitMQ.
+- Mudancas em eventos devem considerar KDS, notificacoes e consumo interno.
+
+Checklist antes de concluir mudancas:
+- Validar escopo de tenant.
+- Validar compatibilidade entre `go-core` e `node-admin`.
+- Validar fallbacks em fluxos WhatsApp quando aplicavel.
+- Validar migrations se houve alteracao de schema.
+- Rodar o que fizer sentido:
+  - `cd services/go-core && go test ./...`
+  - `cd services/node-admin && npm run build`
+
+Checklist extra para mudancas sensiveis:
+- Se mexer em pedidos/status/KDS: validar eventos e transicoes.
+- Se mexer em webhook/fila/outbox: validar logs e processamento assincrono.
+- Se mexer em mesa/comanda: validar cenarios com tab unica e multiplas tabs abertas.
+
+Preferencias de trabalho:
+- Fazer mudancas pequenas e coerentes com o estilo existente.
+- Priorizar consistencia de dominio e integracao sobre refactors cosmeticos.
+- Explicar no resultado final impactos em contrato, compatibilidade e validacao executada.
