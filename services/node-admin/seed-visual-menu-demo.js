@@ -51,21 +51,21 @@ const categories = [
     name: 'Lanches',
     description: 'Burgers artesanais, combos e lanches quentes da casa.',
     imageURL:
-      'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&w=1200&q=80',
+      'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?fit=crop&w=1200&q=80&fm=jpg',
     displayOrder: 1,
   },
   {
     name: 'Pizzas',
     description: 'Pizzas assadas na hora, massa leve e borda crocante.',
     imageURL:
-      'https://images.unsplash.com/photo-1513104890138-7c749659a591?auto=format&fit=crop&w=1200&q=80',
+      'https://images.unsplash.com/photo-1513104890138-7c749659a591?fit=crop&w=1200&q=80&fm=jpg',
     displayOrder: 2,
   },
   {
     name: 'Bebidas',
     description: 'Bebidas geladas para acompanhar o pedido no salão.',
     imageURL:
-      'https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?auto=format&fit=crop&w=1200&q=80',
+      'https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?fit=crop&w=1200&q=80&fm=jpg',
     displayOrder: 3,
   },
 ];
@@ -81,7 +81,7 @@ const items = [
     destination: 'KITCHEN',
     prepTimeMinutes: 18,
     imageURL:
-      'https://images.unsplash.com/photo-1550547660-d9450f859349?auto=format&fit=crop&w=1200&q=80',
+      'https://images.unsplash.com/photo-1550547660-d9450f859349?fit=crop&w=1200&q=80&fm=jpg',
     displayOrder: 1,
   },
   {
@@ -94,7 +94,7 @@ const items = [
     destination: 'KITCHEN',
     prepTimeMinutes: 16,
     imageURL:
-      'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&w=1200&q=80',
+      'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?fit=crop&w=1200&q=80&fm=jpg',
     displayOrder: 2,
   },
   {
@@ -107,7 +107,7 @@ const items = [
     destination: 'KITCHEN',
     prepTimeMinutes: 18,
     imageURL:
-      'https://images.unsplash.com/photo-1520072959219-c595dc870360?auto=format&fit=crop&w=1200&q=80',
+      'https://images.unsplash.com/photo-1520072959219-c595dc870360?fit=crop&w=1200&q=80&fm=jpg',
     displayOrder: 3,
   },
   {
@@ -120,7 +120,7 @@ const items = [
     destination: 'KITCHEN',
     prepTimeMinutes: 25,
     imageURL:
-      'https://images.unsplash.com/photo-1513104890138-7c749659a591?auto=format&fit=crop&w=1200&q=80',
+      'https://images.unsplash.com/photo-1513104890138-7c749659a591?fit=crop&w=1200&q=80&fm=jpg',
     displayOrder: 1,
   },
   {
@@ -133,7 +133,7 @@ const items = [
     destination: 'KITCHEN',
     prepTimeMinutes: 24,
     imageURL:
-      'https://images.unsplash.com/photo-1541745537411-b8046dc6d66c?auto=format&fit=crop&w=1200&q=80',
+      'https://images.unsplash.com/photo-1541745537411-b8046dc6d66c?fit=crop&w=1200&q=80&fm=jpg',
     displayOrder: 2,
   },
   {
@@ -146,7 +146,7 @@ const items = [
     destination: 'BAR',
     prepTimeMinutes: 2,
     imageURL:
-      'https://images.unsplash.com/photo-1622483767028-3f66f32aef97?auto=format&fit=crop&w=1200&q=80',
+      'https://images.unsplash.com/photo-1622483767028-3f66f32aef97?fit=crop&w=1200&q=80&fm=jpg',
     displayOrder: 1,
   },
   {
@@ -159,7 +159,7 @@ const items = [
     destination: 'BAR',
     prepTimeMinutes: 2,
     imageURL:
-      'https://images.unsplash.com/photo-1622483767028-3f66f32aef97?auto=format&fit=crop&w=1200&q=80',
+      'https://images.unsplash.com/photo-1622483767028-3f66f32aef97?fit=crop&w=1200&q=80&fm=jpg',
     displayOrder: 2,
   },
   {
@@ -172,7 +172,7 @@ const items = [
     destination: 'BAR',
     prepTimeMinutes: 1,
     imageURL:
-      'https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?auto=format&fit=crop&w=1200&q=80',
+      'https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?fit=crop&w=1200&q=80&fm=jpg',
     displayOrder: 3,
   },
   {
@@ -185,7 +185,7 @@ const items = [
     destination: 'BAR',
     prepTimeMinutes: 1,
     imageURL:
-      'https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?auto=format&fit=crop&w=1200&q=80',
+      'https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?fit=crop&w=1200&q=80&fm=jpg',
     displayOrder: 4,
   },
   {
@@ -198,7 +198,7 @@ const items = [
     destination: 'BAR',
     prepTimeMinutes: 4,
     imageURL:
-      'https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?auto=format&fit=crop&w=1200&q=80',
+      'https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?fit=crop&w=1200&q=80&fm=jpg',
     displayOrder: 5,
   },
 ];

@@ -26,6 +26,7 @@ const (
 	orderingStepItemSelection     = "item_selection"
 	orderingCategoryIDsKey        = "ordering_category_ids"
 	orderingItemIDsKey            = "ordering_item_ids"
+	orderingItemPreviewCacheKey   = "ordering_item_preview_cache"
 	orderingSelectedCategoryIDKey = "ordering_selected_category_id"
 	orderingSelectedItemIDKey     = "ordering_selected_item_id"
 	orderingSelectedQuantityKey   = "ordering_selected_quantity"
@@ -39,6 +40,8 @@ const (
 	orderingBackToMenuID   = "order:menu"
 )
 
+var orderingPreviewDelay = 1200 * time.Millisecond
+
 type orderingCartItem struct {
 	MenuItemID    string `json:"menu_item_id"`
 	Quantity      int    `json:"quantity"`
@@ -46,6 +49,14 @@ type orderingCartItem struct {
 	MenuItemName  string `json:"menu_item_name,omitempty"`
 	UnitPrice     string `json:"unit_price,omitempty"`
 	CategoryLabel string `json:"category_label,omitempty"`
+}
+
+type orderingItemPreview struct {
+	Name                     string `json:"name,omitempty"`
+	Description              string `json:"description,omitempty"`
+	ImageURL                 string `json:"image_url,omitempty"`
+	WhatsAppShortName        string `json:"whatsapp_short_name,omitempty"`
+	WhatsAppShortDescription string `json:"whatsapp_short_description,omitempty"`
 }
 
 // handleOrderingSimplified - fluxo simplificado de pedidos
@@ -144,11 +155,14 @@ func (uc *HandleWhatsAppMessageUseCase) handleOrderingCategorySelection(
 			session.StateOrdering, nil
 	}
 
-	uc.sendOrderingCategoryImagePreview(ctx, sess.UserPhone, sess.TenantID, category, items)
+	if uc.sendOrderingCategoryImagePreview(ctx, sess.UserPhone, sess.TenantID, category, items) {
+		waitForOrderingPreview(ctx)
+	}
 
 	sess.SetContext(orderingStepKey, orderingStepItemSelection)
 	sess.SetContext(orderingSelectedCategoryIDKey, categoryID.String())
 	sess.SetContext(orderingItemIDsKey, menuItemIDs(items))
+	uc.setOrderingItemPreviewCache(sess, items)
 
 	if err := uc.sendOrderingItemsMenu(ctx, sess.UserPhone, sess.TenantID, categoryName, items); err == nil {
 		return "", session.StateOrdering, nil
@@ -184,10 +198,13 @@ func (uc *HandleWhatsAppMessageUseCase) handleOrderingItemSelection(
 			session.StateOrdering, nil
 	}
 
+	selectedItem = uc.mergeOrderingItemWithPreviewCache(sess, selectedItem)
 	sess.SetContext(orderingSelectedItemIDKey, selectedItem.ID.String())
 	delete(sess.Context, orderingSelectedQuantityKey)
 
-	uc.sendOrderingItemImagePreview(ctx, sess.UserPhone, sess.TenantID, selectedItem)
+	if uc.sendOrderingItemImagePreview(ctx, sess.UserPhone, sess.TenantID, selectedItem) {
+		waitForOrderingPreview(ctx)
+	}
 
 	if err := uc.sendQuantityMenu(ctx, sess.UserPhone, sess.TenantID, selectedItem); err == nil {
 		return "", session.StateSelectingQty, nil
@@ -214,6 +231,7 @@ func (uc *HandleWhatsAppMessageUseCase) showAllItemsForOrdering(
 
 	sess.SetContext(orderingStepKey, orderingStepItemSelection)
 	sess.SetContext(orderingItemIDsKey, menuItemIDs(items))
+	uc.setOrderingItemPreviewCache(sess, items)
 
 	if err := uc.sendOrderingItemsMenu(ctx, sess.UserPhone, sess.TenantID, "Cardápio", items); err == nil {
 		return "", session.StateOrdering, nil
@@ -513,6 +531,7 @@ func (uc *HandleWhatsAppMessageUseCase) clearOrderingContext(sess *session.Sessi
 		orderingStepKey,
 		orderingCategoryIDsKey,
 		orderingItemIDsKey,
+		orderingItemPreviewCacheKey,
 		orderingSelectedCategoryIDKey,
 		orderingSelectedItemIDKey,
 		orderingSelectedQuantityKey,
@@ -531,6 +550,7 @@ func (uc *HandleWhatsAppMessageUseCase) clearOrderingSelectionContext(sess *sess
 		orderingStepKey,
 		orderingCategoryIDsKey,
 		orderingItemIDsKey,
+		orderingItemPreviewCacheKey,
 		orderingSelectedCategoryIDKey,
 		orderingSelectedItemIDKey,
 		orderingSelectedQuantityKey,
@@ -579,6 +599,129 @@ func (uc *HandleWhatsAppMessageUseCase) getContextStringSlice(sess *session.Sess
 	default:
 		return nil
 	}
+}
+
+func (uc *HandleWhatsAppMessageUseCase) setOrderingItemPreviewCache(sess *session.Session, items []*menu.Item) {
+	if sess == nil {
+		return
+	}
+
+	previews := make(map[string]orderingItemPreview, len(items))
+	for _, item := range items {
+		if item == nil {
+			continue
+		}
+		previews[item.ID.String()] = orderingItemPreview{
+			Name:                     strings.TrimSpace(item.Name),
+			Description:              strings.TrimSpace(item.Description),
+			ImageURL:                 strings.TrimSpace(item.ImageURL),
+			WhatsAppShortName:        strings.TrimSpace(item.WhatsAppShortName),
+			WhatsAppShortDescription: strings.TrimSpace(item.WhatsAppShortDescription),
+		}
+	}
+
+	if len(previews) == 0 {
+		delete(sess.Context, orderingItemPreviewCacheKey)
+		return
+	}
+
+	sess.SetContext(orderingItemPreviewCacheKey, previews)
+}
+
+func (uc *HandleWhatsAppMessageUseCase) getOrderingItemPreviewCache(sess *session.Session) map[string]orderingItemPreview {
+	if sess == nil {
+		return nil
+	}
+
+	value, ok := sess.GetContext(orderingItemPreviewCacheKey)
+	if !ok || value == nil {
+		return nil
+	}
+
+	switch typed := value.(type) {
+	case map[string]orderingItemPreview:
+		cloned := make(map[string]orderingItemPreview, len(typed))
+		for id, preview := range typed {
+			cloned[id] = preview
+		}
+		return cloned
+	case map[string]interface{}:
+		previews := make(map[string]orderingItemPreview, len(typed))
+		for id, raw := range typed {
+			preview := parseOrderingItemPreview(raw)
+			if preview == (orderingItemPreview{}) {
+				continue
+			}
+			previews[id] = preview
+		}
+		return previews
+	default:
+		return nil
+	}
+}
+
+func parseOrderingItemPreview(raw interface{}) orderingItemPreview {
+	switch typed := raw.(type) {
+	case orderingItemPreview:
+		return typed
+	case map[string]interface{}:
+		return orderingItemPreview{
+			Name:                     parseOrderingOptionalString(typed["name"]),
+			Description:              parseOrderingOptionalString(typed["description"]),
+			ImageURL:                 parseOrderingOptionalString(typed["image_url"]),
+			WhatsAppShortName:        parseOrderingOptionalString(typed["whatsapp_short_name"]),
+			WhatsAppShortDescription: parseOrderingOptionalString(typed["whatsapp_short_description"]),
+		}
+	default:
+		return orderingItemPreview{}
+	}
+}
+
+func parseOrderingOptionalString(raw interface{}) string {
+	if raw == nil {
+		return ""
+	}
+
+	value := strings.TrimSpace(fmt.Sprintf("%v", raw))
+	if value == "" || value == "<nil>" {
+		return ""
+	}
+
+	return value
+}
+
+func (uc *HandleWhatsAppMessageUseCase) mergeOrderingItemWithPreviewCache(
+	sess *session.Session,
+	item *menu.Item,
+) *menu.Item {
+	if item == nil {
+		return nil
+	}
+
+	previews := uc.getOrderingItemPreviewCache(sess)
+	preview, ok := previews[item.ID.String()]
+	if !ok {
+		return item
+	}
+
+	cloned := *item
+	if strings.TrimSpace(cloned.Name) == "" {
+		cloned.Name = preview.Name
+	}
+	if strings.TrimSpace(cloned.Description) == "" {
+		cloned.Description = preview.Description
+	}
+	if strings.TrimSpace(cloned.ImageURL) == "" {
+		cloned.ImageURL = preview.ImageURL
+	}
+	if strings.TrimSpace(cloned.WhatsAppShortName) == "" {
+		cloned.WhatsAppShortName = preview.WhatsAppShortName
+	}
+	if strings.TrimSpace(cloned.WhatsAppShortDescription) == "" {
+		cloned.WhatsAppShortDescription = preview.WhatsAppShortDescription
+	}
+
+	return &cloned
 }
 
 func orderingCategoryDescription(category *menu.Category) string {
@@ -860,35 +1003,77 @@ func (uc *HandleWhatsAppMessageUseCase) buildOrderingCartItemsSummary(
 	return strings.Join(lines, "\n")
 }
 
+func waitForOrderingPreview(ctx context.Context) {
+	if orderingPreviewDelay <= 0 {
+		return
+	}
+
+	timer := time.NewTimer(orderingPreviewDelay)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+	case <-timer.C:
+	}
+}
+
 func (uc *HandleWhatsAppMessageUseCase) sendOrderingItemImagePreview(
 	ctx context.Context,
 	to string,
 	tenantID uuid.UUID,
 	item *menu.Item,
-) {
-	if item == nil || strings.TrimSpace(item.ImageURL) == "" {
-		return
+) bool {
+	if item == nil {
+		uc.logger.Debug("skipping item preview image: item is nil")
+		return false
+	}
+
+	imageURL := strings.TrimSpace(item.ImageURL)
+	if imageURL == "" {
+		uc.logger.Debug("skipping item preview image: item has no image URL",
+			zap.String("tenant_id", tenantID.String()),
+			zap.String("item_id", item.ID.String()),
+			zap.String("item_name", item.Name),
+		)
+		return false
 	}
 
 	caption := fmt.Sprintf("%s\nR$ %s", item.Name, formatBRLCurrency(item.Price))
-	if description := strings.TrimSpace(item.WhatsAppShortDescription); description != "" {
+	if description := parseOrderingOptionalString(item.WhatsAppShortDescription); description != "" {
 		caption += "\n" + truncateInteractiveDescription(description)
-	} else if description := strings.TrimSpace(item.Description); description != "" {
+	} else if description := parseOrderingOptionalString(item.Description); description != "" {
 		caption += "\n" + truncateInteractiveDescription(description)
 	}
 
-	if _, err := uc.sender.SendImage(
+	uc.logger.Debug("sending item preview image",
+		zap.String("tenant_id", tenantID.String()),
+		zap.String("item_id", item.ID.String()),
+		zap.String("to", to),
+		zap.String("image_url", imageURL),
+	)
+
+	messageID, err := uc.sender.SendImage(
 		whatsapp.WithTenantID(ctx, tenantID),
 		to,
-		strings.TrimSpace(item.ImageURL),
+		imageURL,
 		caption,
-	); err != nil {
+	)
+	if err != nil {
 		uc.logger.Warn("failed to send item preview image",
 			zap.Error(err),
 			zap.String("tenant_id", tenantID.String()),
 			zap.String("item_id", item.ID.String()),
 		)
+		return false
 	}
+
+	uc.logger.Debug("item preview image sent",
+		zap.String("tenant_id", tenantID.String()),
+		zap.String("item_id", item.ID.String()),
+		zap.String("message_id", messageID),
+	)
+
+	return true
 }
 
 func (uc *HandleWhatsAppMessageUseCase) sendOrderingCategoryImagePreview(
@@ -897,7 +1082,7 @@ func (uc *HandleWhatsAppMessageUseCase) sendOrderingCategoryImagePreview(
 	tenantID uuid.UUID,
 	category *menu.Category,
 	items []*menu.Item,
-) {
+) bool {
 	imageURL := ""
 	if category != nil {
 		imageURL = strings.TrimSpace(category.ImageURL)
@@ -914,7 +1099,10 @@ func (uc *HandleWhatsAppMessageUseCase) sendOrderingCategoryImagePreview(
 		}
 	}
 	if imageURL == "" {
-		return
+		uc.logger.Debug("skipping category preview image: no image URL available",
+			zap.String("tenant_id", tenantID.String()),
+		)
+		return false
 	}
 
 	categoryName := "Cardápio"
@@ -924,23 +1112,40 @@ func (uc *HandleWhatsAppMessageUseCase) sendOrderingCategoryImagePreview(
 
 	caption := fmt.Sprintf("🍽️ %s", categoryName)
 	if category != nil {
-		if description := strings.TrimSpace(category.Description); description != "" {
+		if description := parseOrderingOptionalString(category.Description); description != "" {
 			caption += "\n" + truncateInteractiveDescription(description)
 		}
 	}
 
-	if _, err := uc.sender.SendImage(
+	uc.logger.Debug("sending category preview image",
+		zap.String("tenant_id", tenantID.String()),
+		zap.String("category_name", categoryName),
+		zap.String("to", to),
+		zap.String("image_url", imageURL),
+	)
+
+	messageID, err := uc.sender.SendImage(
 		whatsapp.WithTenantID(ctx, tenantID),
 		to,
 		imageURL,
 		caption,
-	); err != nil {
+	)
+	if err != nil {
 		uc.logger.Warn("failed to send category preview image",
 			zap.Error(err),
 			zap.String("tenant_id", tenantID.String()),
 			zap.String("category_name", categoryName),
 		)
+		return false
 	}
+
+	uc.logger.Debug("category preview image sent",
+		zap.String("tenant_id", tenantID.String()),
+		zap.String("category_name", categoryName),
+		zap.String("message_id", messageID),
+	)
+
+	return true
 }
 
 func parseOrderingIntValue(value interface{}) int {

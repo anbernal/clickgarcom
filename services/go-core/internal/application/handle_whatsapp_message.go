@@ -182,7 +182,7 @@ func (uc *HandleWhatsAppMessageUseCase) Execute(ctx context.Context, input Handl
 			return fmt.Errorf("failed to find pending request by phone: %w", err)
 		}
 		if existingReq != nil {
-			if err := uc.sendTenantMessagePlain(ctx, input.From, input.TenantID, whatsapp.AlreadyInQueueMessage()); err != nil {
+			if err := uc.sendWaitingAdminApprovalMenu(ctx, input.From, input.TenantID, whatsapp.AlreadyInQueueMessage()); err != nil {
 				return fmt.Errorf("failed to send already-in-queue message: %w", err)
 			}
 			sess.TransitionTo(session.StateWaitingAdminApproval)
@@ -225,12 +225,27 @@ func (uc *HandleWhatsAppMessageUseCase) Execute(ctx context.Context, input Handl
 					return fmt.Errorf("failed to send welcome menu response: %w", err)
 				}
 				sendMessage = nil
+			} else if newState == session.StateWaitingAdminApproval {
+				if err := uc.sendWaitingAdminApprovalMenu(ctx, input.From, input.TenantID, response); err != nil {
+					return fmt.Errorf("failed to send waiting admin approval response: %w", err)
+				}
+				sendMessage = nil
 			} else {
 				sendMessage = uc.sendTenantMessagePlain
 			}
 		} else if newState == session.StateViewingTab {
 			if err := uc.sendTabSummaryMenu(ctx, input.From, sess); err != nil {
 				return fmt.Errorf("failed to send tab summary response: %w", err)
+			}
+			sendMessage = nil
+		} else if newState == session.StateWaitingAdminApproval {
+			if err := uc.sendWaitingAdminApprovalMenu(ctx, input.From, input.TenantID, response); err != nil {
+				return fmt.Errorf("failed to send waiting admin approval response: %w", err)
+			}
+			sendMessage = nil
+		} else if newState == session.StateWaitingJoinApproval {
+			if err := uc.sendWaitingJoinApprovalMenu(ctx, input.From, input.TenantID, response); err != nil {
+				return fmt.Errorf("failed to send waiting join approval response: %w", err)
 			}
 			sendMessage = nil
 		}
@@ -491,7 +506,7 @@ func (uc *HandleWhatsAppMessageUseCase) sendWelcomeMenu(
 ) error {
 	flow := uc.findPublishedBotFlow(ctx, tenantObj.ID, welcomeMenuFlowKey)
 	if flow == nil {
-		return uc.sendTenantMessagePlain(ctx, to, tenantObj.ID, uc.composeWelcomeMenuText(ctx, tenantObj, prefix))
+		return uc.sendDefaultWelcomeMenu(ctx, to, tenantObj, prefix)
 	}
 
 	definition, err := uc.decodeBotFlowDefinition(flow)
@@ -501,7 +516,7 @@ func (uc *HandleWhatsAppMessageUseCase) sendWelcomeMenu(
 			zap.String("tenant_id", tenantObj.ID.String()),
 			zap.String("flow_key", flow.Key),
 		)
-		return uc.sendTenantMessagePlain(ctx, to, tenantObj.ID, uc.composeWelcomeMenuText(ctx, tenantObj, prefix))
+		return uc.sendDefaultWelcomeMenu(ctx, to, tenantObj, prefix)
 	}
 
 	buttons := uc.buildInteractiveButtons(definition.Actions)
@@ -512,6 +527,30 @@ func (uc *HandleWhatsAppMessageUseCase) sendWelcomeMenu(
 	body := uc.composeWelcomeMenuBody(tenantObj, definition, prefix)
 	if _, err := uc.sender.SendInteractiveButtons(whatsapp.WithTenantID(ctx, tenantObj.ID), to, body, buttons); err != nil {
 		uc.logger.Warn("failed to send interactive welcome menu, falling back to text",
+			zap.Error(err),
+			zap.String("tenant_id", tenantObj.ID.String()),
+			zap.String("to", to),
+		)
+		return uc.sendTenantMessagePlain(ctx, to, tenantObj.ID, uc.composeWelcomeMenuText(ctx, tenantObj, prefix))
+	}
+
+	return nil
+}
+
+func (uc *HandleWhatsAppMessageUseCase) sendDefaultWelcomeMenu(
+	ctx context.Context,
+	to string,
+	tenantObj *tenant.Tenant,
+	prefix string,
+) error {
+	body := strings.TrimSpace(whatsapp.WelcomeMessage(tenantObj.Name, tenantObj.Settings.Messages))
+	if strings.TrimSpace(prefix) != "" {
+		body = strings.TrimSpace(prefix) + "\n\n" + body
+	}
+
+	ctx = whatsapp.WithTenantID(ctx, tenantObj.ID)
+	if _, err := uc.sender.SendInteractiveButtons(ctx, to, body, buildDefaultWelcomeButtons()); err != nil {
+		uc.logger.Warn("failed to send default interactive welcome menu, falling back to text",
 			zap.Error(err),
 			zap.String("tenant_id", tenantObj.ID.String()),
 			zap.String("to", to),
@@ -661,6 +700,10 @@ func (uc *HandleWhatsAppMessageUseCase) buildInteractiveButtons(
 		buttons = append(buttons, button)
 	}
 	return buttons
+}
+
+func buildDefaultWelcomeButtons() []whatsapp.InteractiveButton {
+	return buildSingleReplyButtons(defaultWelcomeMenuAction, "🙋 Solicitar mesa")
 }
 
 func (uc *HandleWhatsAppMessageUseCase) shouldSendInteractiveWelcome(
@@ -1180,22 +1223,12 @@ func (uc *HandleWhatsAppMessageUseCase) handleCollabChoice(
 		}
 
 		msgOpener := fmt.Sprintf("🔔 *Solicitação de Entrada*\n\nUm cliente (%s) quer entrar na Mesa %s %s.\n\nO que você deseja fazer?", sess.UserPhone, tableNumber, joinDesc)
-		buttons := []whatsapp.InteractiveButton{
-			{Type: "reply", Reply: struct {
-				ID    string `json:"id"`
-				Title string `json:"title"`
-			}{ID: fmt.Sprintf("btn_approve_%s", joinReq.ID.String()), Title: "✅ Aprovar"}},
-			{Type: "reply", Reply: struct {
-				ID    string `json:"id"`
-				Title string `json:"title"`
-			}{ID: fmt.Sprintf("btn_reject_%s", joinReq.ID.String()), Title: "❌ Recusar"}},
-		}
 
 		openerSess.TransitionTo(session.StateWaitingOpenerDecision)
 		openerSess.SetContext("pending_join_request_id", joinReq.ID.String())
 		uc.sessionRepo.Save(ctx, openerSess)
 
-		if _, err := uc.sender.SendInteractiveButtons(whatsapp.WithTenantID(ctx, sess.TenantID), openerSess.UserPhone, msgOpener, buttons); err != nil {
+		if err := uc.sendJoinRequestDecisionMenu(ctx, openerSess.UserPhone, sess.TenantID, joinReq.ID, msgOpener); err != nil {
 			uc.logger.Error("failed to send approval to opener", zap.Error(err))
 		}
 	} else {
@@ -1253,7 +1286,11 @@ func (uc *HandleWhatsAppMessageUseCase) handleOpenerDecision(
 	isReject := strings.HasPrefix(text, "btn_reject_") || strings.ToLower(text) == "recusar"
 
 	if !isApprove && !isReject {
-		return "Por favor, responda com *✅ Aprovar* ou *❌ Recusar*.", session.StateWaitingOpenerDecision, nil
+		body := "🔔 *Solicitação pendente*\n\nEscolha *Aprovar* ou *Recusar* para responder ao pedido de entrada."
+		if err := uc.sendJoinRequestDecisionMenu(ctx, sess.UserPhone, sess.TenantID, joinReq.ID, body); err == nil {
+			return "", session.StateWaitingOpenerDecision, nil
+		}
+		return "Por favor, responda com *aprovar* ou *recusar*.", session.StateWaitingOpenerDecision, nil
 	}
 
 	if isApprove {
@@ -1338,6 +1375,86 @@ func (uc *HandleWhatsAppMessageUseCase) sendTenantMessagePlain(
 ) error {
 	ctx = whatsapp.WithTenantID(ctx, tenantID)
 	return uc.sender.SendText(ctx, to, strings.TrimSpace(message))
+}
+
+func (uc *HandleWhatsAppMessageUseCase) sendWaitingAdminApprovalMenu(
+	ctx context.Context,
+	to string,
+	tenantID uuid.UUID,
+	message string,
+) error {
+	return uc.sendSingleActionMenu(
+		ctx,
+		to,
+		tenantID,
+		message,
+		strings.TrimSpace(message)+"\n\n_Digite 0 para cancelar_",
+		"0",
+		"Cancelar",
+	)
+}
+
+func (uc *HandleWhatsAppMessageUseCase) sendWaitingJoinApprovalMenu(
+	ctx context.Context,
+	to string,
+	tenantID uuid.UUID,
+	message string,
+) error {
+	return uc.sendSingleActionMenu(
+		ctx,
+		to,
+		tenantID,
+		message,
+		strings.TrimSpace(message)+"\n\n_Digite 0 para cancelar_",
+		"0",
+		"Cancelar",
+	)
+}
+
+func (uc *HandleWhatsAppMessageUseCase) sendSingleActionMenu(
+	ctx context.Context,
+	to string,
+	tenantID uuid.UUID,
+	body string,
+	fallback string,
+	buttonID string,
+	buttonTitle string,
+) error {
+	decoratedBody := whatsapp.WithRestaurantHeader(uc.resolveTenantName(ctx, tenantID), strings.TrimSpace(body))
+	decoratedFallback := whatsapp.WithRestaurantHeader(uc.resolveTenantName(ctx, tenantID), strings.TrimSpace(fallback))
+	ctx = whatsapp.WithTenantID(ctx, tenantID)
+	if _, err := uc.sender.SendInteractiveButtons(ctx, to, decoratedBody, buildSingleReplyButtons(buttonID, buttonTitle)); err != nil {
+		uc.logger.Warn("failed to send single-action interactive menu, falling back to text",
+			zap.Error(err),
+			zap.String("tenant_id", tenantID.String()),
+			zap.String("to", to),
+		)
+		return uc.sender.SendText(ctx, to, decoratedFallback)
+	}
+
+	return nil
+}
+
+func (uc *HandleWhatsAppMessageUseCase) sendJoinRequestDecisionMenu(
+	ctx context.Context,
+	to string,
+	tenantID uuid.UUID,
+	requestID uuid.UUID,
+	body string,
+) error {
+	ctx = whatsapp.WithTenantID(ctx, tenantID)
+	if _, err := uc.sender.SendInteractiveButtons(ctx, to, strings.TrimSpace(body), buildJoinRequestDecisionButtons(requestID)); err != nil {
+		uc.logger.Warn("failed to send join request decision buttons, falling back to text",
+			zap.Error(err),
+			zap.String("tenant_id", tenantID.String()),
+			zap.String("to", to),
+			zap.String("request_id", requestID.String()),
+		)
+		fallback := strings.TrimSpace(body) + "\n\nResponda com *aprovar* ou *recusar*."
+		return uc.sender.SendText(ctx, to, fallback)
+	}
+
+	return nil
 }
 
 func (uc *HandleWhatsAppMessageUseCase) resolveTenantName(ctx context.Context, tenantID uuid.UUID) string {
@@ -1519,6 +1636,32 @@ func (uc *HandleWhatsAppMessageUseCase) sendTabSummaryMenu(
 	}
 
 	return nil
+}
+
+func buildSingleReplyButtons(buttonID string, title string) []whatsapp.InteractiveButton {
+	button := whatsapp.InteractiveButton{Type: "reply"}
+	button.Reply.ID = strings.TrimSpace(buttonID)
+	button.Reply.Title = strings.TrimSpace(title)
+	return []whatsapp.InteractiveButton{button}
+}
+
+func buildJoinRequestDecisionButtons(requestID uuid.UUID) []whatsapp.InteractiveButton {
+	return []whatsapp.InteractiveButton{
+		{
+			Type: "reply",
+			Reply: struct {
+				ID    string `json:"id"`
+				Title string `json:"title"`
+			}{ID: fmt.Sprintf("btn_approve_%s", requestID.String()), Title: "✅ Aprovar"},
+		},
+		{
+			Type: "reply",
+			Reply: struct {
+				ID    string `json:"id"`
+				Title string `json:"title"`
+			}{ID: fmt.Sprintf("btn_reject_%s", requestID.String()), Title: "❌ Recusar"},
+		},
+	}
 }
 
 func buildTabSummaryButtons() []whatsapp.InteractiveButton {

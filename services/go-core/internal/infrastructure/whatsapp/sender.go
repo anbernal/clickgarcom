@@ -3,6 +3,7 @@ package whatsapp
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	tenantDomain "github.com/anbernal/clickgarcom/internal/domain/tenant"
@@ -79,6 +80,14 @@ func (s *Sender) SendImage(ctx context.Context, to, imageURL, caption string) (s
 		return "", fmt.Errorf("MetaAPIClient is not initialized")
 	}
 
+	normalizedImageURL := normalizeWhatsAppImageURL(imageURL)
+	if normalizedImageURL != strings.TrimSpace(imageURL) {
+		s.logger.Debug("normalized whatsapp image URL",
+			zap.String("original_url", imageURL),
+			zap.String("normalized_url", normalizedImageURL),
+		)
+	}
+
 	billingTenant, err := s.loadTenantForBilling(ctx)
 	if err != nil {
 		return "", err
@@ -88,7 +97,7 @@ func (s *Sender) SendImage(ctx context.Context, to, imageURL, caption string) (s
 		return "", fmt.Errorf("tenant out of credits")
 	}
 
-	messageID, err := s.apiClient.SendImage(ctx, to, imageURL, caption)
+	messageID, err := s.apiClient.SendImage(ctx, to, normalizedImageURL, caption)
 	if err != nil {
 		return "", err
 	}

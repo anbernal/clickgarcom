@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -57,16 +58,22 @@ func TestHandleWhatsAppMessageFirstContactShowsWelcomeMenu(t *testing.T) {
 		t.Fatalf("expected no table requests on first contact, got %d", got)
 	}
 
-	if got := len(sender.textMessages); got != 1 {
-		t.Fatalf("expected 1 outbound message, got %d", got)
+	if got := len(sender.interactiveMessages); got != 1 {
+		t.Fatalf("expected 1 interactive outbound message, got %d", got)
+	}
+	if got := len(sender.textMessages); got != 0 {
+		t.Fatalf("expected no plain text messages, got %d", got)
 	}
 
-	message := sender.textMessages[0]
-	if !strings.Contains(message, "Que bom ter você aqui") {
-		t.Fatalf("expected welcome message, got %q", message)
+	message := sender.interactiveMessages[0]
+	if !strings.Contains(message.Body, "Que bom ter você aqui") {
+		t.Fatalf("expected welcome message, got %q", message.Body)
 	}
-	if !strings.Contains(message, "Solicitar mesa") {
-		t.Fatalf("expected initial menu option, got %q", message)
+	if len(message.Buttons) != 1 {
+		t.Fatalf("expected 1 welcome button, got %d", len(message.Buttons))
+	}
+	if message.Buttons[0].Reply.ID != defaultWelcomeMenuAction {
+		t.Fatalf("expected welcome button id %q, got %q", defaultWelcomeMenuAction, message.Buttons[0].Reply.ID)
 	}
 
 	sess, err := sessionRepo.Find(ctx, phone, tenantID.String())
@@ -132,11 +139,17 @@ func TestHandleWhatsAppMessageWelcomeOptionCreatesTableRequest(t *testing.T) {
 		t.Fatalf("expected request status %s, got %s", table.RequestStatusPending, req.Status)
 	}
 
-	if got := len(sender.textMessages); got != 1 {
-		t.Fatalf("expected 1 outbound message, got %d", got)
+	if got := len(sender.interactiveMessages); got != 1 {
+		t.Fatalf("expected 1 interactive outbound message, got %d", got)
 	}
-	if !strings.Contains(sender.textMessages[0], "Já solicitei sua mesa") {
-		t.Fatalf("expected pending table confirmation, got %q", sender.textMessages[0])
+	if got := len(sender.textMessages); got != 0 {
+		t.Fatalf("expected no plain text messages, got %d", got)
+	}
+	if !strings.Contains(sender.interactiveMessages[0].Body, "Já solicitei sua mesa") {
+		t.Fatalf("expected pending table confirmation, got %q", sender.interactiveMessages[0].Body)
+	}
+	if len(sender.interactiveMessages[0].Buttons) != 1 || sender.interactiveMessages[0].Buttons[0].Reply.ID != "0" {
+		t.Fatalf("expected cancel button on pending approval, got %+v", sender.interactiveMessages[0].Buttons)
 	}
 
 	sess, err := sessionRepo.Find(ctx, phone, tenantID.String())
@@ -195,11 +208,17 @@ func TestHandleWhatsAppMessagePendingRequestSkipsWelcomeMenu(t *testing.T) {
 		t.Fatalf("expected no new table requests, got %d", got)
 	}
 
-	if got := len(sender.textMessages); got != 1 {
-		t.Fatalf("expected 1 outbound message, got %d", got)
+	if got := len(sender.interactiveMessages); got != 1 {
+		t.Fatalf("expected 1 interactive outbound message, got %d", got)
 	}
-	if !strings.Contains(sender.textMessages[0], "já está na fila") {
-		t.Fatalf("expected already-in-queue message, got %q", sender.textMessages[0])
+	if got := len(sender.textMessages); got != 0 {
+		t.Fatalf("expected no plain text messages, got %d", got)
+	}
+	if !strings.Contains(sender.interactiveMessages[0].Body, "já está na fila") {
+		t.Fatalf("expected already-in-queue message, got %q", sender.interactiveMessages[0].Body)
+	}
+	if len(sender.interactiveMessages[0].Buttons) != 1 || sender.interactiveMessages[0].Buttons[0].Reply.ID != "0" {
+		t.Fatalf("expected cancel button on already-in-queue message, got %+v", sender.interactiveMessages[0].Buttons)
 	}
 
 	sess, err := sessionRepo.Find(ctx, phone, tenantID.String())
@@ -349,6 +368,130 @@ func TestHandleWhatsAppMessageUsesPublishedWelcomeActionInputs(t *testing.T) {
 
 	if got := len(tableRepo.createdRequests); got != 1 {
 		t.Fatalf("expected 1 table request, got %d", got)
+	}
+}
+
+func TestHandleWhatsAppMessageWaitingJoinApprovalUsesCancelButton(t *testing.T) {
+	ctx := context.Background()
+	tenantID := uuid.New()
+	phone := "5511940000001"
+
+	sessionRepo := newTestSessionRepo()
+	sess := session.NewSession(phone, tenantID)
+	sess.TransitionTo(session.StateWaitingJoinApproval)
+	if err := sessionRepo.Save(ctx, sess); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	sender := &testWhatsAppSender{}
+	uc := NewHandleWhatsAppMessageUseCase(
+		sessionRepo,
+		&testTenantRepo{tenant: testTenant(tenantID)},
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		sender,
+		"",
+		zap.NewNop(),
+	)
+
+	if err := uc.Execute(ctx, HandleMessageInput{
+		From:     phone,
+		Text:     "status",
+		TenantID: tenantID,
+	}); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if got := len(sender.interactiveMessages); got != 1 {
+		t.Fatalf("expected 1 interactive message, got %d", got)
+	}
+	if got := len(sender.textMessages); got != 0 {
+		t.Fatalf("expected no plain text messages, got %d", got)
+	}
+	if !strings.Contains(sender.interactiveMessages[0].Body, "Aguardando aprovação") {
+		t.Fatalf("expected waiting approval body, got %q", sender.interactiveMessages[0].Body)
+	}
+	if len(sender.interactiveMessages[0].Buttons) != 1 || sender.interactiveMessages[0].Buttons[0].Reply.ID != "0" {
+		t.Fatalf("expected cancel button, got %+v", sender.interactiveMessages[0].Buttons)
+	}
+}
+
+func TestHandleWhatsAppMessageWaitingOpenerDecisionResendsButtonsOnInvalidInput(t *testing.T) {
+	ctx := context.Background()
+	tenantID := uuid.New()
+	phone := "5511940000002"
+	requestID := uuid.New()
+	tableID := uuid.New()
+	mainTabID := uuid.New()
+
+	sessionRepo := newTestSessionRepo()
+	sess := session.NewSession(phone, tenantID)
+	sess.TransitionTo(session.StateWaitingOpenerDecision)
+	sess.SetContext("pending_join_request_id", requestID.String())
+	if err := sessionRepo.Save(ctx, sess); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	tabRepo := &testTabRepo{
+		joinRequestsByID: map[uuid.UUID]*tab.TabJoinRequest{
+			requestID: {
+				ID:             requestID,
+				TenantID:       tenantID,
+				TableID:        tableID,
+				MainTabID:      mainTabID,
+				RequestorPhone: "5511911111111",
+				OpenerPhone:    phone,
+				JoinType:       tab.JoinTypeShared,
+				Status:         tab.JoinRequestPending,
+			},
+		},
+	}
+	sender := &testWhatsAppSender{}
+	uc := NewHandleWhatsAppMessageUseCase(
+		sessionRepo,
+		&testTenantRepo{tenant: testTenant(tenantID)},
+		nil,
+		nil,
+		tabRepo,
+		nil,
+		nil,
+		nil,
+		nil,
+		sender,
+		"",
+		zap.NewNop(),
+	)
+
+	if err := uc.Execute(ctx, HandleMessageInput{
+		From:     phone,
+		Text:     "talvez",
+		TenantID: tenantID,
+	}); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if got := len(sender.interactiveMessages); got != 1 {
+		t.Fatalf("expected 1 interactive message, got %d", got)
+	}
+	if got := len(sender.textMessages); got != 0 {
+		t.Fatalf("expected no plain text messages, got %d", got)
+	}
+	if !strings.Contains(sender.interactiveMessages[0].Body, "Solicitação pendente") {
+		t.Fatalf("expected resend prompt, got %q", sender.interactiveMessages[0].Body)
+	}
+	if len(sender.interactiveMessages[0].Buttons) != 2 {
+		t.Fatalf("expected 2 decision buttons, got %d", len(sender.interactiveMessages[0].Buttons))
+	}
+	if !strings.HasPrefix(sender.interactiveMessages[0].Buttons[0].Reply.ID, "btn_approve_") {
+		t.Fatalf("expected approve button id, got %q", sender.interactiveMessages[0].Buttons[0].Reply.ID)
+	}
+	if !strings.HasPrefix(sender.interactiveMessages[0].Buttons[1].Reply.ID, "btn_reject_") {
+		t.Fatalf("expected reject button id, got %q", sender.interactiveMessages[0].Buttons[1].Reply.ID)
 	}
 }
 
@@ -945,6 +1088,138 @@ func TestHandleWhatsAppMessageCategorySelectionUsesVisualWhatsAppFields(t *testi
 	}
 }
 
+func TestParseOrderingItemPreviewIgnoresMissingJSONFields(t *testing.T) {
+	rawPreview := map[string]orderingItemPreview{
+		"item-1": {
+			Name:     "Guaraná 500ml",
+			ImageURL: "https://cdn.example.com/menu/guarana.jpg",
+		},
+	}
+
+	payload, err := json.Marshal(rawPreview)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+
+	var decoded map[string]interface{}
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+
+	preview := parseOrderingItemPreview(decoded["item-1"])
+	if preview.Description != "" {
+		t.Fatalf("expected empty description, got %q", preview.Description)
+	}
+	if preview.WhatsAppShortDescription != "" {
+		t.Fatalf("expected empty WhatsApp short description, got %q", preview.WhatsAppShortDescription)
+	}
+}
+
+func TestHandleWhatsAppMessageItemSelectionUsesCachedPreviewWhenFindByIDMissesImage(t *testing.T) {
+	ctx := context.Background()
+	tenantID := uuid.New()
+	phone := "5511955555555"
+	categoryFoodID := uuid.New()
+	itemFoodID := uuid.New()
+
+	sessionRepo := newTestSessionRepo()
+	sess := session.NewSession(phone, tenantID)
+	sess.TransitionTo(session.StateMainMenu)
+	if err := sessionRepo.Save(ctx, sess); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	menuRepo := &testCreateOrderMenuRepo{
+		categoriesByID: map[uuid.UUID]*menu.Category{
+			categoryFoodID: {
+				ID:           categoryFoodID,
+				TenantID:     tenantID,
+				Name:         "Hambúrgueres",
+				Description:  "Sanduíches da casa",
+				ImageURL:     "https://cdn.example.com/menu/hamburgueres-banner.jpg",
+				DisplayOrder: 1,
+				Active:       true,
+			},
+		},
+		itemsByID: map[uuid.UUID]*menu.Item{
+			itemFoodID: {
+				ID:                       itemFoodID,
+				TenantID:                 tenantID,
+				CategoryID:               &categoryFoodID,
+				Name:                     "Hambúrguer Grande da Casa",
+				WhatsAppShortName:        "Hambúrguer Grande",
+				Description:              "Pão brioche, carne de 180g, queijo, cebola e molho especial",
+				WhatsAppShortDescription: "Pão brioche, carne 180g, queijo",
+				Price:                    35,
+				Available:                true,
+				Destination:              "KITCHEN",
+				ImageURL:                 "https://cdn.example.com/menu/hamburguer-grande.jpg",
+				DisplayOrder:             1,
+			},
+		},
+		itemByIDLookup: map[uuid.UUID]*menu.Item{
+			itemFoodID: {
+				ID:           itemFoodID,
+				TenantID:     tenantID,
+				CategoryID:   &categoryFoodID,
+				Name:         "Hambúrguer Grande da Casa",
+				Description:  "",
+				Price:        35,
+				Available:    true,
+				Destination:  "KITCHEN",
+				ImageURL:     "",
+				DisplayOrder: 1,
+			},
+		},
+	}
+
+	sender := &testWhatsAppSender{}
+	uc := NewHandleWhatsAppMessageUseCase(
+		sessionRepo,
+		&testTenantRepo{tenant: testTenant(tenantID)},
+		nil,
+		menuRepo,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		sender,
+		"",
+		zap.NewNop(),
+	)
+
+	steps := []string{
+		"1",
+		orderingCategoryPrefix + categoryFoodID.String(),
+		orderingItemPrefix + itemFoodID.String(),
+	}
+	for _, step := range steps {
+		if err := uc.Execute(ctx, HandleMessageInput{
+			From:     phone,
+			Text:     step,
+			TenantID: tenantID,
+		}); err != nil {
+			t.Fatalf("Execute(%q) error = %v", step, err)
+		}
+	}
+
+	if got := len(sender.imageMessages); got != 2 {
+		t.Fatalf("expected 2 image preview messages, got %d", got)
+	}
+
+	itemPreview := sender.imageMessages[1]
+	if itemPreview.ImageURL != "https://cdn.example.com/menu/hamburguer-grande.jpg" {
+		t.Fatalf("expected cached item image URL, got %q", itemPreview.ImageURL)
+	}
+	if !strings.Contains(itemPreview.Caption, "Pão brioche, carne 180g, queijo") {
+		t.Fatalf("expected cached short description in caption, got %q", itemPreview.Caption)
+	}
+	if got := len(sender.interactiveMessages); got != 1 {
+		t.Fatalf("expected 1 quantity interactive message, got %d", got)
+	}
+}
+
 func TestHandleWhatsAppMessageInteractiveOrderingCreatesOrder(t *testing.T) {
 	ctx := context.Background()
 	tenantID := uuid.New()
@@ -1286,7 +1561,8 @@ type testBotConfigRepo struct {
 }
 
 type testTabRepo struct {
-	byID map[uuid.UUID]*tab.Tab
+	byID             map[uuid.UUID]*tab.Tab
+	joinRequestsByID map[uuid.UUID]*tab.TabJoinRequest
 }
 
 func (r *testTabRepo) FindByID(_ context.Context, id uuid.UUID, tenantID uuid.UUID) (*tab.Tab, error) {
@@ -1360,6 +1636,11 @@ func (r *testTabRepo) Update(_ context.Context, openTab *tab.Tab) error {
 }
 
 func (r *testTabRepo) CreateJoinRequest(_ context.Context, req *tab.TabJoinRequest) error {
+	if r.joinRequestsByID == nil {
+		r.joinRequestsByID = make(map[uuid.UUID]*tab.TabJoinRequest)
+	}
+	cloned := *req
+	r.joinRequestsByID[req.ID] = &cloned
 	return nil
 }
 
@@ -1368,10 +1649,28 @@ func (r *testTabRepo) FindPendingJoinRequestByOpener(_ context.Context, openerPh
 }
 
 func (r *testTabRepo) FindJoinRequestByID(_ context.Context, id uuid.UUID) (*tab.TabJoinRequest, error) {
-	return nil, nil
+	if r == nil {
+		return nil, nil
+	}
+	req := r.joinRequestsByID[id]
+	if req == nil {
+		return nil, nil
+	}
+	cloned := *req
+	return &cloned, nil
 }
 
 func (r *testTabRepo) UpdateJoinRequestStatus(_ context.Context, id uuid.UUID, status tab.JoinRequestStatus) error {
+	if r == nil || r.joinRequestsByID == nil {
+		return nil
+	}
+	req := r.joinRequestsByID[id]
+	if req == nil {
+		return nil
+	}
+	cloned := *req
+	cloned.Status = status
+	r.joinRequestsByID[id] = &cloned
 	return nil
 }
 

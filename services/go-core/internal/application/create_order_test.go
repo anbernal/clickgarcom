@@ -263,6 +263,7 @@ func (r *testCreateOrderTabRepo) UpdateJoinRequestStatus(ctx context.Context, id
 
 type testCreateOrderMenuRepo struct {
 	itemsByID      map[uuid.UUID]*menu.Item
+	itemByIDLookup map[uuid.UUID]*menu.Item
 	categoriesByID map[uuid.UUID]*menu.Category
 }
 
@@ -337,6 +338,9 @@ func (r *testCreateOrderMenuRepo) FindItemsByCategory(ctx context.Context, categ
 
 func (r *testCreateOrderMenuRepo) FindItemByID(ctx context.Context, id uuid.UUID, tenantID uuid.UUID) (*menu.Item, error) {
 	item := r.itemsByID[id]
+	if override, ok := r.itemByIDLookup[id]; ok {
+		item = override
+	}
 	if item == nil || item.TenantID != tenantID {
 		return nil, nil
 	}
