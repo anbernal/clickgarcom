@@ -344,4 +344,4 @@ clickgarcom/
 
 ## Licença
 
-MIT
+Todos direitos reservados @ bernalSotions
