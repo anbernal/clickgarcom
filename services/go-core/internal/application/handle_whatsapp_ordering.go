@@ -1077,13 +1077,11 @@ func (uc *HandleWhatsAppMessageUseCase) startClosingTabFlow(
 		msgs,
 	)
 
-	message = "💰 *Fechar Conta*\n\n" + message + "\n\n" +
-		"Como você prefere finalizar?\n" +
-		"*1* - 💳 Pagar agora pelo celular\n" +
-		"*2* - 🙋 Pedir para a equipe fechar na mesa\n\n" +
-		"_Digite 0 para voltar ao menu_"
+	if err := uc.sendClosingTabOptions(ctx, sess.UserPhone, sess.TenantID, restaurantName, message); err == nil {
+		return "", session.StateClosingTab, nil
+	}
 
-	return message, session.StateClosingTab, nil
+	return buildClosingTabTextFallback(message), session.StateClosingTab, nil
 }
 
 func (uc *HandleWhatsAppMessageUseCase) handleClosingTab(
@@ -1119,9 +1117,73 @@ func (uc *HandleWhatsAppMessageUseCase) handleClosingTab(
 		return uc.requestCloseBillByStaff(ctx, sess)
 
 	default:
-		return "❌ Opção inválida.\n\n*1* - 💳 Pagar agora pelo celular\n*2* - 🙋 Pedir para a equipe fechar na mesa\n\n_Digite 0 para voltar ao menu_",
+		return buildClosingTabInvalidOptionMessage(),
 			session.StateClosingTab, nil
 	}
+}
+
+func (uc *HandleWhatsAppMessageUseCase) sendClosingTabOptions(
+	ctx context.Context,
+	to string,
+	tenantID uuid.UUID,
+	restaurantName string,
+	tabSummary string,
+) error {
+	body := "💰 *Fechar Conta*\n\n" + tabSummary + "\n\nComo você prefere finalizar?"
+	decoratedBody := whatsapp.WithRestaurantHeader(restaurantName, body)
+
+	_, err := uc.sender.SendInteractiveButtons(
+		whatsapp.WithTenantID(ctx, tenantID),
+		to,
+		decoratedBody,
+		buildClosingTabButtons(),
+	)
+	if err != nil {
+		uc.logger.Warn("failed to send close tab interactive options",
+			zap.Error(err),
+			zap.String("tenant_id", tenantID.String()),
+			zap.String("to", to),
+		)
+	}
+	return err
+}
+
+func buildClosingTabButtons() []whatsapp.InteractiveButton {
+	return []whatsapp.InteractiveButton{
+		{
+			Type: "reply",
+			Reply: struct {
+				ID    string `json:"id"`
+				Title string `json:"title"`
+			}{ID: "1", Title: "Pagar celular"},
+		},
+		{
+			Type: "reply",
+			Reply: struct {
+				ID    string `json:"id"`
+				Title string `json:"title"`
+			}{ID: "2", Title: "Chamar equipe"},
+		},
+		{
+			Type: "reply",
+			Reply: struct {
+				ID    string `json:"id"`
+				Title string `json:"title"`
+			}{ID: "0", Title: "Menu"},
+		},
+	}
+}
+
+func buildClosingTabTextFallback(tabSummary string) string {
+	return "💰 *Fechar Conta*\n\n" + tabSummary + "\n\n" +
+		"Como você prefere finalizar?\n" +
+		"*1* - 💳 Pagar agora pelo celular\n" +
+		"*2* - 🙋 Pedir para a equipe fechar na mesa\n\n" +
+		"_Digite 0 para voltar ao menu_"
+}
+
+func buildClosingTabInvalidOptionMessage() string {
+	return "❌ Opção inválida.\n\n*1* - 💳 Pagar agora pelo celular\n*2* - 🙋 Pedir para a equipe fechar na mesa\n\n_Digite 0 para voltar ao menu_"
 }
 
 func (uc *HandleWhatsAppMessageUseCase) requestCloseBillByStaff(

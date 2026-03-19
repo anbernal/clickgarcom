@@ -131,6 +131,7 @@ func TestCreateOrderExecuteCreatesOrderBatchAndSplitsByDestination(t *testing.T)
 
 type testCreateOrderRepo struct {
 	created []*order.Order
+	byTab   map[uuid.UUID][]*order.Order
 }
 
 func (r *testCreateOrderRepo) FindByID(ctx context.Context, id uuid.UUID, tenantID uuid.UUID) (*order.Order, error) {
@@ -146,7 +147,21 @@ func (r *testCreateOrderRepo) FindByBatchID(ctx context.Context, batchID uuid.UU
 }
 
 func (r *testCreateOrderRepo) FindByTab(ctx context.Context, tabID uuid.UUID, tenantID uuid.UUID) ([]*order.Order, error) {
-	return nil, nil
+	orders := r.byTab[tabID]
+	if len(orders) == 0 {
+		return nil, nil
+	}
+
+	cloned := make([]*order.Order, 0, len(orders))
+	for _, current := range orders {
+		if current == nil || current.TenantID != tenantID {
+			continue
+		}
+		orderClone := *current
+		orderClone.Items = append([]order.OrderItem(nil), current.Items...)
+		cloned = append(cloned, &orderClone)
+	}
+	return cloned, nil
 }
 
 func (r *testCreateOrderRepo) FindByDestinationAndStatus(ctx context.Context, destination order.Destination, status order.Status, tenantID uuid.UUID) ([]*order.Order, error) {

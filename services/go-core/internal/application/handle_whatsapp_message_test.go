@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/anbernal/clickgarcom/internal/domain/botconfig"
 	"github.com/anbernal/clickgarcom/internal/domain/inbox/session"
 	"github.com/anbernal/clickgarcom/internal/domain/menu"
+	"github.com/anbernal/clickgarcom/internal/domain/order"
 	"github.com/anbernal/clickgarcom/internal/domain/tab"
 	"github.com/anbernal/clickgarcom/internal/domain/table"
 	"github.com/anbernal/clickgarcom/internal/domain/tenant"
@@ -600,6 +602,251 @@ func TestHandleWhatsAppMessageMainMenuOptionShowsInteractiveCategoryMenu(t *test
 	}
 }
 
+func TestHandleWhatsAppMessageCloseTabFlowShowsInteractiveButtons(t *testing.T) {
+	ctx := context.Background()
+	tenantID := uuid.New()
+	phone := "5511944444444"
+	tableID := uuid.New()
+	tabID := uuid.New()
+	cokeID := uuid.New()
+	pizzaID := uuid.New()
+
+	sessionRepo := newTestSessionRepo()
+	sess := session.NewSession(phone, tenantID)
+	sess.TableID = &tableID
+	sess.TransitionTo(session.StateMainMenu)
+	if err := sessionRepo.Save(ctx, sess); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	openTab := &tab.Tab{
+		ID:         tabID,
+		TenantID:   tenantID,
+		TableID:    &tableID,
+		UserPhone:  phone,
+		Status:     tab.StatusOpen,
+		Subtotal:   75,
+		ServiceFee: 7.5,
+		Total:      82.5,
+		PaidAmount: 0,
+		OpenedAt:   time.Now(),
+	}
+	tabRepo := &testTabRepo{byID: map[uuid.UUID]*tab.Tab{tabID: openTab}}
+	tableRepo := &testTableRepo{tablesByID: map[uuid.UUID]*table.Table{
+		tableID: {ID: tableID, TenantID: tenantID, Number: "1"},
+	}}
+	menuRepo := &testCreateOrderMenuRepo{
+		itemsByID: map[uuid.UUID]*menu.Item{
+			cokeID:  {ID: cokeID, TenantID: tenantID, Name: "Coca Cola 500ml"},
+			pizzaID: {ID: pizzaID, TenantID: tenantID, Name: "Pizza calabresa"},
+		},
+	}
+	orderRepo := &testCreateOrderRepo{
+		byTab: map[uuid.UUID][]*order.Order{
+			tabID: {
+				{
+					ID:          uuid.New(),
+					TenantID:    tenantID,
+					TabID:       tabID,
+					Destination: order.DestinationBar,
+					Status:      order.StatusPending,
+					Items: []order.OrderItem{
+						{ID: uuid.New(), MenuItemID: cokeID, Quantity: 2, UnitPrice: 15},
+					},
+				},
+				{
+					ID:          uuid.New(),
+					TenantID:    tenantID,
+					TabID:       tabID,
+					Destination: order.DestinationKitchen,
+					Status:      order.StatusPending,
+					Items: []order.OrderItem{
+						{ID: uuid.New(), MenuItemID: pizzaID, Quantity: 1, UnitPrice: 45},
+					},
+				},
+			},
+		},
+	}
+	sender := &testWhatsAppSender{}
+	createOrderUC := NewCreateOrderUseCase(
+		orderRepo,
+		&testCreateOrderBatchRepo{},
+		&testCreateOrderTabRepo{},
+		menuRepo,
+		nil,
+		&testKDSEventPublisher{},
+		zap.NewNop(),
+	)
+	uc := NewHandleWhatsAppMessageUseCase(
+		sessionRepo,
+		&testTenantRepo{tenant: testTenant(tenantID)},
+		nil,
+		menuRepo,
+		tabRepo,
+		tableRepo,
+		nil,
+		nil,
+		createOrderUC,
+		sender,
+		"",
+		zap.NewNop(),
+	)
+
+	if err := uc.Execute(ctx, HandleMessageInput{
+		From:     phone,
+		Text:     "5",
+		TenantID: tenantID,
+	}); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if got := len(sender.interactiveMessages); got != 1 {
+		t.Fatalf("expected 1 interactive message, got %d", got)
+	}
+	if got := len(sender.textMessages); got != 0 {
+		t.Fatalf("expected no text fallback, got %d", got)
+	}
+
+	message := sender.interactiveMessages[0]
+	if !strings.Contains(message.Body, "Fechar Conta") {
+		t.Fatalf("expected close tab title, got %q", message.Body)
+	}
+	if !strings.Contains(message.Body, "Sua Comanda") {
+		t.Fatalf("expected tab summary, got %q", message.Body)
+	}
+	if !strings.Contains(message.Body, "Como você prefere finalizar?") {
+		t.Fatalf("expected closing CTA, got %q", message.Body)
+	}
+	if len(message.Buttons) != 3 {
+		t.Fatalf("expected 3 buttons, got %d", len(message.Buttons))
+	}
+	if message.Buttons[0].Reply.ID != "1" || message.Buttons[1].Reply.ID != "2" || message.Buttons[2].Reply.ID != "0" {
+		t.Fatalf("unexpected button ids: %+v", message.Buttons)
+	}
+
+	updatedSession, err := sessionRepo.Find(ctx, phone, tenantID.String())
+	if err != nil {
+		t.Fatalf("Find() error = %v", err)
+	}
+	if updatedSession == nil {
+		t.Fatal("expected session to be saved")
+	}
+	if updatedSession.State != session.StateClosingTab {
+		t.Fatalf("expected session state %s, got %s", session.StateClosingTab, updatedSession.State)
+	}
+}
+
+func TestHandleWhatsAppMessageCloseTabFlowFallsBackToTextWhenInteractiveFails(t *testing.T) {
+	ctx := context.Background()
+	tenantID := uuid.New()
+	phone := "5511955555555"
+	tableID := uuid.New()
+	tabID := uuid.New()
+	cokeID := uuid.New()
+
+	sessionRepo := newTestSessionRepo()
+	sess := session.NewSession(phone, tenantID)
+	sess.TableID = &tableID
+	sess.TransitionTo(session.StateMainMenu)
+	if err := sessionRepo.Save(ctx, sess); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	openTab := &tab.Tab{
+		ID:         tabID,
+		TenantID:   tenantID,
+		TableID:    &tableID,
+		UserPhone:  phone,
+		Status:     tab.StatusOpen,
+		Subtotal:   75,
+		ServiceFee: 7.5,
+		Total:      82.5,
+		PaidAmount: 0,
+		OpenedAt:   time.Now(),
+	}
+	tabRepo := &testTabRepo{byID: map[uuid.UUID]*tab.Tab{tabID: openTab}}
+	tableRepo := &testTableRepo{tablesByID: map[uuid.UUID]*table.Table{
+		tableID: {ID: tableID, TenantID: tenantID, Number: "1"},
+	}}
+	menuRepo := &testCreateOrderMenuRepo{
+		itemsByID: map[uuid.UUID]*menu.Item{
+			cokeID: {ID: cokeID, TenantID: tenantID, Name: "Coca Cola 500ml"},
+		},
+	}
+	orderRepo := &testCreateOrderRepo{
+		byTab: map[uuid.UUID][]*order.Order{
+			tabID: {
+				{
+					ID:          uuid.New(),
+					TenantID:    tenantID,
+					TabID:       tabID,
+					Destination: order.DestinationBar,
+					Status:      order.StatusPending,
+					Items: []order.OrderItem{
+						{ID: uuid.New(), MenuItemID: cokeID, Quantity: 2, UnitPrice: 15},
+					},
+				},
+			},
+		},
+	}
+	sender := &testWhatsAppSender{sendInteractiveButtonsErr: errors.New("interactive unavailable")}
+	createOrderUC := NewCreateOrderUseCase(
+		orderRepo,
+		&testCreateOrderBatchRepo{},
+		&testCreateOrderTabRepo{},
+		menuRepo,
+		nil,
+		&testKDSEventPublisher{},
+		zap.NewNop(),
+	)
+	uc := NewHandleWhatsAppMessageUseCase(
+		sessionRepo,
+		&testTenantRepo{tenant: testTenant(tenantID)},
+		nil,
+		menuRepo,
+		tabRepo,
+		tableRepo,
+		nil,
+		nil,
+		createOrderUC,
+		sender,
+		"",
+		zap.NewNop(),
+	)
+
+	if err := uc.Execute(ctx, HandleMessageInput{
+		From:     phone,
+		Text:     "5",
+		TenantID: tenantID,
+	}); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if got := len(sender.interactiveMessages); got != 0 {
+		t.Fatalf("expected no interactive message, got %d", got)
+	}
+	if got := len(sender.textMessages); got != 1 {
+		t.Fatalf("expected 1 text fallback, got %d", got)
+	}
+	if !strings.Contains(sender.textMessages[0], "*1* - 💳 Pagar agora pelo celular") {
+		t.Fatalf("expected payment fallback option, got %q", sender.textMessages[0])
+	}
+	if !strings.Contains(sender.textMessages[0], "*2* - 🙋 Pedir para a equipe fechar na mesa") {
+		t.Fatalf("expected staff fallback option, got %q", sender.textMessages[0])
+	}
+
+	updatedSession, err := sessionRepo.Find(ctx, phone, tenantID.String())
+	if err != nil {
+		t.Fatalf("Find() error = %v", err)
+	}
+	if updatedSession == nil {
+		t.Fatal("expected session to be saved")
+	}
+	if updatedSession.State != session.StateClosingTab {
+		t.Fatalf("expected session state %s, got %s", session.StateClosingTab, updatedSession.State)
+	}
+}
+
 func TestHandleWhatsAppMessageCategorySelectionUsesVisualWhatsAppFields(t *testing.T) {
 	ctx := context.Background()
 	tenantID := uuid.New()
@@ -1154,10 +1401,11 @@ func (r *testBotConfigRepo) ListPublishedByTenant(
 }
 
 type testWhatsAppSender struct {
-	textMessages        []string
-	imageMessages       []testImageMessage
-	interactiveMessages []testInteractiveMessage
-	listMessages        []testInteractiveListMessage
+	textMessages              []string
+	imageMessages             []testImageMessage
+	interactiveMessages       []testInteractiveMessage
+	listMessages              []testInteractiveListMessage
+	sendInteractiveButtonsErr error
 }
 
 func (s *testWhatsAppSender) SendText(_ context.Context, to string, message string) error {
@@ -1175,6 +1423,9 @@ func (s *testWhatsAppSender) SendImage(_ context.Context, to, imageURL, caption 
 }
 
 func (s *testWhatsAppSender) SendInteractiveButtons(_ context.Context, to, bodyText string, buttons []whatsapp.InteractiveButton) (string, error) {
+	if s.sendInteractiveButtonsErr != nil {
+		return "", s.sendInteractiveButtonsErr
+	}
 	clonedButtons := make([]whatsapp.InteractiveButton, len(buttons))
 	copy(clonedButtons, buttons)
 	s.interactiveMessages = append(s.interactiveMessages, testInteractiveMessage{
