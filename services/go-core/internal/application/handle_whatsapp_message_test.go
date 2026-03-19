@@ -88,6 +88,71 @@ func TestHandleWhatsAppMessageFirstContactShowsWelcomeMenu(t *testing.T) {
 	}
 }
 
+func TestHandleWhatsAppMessageWelcomeGreetingResendsWelcomeWithoutInvalidPrefix(t *testing.T) {
+	ctx := context.Background()
+	tenantID := uuid.New()
+	phone := "5511999990001"
+
+	sessionRepo := newTestSessionRepo()
+	sess := session.NewSession(phone, tenantID)
+	sess.TransitionTo(session.StateWelcome)
+	if err := sessionRepo.Save(ctx, sess); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	tableRepo := newTestTableRepo()
+	sender := &testWhatsAppSender{}
+	uc := NewHandleWhatsAppMessageUseCase(
+		sessionRepo,
+		&testTenantRepo{tenant: testTenant(tenantID)},
+		nil,
+		nil,
+		nil,
+		tableRepo,
+		nil,
+		nil,
+		nil,
+		sender,
+		"",
+		zap.NewNop(),
+	)
+
+	err := uc.Execute(ctx, HandleMessageInput{
+		From:     phone,
+		Text:     "Olá!",
+		TenantID: tenantID,
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if got := len(sender.interactiveMessages); got != 1 {
+		t.Fatalf("expected 1 interactive outbound message, got %d", got)
+	}
+	if got := len(sender.textMessages); got != 0 {
+		t.Fatalf("expected no plain text messages, got %d", got)
+	}
+
+	message := sender.interactiveMessages[0]
+	if strings.Contains(message.Body, "Opção inválida") {
+		t.Fatalf("expected welcome without invalid prefix, got %q", message.Body)
+	}
+	if !strings.Contains(message.Body, "Que bom ter você aqui") {
+		t.Fatalf("expected welcome message, got %q", message.Body)
+	}
+
+	updatedSession, err := sessionRepo.Find(ctx, phone, tenantID.String())
+	if err != nil {
+		t.Fatalf("Find() error = %v", err)
+	}
+	if updatedSession == nil {
+		t.Fatal("expected session to be saved")
+	}
+	if updatedSession.State != session.StateWelcome {
+		t.Fatalf("expected session state %s, got %s", session.StateWelcome, updatedSession.State)
+	}
+}
+
 func TestHandleWhatsAppMessageWelcomeOptionCreatesTableRequest(t *testing.T) {
 	ctx := context.Background()
 	tenantID := uuid.New()
@@ -230,6 +295,200 @@ func TestHandleWhatsAppMessagePendingRequestSkipsWelcomeMenu(t *testing.T) {
 	}
 	if sess.State != session.StateWaitingAdminApproval {
 		t.Fatalf("expected session state %s, got %s", session.StateWaitingAdminApproval, sess.State)
+	}
+}
+
+func TestHandleWhatsAppMessagePendingRequestCancelRemovesUserFromQueue(t *testing.T) {
+	ctx := context.Background()
+	tenantID := uuid.New()
+	phone := "5511970000001"
+
+	sessionRepo := newTestSessionRepo()
+	sess := session.NewSession(phone, tenantID)
+	sess.TransitionTo(session.StateWaitingAdminApproval)
+	if err := sessionRepo.Save(ctx, sess); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	tableRepo := newTestTableRepo()
+	tableRepo.pendingByPhone[testRepoKey(phone, tenantID)] = &table.TableRequest{
+		ID:        uuid.New(),
+		TenantID:  tenantID,
+		UserPhone: phone,
+		PaxCount:  2,
+		Status:    table.RequestStatusPending,
+	}
+
+	sender := &testWhatsAppSender{}
+	uc := NewHandleWhatsAppMessageUseCase(
+		sessionRepo,
+		&testTenantRepo{tenant: testTenant(tenantID)},
+		nil,
+		nil,
+		nil,
+		tableRepo,
+		nil,
+		nil,
+		nil,
+		sender,
+		"",
+		zap.NewNop(),
+	)
+
+	err := uc.Execute(ctx, HandleMessageInput{
+		From:     phone,
+		Text:     "cancelar",
+		TenantID: tenantID,
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if got := len(sender.textMessages); got != 1 {
+		t.Fatalf("expected 1 plain text message, got %d", got)
+	}
+	if !strings.Contains(sender.textMessages[0], "Retirei você da fila de atendimento") {
+		t.Fatalf("expected queue removal message, got %q", sender.textMessages[0])
+	}
+
+	if pending, err := tableRepo.FindPendingRequestByPhone(ctx, phone, tenantID); err != nil {
+		t.Fatalf("FindPendingRequestByPhone() error = %v", err)
+	} else if pending != nil {
+		t.Fatalf("expected no pending request after cancel, got %+v", pending)
+	}
+
+	updatedSession, err := sessionRepo.Find(ctx, phone, tenantID.String())
+	if err != nil {
+		t.Fatalf("Find() error = %v", err)
+	}
+	if updatedSession == nil {
+		t.Fatal("expected session to be saved")
+	}
+	if updatedSession.State != session.StateWelcome {
+		t.Fatalf("expected session state %s, got %s", session.StateWelcome, updatedSession.State)
+	}
+	if updatedSession.TableID != nil || updatedSession.TabID != nil {
+		t.Fatalf("expected access metadata to be cleared, got table=%v tab=%v", updatedSession.TableID, updatedSession.TabID)
+	}
+}
+
+func TestHandleWhatsAppMessageWaitingTableConfirmationCancelReturnsToWelcome(t *testing.T) {
+	ctx := context.Background()
+	tenantID := uuid.New()
+	phone := "5511970000002"
+	tableID := uuid.New()
+
+	sessionRepo := newTestSessionRepo()
+	sess := session.NewSession(phone, tenantID)
+	sess.TransitionTo(session.StateWaitingTableConfirmation)
+	sess.SetContext("pending_table_id", tableID.String())
+	sess.SetContext("pending_table_number", "12")
+	if err := sessionRepo.Save(ctx, sess); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	tableRepo := newTestTableRepo()
+	sender := &testWhatsAppSender{}
+	uc := NewHandleWhatsAppMessageUseCase(
+		sessionRepo,
+		&testTenantRepo{tenant: testTenant(tenantID)},
+		nil,
+		nil,
+		nil,
+		tableRepo,
+		nil,
+		nil,
+		nil,
+		sender,
+		"",
+		zap.NewNop(),
+	)
+
+	err := uc.Execute(ctx, HandleMessageInput{
+		From:     phone,
+		Text:     "0",
+		TenantID: tenantID,
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if got := len(sender.textMessages); got != 1 {
+		t.Fatalf("expected 1 plain text message, got %d", got)
+	}
+	if !strings.Contains(sender.textMessages[0], "Não vou seguir com essa solicitação agora") {
+		t.Fatalf("expected cancellation message, got %q", sender.textMessages[0])
+	}
+	if got := len(tableRepo.createdRequests); got != 0 {
+		t.Fatalf("expected no table requests to be created, got %d", got)
+	}
+
+	updatedSession, err := sessionRepo.Find(ctx, phone, tenantID.String())
+	if err != nil {
+		t.Fatalf("Find() error = %v", err)
+	}
+	if updatedSession == nil {
+		t.Fatal("expected session to be saved")
+	}
+	if updatedSession.State != session.StateWelcome {
+		t.Fatalf("expected session state %s, got %s", session.StateWelcome, updatedSession.State)
+	}
+}
+
+func TestHandleWhatsAppMessageMainMenuWithoutApprovedAccessIsBlocked(t *testing.T) {
+	ctx := context.Background()
+	tenantID := uuid.New()
+	phone := "5511970000003"
+
+	sessionRepo := newTestSessionRepo()
+	sess := session.NewSession(phone, tenantID)
+	sess.TransitionTo(session.StateMainMenu)
+	if err := sessionRepo.Save(ctx, sess); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	tableRepo := newTestTableRepo()
+	sender := &testWhatsAppSender{}
+	uc := NewHandleWhatsAppMessageUseCase(
+		sessionRepo,
+		&testTenantRepo{tenant: testTenant(tenantID)},
+		nil,
+		nil,
+		&testTabRepo{byID: map[uuid.UUID]*tab.Tab{}},
+		tableRepo,
+		nil,
+		nil,
+		nil,
+		sender,
+		"",
+		zap.NewNop(),
+	)
+
+	err := uc.Execute(ctx, HandleMessageInput{
+		From:     phone,
+		Text:     "1",
+		TenantID: tenantID,
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if got := len(sender.textMessages); got != 1 {
+		t.Fatalf("expected 1 plain text message, got %d", got)
+	}
+	if !strings.Contains(sender.textMessages[0], "Seu acesso ao cardápio não está ativo") {
+		t.Fatalf("expected menu access blocked message, got %q", sender.textMessages[0])
+	}
+
+	updatedSession, err := sessionRepo.Find(ctx, phone, tenantID.String())
+	if err != nil {
+		t.Fatalf("Find() error = %v", err)
+	}
+	if updatedSession == nil {
+		t.Fatal("expected session to be saved")
+	}
+	if updatedSession.State != session.StateWelcome {
+		t.Fatalf("expected session state %s, got %s", session.StateWelcome, updatedSession.State)
 	}
 }
 
@@ -1489,13 +1748,15 @@ func (r *testTenantRepo) GetUsersByTenant(_ context.Context, tenantID string) ([
 type testTableRepo struct {
 	createdRequests []*table.TableRequest
 	pendingByPhone  map[string]*table.TableRequest
+	approvedByPhone map[string]*table.TableRequest
 	tablesByID      map[uuid.UUID]*table.Table
 }
 
 func newTestTableRepo() *testTableRepo {
 	return &testTableRepo{
-		pendingByPhone: make(map[string]*table.TableRequest),
-		tablesByID:     make(map[uuid.UUID]*table.Table),
+		pendingByPhone:  make(map[string]*table.TableRequest),
+		approvedByPhone: make(map[string]*table.TableRequest),
+		tablesByID:      make(map[uuid.UUID]*table.Table),
 	}
 }
 
@@ -1549,10 +1810,24 @@ func (r *testTableRepo) FindPendingRequestByPhone(_ context.Context, phone strin
 }
 
 func (r *testTableRepo) FindLatestApprovedRequestByPhone(_ context.Context, phone string, tenantID uuid.UUID) (*table.TableRequest, error) {
+	if req, ok := r.approvedByPhone[testRepoKey(phone, tenantID)]; ok {
+		clone := *req
+		return &clone, nil
+	}
 	return nil, nil
 }
 
 func (r *testTableRepo) UpdateRequest(_ context.Context, req *table.TableRequest) error {
+	key := testRepoKey(req.UserPhone, req.TenantID)
+	cloned := *req
+	delete(r.pendingByPhone, key)
+	delete(r.approvedByPhone, key)
+	switch req.Status {
+	case table.RequestStatusPending:
+		r.pendingByPhone[key] = &cloned
+	case table.RequestStatusApproved:
+		r.approvedByPhone[key] = &cloned
+	}
 	return nil
 }
 

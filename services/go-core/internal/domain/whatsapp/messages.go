@@ -77,10 +77,24 @@ const defaultTablePending = `🙋‍♂️ *Prontinho! Já solicitei sua mesa pa
 Nossa equipe já está organizando tudo para liberar seu acesso ao cardápio.
 Te aviso por aqui assim que estiver pronto. 🤝`
 
+const defaultTableRequestCanceled = `🙏 *Agradecemos seu contato!*
+
+Retirei você da fila de atendimento por aqui.
+Quando quiser voltar, é só falar com a gente novamente.`
+
+const defaultTableRequestFlowCanceled = `🙏 *Tudo certo!*
+
+Não vou seguir com essa solicitação agora.
+Quando quiser voltar, é só chamar a gente novamente.`
+
 const defaultAlreadyInQueue = `🙋‍♂️ *Recebi sua mensagem!*
 
 Você já está na fila de atendimento.
 Daqui a pouquinho nossa equipe vai te chamar por aqui. 🤝`
+
+const defaultMenuAccessUnavailable = `🔒 *Seu acesso ao cardápio não está ativo no momento.*
+
+Se quiser continuar, solicite uma nova mesa para liberar o atendimento.`
 
 const defaultTextOnlySupport = `No momento só entendo mensagem de texto, como posso te ajudar?`
 
@@ -214,9 +228,21 @@ func TableRequestPendingMessage(msgs ...tenant.MessageTemplates) string {
 	return resolveTemplate(custom, defaultTablePending, nil)
 }
 
+func TableRequestCanceledMessage() string {
+	return defaultTableRequestCanceled
+}
+
+func TableRequestFlowCanceledMessage() string {
+	return defaultTableRequestFlowCanceled
+}
+
 // AlreadyInQueueMessage mensagem para quando o cliente já está aguardando na fila.
 func AlreadyInQueueMessage() string {
 	return defaultAlreadyInQueue
+}
+
+func MenuAccessUnavailableMessage() string {
+	return defaultMenuAccessUnavailable
 }
 
 // TextOnlySupportMessage mensagem para conteúdos não suportados (imagem, áudio, etc).

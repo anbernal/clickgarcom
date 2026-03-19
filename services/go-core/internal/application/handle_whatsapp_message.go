@@ -209,6 +209,19 @@ func (uc *HandleWhatsAppMessageUseCase) Execute(ctx context.Context, input Handl
 	}
 
 	// 3. Enviar resposta
+	if response == "" && sess.State == session.StateWelcome && (newState == "" || newState == session.StateWelcome) {
+		t, tenantErr := uc.tenantRepo.FindByID(ctx, input.TenantID)
+		if tenantErr != nil {
+			return fmt.Errorf("failed to find tenant: %w", tenantErr)
+		}
+		if t == nil {
+			return fmt.Errorf("tenant not found: %s", input.TenantID.String())
+		}
+		if err := uc.sendWelcomeMenu(ctx, input.From, t, ""); err != nil {
+			return fmt.Errorf("failed to send welcome menu response: %w", err)
+		}
+	}
+
 	if response != "" {
 		sendMessage := uc.sendTenantMessage
 		if sess.State == session.StateWelcome {
@@ -358,7 +371,23 @@ func (uc *HandleWhatsAppMessageUseCase) handleWelcomeMenu(
 		return whatsapp.TableRequestPendingMessage(t.Settings.Messages), session.StateWaitingAdminApproval, nil
 	}
 
+	if isWelcomeGreeting(text) {
+		return "", session.StateWelcome, nil
+	}
+
 	return whatsapp.InvalidOptionMessage(t.Settings.Messages), session.StateWelcome, nil
+}
+
+func isWelcomeGreeting(text string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(text))
+	normalized = strings.Trim(normalized, "!.? ")
+
+	switch normalized {
+	case "oi", "olá", "ola", "bom dia", "boa tarde", "boa noite":
+		return true
+	default:
+		return false
+	}
 }
 
 func (uc *HandleWhatsAppMessageUseCase) isInitialTableRequestChoice(
@@ -730,6 +759,11 @@ func (uc *HandleWhatsAppMessageUseCase) handleMainMenu(
 	sess *session.Session,
 	text string,
 ) (string, session.ConversationState, error) {
+	if response, newState, blocked, err := uc.guardMainMenuAccess(ctx, sess); err != nil {
+		return "", "", err
+	} else if blocked {
+		return response, newState, nil
+	}
 
 	switch text {
 	case "1":
@@ -1085,7 +1119,8 @@ func (uc *HandleWhatsAppMessageUseCase) handleTableConfirmation(
 
 	// Permitir cancelar
 	if text == "0" || strings.ToLower(text) == "cancelar" {
-		return whatsapp.MainMenuMessage(), session.StateMainMenu, nil
+		uc.resetSessionAccess(sess)
+		return whatsapp.TableRequestFlowCanceledMessage(), session.StateWelcome, nil
 	}
 
 	// Validar quantidade de pessoas
@@ -1129,11 +1164,95 @@ func (uc *HandleWhatsAppMessageUseCase) handleWaitingAdminApproval(
 
 	// Enquanto aguarda aprovação, ignorar outras mensagens exceto cancelamento
 	if text == "0" || strings.ToLower(text) == "cancelar" {
-		// Opcional: Rejeitar/cancelar a solicitação ativa (não implementado MVP)
-		return whatsapp.MainMenuMessage(), session.StateMainMenu, nil
+		if err := uc.cancelPendingTableRequest(ctx, sess); err != nil {
+			uc.logger.Error("failed to cancel pending table request",
+				zap.Error(err),
+				zap.String("tenant_id", sess.TenantID.String()),
+				zap.String("user_phone", sess.UserPhone),
+			)
+			return "❌ Não consegui retirar você da fila agora. Tente novamente em instantes.",
+				session.StateWaitingAdminApproval, nil
+		}
+
+		uc.resetSessionAccess(sess)
+		return whatsapp.TableRequestCanceledMessage(), session.StateWelcome, nil
 	}
 
 	return whatsapp.AlreadyInQueueMessage(), session.StateWaitingAdminApproval, nil
+}
+
+func (uc *HandleWhatsAppMessageUseCase) cancelPendingTableRequest(
+	ctx context.Context,
+	sess *session.Session,
+) error {
+	if uc.tableRepo == nil || sess == nil {
+		return nil
+	}
+
+	pendingReq, err := uc.tableRepo.FindPendingRequestByPhone(ctx, sess.UserPhone, sess.TenantID)
+	if err != nil {
+		return err
+	}
+	if pendingReq == nil {
+		return nil
+	}
+
+	pendingReq.Status = table.RequestStatusRejected
+	return uc.tableRepo.UpdateRequest(ctx, pendingReq)
+}
+
+func (uc *HandleWhatsAppMessageUseCase) resetSessionAccess(sess *session.Session) {
+	if sess == nil {
+		return
+	}
+
+	sess.TableID = nil
+	sess.TabID = nil
+	sess.Context = make(map[string]interface{})
+}
+
+func (uc *HandleWhatsAppMessageUseCase) guardMainMenuAccess(
+	ctx context.Context,
+	sess *session.Session,
+) (string, session.ConversationState, bool, error) {
+	if sess == nil {
+		return whatsapp.MenuAccessUnavailableMessage(), session.StateWelcome, true, nil
+	}
+
+	if uc.tabRepo == nil && uc.tableRepo == nil {
+		return "", "", false, nil
+	}
+
+	if uc.tableRepo != nil {
+		pendingReq, err := uc.tableRepo.FindPendingRequestByPhone(ctx, sess.UserPhone, sess.TenantID)
+		if err != nil {
+			return "", "", false, err
+		}
+		if pendingReq != nil {
+			return whatsapp.AlreadyInQueueMessage(), session.StateWaitingAdminApproval, true, nil
+		}
+	}
+
+	if uc.tabRepo != nil && uc.findSessionOpenTab(ctx, sess) != nil {
+		return "", "", false, nil
+	}
+
+	if uc.tableRepo == nil {
+		return "", "", false, nil
+	}
+
+	if recoveredTableID, err := uc.recoverSessionTableID(ctx, sess); err == nil && recoveredTableID != nil {
+		return "", "", false, nil
+	} else if err != nil {
+		uc.logger.Warn("failed to recover menu access while guarding main menu",
+			zap.Error(err),
+			zap.String("tenant_id", sess.TenantID.String()),
+			zap.String("user_phone", sess.UserPhone),
+		)
+	}
+
+	uc.resetSessionAccess(sess)
+	return whatsapp.MenuAccessUnavailableMessage(), session.StateWelcome, true, nil
 }
 
 // Fase 14: Lidar com a Escolha do Botão Interativo "Compartilhar Comanda" ou "Individual"

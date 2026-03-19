@@ -280,6 +280,11 @@ func (uc *HandleWhatsAppMessageUseCase) handleMainMenuSimplified(
 	sess *session.Session,
 	text string,
 ) (string, session.ConversationState, error) {
+	if response, newState, blocked, err := uc.guardMainMenuAccess(ctx, sess); err != nil {
+		return "", "", err
+	} else if blocked {
+		return response, newState, nil
+	}
 
 	switch text {
 	case "1":
