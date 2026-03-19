@@ -14,6 +14,9 @@ export class MenuCategory {
     @Column({ type: 'text', nullable: true })
     description!: string | null;
 
+    @Column({ type: 'text', name: 'image_url', nullable: true })
+    imageUrl!: string | null;
+
     @Column({ type: 'int', name: 'display_order', default: 0 })
     displayOrder!: number;
 

@@ -32,6 +32,7 @@ export class CategoriesController {
         return this.categoriesService.create(req.user.tenantId, {
             name: body.name,
             description: body.description,
+            imageUrl: body.image_url,
             displayOrder: body.display_order || 0,
             active: body.active !== false,
         });
@@ -42,6 +43,7 @@ export class CategoriesController {
         return this.categoriesService.update(id, req.user.tenantId, {
             name: body.name,
             description: body.description,
+            imageUrl: body.image_url,
             displayOrder: body.display_order,
             active: body.active,
         });

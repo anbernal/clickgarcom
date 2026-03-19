@@ -32,6 +32,12 @@ export class MenuItem {
     @Column({ type: 'text', name: 'image_url', nullable: true })
     imageUrl!: string | null;
 
+    @Column({ type: 'varchar', length: 80, name: 'whatsapp_short_name', nullable: true })
+    whatsappShortName!: string | null;
+
+    @Column({ type: 'varchar', length: 160, name: 'whatsapp_short_description', nullable: true })
+    whatsappShortDescription!: string | null;
+
     @Column({ type: 'varchar', length: 20, default: 'KITCHEN' })
     destination!: string;
 

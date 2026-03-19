@@ -600,6 +600,104 @@ func TestHandleWhatsAppMessageMainMenuOptionShowsInteractiveCategoryMenu(t *test
 	}
 }
 
+func TestHandleWhatsAppMessageCategorySelectionUsesVisualWhatsAppFields(t *testing.T) {
+	ctx := context.Background()
+	tenantID := uuid.New()
+	phone := "5511911112222"
+	categoryFoodID := uuid.New()
+	itemFoodID := uuid.New()
+
+	sessionRepo := newTestSessionRepo()
+	sess := session.NewSession(phone, tenantID)
+	sess.TransitionTo(session.StateMainMenu)
+	if err := sessionRepo.Save(ctx, sess); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	menuRepo := &testCreateOrderMenuRepo{
+		categoriesByID: map[uuid.UUID]*menu.Category{
+			categoryFoodID: {
+				ID:           categoryFoodID,
+				TenantID:     tenantID,
+				Name:         "Hambúrgueres",
+				Description:  "Burgers artesanais da casa",
+				ImageURL:     "https://cdn.example.com/menu/hamburgueres-banner.jpg",
+				DisplayOrder: 1,
+				Active:       true,
+			},
+		},
+		itemsByID: map[uuid.UUID]*menu.Item{
+			itemFoodID: {
+				ID:                       itemFoodID,
+				TenantID:                 tenantID,
+				CategoryID:               &categoryFoodID,
+				Name:                     "Hambúrguer Grande da Casa",
+				WhatsAppShortName:        "Hambúrguer Grande",
+				Description:              "Pão brioche, carne de 180g, queijo, cebola e molho especial",
+				WhatsAppShortDescription: "Pão brioche, carne 180g, queijo",
+				Price:                    35,
+				Available:                true,
+				Destination:              "KITCHEN",
+				ImageURL:                 "https://cdn.example.com/menu/hamburguer-grande.jpg",
+				DisplayOrder:             1,
+			},
+		},
+	}
+
+	sender := &testWhatsAppSender{}
+	uc := NewHandleWhatsAppMessageUseCase(
+		sessionRepo,
+		&testTenantRepo{tenant: testTenant(tenantID)},
+		nil,
+		menuRepo,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		sender,
+		"",
+		zap.NewNop(),
+	)
+
+	steps := []string{
+		"1",
+		orderingCategoryPrefix + categoryFoodID.String(),
+	}
+	for _, step := range steps {
+		if err := uc.Execute(ctx, HandleMessageInput{
+			From:     phone,
+			Text:     step,
+			TenantID: tenantID,
+		}); err != nil {
+			t.Fatalf("Execute(%q) error = %v", step, err)
+		}
+	}
+
+	if got := len(sender.imageMessages); got != 1 {
+		t.Fatalf("expected 1 category image preview, got %d", got)
+	}
+	if got := sender.imageMessages[0].ImageURL; got != "https://cdn.example.com/menu/hamburgueres-banner.jpg" {
+		t.Fatalf("expected category image URL, got %q", got)
+	}
+	if got := len(sender.listMessages); got != 2 {
+		t.Fatalf("expected 2 list messages, got %d", got)
+	}
+
+	itemsList := sender.listMessages[1]
+	if len(itemsList.Sections) != 1 || len(itemsList.Sections[0].Rows) != 1 {
+		t.Fatalf("expected 1 item row, got %+v", itemsList.Sections)
+	}
+
+	row := itemsList.Sections[0].Rows[0]
+	if row.Title != "Hambúrguer Grande" {
+		t.Fatalf("expected WhatsApp short title, got %q", row.Title)
+	}
+	if !strings.Contains(row.Description, "Pão brioche, carne 180g, queijo") {
+		t.Fatalf("expected WhatsApp short description, got %q", row.Description)
+	}
+}
+
 func TestHandleWhatsAppMessageInteractiveOrderingCreatesOrder(t *testing.T) {
 	ctx := context.Background()
 	tenantID := uuid.New()
@@ -725,8 +823,8 @@ func TestHandleWhatsAppMessageInteractiveOrderingCreatesOrder(t *testing.T) {
 	if got := len(sender.interactiveMessages); got < 3 {
 		t.Fatalf("expected at least 3 interactive button messages, got %d", got)
 	}
-	if got := len(sender.imageMessages); got != 1 {
-		t.Fatalf("expected 1 image preview message, got %d", got)
+	if got := len(sender.imageMessages); got != 2 {
+		t.Fatalf("expected 2 image preview messages, got %d", got)
 	}
 	if got := len(orderRepo.created); got != 2 {
 		t.Fatalf("expected 2 created orders split by destination, got %d", got)

@@ -144,6 +144,8 @@ func (uc *HandleWhatsAppMessageUseCase) handleOrderingCategorySelection(
 			session.StateOrdering, nil
 	}
 
+	uc.sendOrderingCategoryImagePreview(ctx, sess.UserPhone, sess.TenantID, category, items)
+
 	sess.SetContext(orderingStepKey, orderingStepItemSelection)
 	sess.SetContext(orderingSelectedCategoryIDKey, categoryID.String())
 	sess.SetContext(orderingItemIDsKey, menuItemIDs(items))
@@ -342,7 +344,7 @@ func (uc *HandleWhatsAppMessageUseCase) sendOrderingItemsMenu(
 		}
 		rows = append(rows, whatsapp.InteractiveListRow{
 			ID:          orderingItemPrefix + item.ID.String(),
-			Title:       truncateInteractiveTitle(item.Name),
+			Title:       truncateInteractiveTitle(orderingItemListTitle(item)),
 			Description: truncateInteractiveDescription(orderingItemDescription(item)),
 		})
 	}
@@ -590,11 +592,24 @@ func orderingCategoryDescription(category *menu.Category) string {
 	return "Abrir categoria"
 }
 
+func orderingItemListTitle(item *menu.Item) string {
+	if item == nil {
+		return ""
+	}
+	if shortName := strings.TrimSpace(item.WhatsAppShortName); shortName != "" {
+		return shortName
+	}
+	return strings.TrimSpace(item.Name)
+}
+
 func orderingItemDescription(item *menu.Item) string {
 	if item == nil {
 		return ""
 	}
-	description := strings.TrimSpace(item.Description)
+	description := strings.TrimSpace(item.WhatsAppShortDescription)
+	if description == "" {
+		description = strings.TrimSpace(item.Description)
+	}
 	if description == "" {
 		description = "Escolher item"
 	}
@@ -856,7 +871,9 @@ func (uc *HandleWhatsAppMessageUseCase) sendOrderingItemImagePreview(
 	}
 
 	caption := fmt.Sprintf("%s\nR$ %s", item.Name, formatBRLCurrency(item.Price))
-	if description := strings.TrimSpace(item.Description); description != "" {
+	if description := strings.TrimSpace(item.WhatsAppShortDescription); description != "" {
+		caption += "\n" + truncateInteractiveDescription(description)
+	} else if description := strings.TrimSpace(item.Description); description != "" {
 		caption += "\n" + truncateInteractiveDescription(description)
 	}
 
@@ -870,6 +887,58 @@ func (uc *HandleWhatsAppMessageUseCase) sendOrderingItemImagePreview(
 			zap.Error(err),
 			zap.String("tenant_id", tenantID.String()),
 			zap.String("item_id", item.ID.String()),
+		)
+	}
+}
+
+func (uc *HandleWhatsAppMessageUseCase) sendOrderingCategoryImagePreview(
+	ctx context.Context,
+	to string,
+	tenantID uuid.UUID,
+	category *menu.Category,
+	items []*menu.Item,
+) {
+	imageURL := ""
+	if category != nil {
+		imageURL = strings.TrimSpace(category.ImageURL)
+	}
+	if imageURL == "" {
+		for _, item := range items {
+			if item == nil {
+				continue
+			}
+			if candidate := strings.TrimSpace(item.ImageURL); candidate != "" {
+				imageURL = candidate
+				break
+			}
+		}
+	}
+	if imageURL == "" {
+		return
+	}
+
+	categoryName := "Cardápio"
+	if category != nil && strings.TrimSpace(category.Name) != "" {
+		categoryName = strings.TrimSpace(category.Name)
+	}
+
+	caption := fmt.Sprintf("🍽️ %s", categoryName)
+	if category != nil {
+		if description := strings.TrimSpace(category.Description); description != "" {
+			caption += "\n" + truncateInteractiveDescription(description)
+		}
+	}
+
+	if _, err := uc.sender.SendImage(
+		whatsapp.WithTenantID(ctx, tenantID),
+		to,
+		imageURL,
+		caption,
+	); err != nil {
+		uc.logger.Warn("failed to send category preview image",
+			zap.Error(err),
+			zap.String("tenant_id", tenantID.String()),
+			zap.String("category_name", categoryName),
 		)
 	}
 }

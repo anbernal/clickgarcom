@@ -47,6 +47,13 @@ function renderCardapio(filterCatId = null, search = '') {
     return map[getEmoji(item)] || '#f0f2f5';
   };
 
+  const renderItemThumb = (item) => {
+    if (item.imageUrl) {
+      return `<div class="menu-img" style="background-image:url('${escapeHTML(item.imageUrl)}');background-size:cover;background-position:center"></div>`;
+    }
+    return `<div class="menu-img" style="background:${getBg(item)}">${getEmoji(item)}</div>`;
+  };
+
   container.innerHTML = `
     <div class="full-card">
       <div class="card-header">
@@ -71,11 +78,12 @@ function renderCardapio(filterCatId = null, search = '') {
       <div class="menu-grid">
         ${filtered.map(item => `
           <div class="menu-card">
-            <div class="menu-img" style="background:${getBg(item)}">${getEmoji(item)}</div>
+            ${renderItemThumb(item)}
             <div class="menu-body">
               <div class="menu-name">${escapeHTML(item.name)}</div>
-              <div class="menu-cat">${escapeHTML(item.category ? item.category.name : 'Sem categoria')}${item.description ? ' · ' + escapeHTML(item.description.substring(0, 20)) : ''}</div>
+              <div class="menu-cat">${escapeHTML(item.category ? item.category.name : 'Sem categoria')}${item.whatsappShortName ? ' · WA: ' + escapeHTML(item.whatsappShortName) : ''}</div>
               <div class="menu-price">${escapeHTML(formatCurrency(item.price))}</div>
+              <div style="font-size:12px;color:var(--muted);margin-top:6px">${escapeHTML(item.whatsappShortDescription || item.description || 'Sem descrição curta configurada')}</div>
               <div class="menu-footer">
                 <div class="status-pill ${item.available ? 'status-done' : 'status-pending'}">${item.available ? 'Ativo' : 'Inativo'}</div>
                 <div style="display:flex;gap:6px">
@@ -128,6 +136,11 @@ function openMenuItemModal(itemId) {
         <label>Descrição</label>
         <textarea id="mi-description" placeholder="Descrição do item">${item ? escapeHTML(item.description) || '' : ''}</textarea>
       </div>
+      <div class="form-group">
+        <label>Imagem do Item</label>
+        <input type="url" id="mi-image-url" value="${item ? escapeHTML(item.imageUrl || '') : ''}" placeholder="https://...">
+        <div style="font-size:12px;color:var(--muted);margin-top:6px">Usada no preview ilustrativo do item no WhatsApp.</div>
+      </div>
       <div class="form-row-2">
         <div class="form-group">
           <label>Preço (R$)</label>
@@ -154,6 +167,16 @@ function openMenuItemModal(itemId) {
           <input type="number" id="mi-prep" value="${item ? item.prepTimeMinutes : 15}">
         </div>
       </div>
+      <div class="form-row-2">
+        <div class="form-group">
+          <label>Nome Curto para WhatsApp</label>
+          <input type="text" id="mi-whatsapp-short-name" value="${item ? escapeHTML(item.whatsappShortName || '') : ''}" placeholder="Ex: Burger Grande">
+        </div>
+        <div class="form-group">
+          <label>Descrição Curta para WhatsApp</label>
+          <input type="text" id="mi-whatsapp-short-description" value="${item ? escapeHTML(item.whatsappShortDescription || '') : ''}" placeholder="Ex: R$ 35,00 · Pão brioche, carne 180g">
+        </div>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn-sm btn-outline" onclick="closeModal()">Cancelar</button>
@@ -170,6 +193,9 @@ async function saveMenuItem(itemId) {
     category_id: document.getElementById('mi-category').value || null,
     destination: document.getElementById('mi-destination').value,
     prep_time_minutes: parseInt(document.getElementById('mi-prep').value) || 15,
+    image_url: document.getElementById('mi-image-url').value.trim() || null,
+    whatsapp_short_name: document.getElementById('mi-whatsapp-short-name').value.trim() || null,
+    whatsapp_short_description: document.getElementById('mi-whatsapp-short-description').value.trim() || null,
   };
 
   if (!data.name || !data.price) {

@@ -12,6 +12,7 @@ type Category struct {
 	TenantID     uuid.UUID `json:"tenant_id" gorm:"type:uuid;not null;index"`
 	Name         string    `json:"name" gorm:"type:varchar(100);not null"`
 	Description  string    `json:"description,omitempty" gorm:"type:text"`
+	ImageURL     string    `json:"image_url,omitempty" gorm:"type:text"`
 	DisplayOrder int       `json:"display_order" gorm:"default:0"`
 	Active       bool      `json:"active" gorm:"default:true"`
 	CreatedAt    time.Time `json:"created_at"`
@@ -35,6 +36,10 @@ type Item struct {
 
 	// Imagem
 	ImageURL string `json:"image_url,omitempty" gorm:"type:text"`
+
+	// Apresentação específica para WhatsApp
+	WhatsAppShortName        string `json:"whatsapp_short_name,omitempty" gorm:"type:varchar(80)"`
+	WhatsAppShortDescription string `json:"whatsapp_short_description,omitempty" gorm:"type:varchar(160)"`
 
 	// Roteamento (KDS)
 	Destination string `json:"destination" gorm:"type:varchar(20);not null;default:'KITCHEN'"`

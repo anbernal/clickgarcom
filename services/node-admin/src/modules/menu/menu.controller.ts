@@ -42,6 +42,8 @@ export class MenuController {
             destination: body.destination || 'KITCHEN',
             prepTimeMinutes: body.prep_time_minutes || 15,
             imageUrl: body.image_url,
+            whatsappShortName: body.whatsapp_short_name,
+            whatsappShortDescription: body.whatsapp_short_description,
             available: body.available !== false,
             displayOrder: body.display_order || 0,
         });
@@ -57,6 +59,8 @@ export class MenuController {
             destination: body.destination,
             prepTimeMinutes: body.prep_time_minutes,
             imageUrl: body.image_url,
+            whatsappShortName: body.whatsapp_short_name,
+            whatsappShortDescription: body.whatsapp_short_description,
             available: body.available,
             displayOrder: body.display_order,
         });
