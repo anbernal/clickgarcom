@@ -11,6 +11,12 @@ export class Tab {
     @Column('uuid', { name: 'table_id', nullable: true })
     tableId!: string | null;
 
+    @Column({ name: 'user_phone', type: 'varchar', length: 30, nullable: true })
+    userPhone!: string | null;
+
+    @Column({ name: 'payment_notifier_phone', type: 'varchar', length: 30, nullable: true })
+    paymentNotifierPhone!: string | null;
+
     @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
     subtotal!: number;
 

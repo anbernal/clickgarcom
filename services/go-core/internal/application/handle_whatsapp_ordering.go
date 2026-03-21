@@ -56,8 +56,9 @@ const (
 var orderingPreviewDelay = 1200 * time.Millisecond
 
 type checkoutAccessClaims struct {
-	Scope string `json:"scope"`
-	TabID string `json:"tab_id"`
+	Scope      string `json:"scope"`
+	TabID      string `json:"tab_id"`
+	OwnerPhone string `json:"owner_phone"`
 	jwt.RegisteredClaims
 }
 
@@ -1693,6 +1694,9 @@ func (uc *HandleWhatsAppMessageUseCase) startClosingTabFlow(
 ) (string, session.ConversationState, error) {
 	userTab := uc.findSessionOpenTab(ctx, sess)
 	if userTab == nil {
+		if uc.findUnauthorizedOpenTabForSession(ctx, sess) != nil {
+			return buildClosingTabOwnerOnlyMessage(), session.StateMainMenu, nil
+		}
 		return "💰 *Fechar Conta*\n\nAinda não encontrei uma comanda aberta no seu nome.\n\n_Digite 0 para voltar ao menu_",
 			session.StateClosingTab, nil
 	}
@@ -1700,6 +1704,10 @@ func (uc *HandleWhatsAppMessageUseCase) startClosingTabFlow(
 	if userTab.Total <= userTab.PaidAmount {
 		return "✅ Sua conta já está sem valores pendentes no momento.\n\n" + whatsapp.MainMenuMessage(),
 			session.StateMainMenu, nil
+	}
+
+	if !uc.isTabOwnedBySessionPhone(userTab, sess.UserPhone) {
+		return buildClosingTabOwnerOnlyMessage(), session.StateMainMenu, nil
 	}
 
 	items := uc.buildTabItemsList(ctx, sess.TenantID, userTab.ID)
@@ -1745,8 +1753,15 @@ func (uc *HandleWhatsAppMessageUseCase) handleClosingTab(
 	case "1":
 		userTab := uc.findSessionOpenTab(ctx, sess)
 		if userTab == nil {
+			if uc.findUnauthorizedOpenTabForSession(ctx, sess) != nil {
+				return buildClosingTabOwnerOnlyMessage(), session.StateMainMenu, nil
+			}
 			return "💰 *Fechar Conta*\n\nNão encontrei uma comanda aberta agora.\n\n" + whatsapp.MainMenuMessage(),
 				session.StateMainMenu, nil
+		}
+
+		if !uc.isTabOwnedBySessionPhone(userTab, sess.UserPhone) {
+			return buildClosingTabOwnerOnlyMessage(), session.StateMainMenu, nil
 		}
 
 		checkoutBase := strings.TrimRight(strings.TrimSpace(uc.publicCheckoutBaseURL), "/")
@@ -1761,7 +1776,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleClosingTab(
 				session.StateMainMenu, nil
 		}
 
-		accessToken, ttl, err := buildCheckoutAccessToken(userTab.ID.String())
+		accessToken, ttl, err := buildCheckoutAccessToken(userTab.ID.String(), userTab.UserPhone)
 		if err != nil {
 			uc.logger.Error("failed to sign checkout access token",
 				zap.Error(err),
@@ -1856,6 +1871,10 @@ func buildClosingTabInvalidOptionMessage() string {
 	return "❌ Opção inválida.\n\n*1* - 💳 Pagar agora pelo celular\n*2* - 🙋 Pedir para a equipe fechar na mesa\n\n_Digite 0 para voltar ao menu_"
 }
 
+func buildClosingTabOwnerOnlyMessage() string {
+	return "💰 *Fechar Conta*\n\nEsta comanda está vinculada ao telefone responsável que a abriu.\n\nSomente esse número pode fechar e pagar por aqui.\n\nSe precisar, peça autorização da pessoa responsável ou solicite apoio da equipe presencialmente.\n\n" + whatsapp.MainMenuMessage()
+}
+
 func (uc *HandleWhatsAppMessageUseCase) requestCloseBillByStaff(
 	ctx context.Context,
 	sess *session.Session,
@@ -1868,8 +1887,15 @@ func (uc *HandleWhatsAppMessageUseCase) requestCloseBillByStaff(
 
 	userTab := uc.findSessionOpenTab(ctx, sess)
 	if userTab == nil {
+		if uc.findUnauthorizedOpenTabForSession(ctx, sess) != nil {
+			return buildClosingTabOwnerOnlyMessage(), session.StateMainMenu, nil
+		}
 		return "💰 *Fechar Conta*\n\nNão encontrei uma comanda aberta para solicitar o fechamento agora.\n\n" + whatsapp.MainMenuMessage(),
 			session.StateMainMenu, nil
+	}
+
+	if !uc.isTabOwnedBySessionPhone(userTab, sess.UserPhone) {
+		return buildClosingTabOwnerOnlyMessage(), session.StateMainMenu, nil
 	}
 
 	if userTab.TableID == nil {
@@ -2280,16 +2306,13 @@ func (uc *HandleWhatsAppMessageUseCase) findSessionOpenTab(
 
 	if sess.TabID != nil {
 		existingTab, err := uc.tabRepo.FindByID(ctx, *sess.TabID, sess.TenantID)
-		if err == nil && existingTab != nil && existingTab.Status == tab.StatusOpen {
+		if err == nil && existingTab != nil && existingTab.Status == tab.StatusOpen && uc.canSessionAccessTab(ctx, sess, existingTab) {
 			candidate = existingTab
 		}
 	}
 
 	if candidate == nil && sess.TableID != nil {
-		byTable, err := uc.tabRepo.FindOpenByTable(ctx, *sess.TableID, sess.TenantID)
-		if err == nil && byTable != nil {
-			candidate = byTable
-		}
+		candidate = uc.findAccessibleOpenTabByTable(ctx, sess, *sess.TableID)
 	}
 
 	if candidate == nil {
@@ -2307,13 +2330,10 @@ func (uc *HandleWhatsAppMessageUseCase) findSessionOpenTab(
 		}
 	}
 
-	if candidate == nil {
+	if candidate == nil && uc.tableRepo != nil {
 		latestReq, err := uc.tableRepo.FindLatestApprovedRequestByPhone(ctx, sess.UserPhone, sess.TenantID)
 		if err == nil && latestReq != nil && latestReq.TableID != nil {
-			byTable, tabErr := uc.tabRepo.FindOpenByTable(ctx, *latestReq.TableID, sess.TenantID)
-			if tabErr == nil && byTable != nil {
-				candidate = byTable
-			}
+			candidate = uc.findAccessibleOpenTabByTable(ctx, sess, *latestReq.TableID)
 		}
 	}
 
@@ -2323,6 +2343,159 @@ func (uc *HandleWhatsAppMessageUseCase) findSessionOpenTab(
 
 	uc.reconcileOpenTabMetadata(ctx, sess, candidate)
 	return candidate
+}
+
+func (uc *HandleWhatsAppMessageUseCase) findUnauthorizedOpenTabForSession(
+	ctx context.Context,
+	sess *session.Session,
+) *tab.Tab {
+	if sess == nil || uc.tabRepo == nil {
+		return nil
+	}
+
+	if sess.TabID != nil {
+		existingTab, err := uc.tabRepo.FindByID(ctx, *sess.TabID, sess.TenantID)
+		if err == nil && existingTab != nil && existingTab.Status == tab.StatusOpen && !uc.canSessionAccessTab(ctx, sess, existingTab) {
+			return existingTab
+		}
+	}
+
+	if sess.TableID != nil {
+		if unauthorized := uc.findUnauthorizedOpenTabByTable(ctx, sess, *sess.TableID); unauthorized != nil {
+			return unauthorized
+		}
+	}
+
+	if uc.tableRepo == nil {
+		return nil
+	}
+
+	latestReq, err := uc.tableRepo.FindLatestApprovedRequestByPhone(ctx, sess.UserPhone, sess.TenantID)
+	if err != nil || latestReq == nil || latestReq.TableID == nil {
+		return nil
+	}
+
+	return uc.findUnauthorizedOpenTabByTable(ctx, sess, *latestReq.TableID)
+}
+
+func (uc *HandleWhatsAppMessageUseCase) findUnauthorizedOpenTabByTable(
+	ctx context.Context,
+	sess *session.Session,
+	tableID uuid.UUID,
+) *tab.Tab {
+	openTabs, err := uc.tabRepo.FindAllOpenByTable(ctx, tableID, sess.TenantID)
+	if err != nil {
+		return nil
+	}
+
+	for _, openTab := range openTabs {
+		if openTab == nil || openTab.Status != tab.StatusOpen {
+			continue
+		}
+		if normalizePhoneDigits(openTab.UserPhone) == "" {
+			continue
+		}
+		if !uc.canSessionAccessTab(ctx, sess, openTab) {
+			return openTab
+		}
+	}
+
+	return nil
+}
+
+func (uc *HandleWhatsAppMessageUseCase) findAccessibleOpenTabByTable(
+	ctx context.Context,
+	sess *session.Session,
+	tableID uuid.UUID,
+) *tab.Tab {
+	openTabs, err := uc.tabRepo.FindAllOpenByTable(ctx, tableID, sess.TenantID)
+	if err != nil {
+		return nil
+	}
+
+	var sharedCandidate *tab.Tab
+	var blankCandidate *tab.Tab
+
+	for _, openTab := range openTabs {
+		if openTab == nil || openTab.Status != tab.StatusOpen {
+			continue
+		}
+		if uc.isTabOwnedBySessionPhone(openTab, sess.UserPhone) {
+			return openTab
+		}
+		if sharedCandidate == nil && uc.hasApprovedSharedJoinAccess(ctx, sess, openTab) {
+			sharedCandidate = openTab
+		}
+		if blankCandidate == nil && normalizePhoneDigits(openTab.UserPhone) == "" {
+			blankCandidate = openTab
+		}
+	}
+
+	if sharedCandidate != nil {
+		return sharedCandidate
+	}
+
+	return blankCandidate
+}
+
+func (uc *HandleWhatsAppMessageUseCase) canSessionAccessTab(
+	ctx context.Context,
+	sess *session.Session,
+	userTab *tab.Tab,
+) bool {
+	if userTab == nil {
+		return false
+	}
+
+	if uc.isTabOwnedBySessionPhone(userTab, sess.UserPhone) {
+		return true
+	}
+
+	if normalizePhoneDigits(userTab.UserPhone) == "" {
+		return true
+	}
+
+	return uc.hasApprovedSharedJoinAccess(ctx, sess, userTab)
+}
+
+func (uc *HandleWhatsAppMessageUseCase) hasApprovedSharedJoinAccess(
+	ctx context.Context,
+	sess *session.Session,
+	userTab *tab.Tab,
+) bool {
+	if sess == nil || userTab == nil || uc.tabRepo == nil {
+		return false
+	}
+
+	joinReq, err := uc.tabRepo.FindApprovedSharedJoinRequestByRequestorAndTab(
+		ctx,
+		sess.UserPhone,
+		userTab.ID,
+		sess.TenantID,
+	)
+	if err != nil {
+		uc.logger.Warn("failed to validate shared tab access",
+			zap.Error(err),
+			zap.String("tab_id", userTab.ID.String()),
+			zap.String("user_phone", sess.UserPhone),
+		)
+		return false
+	}
+
+	return joinReq != nil
+}
+
+func (uc *HandleWhatsAppMessageUseCase) isTabOwnedBySessionPhone(
+	userTab *tab.Tab,
+	userPhone string,
+) bool {
+	if userTab == nil {
+		return false
+	}
+
+	ownerPhone := normalizePhoneDigits(userTab.UserPhone)
+	requestPhone := normalizePhoneDigits(userPhone)
+	return ownerPhone != "" && ownerPhone == requestPhone
 }
 
 func (uc *HandleWhatsAppMessageUseCase) reconcileOpenTabMetadata(
@@ -2509,10 +2682,14 @@ func truncateTabSummaryLabel(value string, maxRunes int) string {
 	return string(runes[:maxRunes-3]) + "..."
 }
 
-func buildCheckoutAccessToken(tabID string) (string, time.Duration, error) {
+func buildCheckoutAccessToken(tabID string, ownerPhone string) (string, time.Duration, error) {
 	tabID = strings.TrimSpace(tabID)
 	if tabID == "" {
 		return "", 0, fmt.Errorf("empty tab id")
+	}
+	ownerPhone = normalizePhoneDigits(ownerPhone)
+	if ownerPhone == "" {
+		return "", 0, fmt.Errorf("empty owner phone")
 	}
 
 	ttl := resolveCheckoutAccessTTL()
@@ -2523,8 +2700,9 @@ func buildCheckoutAccessToken(tabID string) (string, time.Duration, error) {
 	}
 
 	claims := checkoutAccessClaims{
-		Scope: checkoutAccessScope,
-		TabID: tabID,
+		Scope:      checkoutAccessScope,
+		TabID:      tabID,
+		OwnerPhone: ownerPhone,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   tabID,
 			IssuedAt:  jwt.NewNumericDate(now),

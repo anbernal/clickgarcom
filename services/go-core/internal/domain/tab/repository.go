@@ -18,5 +18,6 @@ type Repository interface {
 	CreateJoinRequest(ctx context.Context, req *TabJoinRequest) error
 	FindPendingJoinRequestByOpener(ctx context.Context, openerPhone string, tenantID uuid.UUID) (*TabJoinRequest, error)
 	FindJoinRequestByID(ctx context.Context, id uuid.UUID) (*TabJoinRequest, error)
+	FindApprovedSharedJoinRequestByRequestorAndTab(ctx context.Context, requestorPhone string, mainTabID uuid.UUID, tenantID uuid.UUID) (*TabJoinRequest, error)
 	UpdateJoinRequestStatus(ctx context.Context, id uuid.UUID, status JoinRequestStatus) error
 }

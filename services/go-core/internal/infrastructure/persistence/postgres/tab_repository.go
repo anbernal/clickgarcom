@@ -105,6 +105,31 @@ func (r *TabRepository) FindJoinRequestByID(ctx context.Context, id uuid.UUID) (
 	return &req, err
 }
 
+func (r *TabRepository) FindApprovedSharedJoinRequestByRequestorAndTab(
+	ctx context.Context,
+	requestorPhone string,
+	mainTabID uuid.UUID,
+	tenantID uuid.UUID,
+) (*tab.TabJoinRequest, error) {
+	var req tab.TabJoinRequest
+	err := r.db.WithContext(ctx).
+		Where(
+			"requestor_phone = ? AND main_tab_id = ? AND tenant_id = ? AND join_type = ? AND status = ?",
+			requestorPhone,
+			mainTabID,
+			tenantID,
+			tab.JoinTypeShared,
+			tab.JoinRequestApproved,
+		).
+		Order("updated_at DESC").
+		First(&req).Error
+
+	if err == gorm.ErrRecordNotFound {
+		return nil, nil
+	}
+	return &req, err
+}
+
 func (r *TabRepository) UpdateJoinRequestStatus(ctx context.Context, id uuid.UUID, status tab.JoinRequestStatus) error {
 	return r.db.WithContext(ctx).
 		Model(&tab.TabJoinRequest{}).

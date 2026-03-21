@@ -1691,10 +1691,11 @@ func (uc *HandleWhatsAppMessageUseCase) handleOpenerDecision(
 				uc.sendTenantMessage(ctx, clientB.UserPhone, sess.TenantID, "✅ *Sua entrada foi aprovada!*\n\n🤝 Você entrou na Comanda Compartilhada.\n\n"+whatsapp.MainMenuMessage())
 			} else {
 				newTab := &tab.Tab{
-					ID:       uuid.New(),
-					TenantID: sess.TenantID,
-					TableID:  &joinReq.TableID,
-					Status:   tab.StatusOpen,
+					ID:        uuid.New(),
+					TenantID:  sess.TenantID,
+					TableID:   &joinReq.TableID,
+					UserPhone: joinReq.RequestorPhone,
+					Status:    tab.StatusOpen,
 				}
 				uc.tabRepo.Create(ctx, newTab)
 

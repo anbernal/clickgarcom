@@ -733,10 +733,13 @@ export class TablesService {
             const decoded = this.jwtService.verify(token) as Record<string, unknown>;
             const tokenTabId = String(decoded?.tab_id || decoded?.sub || '').trim();
             const scope = String(decoded?.scope || '').trim();
+            const ownerPhone = this.normalizePhoneDigits(decoded?.owner_phone);
 
-            if (scope !== 'checkout_public' || tokenTabId !== String(tabId || '').trim()) {
+            if (scope !== 'checkout_public' || tokenTabId !== String(tabId || '').trim() || !ownerPhone) {
                 throw new UnauthorizedException('Link de pagamento inválido ou expirado');
             }
+
+            return { ownerPhone };
         } catch (error) {
             if (error instanceof UnauthorizedException) {
                 throw error;
@@ -746,7 +749,7 @@ export class TablesService {
     }
 
     private async loadPublicTabContext(tabId: string, accessToken?: string) {
-        this.assertPublicCheckoutAccess(tabId, accessToken);
+        const access = this.assertPublicCheckoutAccess(tabId, accessToken);
 
         const rows = await this.dataSource.query(
             `SELECT tb.id,
@@ -774,6 +777,11 @@ export class TablesService {
         const row = rows?.[0];
         if (!row) return null;
 
+        const ownerPhone = this.normalizePhoneDigits(row.user_phone);
+        if (!ownerPhone || ownerPhone !== access.ownerPhone) {
+            throw new UnauthorizedException('Link de pagamento inválido ou expirado');
+        }
+
         return {
             id: String(row.id),
             tenantId: String(row.tenant_id),
@@ -788,6 +796,10 @@ export class TablesService {
             tenantName: String(row.tenant_name || 'ClickGarcom'),
             tenantSettings: this.parseTenantSettings(row.tenant_settings),
         };
+    }
+
+    private normalizePhoneDigits(value: unknown) {
+        return String(value || '').replace(/\D/g, '');
     }
 
     private buildPublicTabPayload(tab: any) {
@@ -854,12 +866,15 @@ export class TablesService {
                  WHERE id = $1
                    AND tenant_id = $2
                    AND closed_notified_at IS NULL
-                   AND COALESCE(NULLIF(TRIM(user_phone), ''), '') <> ''
-             RETURNING id, tenant_id, user_phone, total
+                   AND NULLIF(TRIM(user_phone), '') IS NOT NULL
+             RETURNING id,
+                       tenant_id,
+                       total,
+                       NULLIF(TRIM(user_phone), '') AS notification_phone
             )
             SELECT c.id,
                    c.tenant_id,
-                   c.user_phone,
+                   c.notification_phone,
                    c.total,
                    tn.name AS tenant_name,
                    tn.settings AS tenant_settings
@@ -874,7 +889,7 @@ export class TablesService {
             return;
         }
 
-        const phone = String(row.user_phone || '').trim();
+        const phone = String(row.notification_phone || '').trim();
         if (!phone) {
             return;
         }

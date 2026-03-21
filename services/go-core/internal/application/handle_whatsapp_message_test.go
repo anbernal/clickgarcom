@@ -2288,6 +2288,187 @@ func (r *testTableRepo) UpdateRequest(_ context.Context, req *table.TableRequest
 	return nil
 }
 
+func TestHandleWhatsAppMessageCloseTabCheckoutRejectsDifferentPhone(t *testing.T) {
+	ctx := context.Background()
+	tenantID := uuid.New()
+	openerPhone := "5511988882841"
+	payerPhone := "5511955555555"
+	tableID := uuid.New()
+	tabID := uuid.New()
+
+	sess := session.NewSession(payerPhone, tenantID)
+	sess.TabID = &tabID
+	sess.TableID = &tableID
+	sess.TransitionTo(session.StateClosingTab)
+
+	openTab := &tab.Tab{
+		ID:         tabID,
+		TenantID:   tenantID,
+		TableID:    &tableID,
+		UserPhone:  openerPhone,
+		Status:     tab.StatusOpen,
+		Subtotal:   59.5,
+		ServiceFee: 5.95,
+		Total:      65.45,
+		PaidAmount: 0,
+		OpenedAt:   time.Now(),
+	}
+	tabRepo := &testTabRepo{byID: map[uuid.UUID]*tab.Tab{tabID: openTab}}
+	uc := NewHandleWhatsAppMessageUseCase(
+		nil,
+		&testTenantRepo{tenant: testTenant(tenantID)},
+		nil,
+		nil,
+		tabRepo,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		"https://checkout.example.com",
+		zap.NewNop(),
+	)
+
+	response, newState, err := uc.handleClosingTab(ctx, sess, "1")
+	if err != nil {
+		t.Fatalf("handleClosingTab() error = %v", err)
+	}
+
+	updatedTab := tabRepo.byID[tabID]
+	if updatedTab == nil {
+		t.Fatal("expected tab to remain in repository")
+	}
+	if updatedTab.UserPhone != openerPhone {
+		t.Fatalf("expected opener phone %q to be preserved, got %q", openerPhone, updatedTab.UserPhone)
+	}
+	if updatedTab.PaymentNotifierPhone != "" {
+		t.Fatalf("expected payment notifier phone to stay empty, got %q", updatedTab.PaymentNotifierPhone)
+	}
+
+	if newState != session.StateMainMenu {
+		t.Fatalf("expected new state %s, got %s", session.StateMainMenu, newState)
+	}
+
+	if strings.Contains(response, "checkout.example.com/checkout.html#") {
+		t.Fatalf("expected checkout link to be blocked, got %q", response)
+	}
+	if !strings.Contains(response, "Somente esse número pode fechar e pagar por aqui") {
+		t.Fatalf("expected owner-only warning, got %q", response)
+	}
+}
+
+func TestFindSessionOpenTabDoesNotBorrowAnotherPhoneTabByTable(t *testing.T) {
+	ctx := context.Background()
+	tenantID := uuid.New()
+	tableID := uuid.New()
+	tabID := uuid.New()
+
+	sess := session.NewSession("5511975009809", tenantID)
+	sess.TableID = &tableID
+
+	tabRepo := &testTabRepo{
+		byID: map[uuid.UUID]*tab.Tab{
+			tabID: {
+				ID:        tabID,
+				TenantID:  tenantID,
+				TableID:   &tableID,
+				UserPhone: "5511975062841",
+				Status:    tab.StatusOpen,
+			},
+		},
+	}
+
+	uc := NewHandleWhatsAppMessageUseCase(
+		nil,
+		nil,
+		nil,
+		nil,
+		tabRepo,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		"",
+		zap.NewNop(),
+	)
+
+	if got := uc.findSessionOpenTab(ctx, sess); got != nil {
+		t.Fatalf("expected no accessible tab, got %+v", got)
+	}
+}
+
+func TestFindSessionOpenTabAllowsApprovedSharedParticipantButBlocksClosing(t *testing.T) {
+	ctx := context.Background()
+	tenantID := uuid.New()
+	tableID := uuid.New()
+	tabID := uuid.New()
+	ownerPhone := "5511975062841"
+	sharedPhone := "5511975009809"
+	joinRequestID := uuid.New()
+
+	sess := session.NewSession(sharedPhone, tenantID)
+	sess.TableID = &tableID
+
+	tabRepo := &testTabRepo{
+		byID: map[uuid.UUID]*tab.Tab{
+			tabID: {
+				ID:         tabID,
+				TenantID:   tenantID,
+				TableID:    &tableID,
+				UserPhone:  ownerPhone,
+				Status:     tab.StatusOpen,
+				Subtotal:   59.5,
+				ServiceFee: 5.95,
+				Total:      65.45,
+			},
+		},
+		joinRequestsByID: map[uuid.UUID]*tab.TabJoinRequest{
+			joinRequestID: {
+				ID:             joinRequestID,
+				TenantID:       tenantID,
+				TableID:        tableID,
+				MainTabID:      tabID,
+				RequestorPhone: sharedPhone,
+				OpenerPhone:    ownerPhone,
+				JoinType:       tab.JoinTypeShared,
+				Status:         tab.JoinRequestApproved,
+			},
+		},
+	}
+
+	uc := NewHandleWhatsAppMessageUseCase(
+		nil,
+		nil,
+		nil,
+		nil,
+		tabRepo,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		"https://checkout.example.com",
+		zap.NewNop(),
+	)
+
+	resolved := uc.findSessionOpenTab(ctx, sess)
+	if resolved == nil || resolved.ID != tabID {
+		t.Fatalf("expected approved shared participant to access tab %s, got %+v", tabID, resolved)
+	}
+
+	response, newState, err := uc.startClosingTabFlow(ctx, sess)
+	if err != nil {
+		t.Fatalf("startClosingTabFlow() error = %v", err)
+	}
+	if newState != session.StateMainMenu {
+		t.Fatalf("expected new state %s, got %s", session.StateMainMenu, newState)
+	}
+	if !strings.Contains(response, "Somente esse número pode fechar e pagar por aqui") {
+		t.Fatalf("expected owner-only warning, got %q", response)
+	}
+}
+
 type testBotConfigRepo struct {
 	publishedByKey map[string]*botconfig.FlowDefinition
 }
@@ -2390,6 +2571,36 @@ func (r *testTabRepo) FindJoinRequestByID(_ context.Context, id uuid.UUID) (*tab
 	}
 	cloned := *req
 	return &cloned, nil
+}
+
+func (r *testTabRepo) FindApprovedSharedJoinRequestByRequestorAndTab(
+	_ context.Context,
+	requestorPhone string,
+	mainTabID uuid.UUID,
+	tenantID uuid.UUID,
+) (*tab.TabJoinRequest, error) {
+	if r == nil {
+		return nil, nil
+	}
+
+	for _, req := range r.joinRequestsByID {
+		if req == nil {
+			continue
+		}
+		if req.TenantID != tenantID || req.MainTabID != mainTabID {
+			continue
+		}
+		if req.JoinType != tab.JoinTypeShared || req.Status != tab.JoinRequestApproved {
+			continue
+		}
+		if normalizePhoneDigits(req.RequestorPhone) != normalizePhoneDigits(requestorPhone) {
+			continue
+		}
+		cloned := *req
+		return &cloned, nil
+	}
+
+	return nil, nil
 }
 
 func (r *testTabRepo) UpdateJoinRequestStatus(_ context.Context, id uuid.UUID, status tab.JoinRequestStatus) error {

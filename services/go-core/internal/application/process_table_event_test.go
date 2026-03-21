@@ -237,6 +237,10 @@ func (r *testProcessTabRepo) FindJoinRequestByID(_ context.Context, id uuid.UUID
 	return nil, nil
 }
 
+func (r *testProcessTabRepo) FindApprovedSharedJoinRequestByRequestorAndTab(_ context.Context, requestorPhone string, mainTabID uuid.UUID, tenantID uuid.UUID) (*tab.TabJoinRequest, error) {
+	return nil, nil
+}
+
 func (r *testProcessTabRepo) UpdateJoinRequestStatus(_ context.Context, id uuid.UUID, status tab.JoinRequestStatus) error {
 	return nil
 }
