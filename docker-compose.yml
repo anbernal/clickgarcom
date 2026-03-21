@@ -241,7 +241,6 @@ services:
       DATABASE_USER: postgres
       DATABASE_PASSWORD: postgres123
       DATABASE_NAME: clickgarcom_db
-      JWT_SECRET: your-super-secret-jwt-key-change-in-production
       DEFAULT_TENANT_ID: 550e8400-e29b-41d4-a716-446655440000
       RABBITMQ_URL: amqp://clickgarcom:clickgarcom123@rabbitmq:5672/
       NGROK_API_URL: http://ngrok:4040

@@ -1,4 +1,5 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { Table } from '../../entities/table.entity';
@@ -22,6 +23,7 @@ export class TablesService {
         private readonly amqpService: AmqpService,
         private readonly dataSource: DataSource,
         private readonly walletService: WalletService,
+        private readonly jwtService: JwtService,
     ) { }
 
     async findAll(tenantId: string) {
@@ -281,8 +283,8 @@ export class TablesService {
         };
     }
 
-    async getPublicTabById(tabId: string) {
-        const tab = await this.loadPublicTabContext(tabId);
+    async getPublicTabById(tabId: string, accessToken?: string) {
+        const tab = await this.loadPublicTabContext(tabId, accessToken);
         if (!tab) {
             throw new NotFoundException('Comanda não encontrada');
         }
@@ -290,8 +292,8 @@ export class TablesService {
         return this.buildPublicTabPayload(tab);
     }
 
-    async createPublicPixPayment(tabId: string, payload: Record<string, unknown>) {
-        const tab = await this.loadPublicTabContext(tabId);
+    async createPublicPixPayment(tabId: string, accessToken: string | undefined, payload: Record<string, unknown>) {
+        const tab = await this.loadPublicTabContext(tabId, accessToken);
         if (!tab) {
             throw new NotFoundException('Comanda não encontrada');
         }
@@ -321,10 +323,15 @@ export class TablesService {
         };
     }
 
-    async createPublicCardPayment(tabId: string, payload: Record<string, unknown>) {
-        const tab = await this.loadPublicTabContext(tabId);
+    async createPublicCardPayment(tabId: string, accessToken: string | undefined, payload: Record<string, unknown>) {
+        const tab = await this.loadPublicTabContext(tabId, accessToken);
         if (!tab) {
             throw new NotFoundException('Comanda não encontrada');
+        }
+
+        const cardCheckoutConfig = this.resolvePublicCardCheckoutConfig(tab.tenantSettings);
+        if (!cardCheckoutConfig.enabled) {
+            throw new BadRequestException(cardCheckoutConfig.reason);
         }
 
         const amountDue = this.getAmountDue(tab.total, tab.paidAmount, tab.status);
@@ -337,17 +344,27 @@ export class TablesService {
         }
 
         const orderId = await this.resolveAnchorOrderId(tabId, tab.tenantId);
-        const response = await this.walletService.createCardPayment(tab.tenantId, {
+        const paymentMethodId = String(payload['payment_method_id'] || '').trim();
+        if (!paymentMethodId) {
+            throw new BadRequestException('Não foi possível identificar a bandeira do cartão');
+        }
+
+        const issuerId = String(payload['issuer_id'] || '').trim();
+        const cardPayload: Record<string, unknown> = {
             order_id: orderId,
             amount: amountDue,
             token: String(payload['token'] || '').trim(),
             description: this.buildCheckoutDescription(tab),
-            installments: Number(payload['installments'] || 1),
-            payment_method_id: String(payload['payment_method_id'] || '').trim() || 'master',
-            issuer_id: String(payload['issuer_id'] || '').trim(),
+            installments: Math.max(1, Number(payload['installments'] || 1) || 1),
+            payment_method_id: paymentMethodId,
             payer_email: this.resolvePayerField(payload['payer_email'], 'cliente@email.com'),
             payer_cpf: this.resolveCpf(payload['payer_cpf']),
-        });
+        };
+        if (issuerId) {
+            cardPayload.issuer_id = issuerId;
+        }
+
+        const response = await this.walletService.createCardPayment(tab.tenantId, cardPayload);
 
         const status = String(response?.status || '').trim().toLowerCase();
         if (status === 'approved') {
@@ -361,8 +378,8 @@ export class TablesService {
         };
     }
 
-    async getPublicPaymentStatus(tabId: string, paymentId: string) {
-        const tab = await this.loadPublicTabContext(tabId);
+    async getPublicPaymentStatus(tabId: string, paymentId: string, accessToken?: string) {
+        const tab = await this.loadPublicTabContext(tabId, accessToken);
         if (!tab) {
             throw new NotFoundException('Comanda não encontrada');
         }
@@ -706,7 +723,31 @@ export class TablesService {
         }
     }
 
-    private async loadPublicTabContext(tabId: string) {
+    private assertPublicCheckoutAccess(tabId: string, accessToken?: string) {
+        const token = String(accessToken || '').trim();
+        if (!token) {
+            throw new UnauthorizedException('Link de pagamento inválido ou expirado');
+        }
+
+        try {
+            const decoded = this.jwtService.verify(token) as Record<string, unknown>;
+            const tokenTabId = String(decoded?.tab_id || decoded?.sub || '').trim();
+            const scope = String(decoded?.scope || '').trim();
+
+            if (scope !== 'checkout_public' || tokenTabId !== String(tabId || '').trim()) {
+                throw new UnauthorizedException('Link de pagamento inválido ou expirado');
+            }
+        } catch (error) {
+            if (error instanceof UnauthorizedException) {
+                throw error;
+            }
+            throw new UnauthorizedException('Link de pagamento inválido ou expirado');
+        }
+    }
+
+    private async loadPublicTabContext(tabId: string, accessToken?: string) {
+        this.assertPublicCheckoutAccess(tabId, accessToken);
+
         const rows = await this.dataSource.query(
             `SELECT tb.id,
                     tb.tenant_id,
@@ -751,6 +792,7 @@ export class TablesService {
 
     private buildPublicTabPayload(tab: any) {
         const amountDue = this.getAmountDue(tab.total, tab.paidAmount, tab.status);
+        const cardCheckoutConfig = this.resolvePublicCardCheckoutConfig(tab.tenantSettings);
 
         return {
             id: tab.id,
@@ -762,7 +804,9 @@ export class TablesService {
             paidAmount: this.roundMoney(tab.paidAmount),
             amountDue,
             closed: amountDue <= 0,
-            mpPublicKey: String(tab.tenantSettings?.mp_public_key || '').trim(),
+            mpPublicKey: cardCheckoutConfig.enabled ? cardCheckoutConfig.publicKey : '',
+            cardEnabled: cardCheckoutConfig.enabled,
+            cardUnavailableReason: cardCheckoutConfig.reason,
         };
     }
 
@@ -934,6 +978,57 @@ Esperamos te receber novamente em breve! 😊`;
         } catch (_error) {
             return {};
         }
+    }
+
+    private resolvePublicCardCheckoutConfig(tenantSettings: Record<string, unknown>) {
+        const accessToken = String(tenantSettings?.mp_access_token || '').trim();
+        const publicKey = String(tenantSettings?.mp_public_key || '').trim();
+        const accessTokenEnv = this.detectMercadoPagoEnvironment(accessToken);
+        const publicKeyEnv = this.detectMercadoPagoEnvironment(publicKey);
+
+        if (!accessToken) {
+            return {
+                enabled: false,
+                publicKey: '',
+                reason: 'Pagamento com cartão indisponível no momento. O restaurante ainda não configurou o Mercado Pago.',
+            };
+        }
+
+        if (!publicKey) {
+            return {
+                enabled: false,
+                publicKey: '',
+                reason: 'Pagamento com cartão indisponível no momento. Falta configurar a Public Key do Mercado Pago para este restaurante.',
+            };
+        }
+
+        if (accessTokenEnv && publicKeyEnv && accessTokenEnv !== publicKeyEnv) {
+            return {
+                enabled: false,
+                publicKey: '',
+                reason: 'Pagamento com cartão indisponível no momento. As credenciais do Mercado Pago estão em ambientes diferentes.',
+            };
+        }
+
+        return {
+            enabled: true,
+            publicKey,
+            reason: '',
+        };
+    }
+
+    private detectMercadoPagoEnvironment(value: unknown) {
+        const normalized = String(value || '').trim().toUpperCase();
+        if (!normalized) {
+            return '';
+        }
+        if (normalized.startsWith('TEST-')) {
+            return 'test';
+        }
+        if (normalized.startsWith('APP_USR-')) {
+            return 'production';
+        }
+        return '';
     }
 
     private getAmountDue(total: number, paidAmount: number, status: string) {

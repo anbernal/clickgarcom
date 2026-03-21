@@ -3,11 +3,14 @@ package application
 import (
 	"context"
 	"fmt"
+	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 
@@ -47,9 +50,16 @@ const (
 	orderingRemoveAllUnitsID  = "order:remove_all"
 	orderingBackToCartID      = "order:back_cart"
 	orderingBackToMenuID      = "order:menu"
+	checkoutAccessScope       = "checkout_public"
 )
 
 var orderingPreviewDelay = 1200 * time.Millisecond
+
+type checkoutAccessClaims struct {
+	Scope string `json:"scope"`
+	TabID string `json:"tab_id"`
+	jwt.RegisteredClaims
+}
 
 type orderingCartItem struct {
 	MenuItemID    string `json:"menu_item_id"`
@@ -1743,14 +1753,35 @@ func (uc *HandleWhatsAppMessageUseCase) handleClosingTab(
 		if checkoutBase == "" {
 			checkoutBase = "http://localhost:3002"
 		}
-		checkoutURL := fmt.Sprintf("%s/checkout.html?tab_id=%s", checkoutBase, userTab.ID.String())
+		if isLocalCheckoutBase(checkoutBase) {
+			return "💳 *Pagamento pelo celular*\n\n" +
+					"Ainda não consegui gerar um link público de pagamento para o seu celular.\n\n" +
+					"Se preferir, responda *2* e a equipe finaliza com você por aqui.\n\n" +
+					whatsapp.MainMenuMessage(),
+				session.StateMainMenu, nil
+		}
 
-		return "💳 *Pagamento pelo celular*\n\n" +
-				"Você pode fechar sua conta com segurança por este link:\n" +
-				checkoutURL + "\n\n" +
-				"Se preferir, volte aqui e escolha a opção *2* para pedir apoio da equipe.\n\n" +
-				whatsapp.MainMenuMessage(),
-			session.StateMainMenu, nil
+		accessToken, ttl, err := buildCheckoutAccessToken(userTab.ID.String())
+		if err != nil {
+			uc.logger.Error("failed to sign checkout access token",
+				zap.Error(err),
+				zap.String("tab_id", userTab.ID.String()),
+			)
+			return "💳 *Pagamento pelo celular*\n\n" +
+					"Não consegui gerar um link seguro de pagamento agora.\n\n" +
+					"Se preferir, responda *2* e a equipe finaliza com você por aqui.\n\n" +
+					whatsapp.MainMenuMessage(),
+				session.StateMainMenu, nil
+		}
+
+		checkoutURL := buildPublicCheckoutURL(checkoutBase, userTab.ID.String(), accessToken)
+
+		return fmt.Sprintf(
+			"💳 *Pagamento pelo celular*\n\nAbra sua comanda neste link seguro:\n%s\n\n_Este link é individual e expira em %s._\n\nSe preferir, responda *2* e a equipe finaliza com você por aqui.\n\n%s",
+			checkoutURL,
+			formatCheckoutAccessTTL(ttl),
+			whatsapp.MainMenuMessage(),
+		), session.StateMainMenu, nil
 
 	case "2":
 		return uc.requestCloseBillByStaff(ctx, sess)
@@ -2476,4 +2507,83 @@ func truncateTabSummaryLabel(value string, maxRunes int) string {
 		return string(runes[:maxRunes])
 	}
 	return string(runes[:maxRunes-3]) + "..."
+}
+
+func buildCheckoutAccessToken(tabID string) (string, time.Duration, error) {
+	tabID = strings.TrimSpace(tabID)
+	if tabID == "" {
+		return "", 0, fmt.Errorf("empty tab id")
+	}
+
+	ttl := resolveCheckoutAccessTTL()
+	now := time.Now()
+	secret := strings.TrimSpace(os.Getenv("JWT_SECRET"))
+	if secret == "" {
+		secret = "super-secret-key-clg-2024"
+	}
+
+	claims := checkoutAccessClaims{
+		Scope: checkoutAccessScope,
+		TabID: tabID,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   tabID,
+			IssuedAt:  jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	signed, err := token.SignedString([]byte(secret))
+	if err != nil {
+		return "", 0, err
+	}
+
+	return signed, ttl, nil
+}
+
+func resolveCheckoutAccessTTL() time.Duration {
+	raw := strings.TrimSpace(os.Getenv("CHECKOUT_LINK_TTL"))
+	if raw == "" {
+		return 30 * time.Minute
+	}
+
+	ttl, err := time.ParseDuration(raw)
+	if err != nil || ttl <= 0 {
+		return 30 * time.Minute
+	}
+
+	return ttl
+}
+
+func buildPublicCheckoutURL(baseURL string, tabID string, accessToken string) string {
+	query := url.Values{}
+	query.Set("tab_id", strings.TrimSpace(tabID))
+	query.Set("access_token", strings.TrimSpace(accessToken))
+	return strings.TrimRight(strings.TrimSpace(baseURL), "/") + "/checkout.html#" + query.Encode()
+}
+
+func formatCheckoutAccessTTL(ttl time.Duration) string {
+	if ttl <= 0 {
+		return "alguns minutos"
+	}
+
+	if ttl%time.Hour == 0 {
+		hours := int(ttl / time.Hour)
+		if hours == 1 {
+			return "1 hora"
+		}
+		return fmt.Sprintf("%d horas", hours)
+	}
+
+	minutes := int(ttl / time.Minute)
+	if minutes <= 1 {
+		return "1 minuto"
+	}
+
+	return fmt.Sprintf("%d minutos", minutes)
+}
+
+func isLocalCheckoutBase(baseURL string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(baseURL))
+	return strings.Contains(normalized, "localhost") || strings.Contains(normalized, "127.0.0.1")
 }

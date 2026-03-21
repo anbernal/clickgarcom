@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
@@ -227,7 +229,6 @@ func resolvePublicCheckoutBaseURL() string {
 		os.Getenv("PUBLIC_WEB_BASE_URL"),
 		os.Getenv("PUBLIC_WEBHOOK_BASE_URL"),
 		os.Getenv("NGROK_PUBLIC_URL"),
-		"http://localhost:3002",
 	}
 
 	for _, candidate := range candidates {
@@ -237,7 +238,69 @@ func resolvePublicCheckoutBaseURL() string {
 		}
 	}
 
+	if ngrokBase := resolveNgrokPublicBaseURL(); ngrokBase != "" {
+		return ngrokBase
+	}
+
 	return "http://localhost:3002"
+}
+
+func resolveNgrokPublicBaseURL() string {
+	apiCandidates := []string{
+		os.Getenv("NGROK_API_URL"),
+		"http://ngrok:4040",
+		"http://localhost:4040",
+	}
+
+	client := &http.Client{Timeout: 2 * time.Second}
+	for _, candidate := range apiCandidates {
+		apiBase := strings.TrimRight(strings.TrimSpace(candidate), "/")
+		if apiBase == "" {
+			continue
+		}
+
+		tunnelsURL := apiBase
+		if !strings.HasSuffix(strings.ToLower(tunnelsURL), "/api/tunnels") {
+			tunnelsURL += "/api/tunnels"
+		}
+
+		req, err := http.NewRequest(http.MethodGet, tunnelsURL, nil)
+		if err != nil {
+			continue
+		}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+
+		var payload struct {
+			Tunnels []struct {
+				PublicURL string `json:"public_url"`
+			} `json:"tunnels"`
+		}
+		err = json.NewDecoder(resp.Body).Decode(&payload)
+		resp.Body.Close()
+		if err != nil {
+			continue
+		}
+
+		for _, tunnel := range payload.Tunnels {
+			publicURL := strings.TrimRight(strings.TrimSpace(tunnel.PublicURL), "/")
+			if strings.HasPrefix(strings.ToLower(publicURL), "https://") {
+				return publicURL
+			}
+		}
+
+		for _, tunnel := range payload.Tunnels {
+			publicURL := strings.TrimRight(strings.TrimSpace(tunnel.PublicURL), "/")
+			if publicURL != "" {
+				return publicURL
+			}
+		}
+	}
+
+	return ""
 }
 
 func resolveNodeAdminInternalBaseURL() string {

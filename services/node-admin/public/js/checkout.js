@@ -1,18 +1,238 @@
 const PUBLIC_API_URL = `${window.location.origin}/admin/api/public/tables`;
-const FALLBACK_MP_PUBLIC_KEY = 'TEST-ff17792e-d00c-4ea5-a8ba-fbec1ab15e69';
 
 let currentTabId = null;
+let currentAccessToken = null;
 let currentTabData = null;
 let currentAmount = 0;
 let pixPollingTimer = null;
 let pendingCardReconciliation = false;
+let checkoutExpiryTimer = null;
 
-function getURLParam(param) {
-    return new URLSearchParams(window.location.search).get(param);
+function buildPublicApiHeaders() {
+    if (!currentAccessToken) {
+        return {};
+    }
+
+    return {
+        Authorization: `Bearer ${currentAccessToken}`,
+    };
+}
+
+function getCheckoutAccessPayload() {
+    const searchParams = new URLSearchParams(window.location.search);
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+
+    const tabIdFromUrl = hashParams.get('tab_id') || searchParams.get('tab_id');
+    const accessTokenFromUrl = hashParams.get('access_token') || searchParams.get('access_token');
+
+    if (tabIdFromUrl && accessTokenFromUrl) {
+        sessionStorage.setItem('checkout.tab_id', tabIdFromUrl);
+        sessionStorage.setItem('checkout.access_token', accessTokenFromUrl);
+        window.history.replaceState({}, document.title, window.location.pathname);
+        return {
+            tabId: tabIdFromUrl,
+            accessToken: accessTokenFromUrl,
+        };
+    }
+
+    return {
+        tabId: sessionStorage.getItem('checkout.tab_id'),
+        accessToken: sessionStorage.getItem('checkout.access_token'),
+    };
 }
 
 function fmtBRL(value) {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value || 0);
+}
+
+function normalizeCheckoutText(value) {
+    if (value === null || value === undefined) {
+        return '';
+    }
+
+    return String(value).trim();
+}
+
+function normalizeCheckoutResults(payload) {
+    if (Array.isArray(payload)) {
+        return payload;
+    }
+
+    if (Array.isArray(payload?.results)) {
+        return payload.results;
+    }
+
+    if (Array.isArray(payload?.payment_methods)) {
+        return payload.payment_methods;
+    }
+
+    return [];
+}
+
+function normalizeIssuerId(value) {
+    const text = normalizeCheckoutText(value);
+    if (!text || !/^\d+$/.test(text)) {
+        return '';
+    }
+
+    return text;
+}
+
+async function resolveCardPaymentMetadata(mp, tokenResp) {
+    const bin = normalizeCheckoutText(
+        tokenResp?.first_six_digits
+        || tokenResp?.card?.first_six_digits
+        || tokenResp?.firstSixDigits,
+    ).replace(/\D/g, '');
+
+    let paymentMethodId = normalizeCheckoutText(
+        tokenResp?.payment_method_id
+        || tokenResp?.paymentMethodId
+        || tokenResp?.payment_method?.id
+        || tokenResp?.paymentMethod?.id,
+    );
+
+    let issuerId = normalizeIssuerId(
+        tokenResp?.issuer_id
+        || tokenResp?.issuerId
+        || tokenResp?.issuer?.id
+        || tokenResp?.card?.issuer?.id,
+    );
+
+    if (!paymentMethodId && bin && typeof mp.getPaymentMethods === 'function') {
+        try {
+            const paymentMethods = normalizeCheckoutResults(await mp.getPaymentMethods({ bin }));
+            const selectedMethod =
+                paymentMethods.find((method) => ['credit_card', 'debit_card'].includes(
+                    normalizeCheckoutText(method?.payment_type_id).toLowerCase(),
+                ))
+                || paymentMethods[0];
+
+            paymentMethodId = normalizeCheckoutText(selectedMethod?.id);
+            if (!issuerId) {
+                issuerId = normalizeIssuerId(selectedMethod?.issuer?.id);
+            }
+        } catch (error) {
+            console.warn('Nao foi possivel identificar a bandeira do cartao', error);
+        }
+    }
+
+    if (!paymentMethodId) {
+        throw new Error('Nao foi possivel identificar a bandeira do cartao. Confira os dados e tente novamente.');
+    }
+
+    if (!issuerId && bin && typeof mp.getIssuers === 'function') {
+        try {
+            const issuers = normalizeCheckoutResults(await mp.getIssuers({ paymentMethodId, bin }));
+            issuerId = normalizeIssuerId(issuers[0]?.id);
+        } catch (error) {
+            console.warn('Nao foi possivel identificar a emissora do cartao', error);
+        }
+    }
+
+    return {
+        paymentMethodId,
+        issuerId,
+    };
+}
+
+function decodeJwtPayload(token) {
+    const parts = String(token || '').split('.');
+    if (parts.length < 2) {
+        return null;
+    }
+
+    try {
+        const encoded = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+        const padded = encoded.padEnd(Math.ceil(encoded.length / 4) * 4, '=');
+        return JSON.parse(window.atob(padded));
+    } catch (error) {
+        return null;
+    }
+}
+
+function formatRemainingValidity(seconds) {
+    if (seconds <= 60) {
+        return 'menos de 1 minuto';
+    }
+
+    const minutes = Math.ceil(seconds / 60);
+    if (minutes === 1) {
+        return '1 minuto';
+    }
+
+    return `${minutes} minutos`;
+}
+
+function updateCheckoutExpiryNotice() {
+    const securityPillEl = document.getElementById('checkout-security-pill');
+    const expiryDetailEl = document.getElementById('checkout-expiry-detail');
+    if (!securityPillEl || !expiryDetailEl) {
+        return;
+    }
+
+    securityPillEl.classList.remove('urgent', 'expired');
+
+    const tokenPayload = decodeJwtPayload(currentAccessToken);
+    const expiresAt = Number(tokenPayload?.exp || 0);
+    if (!expiresAt) {
+        securityPillEl.textContent = '🔒 Link individual • expira em 30 minutos';
+        expiryDetailEl.textContent = 'Por segurança, após esse prazo será necessário pedir um novo link no WhatsApp.';
+        return;
+    }
+
+    const remainingSeconds = expiresAt - Math.floor(Date.now() / 1000);
+    if (remainingSeconds <= 0) {
+        securityPillEl.textContent = '⛔ Link expirado';
+        securityPillEl.classList.add('expired');
+        expiryDetailEl.textContent = 'Este link venceu. Volte ao WhatsApp e solicite um novo link para pagar pelo celular.';
+        return;
+    }
+
+    if (remainingSeconds <= 300) {
+        securityPillEl.classList.add('urgent');
+    }
+
+    securityPillEl.textContent = `🔒 Link individual • expira em ${formatRemainingValidity(remainingSeconds)}`;
+    expiryDetailEl.textContent = 'Por segurança, após esse prazo será necessário pedir um novo link no WhatsApp.';
+}
+
+function activatePaymentTab(method) {
+    document.querySelectorAll('.tab-btn').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.method === method);
+    });
+
+    document.querySelectorAll('.method-panel').forEach((panel) => {
+        panel.classList.toggle('active', panel.id === `panel-${method}`);
+    });
+}
+
+function configureCardCheckoutAvailability(tab) {
+    const cardTabBtn = document.querySelector('.tab-btn[data-method="card"]');
+    const cardAlertEl = document.getElementById('checkout-card-alert');
+    const cardFormEl = document.getElementById('form-checkout');
+    const cardEnabled = !!tab?.cardEnabled;
+    const cardReason = normalizeCheckoutText(tab?.cardUnavailableReason);
+
+    if (cardTabBtn) {
+        cardTabBtn.disabled = !cardEnabled;
+        cardTabBtn.title = !cardEnabled ? cardReason : '';
+    }
+
+    if (cardAlertEl) {
+        cardAlertEl.style.display = !cardEnabled && cardReason ? 'block' : 'none';
+        cardAlertEl.textContent = !cardEnabled ? cardReason : '';
+    }
+
+    if (cardFormEl) {
+        cardFormEl.style.display = cardEnabled ? 'block' : 'none';
+    }
+
+    if (!cardEnabled) {
+        activatePaymentTab('pix');
+    }
+
+    return cardEnabled;
 }
 
 async function fetchJson(url, options = {}) {
@@ -24,8 +244,14 @@ async function fetchJson(url, options = {}) {
     return response.json();
 }
 
+function buildPublicApiUrl(path) {
+    return new URL(`${PUBLIC_API_URL}${path}`, window.location.origin).toString();
+}
+
 async function loadTabData(tabId) {
-    return fetchJson(`${PUBLIC_API_URL}/tabs/${tabId}`);
+    return fetchJson(buildPublicApiUrl(`/tabs/${tabId}`), {
+        headers: buildPublicApiHeaders(),
+    });
 }
 
 function resolveCheckoutLabel(tab) {
@@ -102,13 +328,16 @@ async function refreshTabState() {
     if (!currentTabId) return;
     const tab = await loadTabData(currentTabId);
     setCheckoutState(tab);
+    configureCardCheckoutAvailability(tab);
 }
 
 async function startPaymentPolling(paymentId, options = {}) {
     stopPixPolling();
     pixPollingTimer = window.setInterval(async () => {
         try {
-            const status = await fetchJson(`${PUBLIC_API_URL}/tabs/${currentTabId}/payments/${paymentId}/status`);
+            const status = await fetchJson(buildPublicApiUrl(`/tabs/${currentTabId}/payments/${paymentId}/status`), {
+                headers: buildPublicApiHeaders(),
+            });
             renderPixDetails(status);
             if (status?.approved) {
                 stopPixPolling();
@@ -144,30 +373,36 @@ function fillInstallments() {
 document.addEventListener('DOMContentLoaded', async () => {
     document.querySelectorAll('.tab-btn').forEach((btn) => {
         btn.addEventListener('click', () => {
-            document.querySelectorAll('.tab-btn').forEach((item) => item.classList.remove('active'));
-            document.querySelectorAll('.method-panel').forEach((panel) => panel.classList.remove('active'));
-            btn.classList.add('active');
-            document.getElementById(`panel-${btn.dataset.method}`).classList.add('active');
+            if (btn.disabled) {
+                return;
+            }
+
+            activatePaymentTab(btn.dataset.method);
         });
     });
 
-    currentTabId = getURLParam('tab_id');
+    const checkoutAccess = getCheckoutAccessPayload();
+    currentTabId = checkoutAccess.tabId;
+    currentAccessToken = checkoutAccess.accessToken;
+    updateCheckoutExpiryNotice();
+    if (checkoutExpiryTimer) {
+        window.clearInterval(checkoutExpiryTimer);
+    }
+    checkoutExpiryTimer = window.setInterval(updateCheckoutExpiryNotice, 30000);
 
     const loadingEl = document.getElementById('checkout-loading');
     const contentEl = document.getElementById('checkout-content');
 
     try {
-        if (!currentTabId) {
-            throw new Error('Comanda nao informada');
+        if (!currentTabId || !currentAccessToken) {
+            throw new Error('Link de pagamento invalido ou expirado');
         }
 
         const tab = await loadTabData(currentTabId);
         setCheckoutState(tab);
 
-        const MP_PUBLIC_KEY = String(tab?.mpPublicKey || '').trim() || FALLBACK_MP_PUBLIC_KEY;
-        const mp = new MercadoPago(MP_PUBLIC_KEY, { locale: 'pt-BR' });
-
         fillInstallments();
+        const cardEnabled = configureCardCheckoutAvailability(tab);
 
         document.getElementById('btn-generate-pix').addEventListener('click', async () => {
             const btn = document.getElementById('btn-generate-pix');
@@ -175,9 +410,12 @@ document.addEventListener('DOMContentLoaded', async () => {
             btn.disabled = true;
 
             try {
-                const data = await fetchJson(`${PUBLIC_API_URL}/tabs/${currentTabId}/payments/pix`, {
+                const data = await fetchJson(buildPublicApiUrl(`/tabs/${currentTabId}/payments/pix`), {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        ...buildPublicApiHeaders(),
+                        'Content-Type': 'application/json',
+                    },
                     body: JSON.stringify({
                         payer_email: 'cliente@email.com',
                         payer_name: 'Visitante',
@@ -206,6 +444,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                 btn.disabled = false;
             }
         });
+
+        if (!cardEnabled) {
+            return;
+        }
+
+        const mpPublicKey = String(tab?.mpPublicKey || '').trim();
+        const mp = new MercadoPago(mpPublicKey, { locale: 'pt-BR' });
 
         const cardNumberEl = mp.fields.create('cardNumber', { placeholder: 'Numero do cartao' });
         const expirationDateEl = mp.fields.create('expirationDate', { placeholder: 'MM/YY' });
@@ -243,16 +488,25 @@ document.addEventListener('DOMContentLoaded', async () => {
                     identificationNumber: document.getElementById('form-checkout__identificationNumber').value,
                 });
 
-                const response = await fetchJson(`${PUBLIC_API_URL}/tabs/${currentTabId}/payments/card`, {
+                const cardMetadata = await resolveCardPaymentMetadata(mp, tokenResp);
+                const paymentPayload = {
+                    token: tokenResp.id,
+                    installments: Number(document.getElementById('form-checkout__installments').value || 1),
+                    payment_method_id: cardMetadata.paymentMethodId,
+                    payer_email: document.getElementById('form-checkout__cardholderEmail').value,
+                    payer_cpf: document.getElementById('form-checkout__identificationNumber').value,
+                };
+                if (cardMetadata.issuerId) {
+                    paymentPayload.issuer_id = cardMetadata.issuerId;
+                }
+
+                const response = await fetchJson(buildPublicApiUrl(`/tabs/${currentTabId}/payments/card`), {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        token: tokenResp.id,
-                        installments: Number(document.getElementById('form-checkout__installments').value || 1),
-                        payment_method_id: 'master',
-                        payer_email: document.getElementById('form-checkout__cardholderEmail').value,
-                        payer_cpf: document.getElementById('form-checkout__identificationNumber').value,
-                    }),
+                    headers: {
+                        ...buildPublicApiHeaders(),
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(paymentPayload),
                 });
 
                 if (String(response?.status || '').trim().toLowerCase() === 'approved' || response?.tabClosed) {

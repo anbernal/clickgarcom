@@ -91,7 +91,7 @@ func (uc *ReconcilePaymentWebhookUseCase) Execute(ctx context.Context, body []by
 
 	providerPaymentID := strings.TrimSpace(payload.MpID)
 	if providerPaymentID == "" {
-		providerPaymentID = strings.TrimSpace(attempt.ProviderPaymentID)
+		providerPaymentID = payment.ValueOrEmpty(attempt.ProviderPaymentID)
 	}
 	if providerPaymentID == "" {
 		providerPaymentID = strings.TrimSpace(localPayment.ExternalReference)
@@ -106,7 +106,7 @@ func (uc *ReconcilePaymentWebhookUseCase) Execute(ctx context.Context, body []by
 	}
 
 	now := time.Now()
-	attempt.ProviderPaymentID = providerPaymentID
+	attempt.ProviderPaymentID = payment.OptionalString(providerPaymentID)
 	attempt.ProviderStatus = strings.TrimSpace(providerDetails.Status)
 	attempt.ProviderStatusInfo = strings.TrimSpace(providerDetails.StatusDetail)
 	attempt.Status = mapWebhookProviderStatusToAttempt(providerDetails.Status)

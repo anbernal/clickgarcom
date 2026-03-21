@@ -91,7 +91,7 @@ type Payment struct {
 	Status            Status     `json:"status" gorm:"type:varchar(20);default:'PENDING'"`
 	Method            Method     `json:"method,omitempty" gorm:"type:varchar(20)"`
 	ExternalReference string     `json:"external_reference,omitempty" gorm:"type:varchar(100);index"`
-	PixTxID           string     `json:"pix_txid,omitempty" gorm:"type:varchar(255)"`
+	PixTxID           *string    `json:"pix_txid,omitempty" gorm:"column:pix_txid;type:varchar(255)"`
 	PixQRCode         string     `json:"pix_qr_code,omitempty" gorm:"type:text"`
 	PixQRCodeImage    string     `json:"pix_qr_code_image,omitempty" gorm:"type:text"`
 	Metadata          JSONMap    `json:"metadata,omitempty" gorm:"type:jsonb"`
@@ -115,10 +115,10 @@ type Attempt struct {
 	RequestedAmount    float64       `json:"requested_amount" gorm:"type:numeric(10,2);not null"`
 	IdempotencyKey     string        `json:"idempotency_key" gorm:"type:varchar(120);not null;uniqueIndex"`
 	ExternalReference  string        `json:"external_reference" gorm:"type:varchar(120);not null;index"`
-	ProviderPaymentID  string        `json:"provider_payment_id,omitempty" gorm:"type:varchar(120);index"`
+	ProviderPaymentID  *string       `json:"provider_payment_id,omitempty" gorm:"type:varchar(120);index"`
 	Status             AttemptStatus `json:"status" gorm:"type:varchar(20);not null"`
 	ProviderStatus     string        `json:"provider_status,omitempty" gorm:"type:varchar(80)"`
-	ProviderStatusInfo string        `json:"provider_status_detail,omitempty" gorm:"type:text"`
+	ProviderStatusInfo string        `json:"provider_status_detail,omitempty" gorm:"column:provider_status_detail;type:text"`
 	RequestPayload     JSONMap       `json:"request_payload,omitempty" gorm:"type:jsonb"`
 	ResponsePayload    JSONMap       `json:"response_payload,omitempty" gorm:"type:jsonb"`
 	LastError          string        `json:"last_error,omitempty" gorm:"type:text"`

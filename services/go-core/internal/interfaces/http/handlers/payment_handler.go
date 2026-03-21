@@ -207,6 +207,19 @@ func (h *PaymentHandler) CreateCardPayment(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid payload"})
 	}
 
+	reqBody.Token = strings.TrimSpace(reqBody.Token)
+	reqBody.PaymentMethodID = strings.TrimSpace(reqBody.PaymentMethodID)
+	reqBody.IssuerID = strings.TrimSpace(reqBody.IssuerID)
+	if reqBody.Token == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "token is required"})
+	}
+	if reqBody.PaymentMethodID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "payment_method_id is required"})
+	}
+	if reqBody.Installments <= 0 {
+		reqBody.Installments = 1
+	}
+
 	orderID, err := uuid.Parse(reqBody.OrderID)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid order_id"})
@@ -241,11 +254,28 @@ func (h *PaymentHandler) CreateCardPayment(c *fiber.Ctx) error {
 	mpReq.Description = reqBody.Description
 	mpReq.Installments = reqBody.Installments
 	mpReq.PaymentMethodID = reqBody.PaymentMethodID
-	mpReq.IssuerID = reqBody.IssuerID
+	if reqBody.IssuerID != "" {
+		mpReq.IssuerID = reqBody.IssuerID
+	}
 	mpReq.ExternalReference = externalReference
 	mpReq.Payer.Email = reqBody.PayerEmail
 	mpReq.Payer.Identification.Type = "CPF"
 	mpReq.Payer.Identification.Number = reqBody.PayerCPF
+
+	requestPayload := payment.JSONMap{
+		"amount":             reqBody.Amount,
+		"description":        reqBody.Description,
+		"installments":       reqBody.Installments,
+		"payment_method_id":  reqBody.PaymentMethodID,
+		"payer_email":        reqBody.PayerEmail,
+		"payer_cpf":          reqBody.PayerCPF,
+		"wallet_recharge":    walletRecharge,
+		"local_payment_id":   localPayment.ID.String(),
+		"local_reference_id": externalReference,
+	}
+	if reqBody.IssuerID != "" {
+		requestPayload["issuer_id"] = reqBody.IssuerID
+	}
 
 	attempt := &payment.Attempt{
 		PaymentID:         localPayment.ID,
@@ -257,18 +287,7 @@ func (h *PaymentHandler) CreateCardPayment(c *fiber.Ctx) error {
 		IdempotencyKey:    idempotencyKey,
 		ExternalReference: externalReference,
 		Status:            payment.AttemptStatusCreated,
-		RequestPayload: payment.JSONMap{
-			"amount":             reqBody.Amount,
-			"description":        reqBody.Description,
-			"installments":       reqBody.Installments,
-			"payment_method_id":  reqBody.PaymentMethodID,
-			"issuer_id":          reqBody.IssuerID,
-			"payer_email":        reqBody.PayerEmail,
-			"payer_cpf":          reqBody.PayerCPF,
-			"wallet_recharge":    walletRecharge,
-			"local_payment_id":   localPayment.ID.String(),
-			"local_reference_id": externalReference,
-		},
+		RequestPayload:    requestPayload,
 	}
 	if err := h.paymentAttemptRepo.Create(c.Context(), attempt); err != nil {
 		h.logger.Error("failed to create card payment attempt", zap.Error(err))
@@ -287,7 +306,11 @@ func (h *PaymentHandler) CreateCardPayment(c *fiber.Ctx) error {
 		}
 
 		h.logger.Error("card payment failed", zap.Error(err))
-		return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{"error": "failed to process card via mercadopago"})
+		return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{
+			"error":            "failed to process card via mercadopago",
+			"message":          userFacingMercadoPagoCardError(err),
+			"provider_message": providerMercadoPagoErrorMessage(err),
+		})
 	}
 
 	h.applyCardProviderResponse(c.Context(), localPayment, attempt, mpResp)
@@ -298,6 +321,24 @@ func (h *PaymentHandler) CreateCardPayment(c *fiber.Ctx) error {
 		"status":               strings.ToLower(strings.TrimSpace(mpResp.Status)),
 		"pending_confirmation": attempt.Status == payment.AttemptStatusProcessing || attempt.Status == payment.AttemptStatusUnknown,
 	})
+}
+
+func userFacingMercadoPagoCardError(err error) string {
+	providerMessage := strings.ToLower(strings.TrimSpace(providerMercadoPagoErrorMessage(err)))
+	switch {
+	case strings.Contains(providerMessage, "invalid users involved"):
+		return "Nao foi possivel validar o cartao no Mercado Pago. Revise se a Public Key e o Access Token sao de teste e da mesma aplicacao, e use uma conta compradora de teste diferente da conta vendedora."
+	default:
+		return "Nao foi possivel processar o cartao no Mercado Pago agora. Revise os dados e tente novamente."
+	}
+}
+
+func providerMercadoPagoErrorMessage(err error) string {
+	var mpErr *infraMP.APIError
+	if errors.As(err, &mpErr) {
+		return strings.TrimSpace(mpErr.ProviderMessage())
+	}
+	return ""
 }
 
 // GetPaymentStatus handles GET /payments/:paymentId/status
@@ -332,7 +373,7 @@ func (h *PaymentHandler) GetPaymentStatus(c *fiber.Ctx) error {
 	providerPaymentID := ""
 	if attempt != nil {
 		statusDetail = strings.TrimSpace(attempt.ProviderStatusInfo)
-		providerPaymentID = strings.TrimSpace(attempt.ProviderPaymentID)
+		providerPaymentID = payment.ValueOrEmpty(attempt.ProviderPaymentID)
 	}
 
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
@@ -528,15 +569,18 @@ func (h *PaymentHandler) newLocalPayment(
 		orderRef = &orderID
 	}
 
+	paymentID := uuid.New()
+
 	return &payment.Payment{
-		ID:          uuid.New(),
-		TenantID:    tenantID,
-		TabID:       tabID,
-		OrderID:     orderRef,
-		PaymentType: payment.TypeFull,
-		Amount:      amount,
-		Status:      payment.StatusPending,
-		Method:      method,
+		ID:                paymentID,
+		TenantID:          tenantID,
+		TabID:             tabID,
+		OrderID:           orderRef,
+		PaymentType:       payment.TypeFull,
+		Amount:            amount,
+		Status:            payment.StatusPending,
+		Method:            method,
+		ExternalReference: paymentID.String(),
 		Metadata: payment.JSONMap{
 			"provider": string(payment.ProviderMercadoPago),
 			"method":   string(method),
@@ -551,7 +595,8 @@ func (h *PaymentHandler) applyPixProviderResponse(
 	mpResp *infraMP.PixPaymentResponse,
 ) {
 	now := time.Now()
-	attempt.ProviderPaymentID = fmt.Sprintf("%d", mpResp.ID)
+	providerPaymentID := strings.TrimSpace(fmt.Sprintf("%d", mpResp.ID))
+	attempt.ProviderPaymentID = payment.OptionalString(providerPaymentID)
 	attempt.ProviderStatus = strings.TrimSpace(mpResp.Status)
 	attempt.ProviderStatusInfo = strings.TrimSpace(mpResp.StatusDetail)
 	attempt.Status = mapProviderStatusToAttemptStatus(mpResp.Status)
@@ -566,8 +611,8 @@ func (h *PaymentHandler) applyPixProviderResponse(
 	attempt.ReconciledAt = &now
 	_ = h.paymentAttemptRepo.Update(ctx, attempt)
 
-	localPayment.ExternalReference = attempt.ProviderPaymentID
-	localPayment.PixTxID = attempt.ProviderPaymentID
+	localPayment.ExternalReference = providerPaymentID
+	localPayment.PixTxID = payment.OptionalString(providerPaymentID)
 	localPayment.PixQRCode = strings.TrimSpace(mpResp.PointOfInteraction.TransactionData.QRCode)
 	localPayment.PixQRCodeImage = strings.TrimSpace(mpResp.PointOfInteraction.TransactionData.QRCodeBase64)
 	localPayment.Status = mapProviderStatusToPaymentStatus(mpResp.Status)
@@ -584,7 +629,8 @@ func (h *PaymentHandler) applyCardProviderResponse(
 	mpResp *infraMP.CardPaymentResponse,
 ) {
 	now := time.Now()
-	attempt.ProviderPaymentID = fmt.Sprintf("%d", mpResp.ID)
+	providerPaymentID := strings.TrimSpace(fmt.Sprintf("%d", mpResp.ID))
+	attempt.ProviderPaymentID = payment.OptionalString(providerPaymentID)
 	attempt.ProviderStatus = strings.TrimSpace(mpResp.Status)
 	attempt.ProviderStatusInfo = strings.TrimSpace(mpResp.StatusDetail)
 	attempt.Status = mapProviderStatusToAttemptStatus(mpResp.Status)
@@ -597,7 +643,7 @@ func (h *PaymentHandler) applyCardProviderResponse(
 	attempt.ReconciledAt = &now
 	_ = h.paymentAttemptRepo.Update(ctx, attempt)
 
-	localPayment.ExternalReference = attempt.ProviderPaymentID
+	localPayment.ExternalReference = providerPaymentID
 	localPayment.Status = mapProviderStatusToPaymentStatus(mpResp.Status)
 	if localPayment.Status == payment.StatusConfirmed {
 		localPayment.PaidAt = &now
@@ -643,8 +689,8 @@ func (h *PaymentHandler) refreshPaymentStatus(
 	var providerDetails *infraMP.PaymentStatusResponse
 	var err error
 
-	if attempt != nil && strings.TrimSpace(attempt.ProviderPaymentID) != "" {
-		providerDetails, err = h.mpClient.GetPayment(ctx, tnt.Settings.MPAccessToken, attempt.ProviderPaymentID)
+	if attempt != nil && payment.ValueOrEmpty(attempt.ProviderPaymentID) != "" {
+		providerDetails, err = h.mpClient.GetPayment(ctx, tnt.Settings.MPAccessToken, payment.ValueOrEmpty(attempt.ProviderPaymentID))
 	} else if attempt != nil && strings.TrimSpace(attempt.ExternalReference) != "" {
 		providerDetails, err = h.mpClient.SearchPaymentsByExternalReference(ctx, tnt.Settings.MPAccessToken, attempt.ExternalReference)
 	}
@@ -662,7 +708,7 @@ func (h *PaymentHandler) refreshPaymentStatus(
 
 	now := time.Now()
 	if attempt != nil {
-		attempt.ProviderPaymentID = strings.TrimSpace(fmt.Sprintf("%d", providerDetails.ID))
+		attempt.ProviderPaymentID = payment.OptionalString(fmt.Sprintf("%d", providerDetails.ID))
 		attempt.ProviderStatus = strings.TrimSpace(providerDetails.Status)
 		attempt.ProviderStatusInfo = strings.TrimSpace(providerDetails.StatusDetail)
 		attempt.Status = mapProviderStatusToAttemptStatus(providerDetails.Status)

@@ -7,6 +7,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/adaptor"
+	"github.com/gofiber/fiber/v2/middleware/proxy"
 	fiberws "github.com/gofiber/websocket/v2"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -74,6 +75,8 @@ func SetupRoutes(
 	if internalToken == "" {
 		internalToken = "clickgarcom-internal-token"
 	}
+
+	registerPublicCheckoutProxyRoutes(app, logger)
 
 	// Auth routes
 	authGrp := app.Group("/auth")
@@ -352,4 +355,47 @@ func SetupRoutes(
 			EnableCompression: true,
 		}))
 	}
+}
+
+func registerPublicCheckoutProxyRoutes(app *fiber.App, logger *zap.Logger) {
+	targetBaseURL := strings.TrimRight(resolveNodeAdminProxyBaseURL(), "/")
+	handler := func(c *fiber.Ctx) error {
+		targetURL := targetBaseURL + c.OriginalURL()
+		if err := proxy.Do(c, targetURL); err != nil {
+			logger.Warn("failed to proxy public checkout request",
+				zap.Error(err),
+				zap.String("path", c.OriginalURL()),
+			)
+			return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{
+				"error": "checkout_public_unavailable",
+			})
+		}
+		return nil
+	}
+
+	app.All("/checkout.html", handler)
+	app.All("/css/*", handler)
+	app.All("/js/*", handler)
+	app.All("/assets/*", handler)
+	app.All("/data/*", handler)
+	app.All("/admin/api/public/tables", handler)
+	app.All("/admin/api/public/tables/*", handler)
+}
+
+func resolveNodeAdminProxyBaseURL() string {
+	candidates := []string{
+		os.Getenv("PUBLIC_ADMIN_INTERNAL_BASE_URL"),
+		os.Getenv("ADMIN_INTERNAL_BASE_URL"),
+		"http://node-admin:3002",
+		"http://localhost:3002",
+	}
+
+	for _, candidate := range candidates {
+		base := strings.TrimRight(strings.TrimSpace(candidate), "/")
+		if base != "" {
+			return base
+		}
+	}
+
+	return "http://node-admin:3002"
 }

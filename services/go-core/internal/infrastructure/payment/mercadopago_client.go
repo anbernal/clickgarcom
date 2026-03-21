@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -16,6 +17,35 @@ import (
 type MercadoPagoClient struct {
 	httpClient *http.Client
 	logger     *zap.Logger
+}
+
+type APIError struct {
+	Status           int
+	Message          string
+	ErrorCode        string
+	CauseCode        int
+	CauseDescription string
+	ResponseBody     string
+}
+
+func (e *APIError) Error() string {
+	if e == nil {
+		return "mercadopago returned unknown error"
+	}
+	if msg := strings.TrimSpace(e.ProviderMessage()); msg != "" {
+		return fmt.Sprintf("mercadopago returned status %d: %s", e.Status, msg)
+	}
+	return fmt.Sprintf("mercadopago returned status %d", e.Status)
+}
+
+func (e *APIError) ProviderMessage() string {
+	if e == nil {
+		return ""
+	}
+	if msg := strings.TrimSpace(e.CauseDescription); msg != "" {
+		return msg
+	}
+	return strings.TrimSpace(e.Message)
 }
 
 func NewMercadoPagoClient(logger *zap.Logger) *MercadoPagoClient {
@@ -82,7 +112,7 @@ func (client *MercadoPagoClient) CreatePixPayment(ctx context.Context, accessTok
 			zap.Int("status", resp.StatusCode),
 			zap.String("response", string(errorBody)),
 		)
-		return nil, fmt.Errorf("mercadopago returned status %d", resp.StatusCode)
+		return nil, parseAPIError(resp.StatusCode, errorBody)
 	}
 
 	var pixResp PixPaymentResponse
@@ -125,7 +155,7 @@ func (client *MercadoPagoClient) GetPayment(ctx context.Context, accessToken str
 			zap.String("response", string(errorBody)),
 			zap.String("payment_id", paymentID),
 		)
-		return nil, fmt.Errorf("mercadopago returned status %d", resp.StatusCode)
+		return nil, parseAPIError(resp.StatusCode, errorBody)
 	}
 
 	var paymentResp PaymentStatusResponse
@@ -146,7 +176,7 @@ type CardPaymentRequest struct {
 	Description       string  `json:"description"`
 	Installments      int     `json:"installments"`
 	PaymentMethodID   string  `json:"payment_method_id"` // "visa", "master", "debvisa"...
-	IssuerID          string  `json:"issuer_id"`
+	IssuerID          string  `json:"issuer_id,omitempty"`
 	ExternalReference string  `json:"external_reference,omitempty"`
 	Payer             struct {
 		Email          string `json:"email"`
@@ -186,7 +216,7 @@ func (client *MercadoPagoClient) CreateCardPayment(ctx context.Context, accessTo
 			zap.Int("status", resp.StatusCode),
 			zap.String("response", string(errorBody)),
 		)
-		return nil, fmt.Errorf("mercadopago returned status %d", resp.StatusCode)
+		return nil, parseAPIError(resp.StatusCode, errorBody)
 	}
 
 	var cardResp CardPaymentResponse
@@ -233,7 +263,7 @@ func (client *MercadoPagoClient) SearchPaymentsByExternalReference(
 			zap.String("response", string(errorBody)),
 			zap.String("external_reference", externalReference),
 		)
-		return nil, fmt.Errorf("mercadopago returned status %d", resp.StatusCode)
+		return nil, parseAPIError(resp.StatusCode, errorBody)
 	}
 
 	var searchResp PaymentSearchResponse
@@ -245,4 +275,41 @@ func (client *MercadoPagoClient) SearchPaymentsByExternalReference(
 	}
 
 	return &searchResp.Results[0], nil
+}
+
+func parseAPIError(status int, body []byte) error {
+	responseBody := strings.TrimSpace(string(body))
+	if responseBody == "" {
+		return &APIError{Status: status}
+	}
+
+	var payload struct {
+		Message string `json:"message"`
+		Error   string `json:"error"`
+		Cause   []struct {
+			Code        int    `json:"code"`
+			Description string `json:"description"`
+		} `json:"cause"`
+	}
+
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return &APIError{
+			Status:       status,
+			ResponseBody: responseBody,
+		}
+	}
+
+	apiErr := &APIError{
+		Status:       status,
+		Message:      strings.TrimSpace(payload.Message),
+		ErrorCode:    strings.TrimSpace(payload.Error),
+		ResponseBody: responseBody,
+	}
+
+	if len(payload.Cause) > 0 {
+		apiErr.CauseCode = payload.Cause[0].Code
+		apiErr.CauseDescription = strings.TrimSpace(payload.Cause[0].Description)
+	}
+
+	return apiErr
 }
