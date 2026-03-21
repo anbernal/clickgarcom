@@ -1654,6 +1654,463 @@ func TestHandleWhatsAppMessageInteractiveOrderingCreatesOrder(t *testing.T) {
 	}
 }
 
+func TestHandleWhatsAppMessageCanRemoveItemFromCartBeforeSendingOrder(t *testing.T) {
+	ctx := context.Background()
+	tenantID := uuid.New()
+	phone := "5511933333333"
+	tableID := uuid.New()
+	categoryFoodID := uuid.New()
+	categoryDrinkID := uuid.New()
+	itemFoodID := uuid.New()
+	itemDrinkID := uuid.New()
+
+	sessionRepo := newTestSessionRepo()
+	sess := session.NewSession(phone, tenantID)
+	sess.TableID = &tableID
+	sess.TransitionTo(session.StateMainMenu)
+	if err := sessionRepo.Save(ctx, sess); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	menuRepo := &testCreateOrderMenuRepo{
+		categoriesByID: map[uuid.UUID]*menu.Category{
+			categoryFoodID: {
+				ID:           categoryFoodID,
+				TenantID:     tenantID,
+				Name:         "Comidas",
+				Description:  "Pratos da casa",
+				DisplayOrder: 1,
+				Active:       true,
+			},
+			categoryDrinkID: {
+				ID:           categoryDrinkID,
+				TenantID:     tenantID,
+				Name:         "Bebidas",
+				Description:  "Drinks e bebidas sem álcool",
+				DisplayOrder: 2,
+				Active:       true,
+			},
+		},
+		itemsByID: map[uuid.UUID]*menu.Item{
+			itemFoodID: {
+				ID:           itemFoodID,
+				TenantID:     tenantID,
+				CategoryID:   &categoryFoodID,
+				Name:         "Picanha na Brasa",
+				Description:  "Acompanha farofa e fritas",
+				Price:        119,
+				Available:    true,
+				Destination:  "KITCHEN",
+				ImageURL:     "https://cdn.example.com/menu/picanha.jpg",
+				DisplayOrder: 1,
+			},
+			itemDrinkID: {
+				ID:           itemDrinkID,
+				TenantID:     tenantID,
+				CategoryID:   &categoryDrinkID,
+				Name:         "Água com Gás",
+				Description:  "Garrafa 500ml",
+				Price:        9,
+				Available:    true,
+				Destination:  "BAR",
+				DisplayOrder: 1,
+			},
+		},
+	}
+
+	tabRepo := &testCreateOrderTabRepo{
+		tabsByID: map[uuid.UUID]*tab.Tab{},
+	}
+	orderRepo := &testCreateOrderRepo{}
+	orderBatchRepo := &testCreateOrderBatchRepo{}
+	publisher := &testKDSEventPublisher{}
+	createOrderUC := NewCreateOrderUseCase(
+		orderRepo,
+		orderBatchRepo,
+		tabRepo,
+		menuRepo,
+		nil,
+		publisher,
+		zap.NewNop(),
+	)
+
+	sender := &testWhatsAppSender{}
+	uc := NewHandleWhatsAppMessageUseCase(
+		sessionRepo,
+		&testTenantRepo{tenant: testTenant(tenantID)},
+		nil,
+		menuRepo,
+		tabRepo,
+		&testTableRepo{tablesByID: map[uuid.UUID]*table.Table{
+			tableID: {ID: tableID, TenantID: tenantID, Number: "9"},
+		}},
+		nil,
+		nil,
+		createOrderUC,
+		sender,
+		"",
+		zap.NewNop(),
+	)
+
+	steps := []string{
+		"1",
+		orderingCategoryPrefix + categoryFoodID.String(),
+		orderingItemPrefix + itemFoodID.String(),
+		orderingQuantityPrefix + "2",
+		orderingChangeItemID,
+		orderingCategoryPrefix + categoryDrinkID.String(),
+		orderingItemPrefix + itemDrinkID.String(),
+		orderingQuantityPrefix + "1",
+		orderingRemoveItemID,
+		orderingRemoveItemKey + itemDrinkID.String(),
+		orderingRemoveAllUnitsID,
+		orderingConfirmOrderID,
+	}
+	for _, step := range steps {
+		if err := uc.Execute(ctx, HandleMessageInput{
+			From:     phone,
+			Text:     step,
+			TenantID: tenantID,
+		}); err != nil {
+			t.Fatalf("Execute(%q) error = %v", step, err)
+		}
+	}
+
+	if got := len(sender.interactiveMessages); got < 5 {
+		t.Fatalf("expected at least 5 interactive button messages, got %d", got)
+	}
+	confirmationMessage := sender.interactiveMessages[1]
+	if len(confirmationMessage.Buttons) != 3 {
+		t.Fatalf("expected 3 confirmation buttons, got %d", len(confirmationMessage.Buttons))
+	}
+	if got := confirmationMessage.Buttons[2].Reply.ID; got != orderingRemoveItemID {
+		t.Fatalf("expected remove-item button id %q, got %q", orderingRemoveItemID, got)
+	}
+
+	foundRemovalList := false
+	for _, listMessage := range sender.listMessages {
+		if strings.Contains(listMessage.Body, "Ajustar item do pedido") {
+			foundRemovalList = true
+			break
+		}
+	}
+	if !foundRemovalList {
+		t.Fatalf("expected a removal selection list message, got %+v", sender.listMessages)
+	}
+
+	foundActionMenu := false
+	for _, listMessage := range sender.listMessages {
+		if strings.Contains(listMessage.Body, "Ajustar item do pedido") {
+			foundActionMenu = true
+			break
+		}
+	}
+	if !foundActionMenu {
+		t.Fatalf("expected an item-adjustment interactive message, got lists=%+v", sender.listMessages)
+	}
+
+	if got := len(orderRepo.created); got != 1 {
+		t.Fatalf("expected 1 created order after removing the drink, got %d", got)
+	}
+	createdOrder := orderRepo.created[0]
+	if got := len(createdOrder.Items); got != 1 {
+		t.Fatalf("expected 1 item in the created order, got %d", got)
+	}
+	if got := createdOrder.Items[0].MenuItemID; got != itemFoodID {
+		t.Fatalf("expected remaining item %s, got %s", itemFoodID.String(), got.String())
+	}
+
+	updatedConfirmation := sender.interactiveMessages[len(sender.interactiveMessages)-1]
+	if !strings.Contains(updatedConfirmation.Body, "Excluí *Água com Gás*") {
+		t.Fatalf("expected removal notice on updated cart, got %q", updatedConfirmation.Body)
+	}
+	if strings.Contains(updatedConfirmation.Body, "1x Água com Gás") {
+		t.Fatalf("expected removed item to disappear from updated cart, got %q", updatedConfirmation.Body)
+	}
+
+	lastList := sender.listMessages[len(sender.listMessages)-1]
+	if !strings.Contains(lastList.Body, "Pedido enviado!") {
+		t.Fatalf("expected final success message, got %q", lastList.Body)
+	}
+	if strings.Contains(lastList.Body, "Água com Gás") {
+		t.Fatalf("expected removed item to stay out of final summary, got %q", lastList.Body)
+	}
+	if !strings.Contains(lastList.Body, "2x Picanha na Brasa") {
+		t.Fatalf("expected remaining item in final summary, got %q", lastList.Body)
+	}
+
+	updatedSession, err := sessionRepo.Find(ctx, phone, tenantID.String())
+	if err != nil {
+		t.Fatalf("Find() error = %v", err)
+	}
+	if updatedSession == nil {
+		t.Fatal("expected session to be saved")
+	}
+	if updatedSession.State != session.StateMainMenu {
+		t.Fatalf("expected session state %s, got %s", session.StateMainMenu, updatedSession.State)
+	}
+	if _, ok := updatedSession.Context[orderingCartKey]; ok {
+		t.Fatalf("expected ordering cart to be cleared, got %#v", updatedSession.Context)
+	}
+}
+
+func TestHandleWhatsAppMessageCanRemoveSingleUnitFromCartBeforeSendingOrder(t *testing.T) {
+	ctx := context.Background()
+	tenantID := uuid.New()
+	phone := "5511944444444"
+	tableID := uuid.New()
+	categoryDrinkID := uuid.New()
+	itemDrinkID := uuid.New()
+
+	sessionRepo := newTestSessionRepo()
+	sess := session.NewSession(phone, tenantID)
+	sess.TableID = &tableID
+	sess.TransitionTo(session.StateMainMenu)
+	if err := sessionRepo.Save(ctx, sess); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	menuRepo := &testCreateOrderMenuRepo{
+		categoriesByID: map[uuid.UUID]*menu.Category{
+			categoryDrinkID: {
+				ID:           categoryDrinkID,
+				TenantID:     tenantID,
+				Name:         "Bebidas",
+				Description:  "Drinks e bebidas sem álcool",
+				DisplayOrder: 1,
+				Active:       true,
+			},
+		},
+		itemsByID: map[uuid.UUID]*menu.Item{
+			itemDrinkID: {
+				ID:           itemDrinkID,
+				TenantID:     tenantID,
+				CategoryID:   &categoryDrinkID,
+				Name:         "Coca Cola 500ml",
+				Description:  "Garrafa 500ml",
+				Price:        15,
+				Available:    true,
+				Destination:  "BAR",
+				DisplayOrder: 1,
+			},
+		},
+	}
+
+	tabRepo := &testCreateOrderTabRepo{
+		tabsByID: map[uuid.UUID]*tab.Tab{},
+	}
+	orderRepo := &testCreateOrderRepo{}
+	orderBatchRepo := &testCreateOrderBatchRepo{}
+	publisher := &testKDSEventPublisher{}
+	createOrderUC := NewCreateOrderUseCase(
+		orderRepo,
+		orderBatchRepo,
+		tabRepo,
+		menuRepo,
+		nil,
+		publisher,
+		zap.NewNop(),
+	)
+
+	sender := &testWhatsAppSender{}
+	uc := NewHandleWhatsAppMessageUseCase(
+		sessionRepo,
+		&testTenantRepo{tenant: testTenant(tenantID)},
+		nil,
+		menuRepo,
+		tabRepo,
+		&testTableRepo{tablesByID: map[uuid.UUID]*table.Table{
+			tableID: {ID: tableID, TenantID: tenantID, Number: "12"},
+		}},
+		nil,
+		nil,
+		createOrderUC,
+		sender,
+		"",
+		zap.NewNop(),
+	)
+
+	steps := []string{
+		"1",
+		orderingCategoryPrefix + categoryDrinkID.String(),
+		orderingItemPrefix + itemDrinkID.String(),
+		orderingQuantityPrefix + "2",
+		orderingRemoveItemID,
+		orderingRemoveItemKey + itemDrinkID.String(),
+		orderingRemoveOneUnitID,
+		orderingConfirmOrderID,
+	}
+	for _, step := range steps {
+		if err := uc.Execute(ctx, HandleMessageInput{
+			From:     phone,
+			Text:     step,
+			TenantID: tenantID,
+		}); err != nil {
+			t.Fatalf("Execute(%q) error = %v", step, err)
+		}
+	}
+
+	if got := len(orderRepo.created); got != 1 {
+		t.Fatalf("expected 1 created order, got %d", got)
+	}
+	createdOrder := orderRepo.created[0]
+	if got := len(createdOrder.Items); got != 1 {
+		t.Fatalf("expected 1 item in created order, got %d", got)
+	}
+	if got := createdOrder.Items[0].MenuItemID; got != itemDrinkID {
+		t.Fatalf("expected menu item %s, got %s", itemDrinkID.String(), got.String())
+	}
+	if got := createdOrder.Items[0].Quantity; got != 1 {
+		t.Fatalf("expected final quantity 1 after removing a single unit, got %d", got)
+	}
+
+	updatedConfirmation := sender.interactiveMessages[len(sender.interactiveMessages)-1]
+	if !strings.Contains(updatedConfirmation.Body, "Removi *1 unidade* de *Coca Cola 500ml*") {
+		t.Fatalf("expected single-unit removal notice, got %q", updatedConfirmation.Body)
+	}
+	if !strings.Contains(updatedConfirmation.Body, "1x Coca Cola 500ml") {
+		t.Fatalf("expected updated cart with quantity 1, got %q", updatedConfirmation.Body)
+	}
+
+	lastList := sender.listMessages[len(sender.listMessages)-1]
+	if !strings.Contains(lastList.Body, "1x Coca Cola 500ml") {
+		t.Fatalf("expected final summary with 1 unit, got %q", lastList.Body)
+	}
+}
+
+func TestHandleWhatsAppMessageCanSetCartItemQuantityBeforeSendingOrder(t *testing.T) {
+	ctx := context.Background()
+	tenantID := uuid.New()
+	phone := "5511955550000"
+	tableID := uuid.New()
+	categoryDrinkID := uuid.New()
+	itemDrinkID := uuid.New()
+
+	sessionRepo := newTestSessionRepo()
+	sess := session.NewSession(phone, tenantID)
+	sess.TableID = &tableID
+	sess.TransitionTo(session.StateMainMenu)
+	if err := sessionRepo.Save(ctx, sess); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	menuRepo := &testCreateOrderMenuRepo{
+		categoriesByID: map[uuid.UUID]*menu.Category{
+			categoryDrinkID: {
+				ID:           categoryDrinkID,
+				TenantID:     tenantID,
+				Name:         "Bebidas",
+				Description:  "Drinks e bebidas sem álcool",
+				DisplayOrder: 1,
+				Active:       true,
+			},
+		},
+		itemsByID: map[uuid.UUID]*menu.Item{
+			itemDrinkID: {
+				ID:           itemDrinkID,
+				TenantID:     tenantID,
+				CategoryID:   &categoryDrinkID,
+				Name:         "Coca Cola 500ml",
+				Description:  "Garrafa 500ml",
+				Price:        15,
+				Available:    true,
+				Destination:  "BAR",
+				DisplayOrder: 1,
+			},
+		},
+	}
+
+	tabRepo := &testCreateOrderTabRepo{
+		tabsByID: map[uuid.UUID]*tab.Tab{},
+	}
+	orderRepo := &testCreateOrderRepo{}
+	orderBatchRepo := &testCreateOrderBatchRepo{}
+	publisher := &testKDSEventPublisher{}
+	createOrderUC := NewCreateOrderUseCase(
+		orderRepo,
+		orderBatchRepo,
+		tabRepo,
+		menuRepo,
+		nil,
+		publisher,
+		zap.NewNop(),
+	)
+
+	sender := &testWhatsAppSender{}
+	uc := NewHandleWhatsAppMessageUseCase(
+		sessionRepo,
+		&testTenantRepo{tenant: testTenant(tenantID)},
+		nil,
+		menuRepo,
+		tabRepo,
+		&testTableRepo{tablesByID: map[uuid.UUID]*table.Table{
+			tableID: {ID: tableID, TenantID: tenantID, Number: "14"},
+		}},
+		nil,
+		nil,
+		createOrderUC,
+		sender,
+		"",
+		zap.NewNop(),
+	)
+
+	steps := []string{
+		"1",
+		orderingCategoryPrefix + categoryDrinkID.String(),
+		orderingItemPrefix + itemDrinkID.String(),
+		orderingQuantityPrefix + "2",
+		orderingRemoveItemID,
+		orderingRemoveItemKey + itemDrinkID.String(),
+		orderingSetQuantityID,
+		orderingCartQtyPrefix + "5",
+		orderingConfirmOrderID,
+	}
+	for _, step := range steps {
+		if err := uc.Execute(ctx, HandleMessageInput{
+			From:     phone,
+			Text:     step,
+			TenantID: tenantID,
+		}); err != nil {
+			t.Fatalf("Execute(%q) error = %v", step, err)
+		}
+	}
+
+	foundQuantityMenu := false
+	for _, listMessage := range sender.listMessages {
+		if strings.Contains(listMessage.Body, "Alterar quantidade") {
+			foundQuantityMenu = true
+			break
+		}
+	}
+	if !foundQuantityMenu {
+		t.Fatalf("expected a quantity selection interactive list, got %+v", sender.listMessages)
+	}
+
+	if got := len(orderRepo.created); got != 1 {
+		t.Fatalf("expected 1 created order, got %d", got)
+	}
+	createdOrder := orderRepo.created[0]
+	if got := len(createdOrder.Items); got != 1 {
+		t.Fatalf("expected 1 item in created order, got %d", got)
+	}
+	if got := createdOrder.Items[0].Quantity; got != 5 {
+		t.Fatalf("expected final quantity 5 after setting quantity, got %d", got)
+	}
+
+	updatedConfirmation := sender.interactiveMessages[len(sender.interactiveMessages)-1]
+	if !strings.Contains(updatedConfirmation.Body, "Atualizei *Coca Cola 500ml* para *5 unidades*") {
+		t.Fatalf("expected quantity update notice, got %q", updatedConfirmation.Body)
+	}
+	if !strings.Contains(updatedConfirmation.Body, "5x Coca Cola 500ml") {
+		t.Fatalf("expected updated cart with quantity 5, got %q", updatedConfirmation.Body)
+	}
+
+	lastList := sender.listMessages[len(sender.listMessages)-1]
+	if !strings.Contains(lastList.Body, "5x Coca Cola 500ml") {
+		t.Fatalf("expected final summary with 5 units, got %q", lastList.Body)
+	}
+}
+
 type testSessionRepo struct {
 	sessions map[string]*session.Session
 }

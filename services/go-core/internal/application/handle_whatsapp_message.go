@@ -306,6 +306,15 @@ func (uc *HandleWhatsAppMessageUseCase) processMessage(
 	case session.StateConfirmingOrder:
 		return uc.handleOrderConfirmation(ctx, sess, text)
 
+	case session.StateRemovingOrderItem:
+		return uc.handleOrderingCartItemRemoval(ctx, sess, text)
+
+	case session.StateAdjustingOrderItem:
+		return uc.handleOrderingCartItemAdjustment(ctx, sess, text)
+
+	case session.StateSelectingCartItemQty:
+		return uc.handleOrderingCartItemQuantitySelection(ctx, sess, text)
+
 	case session.StateViewingTab:
 		return uc.handleViewingTab(ctx, sess, text)
 
@@ -882,11 +891,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleQuantitySelection(
 	cartMessage := uc.buildOrderingCartMessage(ctx, sess, cart)
 	uc.clearOrderingSelectionContext(sess)
 
-	if err := uc.sendCartConfirmationMenu(ctx, sess.UserPhone, sess.TenantID, cartMessage); err == nil {
-		return "", session.StateConfirmingOrder, nil
-	}
-
-	return uc.buildCartConfirmationFallback(cartMessage), session.StateConfirmingOrder, nil
+	return uc.presentCartConfirmation(ctx, sess, cartMessage)
 }
 
 func (uc *HandleWhatsAppMessageUseCase) handleOrderConfirmation(
@@ -905,9 +910,19 @@ func (uc *HandleWhatsAppMessageUseCase) handleOrderConfirmation(
 			return uc.handleOrderingCategorySelection(ctx, sess, orderingCategoryPrefix+categoryID)
 		}
 		return uc.startOrderingFlow(ctx, sess)
+	case orderingRemoveItemID, "3":
+		cart := uc.getOrderingCart(sess)
+		if len(cart) == 0 {
+			return uc.startOrderingFlow(ctx, sess)
+		}
+		uc.clearOrderingCartAdjustmentContext(sess)
+		if err := uc.sendCartRemovalMenu(ctx, sess.UserPhone, sess.TenantID, sess, cart); err == nil {
+			return "", session.StateRemovingOrderItem, nil
+		}
+		return uc.buildOrderingCartRemovalFallback(ctx, sess, cart), session.StateRemovingOrderItem, nil
 	case orderingConfirmOrderID, "1":
 	default:
-		return "❌ Opção inválida. Use *Enviar pedido*, *Outro item* ou digite *0* para voltar ao menu principal.",
+		return "❌ Opção inválida. Use *Enviar pedido*, *Adicionar mais itens*, *Ajustar item* ou digite *0* para voltar ao menu principal.",
 			session.StateConfirmingOrder, nil
 	}
 
@@ -968,6 +983,254 @@ func (uc *HandleWhatsAppMessageUseCase) handleOrderConfirmation(
 		orderCode,
 		whatsapp.MainMenuMessage(),
 	), session.StateMainMenu, nil
+}
+
+func (uc *HandleWhatsAppMessageUseCase) handleOrderingCartItemRemoval(
+	ctx context.Context,
+	sess *session.Session,
+	text string,
+) (string, session.ConversationState, error) {
+	text = strings.TrimSpace(text)
+
+	if text == "0" {
+		cartMessage := uc.buildOrderingCartMessage(ctx, sess, uc.getOrderingCart(sess))
+		return uc.presentCartConfirmation(ctx, sess, cartMessage)
+	}
+
+	cart := uc.getOrderingCart(sess)
+	if len(cart) == 0 {
+		return uc.startOrderingFlow(ctx, sess)
+	}
+
+	menuItemID, ok := uc.resolveOrderingCartRemovalSelection(sess, text)
+	if !ok {
+		return "❌ Item inválido. Escolha um item da lista para excluir ou digite *0* para voltar ao carrinho.",
+			session.StateRemovingOrderItem, nil
+	}
+
+	sess.SetContext(orderingSelectedCartItemIDKey, menuItemID)
+	displayEntry, found := uc.resolveOrderingCartDisplayEntry(ctx, sess, menuItemID)
+	if !found {
+		uc.clearOrderingCartAdjustmentContext(sess)
+		return "❌ Não encontrei esse item no carrinho. Escolha outro item ou digite *0* para voltar ao carrinho.",
+			session.StateRemovingOrderItem, nil
+	}
+
+	if err := uc.sendCartRemovalActionMenu(ctx, sess.UserPhone, sess.TenantID, displayEntry); err == nil {
+		return "", session.StateAdjustingOrderItem, nil
+	}
+
+	return uc.buildCartRemovalActionFallback(displayEntry), session.StateAdjustingOrderItem, nil
+}
+
+func (uc *HandleWhatsAppMessageUseCase) handleOrderingCartItemAdjustment(
+	ctx context.Context,
+	sess *session.Session,
+	text string,
+) (string, session.ConversationState, error) {
+	text = strings.TrimSpace(text)
+
+	if text == "0" || text == orderingBackToCartID {
+		uc.clearOrderingCartAdjustmentContext(sess)
+		cartMessage := uc.buildOrderingCartMessage(ctx, sess, uc.getOrderingCart(sess))
+		return uc.presentCartConfirmation(ctx, sess, cartMessage)
+	}
+
+	cart := uc.getOrderingCart(sess)
+	if len(cart) == 0 {
+		uc.clearOrderingCartAdjustmentContext(sess)
+		return uc.startOrderingFlow(ctx, sess)
+	}
+
+	selectedItemID := uc.getContextString(sess, orderingSelectedCartItemIDKey)
+	if selectedItemID == "" {
+		if err := uc.sendCartRemovalMenu(ctx, sess.UserPhone, sess.TenantID, sess, cart); err == nil {
+			return "", session.StateRemovingOrderItem, nil
+		}
+		return uc.buildOrderingCartRemovalFallback(ctx, sess, cart), session.StateRemovingOrderItem, nil
+	}
+
+	selectedItem, found := uc.findOrderingCartItem(sess, selectedItemID)
+	if !found {
+		uc.clearOrderingCartAdjustmentContext(sess)
+		cartMessage := uc.buildOrderingCartMessageWithNotice(
+			ctx,
+			sess,
+			cart,
+			"⚠️ Esse item não está mais no carrinho.",
+		)
+		return uc.presentCartConfirmation(ctx, sess, cartMessage)
+	}
+
+	removeSingleUnit := false
+	removeEntireLine := false
+
+	switch {
+	case text == orderingIncreaseOneUnitID || text == "1":
+		updatedItem, cartAfterUpdate, ok := uc.updateOrderingCartItemQuantity(sess, selectedItemID, selectedItem.Quantity+1)
+		if !ok {
+			return "❌ Não consegui ajustar esse item agora. Tente novamente.",
+				session.StateAdjustingOrderItem, nil
+		}
+		updatedCart := cartAfterUpdate
+		itemName := strings.TrimSpace(updatedItem.MenuItemName)
+		if itemName == "" {
+			itemName = "item"
+		}
+		uc.clearOrderingCartAdjustmentContext(sess)
+		cartMessage := uc.buildOrderingCartMessageWithNotice(
+			ctx,
+			sess,
+			updatedCart,
+			fmt.Sprintf("➕ Adicionei *1 unidade* de *%s*.", itemName),
+		)
+		return uc.presentCartConfirmation(ctx, sess, cartMessage)
+	case text == orderingRemoveOneUnitID || (text == "2" && selectedItem.Quantity > 1):
+		removeSingleUnit = true
+	case text == orderingSetQuantityID || (text == "3" && selectedItem.Quantity > 1) || (text == "2" && selectedItem.Quantity <= 1):
+		displayEntry, _ := uc.resolveOrderingCartDisplayEntry(ctx, sess, selectedItemID)
+		if err := uc.sendCartQuantitySelectionMenu(ctx, sess.UserPhone, sess.TenantID, displayEntry); err == nil {
+			return "", session.StateSelectingCartItemQty, nil
+		}
+		return uc.buildCartQuantitySelectionFallback(displayEntry), session.StateSelectingCartItemQty, nil
+	case text == orderingRemoveAllUnitsID || (text == "4" && selectedItem.Quantity > 1) || (text == "3" && selectedItem.Quantity <= 1):
+		removeEntireLine = true
+	default:
+		return "❌ Opção inválida. Escolha uma ação da lista ou digite *0* para voltar ao carrinho.",
+			session.StateAdjustingOrderItem, nil
+	}
+
+	var updatedCart []orderingCartItem
+	var notice string
+	itemName := strings.TrimSpace(selectedItem.MenuItemName)
+	if itemName == "" {
+		itemName = "item"
+	}
+
+	if removeSingleUnit && selectedItem.Quantity > 1 {
+		updatedItem, cartAfterUpdate, ok := uc.updateOrderingCartItemQuantity(sess, selectedItemID, selectedItem.Quantity-1)
+		if !ok {
+			return "❌ Não consegui ajustar esse item agora. Tente novamente.",
+				session.StateAdjustingOrderItem, nil
+		}
+		updatedCart = cartAfterUpdate
+		itemName = strings.TrimSpace(updatedItem.MenuItemName)
+		if itemName == "" {
+			itemName = "item"
+		}
+		notice = fmt.Sprintf("➖ Removi *1 unidade* de *%s*.", itemName)
+	} else if removeEntireLine || selectedItem.Quantity <= 1 {
+		removedItem, cartAfterRemoval, ok := uc.removeItemFromOrderingCart(sess, selectedItemID)
+		if !ok {
+			return "❌ Não consegui ajustar esse item agora. Tente novamente.",
+				session.StateAdjustingOrderItem, nil
+		}
+		updatedCart = cartAfterRemoval
+		itemName = strings.TrimSpace(removedItem.MenuItemName)
+		if itemName == "" {
+			itemName = "item"
+		}
+		notice = fmt.Sprintf("🗑 Excluí *%s* do seu pedido.", itemName)
+	}
+
+	uc.clearOrderingCartAdjustmentContext(sess)
+
+	if len(updatedCart) == 0 {
+		emptyCartNotice := fmt.Sprintf("%s\n\n🛒 Seu carrinho ficou vazio. Vamos reabrir o cardápio para você.", notice)
+		if err := uc.sendTenantMessage(ctx, sess.UserPhone, sess.TenantID, emptyCartNotice); err != nil {
+			uc.logger.Error("failed to send empty cart notice", zap.Error(err))
+		}
+		return uc.startOrderingFlow(ctx, sess)
+	}
+
+	cartMessage := uc.buildOrderingCartMessageWithNotice(ctx, sess, updatedCart, notice)
+	return uc.presentCartConfirmation(ctx, sess, cartMessage)
+}
+
+func (uc *HandleWhatsAppMessageUseCase) handleOrderingCartItemQuantitySelection(
+	ctx context.Context,
+	sess *session.Session,
+	text string,
+) (string, session.ConversationState, error) {
+	text = strings.TrimSpace(text)
+
+	selectedItemID := uc.getContextString(sess, orderingSelectedCartItemIDKey)
+	if selectedItemID == "" {
+		cart := uc.getOrderingCart(sess)
+		if len(cart) == 0 {
+			return uc.startOrderingFlow(ctx, sess)
+		}
+		if err := uc.sendCartRemovalMenu(ctx, sess.UserPhone, sess.TenantID, sess, cart); err == nil {
+			return "", session.StateRemovingOrderItem, nil
+		}
+		return uc.buildOrderingCartRemovalFallback(ctx, sess, cart), session.StateRemovingOrderItem, nil
+	}
+
+	displayEntry, found := uc.resolveOrderingCartDisplayEntry(ctx, sess, selectedItemID)
+	if !found {
+		uc.clearOrderingCartAdjustmentContext(sess)
+		cartMessage := uc.buildOrderingCartMessageWithNotice(
+			ctx,
+			sess,
+			uc.getOrderingCart(sess),
+			"⚠️ Esse item não está mais no carrinho.",
+		)
+		return uc.presentCartConfirmation(ctx, sess, cartMessage)
+	}
+
+	if text == "0" || text == orderingBackToCartID {
+		if err := uc.sendCartRemovalActionMenu(ctx, sess.UserPhone, sess.TenantID, displayEntry); err == nil {
+			return "", session.StateAdjustingOrderItem, nil
+		}
+		return uc.buildCartRemovalActionFallback(displayEntry), session.StateAdjustingOrderItem, nil
+	}
+
+	quantity := 0
+	var err error
+	switch {
+	case strings.HasPrefix(text, orderingCartQtyPrefix):
+		quantity, err = strconv.Atoi(strings.TrimPrefix(text, orderingCartQtyPrefix))
+	default:
+		quantity, err = strconv.Atoi(text)
+	}
+
+	if err != nil || quantity < 1 || quantity > 20 {
+		return "❌ Quantidade inválida. Escolha uma opção da lista ou digite um número entre *1* e *20*.\n\n_Digite 0 para voltar ao ajuste do item_",
+			session.StateSelectingCartItemQty, nil
+	}
+
+	updatedItem, updatedCart, ok := uc.updateOrderingCartItemQuantity(sess, selectedItemID, quantity)
+	if !ok {
+		return "❌ Não consegui atualizar a quantidade agora. Tente novamente.",
+			session.StateSelectingCartItemQty, nil
+	}
+
+	itemName := strings.TrimSpace(updatedItem.MenuItemName)
+	if itemName == "" {
+		itemName = "item"
+	}
+
+	uc.clearOrderingCartAdjustmentContext(sess)
+	cartMessage := uc.buildOrderingCartMessageWithNotice(
+		ctx,
+		sess,
+		updatedCart,
+		fmt.Sprintf("🔢 Atualizei *%s* para *%d unidade%s*.", itemName, quantity, pluralSuffix(quantity)),
+	)
+	return uc.presentCartConfirmation(ctx, sess, cartMessage)
+}
+
+func (uc *HandleWhatsAppMessageUseCase) presentCartConfirmation(
+	ctx context.Context,
+	sess *session.Session,
+	cartMessage string,
+) (string, session.ConversationState, error) {
+	uc.clearOrderingCartAdjustmentContext(sess)
+	if err := uc.sendCartConfirmationMenu(ctx, sess.UserPhone, sess.TenantID, cartMessage); err == nil {
+		return "", session.StateConfirmingOrder, nil
+	}
+
+	return uc.buildCartConfirmationFallback(cartMessage), session.StateConfirmingOrder, nil
 }
 
 func orderingQuantityFromContext(value interface{}) (int, error) {

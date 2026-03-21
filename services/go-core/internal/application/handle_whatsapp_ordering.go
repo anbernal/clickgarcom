@@ -29,15 +29,24 @@ const (
 	orderingItemPreviewCacheKey   = "ordering_item_preview_cache"
 	orderingSelectedCategoryIDKey = "ordering_selected_category_id"
 	orderingSelectedItemIDKey     = "ordering_selected_item_id"
+	orderingSelectedCartItemIDKey = "ordering_selected_cart_item_id"
 	orderingSelectedQuantityKey   = "ordering_selected_quantity"
 	orderingCartKey               = "ordering_cart"
 
-	orderingCategoryPrefix = "menu:category:"
-	orderingItemPrefix     = "menu:item:"
-	orderingQuantityPrefix = "qty:"
-	orderingConfirmOrderID = "order:confirm"
-	orderingChangeItemID   = "order:change_item"
-	orderingBackToMenuID   = "order:menu"
+	orderingCategoryPrefix    = "menu:category:"
+	orderingItemPrefix        = "menu:item:"
+	orderingQuantityPrefix    = "qty:"
+	orderingConfirmOrderID    = "order:confirm"
+	orderingChangeItemID      = "order:change_item"
+	orderingRemoveItemID      = "order:remove_item"
+	orderingRemoveItemKey     = "order:remove_item:"
+	orderingIncreaseOneUnitID = "order:increase_one"
+	orderingRemoveOneUnitID   = "order:remove_one"
+	orderingSetQuantityID     = "order:set_quantity"
+	orderingCartQtyPrefix     = "order:set_qty:"
+	orderingRemoveAllUnitsID  = "order:remove_all"
+	orderingBackToCartID      = "order:back_cart"
+	orderingBackToMenuID      = "order:menu"
 )
 
 var orderingPreviewDelay = 1200 * time.Millisecond
@@ -484,7 +493,7 @@ func (uc *HandleWhatsAppMessageUseCase) buildQuantityFallback(item *menu.Item) s
 }
 
 func (uc *HandleWhatsAppMessageUseCase) buildCartConfirmationFallback(cartBody string) string {
-	return strings.TrimSpace(cartBody) + "\n\n*1* - ✅ Enviar pedido\n*2* - ➕ Adicionar mais itens\n*0* - ◂ Menu principal"
+	return strings.TrimSpace(cartBody) + "\n\n*1* - ✅ Enviar pedido\n*2* - ➕ Adicionar mais itens\n*3* - 🛠 Ajustar um item\n*0* - ◂ Menu principal"
 }
 
 func (uc *HandleWhatsAppMessageUseCase) resolveOrderingCategorySelection(sess *session.Session, text string) (uuid.UUID, bool) {
@@ -539,6 +548,7 @@ func (uc *HandleWhatsAppMessageUseCase) clearOrderingContext(sess *session.Sessi
 		orderingItemPreviewCacheKey,
 		orderingSelectedCategoryIDKey,
 		orderingSelectedItemIDKey,
+		orderingSelectedCartItemIDKey,
 		orderingSelectedQuantityKey,
 		orderingCartKey,
 	} {
@@ -558,6 +568,7 @@ func (uc *HandleWhatsAppMessageUseCase) clearOrderingSelectionContext(sess *sess
 		orderingItemPreviewCacheKey,
 		orderingSelectedCategoryIDKey,
 		orderingSelectedItemIDKey,
+		orderingSelectedCartItemIDKey,
 		orderingSelectedQuantityKey,
 	} {
 		delete(sess.Context, key)
@@ -833,6 +844,13 @@ func (uc *HandleWhatsAppMessageUseCase) setOrderingCart(sess *session.Session, c
 	if sess == nil {
 		return
 	}
+	if len(cart) == 0 {
+		if sess.Context != nil {
+			delete(sess.Context, orderingCartKey)
+			sess.UpdatedAt = time.Now()
+		}
+		return
+	}
 	sess.SetContext(orderingCartKey, cart)
 }
 
@@ -868,13 +886,20 @@ func (uc *HandleWhatsAppMessageUseCase) addItemToOrderingCart(sess *session.Sess
 	return cart
 }
 
-func (uc *HandleWhatsAppMessageUseCase) buildOrderingCartMessage(
+type orderingCartDisplayEntry struct {
+	MenuItemID string
+	Quantity   int
+	ItemName   string
+	LineTotal  float64
+}
+
+func (uc *HandleWhatsAppMessageUseCase) resolveOrderingCartDisplayEntries(
 	ctx context.Context,
 	sess *session.Session,
 	cart []orderingCartItem,
-) string {
+) ([]orderingCartDisplayEntry, float64) {
 	if len(cart) == 0 {
-		return "🛒 *Seu pedido ainda está vazio.*\n\nEscolha um item para começar."
+		return nil, 0
 	}
 
 	itemIDs := make([]uuid.UUID, 0, len(cart))
@@ -897,7 +922,7 @@ func (uc *HandleWhatsAppMessageUseCase) buildOrderingCartMessage(
 		}
 	}
 
-	lines := make([]string, 0, len(cart))
+	entries := make([]orderingCartDisplayEntry, 0, len(cart))
 	subtotal := 0.0
 	for _, entry := range cart {
 		quantity := entry.Quantity
@@ -921,18 +946,370 @@ func (uc *HandleWhatsAppMessageUseCase) buildOrderingCartMessage(
 
 		lineTotal := unitPrice * float64(quantity)
 		subtotal += lineTotal
-		lines = append(lines, fmt.Sprintf("• %dx %s — R$ %s", quantity, itemName, formatBRLCurrency(lineTotal)))
+		entries = append(entries, orderingCartDisplayEntry{
+			MenuItemID: entry.MenuItemID,
+			Quantity:   quantity,
+			ItemName:   itemName,
+			LineTotal:  lineTotal,
+		})
 	}
 
-	if len(lines) == 0 {
+	return entries, subtotal
+}
+
+func (uc *HandleWhatsAppMessageUseCase) buildOrderingCartMessage(
+	ctx context.Context,
+	sess *session.Session,
+	cart []orderingCartItem,
+) string {
+	return uc.buildOrderingCartMessageWithNotice(ctx, sess, cart, "")
+}
+
+func (uc *HandleWhatsAppMessageUseCase) buildOrderingCartMessageWithNotice(
+	ctx context.Context,
+	sess *session.Session,
+	cart []orderingCartItem,
+	notice string,
+) string {
+	if len(cart) == 0 {
 		return "🛒 *Seu pedido ainda está vazio.*\n\nEscolha um item para começar."
 	}
 
-	return fmt.Sprintf(
-		"🛒 *Seu pedido*\n\n%s\n\nSubtotal parcial: *R$ %s*\n\nDeseja adicionar mais itens ou enviar agora?",
+	entries, subtotal := uc.resolveOrderingCartDisplayEntries(ctx, sess, cart)
+	if len(entries) == 0 {
+		return "🛒 *Seu pedido ainda está vazio.*\n\nEscolha um item para começar."
+	}
+
+	lines := make([]string, 0, len(entries))
+	for index, entry := range entries {
+		lines = append(lines, fmt.Sprintf("*%d.* %dx %s — R$ %s", index+1, entry.Quantity, entry.ItemName, formatBRLCurrency(entry.LineTotal)))
+	}
+
+	sections := make([]string, 0, 5)
+	if trimmedNotice := strings.TrimSpace(notice); trimmedNotice != "" {
+		sections = append(sections, trimmedNotice)
+	}
+	sections = append(sections,
+		"🛒 *Seu pedido*",
 		strings.Join(lines, "\n"),
-		formatBRLCurrency(subtotal),
+		fmt.Sprintf("Subtotal parcial: *R$ %s*", formatBRLCurrency(subtotal)),
+		"Deseja adicionar mais itens, ajustar algum item ou enviar agora?\n\n_Digite 0 para voltar ao menu principal_",
 	)
+
+	return strings.Join(sections, "\n\n")
+}
+
+func (uc *HandleWhatsAppMessageUseCase) sendCartRemovalMenu(
+	ctx context.Context,
+	to string,
+	tenantID uuid.UUID,
+	sess *session.Session,
+	cart []orderingCartItem,
+) error {
+	entries, _ := uc.resolveOrderingCartDisplayEntries(ctx, sess, cart)
+	if len(entries) == 0 || len(entries) > 10 {
+		return fmt.Errorf("interactive cart removal unavailable for %d items", len(entries))
+	}
+
+	rows := make([]whatsapp.InteractiveListRow, 0, len(entries))
+	for index, entry := range entries {
+		rows = append(rows, whatsapp.InteractiveListRow{
+			ID:          orderingRemoveItemKey + entry.MenuItemID,
+			Title:       truncateInteractiveTitle(fmt.Sprintf("%d. %s", index+1, entry.ItemName)),
+			Description: truncateInteractiveDescription(fmt.Sprintf("%dx · R$ %s", entry.Quantity, formatBRLCurrency(entry.LineTotal))),
+		})
+	}
+
+	body := whatsapp.WithRestaurantHeader(
+		uc.resolveTenantName(ctx, tenantID),
+		"🛠 *Ajustar item do pedido*\n\nEscolha qual item você quer ajustar no carrinho.",
+	)
+
+	_, err := uc.sender.SendInteractiveList(
+		whatsapp.WithTenantID(ctx, tenantID),
+		to,
+		body,
+		"Escolher item",
+		[]whatsapp.InteractiveListSection{{Title: "Itens no carrinho", Rows: rows}},
+	)
+	return err
+}
+
+func (uc *HandleWhatsAppMessageUseCase) buildOrderingCartRemovalFallback(
+	ctx context.Context,
+	sess *session.Session,
+	cart []orderingCartItem,
+) string {
+	entries, _ := uc.resolveOrderingCartDisplayEntries(ctx, sess, cart)
+	if len(entries) == 0 {
+		return "🛒 *Seu pedido ainda está vazio.*\n\nEscolha um item para começar."
+	}
+
+	lines := make([]string, 0, len(entries))
+	for index, entry := range entries {
+		lines = append(lines, fmt.Sprintf("*%d* - %dx %s — R$ %s", index+1, entry.Quantity, entry.ItemName, formatBRLCurrency(entry.LineTotal)))
+	}
+
+	return fmt.Sprintf(
+		"🛠 *Ajustar item do pedido*\n\n%s\n\nResponda com o número do item que deseja ajustar.\n\n_Digite 0 para voltar ao carrinho_",
+		strings.Join(lines, "\n"),
+	)
+}
+
+func (uc *HandleWhatsAppMessageUseCase) sendCartRemovalActionMenu(
+	ctx context.Context,
+	to string,
+	tenantID uuid.UUID,
+	entry orderingCartDisplayEntry,
+) error {
+	rows := buildCartRemovalActionRows(entry.Quantity)
+	if len(rows) == 0 || len(rows) > 10 {
+		return fmt.Errorf("interactive cart adjustment unavailable for %d actions", len(rows))
+	}
+
+	body := whatsapp.WithRestaurantHeader(
+		uc.resolveTenantName(ctx, tenantID),
+		fmt.Sprintf(
+			"🛠 *Ajustar item do pedido*\n\n*%s*\nQuantidade atual: *%dx*\nTotal deste item: *R$ %s*\n\nEscolha como você quer ajustar este item.",
+			entry.ItemName,
+			entry.Quantity,
+			formatBRLCurrency(entry.LineTotal),
+		),
+	)
+
+	_, err := uc.sender.SendInteractiveList(
+		whatsapp.WithTenantID(ctx, tenantID),
+		to,
+		body,
+		"Ver ações",
+		[]whatsapp.InteractiveListSection{{Title: "Ações disponíveis", Rows: rows}},
+	)
+	return err
+}
+
+func (uc *HandleWhatsAppMessageUseCase) buildCartRemovalActionFallback(entry orderingCartDisplayEntry) string {
+	lines := []string{
+		"🛠 *Ajustar item do pedido*",
+		fmt.Sprintf("*%s*", entry.ItemName),
+		fmt.Sprintf("Quantidade atual: *%dx*", entry.Quantity),
+		fmt.Sprintf("Total deste item: *R$ %s*", formatBRLCurrency(entry.LineTotal)),
+	}
+
+	lines = append(lines, "*1* - ➕ Adicionar 1 unidade")
+	if entry.Quantity > 1 {
+		lines = append(lines, "*2* - ➖ Remover 1 unidade")
+		lines = append(lines, "*3* - 🔢 Alterar quantidade")
+		lines = append(lines, "*4* - 🗑 Excluir item")
+	} else {
+		lines = append(lines, "*2* - 🔢 Alterar quantidade")
+		lines = append(lines, "*3* - 🗑 Excluir item")
+	}
+
+	lines = append(lines, "*0* - ◂ Voltar ao carrinho")
+	return strings.Join(lines, "\n\n")
+}
+
+func (uc *HandleWhatsAppMessageUseCase) sendCartQuantitySelectionMenu(
+	ctx context.Context,
+	to string,
+	tenantID uuid.UUID,
+	entry orderingCartDisplayEntry,
+) error {
+	rows := buildCartQuantitySelectionRows()
+	if len(rows) == 0 || len(rows) > 10 {
+		return fmt.Errorf("interactive cart quantity selection unavailable for %d quantities", len(rows))
+	}
+
+	body := whatsapp.WithRestaurantHeader(
+		uc.resolveTenantName(ctx, tenantID),
+		fmt.Sprintf(
+			"🔢 *Alterar quantidade*\n\n*%s*\nQuantidade atual: *%dx*\n\nEscolha uma quantidade na lista ou digite um número entre *1* e *20*.",
+			entry.ItemName,
+			entry.Quantity,
+		),
+	)
+
+	_, err := uc.sender.SendInteractiveList(
+		whatsapp.WithTenantID(ctx, tenantID),
+		to,
+		body,
+		"Escolher quantidade",
+		[]whatsapp.InteractiveListSection{{Title: "Quantidades", Rows: rows}},
+	)
+	return err
+}
+
+func (uc *HandleWhatsAppMessageUseCase) buildCartQuantitySelectionFallback(entry orderingCartDisplayEntry) string {
+	lines := []string{
+		"🔢 *Alterar quantidade*",
+		fmt.Sprintf("*%s*", entry.ItemName),
+		fmt.Sprintf("Quantidade atual: *%dx*", entry.Quantity),
+		"",
+		"*1* - 1 unidade",
+		"*2* - 2 unidades",
+		"*3* - 3 unidades",
+		"*4* - 4 unidades",
+		"*5* - 5 unidades",
+		"*6* - 6 unidades",
+		"*7* - 7 unidades",
+		"*8* - 8 unidades",
+		"*9* - 9 unidades",
+		"*10* - 10 unidades",
+		"",
+		"Digite um número entre *1* e *20* para definir a nova quantidade.",
+		"_Digite 0 para voltar ao ajuste do item_",
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+func (uc *HandleWhatsAppMessageUseCase) resolveOrderingCartRemovalSelection(
+	sess *session.Session,
+	text string,
+) (string, bool) {
+	text = strings.TrimSpace(text)
+
+	if strings.HasPrefix(text, orderingRemoveItemKey) {
+		selectedID := strings.TrimSpace(strings.TrimPrefix(text, orderingRemoveItemKey))
+		if selectedID == "" {
+			return "", false
+		}
+		for _, entry := range uc.getOrderingCart(sess) {
+			if strings.TrimSpace(entry.MenuItemID) == selectedID && entry.Quantity > 0 {
+				return selectedID, true
+			}
+		}
+		return "", false
+	}
+
+	index, err := strconv.Atoi(text)
+	if err != nil || index < 1 {
+		return "", false
+	}
+
+	cart := uc.getOrderingCart(sess)
+	if index > len(cart) {
+		return "", false
+	}
+
+	selected := cart[index-1]
+	if selected.Quantity <= 0 || strings.TrimSpace(selected.MenuItemID) == "" {
+		return "", false
+	}
+
+	return strings.TrimSpace(selected.MenuItemID), true
+}
+
+func (uc *HandleWhatsAppMessageUseCase) findOrderingCartItem(
+	sess *session.Session,
+	menuItemID string,
+) (orderingCartItem, bool) {
+	selectedID := strings.TrimSpace(menuItemID)
+	if selectedID == "" {
+		return orderingCartItem{}, false
+	}
+
+	for _, entry := range uc.getOrderingCart(sess) {
+		if strings.TrimSpace(entry.MenuItemID) == selectedID && entry.Quantity > 0 {
+			return entry, true
+		}
+	}
+
+	return orderingCartItem{}, false
+}
+
+func (uc *HandleWhatsAppMessageUseCase) removeItemFromOrderingCart(
+	sess *session.Session,
+	menuItemID string,
+) (orderingCartItem, []orderingCartItem, bool) {
+	cart := uc.getOrderingCart(sess)
+	selectedID := strings.TrimSpace(menuItemID)
+	if selectedID == "" {
+		return orderingCartItem{}, cart, false
+	}
+
+	updatedCart := make([]orderingCartItem, 0, len(cart))
+	var removed orderingCartItem
+	found := false
+
+	for _, entry := range cart {
+		if !found && strings.TrimSpace(entry.MenuItemID) == selectedID {
+			removed = entry
+			found = true
+			continue
+		}
+		updatedCart = append(updatedCart, entry)
+	}
+
+	if !found {
+		return orderingCartItem{}, cart, false
+	}
+
+	uc.setOrderingCart(sess, updatedCart)
+	return removed, updatedCart, true
+}
+
+func (uc *HandleWhatsAppMessageUseCase) updateOrderingCartItemQuantity(
+	sess *session.Session,
+	menuItemID string,
+	newQuantity int,
+) (orderingCartItem, []orderingCartItem, bool) {
+	if newQuantity <= 0 {
+		return orderingCartItem{}, uc.getOrderingCart(sess), false
+	}
+
+	cart := uc.getOrderingCart(sess)
+	selectedID := strings.TrimSpace(menuItemID)
+	if selectedID == "" {
+		return orderingCartItem{}, cart, false
+	}
+
+	updatedCart := make([]orderingCartItem, 0, len(cart))
+	var updated orderingCartItem
+	found := false
+
+	for _, entry := range cart {
+		if !found && strings.TrimSpace(entry.MenuItemID) == selectedID {
+			entry.Quantity = newQuantity
+			updated = entry
+			found = true
+		}
+		updatedCart = append(updatedCart, entry)
+	}
+
+	if !found {
+		return orderingCartItem{}, cart, false
+	}
+
+	uc.setOrderingCart(sess, updatedCart)
+	return updated, updatedCart, true
+}
+
+func (uc *HandleWhatsAppMessageUseCase) resolveOrderingCartDisplayEntry(
+	ctx context.Context,
+	sess *session.Session,
+	menuItemID string,
+) (orderingCartDisplayEntry, bool) {
+	entries, _ := uc.resolveOrderingCartDisplayEntries(ctx, sess, uc.getOrderingCart(sess))
+	selectedID := strings.TrimSpace(menuItemID)
+	if selectedID == "" {
+		return orderingCartDisplayEntry{}, false
+	}
+
+	for _, entry := range entries {
+		if strings.TrimSpace(entry.MenuItemID) == selectedID {
+			return entry, true
+		}
+	}
+
+	return orderingCartDisplayEntry{}, false
+}
+
+func (uc *HandleWhatsAppMessageUseCase) clearOrderingCartAdjustmentContext(sess *session.Session) {
+	if sess == nil || sess.Context == nil {
+		return
+	}
+	delete(sess.Context, orderingSelectedCartItemIDKey)
 }
 
 func (uc *HandleWhatsAppMessageUseCase) buildOrderingCartOrderInput(
@@ -1221,9 +1598,61 @@ func buildOrderConfirmationButtons() []whatsapp.InteractiveButton {
 			Reply: struct {
 				ID    string `json:"id"`
 				Title string `json:"title"`
-			}{ID: orderingBackToMenuID, Title: "◂ Menu principal"},
+			}{ID: orderingRemoveItemID, Title: "🛠 Ajustar item"},
 		},
 	}
+}
+
+func buildCartRemovalActionRows(quantity int) []whatsapp.InteractiveListRow {
+	rows := []whatsapp.InteractiveListRow{
+		{
+			ID:          orderingIncreaseOneUnitID,
+			Title:       "Adicionar 1 unidade",
+			Description: "Aumenta a quantidade deste item em 1",
+		},
+	}
+
+	if quantity > 1 {
+		rows = append(rows, whatsapp.InteractiveListRow{
+			ID:          orderingRemoveOneUnitID,
+			Title:       "Remover 1 unidade",
+			Description: "Reduz a quantidade deste item em 1",
+		})
+	}
+
+	rows = append(rows,
+		whatsapp.InteractiveListRow{
+			ID:          orderingSetQuantityID,
+			Title:       "Alterar quantidade",
+			Description: "Define outro valor para este item",
+		},
+		whatsapp.InteractiveListRow{
+			ID:          orderingRemoveAllUnitsID,
+			Title:       "Excluir item",
+			Description: "Remove este item inteiro do carrinho",
+		},
+	)
+
+	return rows
+}
+
+func buildCartQuantitySelectionRows() []whatsapp.InteractiveListRow {
+	rows := make([]whatsapp.InteractiveListRow, 0, 10)
+	for quantity := 1; quantity <= 10; quantity++ {
+		rows = append(rows, whatsapp.InteractiveListRow{
+			ID:          orderingCartQtyPrefix + strconv.Itoa(quantity),
+			Title:       fmt.Sprintf("%d unidade%s", quantity, pluralSuffix(quantity)),
+			Description: fmt.Sprintf("Definir quantidade para %d", quantity),
+		})
+	}
+	return rows
+}
+
+func pluralSuffix(quantity int) string {
+	if quantity == 1 {
+		return ""
+	}
+	return "s"
 }
 
 func truncateInteractiveTitle(value string) string {

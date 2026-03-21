@@ -1,69 +1,127 @@
-Projeto: ClickGarcom
+# ClickGarcom Agent Context
 
-Objetivo:
-- Sistema multi-tenant para restaurantes com atendimento via WhatsApp, KDS em tempo real e painel admin web.
-- O repositorio e um monorepo com servicos acoplados por banco, filas e contratos de dominio.
+## Overview
+- Restaurant ordering monorepo using WhatsApp with a real-time KDS.
+- Main architecture: WhatsApp -> Go webhook -> inbox -> RabbitMQ -> Go worker -> Postgres/Redis -> outbox -> Meta API.
+- The system is multi-tenant. Nearly every relevant read and write must filter by `tenant_id`.
 
-Arquitetura do projeto:
-- `services/go-core`: dono de webhook, worker, sessao, fluxo conversacional, carrinho, pedidos, pagamentos, outbox e eventos para KDS.
-- `services/node-admin`: dono do conteudo do cardapio, painel administrativo, APIs do painel e operacao interna do restaurante.
-- `services/super-admin`: painel estatico/global.
-- Infra local: PostgreSQL, Redis, RabbitMQ, Prometheus e Grafana.
+## Service Ownership
+- `services/go-core`: owns the WhatsApp conversation flow, state machine, order creation, outbox, websocket, and operational integrations.
+- `services/node-admin`: owns the admin CRUD, menu content, categories, tables, reports, and the operational panel.
+- `services/super-admin`: static/global admin panel.
 
-Ownership obrigatorio:
-- Nao mover a responsabilidade do cardapio para o Go sem pedido explicito.
-- Nao mover a responsabilidade da conversa WhatsApp, carrinho ou criacao de pedidos para o Node sem pedido explicito.
-- Antes de criar nova logica, verificar se ela pertence ao dominio do `go-core` ou ao dominio do `node-admin`.
+## Domain Invariants
+- Everything is multi-tenant. Preserve `tenant_id` in queries, events, sessions, internal endpoints, and payloads.
+- A customer order can represent 1 logical cart and be split into N operational orders by `destination`.
+- Relevant current `destination` values: `KITCHEN` and `BAR`.
+- When changing orders, consider `order_batches`, not only `orders`.
+- When changing tables/tabs, consider that the system already supports more than one open tab per table in split scenarios.
+- Preserve fallback behavior and backward compatibility where the code still assumes a "first open tab".
 
-Invariantes de dominio:
-- Tudo e multi-tenant. Preserve `tenant_id` em queries, eventos, sessoes, endpoints internos e payloads.
-- Um pedido do cliente pode representar 1 carrinho logico e ser desdobrado em N pedidos operacionais por `destination`.
-- `destination` atual relevante: `KITCHEN` e `BAR`.
-- Ao mexer em pedidos, considere `order_batches` e nao apenas `orders`.
-- Ao mexer em mesas/comandas, considere que o sistema ja suporta mais de uma tab aberta por mesa em cenarios de split.
-- Preserve fallback/retrocompatibilidade onde o codigo ainda assume uma "primeira tab aberta".
+## Menu And Visual Menu Rules
+- Menu content originates in `node-admin`.
+- Conversation flow, item selection, and order submission happen in `go-core`.
+- Do not move conversational logic into `node-admin`.
+- Do not turn `go-core` into the owner of menu editing.
+- Operational routing depends on `menu_items.destination` and currently uses mainly `KITCHEN` and `BAR`.
 
-Regras para WhatsApp:
-- Prefira mensagens interativas nativas do WhatsApp.
-- Sempre mantenha fallback textual quando o canal interativo falhar.
-- Todo novo fluxo conversacional deve definir:
-  - estado da sessao
-  - chaves de contexto
-  - regra de reset/saida
-  - tratamento de entrada invalida
-  - comportamento de erro e fallback
-- Nao introduza parser livre complexo para pedidos em texto se o fluxo atual puder ser resolvido com botoes/listas.
+## WhatsApp Rules
+- Prefer native WhatsApp interactive messages.
+- Always keep a text fallback when the interactive channel fails.
+- Every new conversational flow must define:
+  - session state
+  - context keys
+  - reset or exit rules
+  - invalid input handling
+  - error and fallback behavior
+- Do not introduce complex free-text order parsing if the current flow can be solved with buttons or lists.
 
-Regras para mudancas cross-service:
-- Mudancas de status, enums, schema, contratos AMQP ou payloads exigem revisao coordenada entre Go, Node, SQL/migrations e frontend admin.
-- Se mudar modelo de pedido, comanda, mesa, sessao ou pagamento, procure referencias duplicadas nos dois servicos antes de editar.
-- Nao confie apenas na documentacao: valide sempre no codigo atual antes de assumir que um fluxo existe ou ainda funciona daquele jeito.
+## Current Visual Menu Schema
+- `menu_categories.image_url`
+- `menu_items.image_url`
+- `menu_items.whatsapp_short_name`
+- `menu_items.whatsapp_short_description`
+- Related migration: `services/go-core/cmd/migrate/000011_add_whatsapp_visual_menu_fields.up.sql`
 
-Regras de implementacao por servico:
-- Em `go-core`, respeite a separacao `domain` -> `application` -> `infrastructure` -> `interfaces`.
-- Em `node-admin`, preserve o estilo atual: NestJS no backend e HTML/CSS/JS puro no frontend. Nao introduza React, Vite ou outro framework sem pedido explicito.
-- Em telas/admin, preserve o cliente `public/js/api.js` e o padrao atual de autenticacao via JWT.
+## Seed In Focus
+- Current file: `services/node-admin/seed-visual-menu-demo.js`
+- Uses direct `pg`, not TypeORM.
+- Reads `services/node-admin/.env` and `services/go-core/.env`.
+- `services/node-admin/.env` overrides matching values coming from `go-core`.
+- Requires an existing tenant.
+- Resolves `tenantId` from:
+  1. `process.env.TENANT_ID`
+  2. `DEFAULT_TENANT_ID` from the `.env` files
+  3. fallback `550e8400-e29b-41d4-a716-446655440000`
+- The seed is idempotent by name within the tenant:
+  - category: `lower(name)` in `menu_categories`
+  - item: `lower(name)` in `menu_items`
+- The seed performs `upsert`; it does not clear tables.
+- On update, it reactivates categories (`active = true`) and items (`available = true`).
+- Everything runs inside a transaction with `BEGIN`/`COMMIT` and `ROLLBACK` on error.
 
-Dados, filas e integracao:
-- Se mexer em webhook, fila, consumer ou outbox, valide impacto em idempotencia e retries.
-- Preserve comportamento de inbox/outbox e fluxos assincronos via RabbitMQ.
-- Mudancas em eventos devem considerar KDS, notificacoes e consumo interno.
+## Files Worth Checking First
+- `README.md`
+- `services/docs/project_architecture.md`
+- `services/docs/07_whatsapp_interactive_menu_architecture.md`
+- `services/go-core/internal/application/handle_whatsapp_ordering.go`
+- `services/go-core/internal/application/create_order.go`
+- `services/go-core/internal/interfaces/http/handlers/menu_handler.go`
+- `services/node-admin/src/entities/menu-category.entity.ts`
+- `services/node-admin/src/entities/menu-item.entity.ts`
+- `services/node-admin/src/modules/categories`
+- `services/node-admin/src/modules/menu`
 
-Checklist antes de concluir mudancas:
-- Validar escopo de tenant.
-- Validar compatibilidade entre `go-core` e `node-admin`.
-- Validar fallbacks em fluxos WhatsApp quando aplicavel.
-- Validar migrations se houve alteracao de schema.
-- Rodar o que fizer sentido:
-  - `cd services/go-core && go test ./...`
-  - `cd services/node-admin && npm run build`
+## Change Rules
+- Any menu schema change must align:
+  - migration in `services/go-core/cmd/migrate`
+  - TypeORM entities in `services/node-admin/src/entities`
+  - structs/repositories/handlers in `go-core` that read menu data
+- Preserve tenant isolation in queries, updates, and deletes.
+- Preserve the separation between the customer order and operational tickets by destination.
+- Seeds and admin scripts should be idempotent whenever possible.
 
-Checklist extra para mudancas sensiveis:
-- Se mexer em pedidos/status/KDS: validar eventos e transicoes.
-- Se mexer em webhook/fila/outbox: validar logs e processamento assincrono.
-- Se mexer em mesa/comanda: validar cenarios com tab unica e multiplas tabs abertas.
+## Cross-Service Rules
+- Changes to status values, enums, schema, AMQP contracts, or payloads require coordinated review across Go, Node, SQL, and the admin frontend.
+- If you change the order, tab, table, session, or payment model, search for references in both services before editing.
+- Do not rely only on documentation. Validate behavior in the current code before assuming a flow still works that way.
 
-Preferencias de trabalho:
-- Fazer mudancas pequenas e coerentes com o estilo existente.
-- Priorizar consistencia de dominio e integracao sobre refactors cosmeticos.
-- Explicar no resultado final impactos em contrato, compatibilidade e validacao executada.
+## Service Implementation Rules
+- In `go-core`, respect the separation `domain` -> `application` -> `infrastructure` -> `interfaces`.
+- In `node-admin`, preserve the current style: NestJS on the backend and plain HTML/CSS/JS on the frontend.
+- Do not introduce React, Vite, or another framework without an explicit request.
+- In admin screens, preserve `public/js/api.js` and the current JWT authentication pattern.
+
+## Data And Integration Rules
+- If you change webhook, queue, consumer, or outbox logic, validate the impact on idempotency and retries.
+- Preserve inbox/outbox behavior and asynchronous flows through RabbitMQ.
+- Event changes must consider KDS, notifications, and internal consumers.
+
+## Local Commands
+- Start stack: `make rebuild`
+- API Go: `make run-api`
+- Worker Go: `make run-worker`
+- Outbox: `make run-outbox`
+- Admin Nest: `make run-admin`
+- Migrations: `make migrate-up`
+- Go tests: `make test`
+- Build admin: `cd services/node-admin && npm run build`
+- Seed visual menu demo: `cd services/node-admin && npm run seed:visual-menu-demo`
+
+## Validation Checklist
+- Confirm that every relevant query uses `tenant_id`.
+- Confirm that items still route to the correct destination (`BAR` or `KITCHEN`).
+- If you change the visual menu, validate the output of:
+  - `GET /menu?tenant_id=...`
+  - `GET /menu/categories?tenant_id=...`
+  - `GET /menu/items?tenant_id=...`
+- If you change `node-admin`, validate the Nest build.
+- If you change `go-core`, run at least the tests for the affected area.
+- If you change orders, statuses, or KDS, validate events and transitions.
+- If you change webhook, queue, or outbox logic, validate logs and asynchronous processing.
+- If you change tables or tabs, validate scenarios with a single tab and with multiple open tabs.
+
+## Working Assumptions
+- Prefer small changes that stay consistent with the documented architecture.
+- When working on the visual menu, always consider both the web admin side and conversational consumption on WhatsApp.
+- When ownership is unclear, follow this rule: `node-admin` edits content, `go-core` executes the operational flow.
