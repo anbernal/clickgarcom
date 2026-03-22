@@ -63,14 +63,14 @@ Criterios de pronto:
 
 ## Epic 03 - Mesas e Comandas Assistidas
 
-Status: Em execucao - lote 1 entregue
+Status: Em execucao - lotes 1 e 2 entregues
 
 Objetivo:
 Evoluir o fluxo de mesa/comanda para fechamento assistido e auditavel.
 
 Tasks:
-- [ ] Implementar split por pessoa.
-- [ ] Implementar split por item.
+- [x] Implementar split por pessoa.
+- [x] Implementar split por item.
 - [x] Exibir total original, total rateado e diferenca pendente.
 - [x] Permitir reabertura controlada de comanda fechada.
 - [x] Criar historico de eventos da comanda.

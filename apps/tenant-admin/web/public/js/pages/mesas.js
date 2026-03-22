@@ -1,5 +1,15 @@
 // Mesas Page
 let mesasTableCache = [];
+let mesasComandaModalState = {
+  tableId: null,
+  tableNumber: '',
+  details: [],
+  splitStateByTabId: {},
+};
+
+function roundMoney(value) {
+  return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
+}
 
 function formatTableNumber(value) {
   const raw = String(value || '--').trim();
@@ -377,6 +387,226 @@ function renderComandaHistory(detail) {
   `).join('');
 }
 
+function ensureComandaSplitState(detail) {
+  const tabId = String(detail?.id || '');
+  if (!tabId) {
+    return { peopleCount: 2, itemQuantities: {} };
+  }
+
+  if (!mesasComandaModalState.splitStateByTabId[tabId]) {
+    mesasComandaModalState.splitStateByTabId[tabId] = {
+      peopleCount: 2,
+      itemQuantities: {},
+    };
+  }
+
+  const current = mesasComandaModalState.splitStateByTabId[tabId];
+  const nextQuantities = { ...current.itemQuantities };
+  (detail?.items || []).forEach((item) => {
+    const key = String(item.id);
+    const max = Math.max(0, Number(item.remainingQuantity || item.quantity || 0));
+    const value = Math.max(0, Math.min(max, Number(nextQuantities[key] || 0)));
+    nextQuantities[key] = value;
+  });
+  current.itemQuantities = nextQuantities;
+  current.peopleCount = Math.max(2, Number(current.peopleCount || 2));
+  return current;
+}
+
+function buildEqualSplitPreview(detail, peopleCountRaw) {
+  const peopleCount = Math.max(2, parseInt(peopleCountRaw, 10) || 2);
+  const totalCents = Math.round(Number(detail?.financial?.total || 0) * 100);
+  const baseCents = Math.floor(totalCents / peopleCount);
+  const remainderCents = totalCents % peopleCount;
+  const largerShare = (baseCents + (remainderCents > 0 ? 1 : 0)) / 100;
+  const baseShare = baseCents / 100;
+
+  return {
+    peopleCount,
+    largerShare,
+    baseShare,
+    remainderCents,
+    summary: remainderCents > 0
+      ? `${remainderCents} pessoa(s) pagam ${formatCurrency(largerShare)} e ${peopleCount - remainderCents} pagam ${formatCurrency(baseShare)}`
+      : `${peopleCount} pessoa(s) pagam ${formatCurrency(baseShare)} cada`,
+  };
+}
+
+function buildItemSplitPreview(detail, itemQuantities) {
+  const items = Array.isArray(detail?.items) ? detail.items : [];
+  const selected = items
+    .map((item) => {
+      const selectedQuantity = Math.max(0, Math.min(Number(item.remainingQuantity || item.quantity || 0), Number(itemQuantities?.[item.id] || 0)));
+      return {
+        ...item,
+        selectedQuantity,
+      };
+    })
+    .filter((item) => item.selectedQuantity > 0);
+
+  const selectedSubtotal = roundMoney(
+    selected.reduce((sum, item) => sum + Number(item.unitPrice || 0) * Number(item.selectedQuantity || 0), 0),
+  );
+  const financial = detail?.financial || {};
+  const subtotalBase = Number(financial.subtotal || 0);
+  const serviceFeeShare = subtotalBase > 0
+    ? roundMoney(Number(financial.serviceFee || 0) * (selectedSubtotal / subtotalBase))
+    : 0;
+  const selectedTotal = roundMoney(selectedSubtotal + serviceFeeShare);
+  const remainingTotal = roundMoney(Math.max(0, Number(financial.total || 0) - selectedTotal));
+
+  return {
+    selectedItems: selected,
+    selectedLines: selected.length,
+    selectedQuantity: selected.reduce((sum, item) => sum + Number(item.selectedQuantity || 0), 0),
+    selectedSubtotal,
+    serviceFeeShare,
+    selectedTotal,
+    remainingTotal,
+  };
+}
+
+function renderSplitEqualSection(detail, splitState) {
+  const preview = buildEqualSplitPreview(detail, splitState.peopleCount);
+  return `
+    <div style="border:1px solid var(--border); border-radius:12px; padding:14px; background:var(--bg); display:flex; flex-direction:column; gap:10px;">
+      <div style="display:flex; justify-content:space-between; gap:12px; align-items:center;">
+        <div>
+          <div style="font-size:13px; font-weight:700; color:var(--text);">Split por pessoa</div>
+          <div style="font-size:12px; color:var(--text-light);">Divide o total da comanda igualmente.</div>
+        </div>
+        <input
+          type="number"
+          min="2"
+          max="20"
+          value="${escapeHTML(String(preview.peopleCount))}"
+          onchange="setComandaSplitPeopleCount('${escapeHTML(String(detail.id))}', this.value)"
+          style="width:90px; height:38px; border-radius:10px; border:1px solid var(--border); background:var(--card-bg); text-align:center; font-weight:700;"
+        />
+      </div>
+      <div style="padding:12px; border-radius:10px; background:var(--card-bg); border:1px solid var(--border);">
+        <div style="font-size:24px; font-weight:800; color:var(--teal);">${escapeHTML(formatCurrency(preview.largerShare))}</div>
+        <div style="font-size:12px; color:var(--text-light); margin-top:6px;">${escapeHTML(preview.summary)}</div>
+      </div>
+    </div>
+  `;
+}
+
+function renderSplitItemsSection(detail, splitState) {
+  const items = Array.isArray(detail?.items) ? detail.items : [];
+  const preview = buildItemSplitPreview(detail, splitState.itemQuantities);
+
+  if (!items.length) {
+    return `
+      <div style="border:1px solid var(--border); border-radius:12px; padding:14px; background:var(--bg);">
+        <div style="font-size:13px; font-weight:700; color:var(--text); margin-bottom:6px;">Split por item</div>
+        <div style="font-size:12px; color:var(--text-light);">Sem itens carregados nesta comanda.</div>
+      </div>
+    `;
+  }
+
+  return `
+    <div style="border:1px solid var(--border); border-radius:12px; padding:14px; background:var(--bg); display:flex; flex-direction:column; gap:10px;">
+      <div>
+        <div style="font-size:13px; font-weight:700; color:var(--text);">Split por item</div>
+        <div style="font-size:12px; color:var(--text-light);">Selecione quantidades para calcular um rateio parcial.</div>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:8px; max-height:220px; overflow-y:auto; padding-right:4px;">
+        ${items.map((item) => `
+          <div style="display:grid; grid-template-columns:minmax(0, 1fr) 88px 90px; gap:10px; align-items:center; padding:10px; border-radius:10px; background:var(--card-bg); border:1px solid var(--border);">
+            <div style="min-width:0;">
+              <div style="font-size:13px; font-weight:700; color:var(--text);">${escapeHTML(item.name || 'Item')}</div>
+              <div style="font-size:12px; color:var(--text-light); margin-top:4px;">
+                ${escapeHTML(`${item.quantity}x · ${formatCurrency(item.unitPrice || 0)} · restante ${item.remainingQuantity}`)}
+                ${Number(item.allocatedQuantity || 0) > 0 ? ` · ${escapeHTML(String(item.allocatedQuantity))} já alocado(s)` : ''}
+              </div>
+            </div>
+            <div class="mono" style="font-size:13px; text-align:right;">${escapeHTML(formatCurrency(Number(item.unitPrice || 0) * Number(item.quantity || 0)))}</div>
+            <input
+              type="number"
+              min="0"
+              max="${escapeHTML(String(item.remainingQuantity || 0))}"
+              value="${escapeHTML(String(splitState.itemQuantities?.[item.id] || 0))}"
+              onchange="setComandaSplitItemQuantity('${escapeHTML(String(detail.id))}', '${escapeHTML(String(item.id))}', this.value)"
+              style="height:36px; border-radius:10px; border:1px solid var(--border); background:var(--bg); text-align:center; font-weight:700;"
+            />
+          </div>
+        `).join('')}
+      </div>
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:8px;">
+        ${renderComandaMetric('Itens selecionados', String(preview.selectedQuantity), `${preview.selectedLines} linha(s) no rateio`, '#2563eb')}
+        ${renderComandaMetric('Subtotal selecionado', formatCurrency(preview.selectedSubtotal), 'Sem taxa proporcional', '#0f766e')}
+        ${renderComandaMetric('Taxa proporcional', formatCurrency(preview.serviceFeeShare), 'Distribuída sobre o subtotal', '#b45309')}
+        ${renderComandaMetric('Total selecionado', formatCurrency(preview.selectedTotal), 'Valor para este grupo', '#7c3aed')}
+        ${renderComandaMetric('Diferença pendente', formatCurrency(preview.remainingTotal), 'Resto da comanda após o split', '#b91c1c')}
+      </div>
+    </div>
+  `;
+}
+
+function renderSplitAssistSection(detail) {
+  const splitState = ensureComandaSplitState(detail);
+  return `
+    <div style="display:flex; flex-direction:column; gap:12px;">
+      <div style="font-size:13px; font-weight:700; color:var(--text);">Fechamento assistido</div>
+      <div style="display:grid; grid-template-columns:0.9fr 1.1fr; gap:12px;">
+        ${renderSplitEqualSection(detail, splitState)}
+        ${renderSplitItemsSection(detail, splitState)}
+      </div>
+    </div>
+  `;
+}
+
+function setComandaSplitPeopleCount(tabId, value) {
+  const current = mesasComandaModalState.splitStateByTabId[String(tabId)] || { peopleCount: 2, itemQuantities: {} };
+  current.peopleCount = Math.max(2, parseInt(value, 10) || 2);
+  mesasComandaModalState.splitStateByTabId[String(tabId)] = current;
+  rerenderComandasModal();
+}
+
+function setComandaSplitItemQuantity(tabId, itemId, value) {
+  const detail = (mesasComandaModalState.details || []).find((item) => String(item.id) === String(tabId));
+  const item = (detail?.items || []).find((row) => String(row.id) === String(itemId));
+  const max = Math.max(0, Number(item?.remainingQuantity || 0));
+  const current = mesasComandaModalState.splitStateByTabId[String(tabId)] || { peopleCount: 2, itemQuantities: {} };
+  current.itemQuantities = {
+    ...(current.itemQuantities || {}),
+    [String(itemId)]: Math.max(0, Math.min(max, parseInt(value, 10) || 0)),
+  };
+  mesasComandaModalState.splitStateByTabId[String(tabId)] = current;
+  rerenderComandasModal();
+}
+
+function renderComandasModal(tableId, tableNumber, details) {
+  const tabsHtml = details.map((detail, idx) => renderComandaCard(detail, idx, tableId, tableNumber)).join('');
+  const openCount = details.filter((detail) => detail.status !== 'CLOSED').length;
+  const closedCount = details.filter((detail) => detail.status === 'CLOSED').length;
+  return `
+    <div class="modal-header">
+      <h3>Mesa ${escapeHTML(formatTableNumber(tableNumber))} - Detalhamento das Comandas</h3>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body" style="max-height:60vh; overflow-y:auto; padding-right:8px">
+      <div style="margin-bottom:16px; padding:14px 16px; border-radius:12px; background:rgba(59,130,246,0.06); border:1px solid rgba(59,130,246,0.12); font-size:13px; color:var(--text-light);">
+        ${details.length > 1 ? 'Esta mesa possui comandas individuais/divididas.' : 'Esta mesa possui uma comanda principal.'}
+        <strong style="color:var(--text); margin-left:6px;">${openCount} aberta(s)</strong>
+        <span style="margin:0 6px;">·</span>
+        <strong style="color:var(--text);">${closedCount} fechada(s)</strong>
+      </div>
+      ${tabsHtml}
+    </div>
+  `;
+}
+
+function rerenderComandasModal() {
+  if (!mesasComandaModalState.tableId) return;
+  openModal(renderComandasModal(
+    mesasComandaModalState.tableId,
+    mesasComandaModalState.tableNumber,
+    mesasComandaModalState.details,
+  ));
+}
+
 function renderComandaCard(detail, idx, tableId, tableNumber) {
   const financial = detail?.financial || {};
   const split = detail?.split || {};
@@ -419,6 +649,8 @@ function renderComandaCard(detail, idx, tableId, tableNumber) {
         ${renderComandaMetric('Pagamento confirmado', formatCurrency(financial.approvedPaymentsAmount || 0), 'Confirmado pelo fluxo de pagamento', '#0f766e')}
         ${renderComandaMetric('Saldo pendente', formatCurrency(financial.amountDue || 0), detail?.status === 'CLOSED' ? 'Comanda encerrada' : 'Valor restante para fechar', '#b91c1c')}
       </div>
+
+      ${renderSplitAssistSection(detail)}
 
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
         <div style="display:flex; flex-direction:column; gap:10px;">
@@ -471,7 +703,10 @@ async function viewComandas(tableId, tableNumber) {
         id: tab.id,
         status: tab.status,
         openedAt: tab.openedAt,
+        items: [],
         financial: {
+          subtotal: tab.subtotal || tab.total || 0,
+          serviceFee: tab.serviceFee || 0,
           total: tab.total,
           paidAmount: tab.paidAmount || 0,
           approvedPaymentsAmount: 0,
@@ -485,26 +720,15 @@ async function viewComandas(tableId, tableNumber) {
         permissions: { canReopen: false, reason: '' },
       }))),
     );
+    mesasComandaModalState = {
+      tableId,
+      tableNumber,
+      details,
+      splitStateByTabId: { ...mesasComandaModalState.splitStateByTabId },
+    };
 
-    const tabsHtml = details.map((detail, idx) => renderComandaCard(detail, idx, tableId, tableNumber)).join('');
-    const openCount = details.filter((detail) => detail.status !== 'CLOSED').length;
-    const closedCount = details.filter((detail) => detail.status === 'CLOSED').length;
-
-    openModal(`
-      <div class="modal-header">
-        <h3>Mesa ${escapeHTML(formatTableNumber(tableNumber))} - Detalhamento das Comandas</h3>
-        <button class="modal-close" onclick="closeModal()">✕</button>
-      </div>
-      <div class="modal-body" style="max-height:60vh; overflow-y:auto; padding-right:8px">
-        <div style="margin-bottom:16px; padding:14px 16px; border-radius:12px; background:rgba(59,130,246,0.06); border:1px solid rgba(59,130,246,0.12); font-size:13px; color:var(--text-light);">
-          ${tabs.length > 1 ? 'Esta mesa possui comandas individuais/divididas.' : 'Esta mesa possui uma comanda principal.'}
-          <strong style="color:var(--text); margin-left:6px;">${openCount} aberta(s)</strong>
-          <span style="margin:0 6px;">·</span>
-          <strong style="color:var(--text);">${closedCount} fechada(s)</strong>
-        </div>
-        ${tabsHtml}
-      </div>
-    `);
+    details.forEach((detail) => ensureComandaSplitState(detail));
+    rerenderComandasModal();
   } catch (err) {
     showToast(`Erro ao carregar as comandas: ${err.message}`, 'error');
   }

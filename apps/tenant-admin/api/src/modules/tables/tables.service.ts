@@ -305,7 +305,7 @@ export class TablesService {
     }
 
     async getTabDetails(tabId: string, tenantId: string, currentUserRole?: string) {
-        const [tabRows, paymentRows, closeRequestRows, eventRows, allocationRows] = await Promise.all([
+        const [tabRows, paymentRows, closeRequestRows, eventRows, allocationRows, itemRows] = await Promise.all([
             this.dataSource.query(
                 `SELECT tb.id,
                         tb.tenant_id,
@@ -411,6 +411,32 @@ export class TablesService {
                     AND p.tab_id = $2`,
                 [tenantId, tabId],
             ).catch(() => [{ allocation_count: 0 }]),
+            this.dataSource.query(
+                `SELECT oi.id,
+                        oi.order_id,
+                        oi.menu_item_id,
+                        oi.quantity,
+                        oi.unit_price,
+                        oi.observations,
+                        oi.created_at,
+                        o.created_at AS order_created_at,
+                        o.status AS order_status,
+                        mi.name AS menu_item_name,
+                        COALESCE(SUM(pia.allocated_quantity), 0)::int AS allocated_quantity
+                   FROM orders o
+                   JOIN order_items oi
+                     ON oi.order_id = o.id
+                   LEFT JOIN menu_items mi
+                     ON mi.id = oi.menu_item_id
+                   LEFT JOIN payment_item_allocations pia
+                     ON pia.order_item_id = oi.id
+                  WHERE o.tenant_id = $1
+                    AND o.tab_id = $2
+                    AND o.status <> 'CANCELED'
+                  GROUP BY oi.id, oi.order_id, oi.menu_item_id, oi.quantity, oi.unit_price, oi.observations, oi.created_at, o.created_at, o.status, mi.name
+                  ORDER BY o.created_at ASC, oi.created_at ASC`,
+                [tenantId, tabId],
+            ).catch(() => []),
         ]);
 
         const tab = tabRows?.[0];
@@ -477,6 +503,26 @@ export class TablesService {
 
         const allocationCount = Number(allocationRows?.[0]?.allocation_count || 0);
         const tenantSettings = this.parseTenantSettings(tab.tenant_settings);
+        const items = (itemRows || []).map((row: any) => {
+            const quantity = Number(row.quantity || 0);
+            const allocatedQuantity = Math.max(0, Math.min(quantity, Number(row.allocated_quantity || 0)));
+            const unitPrice = this.roundMoney(Number.parseFloat(String(row.unit_price ?? '0')) || 0);
+            return {
+                id: String(row.id),
+                orderId: String(row.order_id),
+                menuItemId: row.menu_item_id ? String(row.menu_item_id) : null,
+                name: String(row.menu_item_name || 'Item sem nome'),
+                quantity,
+                unitPrice,
+                lineSubtotal: this.roundMoney(quantity * unitPrice),
+                allocatedQuantity,
+                remainingQuantity: Math.max(0, quantity - allocatedQuantity),
+                observations: String(row.observations || '').trim() || null,
+                createdAt: row.created_at,
+                orderCreatedAt: row.order_created_at,
+                orderStatus: String(row.order_status || 'PENDING'),
+            };
+        });
 
         return {
             id: String(tab.id),
@@ -495,6 +541,7 @@ export class TablesService {
             reopenedByUserName: String(tab.reopened_by_user_name || '').trim() || null,
             financial,
             split: this.buildTabSplitSummary(payments, allocationCount, tenantSettings),
+            items,
             closeRequests,
             payments,
             history: this.buildTabHistory({
