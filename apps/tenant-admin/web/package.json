@@ -1,0 +1,9 @@
+{
+  "name": "clickgarcom-web-admin",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Static web client for ClickGarcom admin and KDS",
+  "scripts": {
+    "start": "node server.js"
+  }
+}

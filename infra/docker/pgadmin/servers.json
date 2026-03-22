@@ -1,0 +1,13 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "ClickGarcom Local Postgres",
+      "Group": "Local",
+      "Host": "postgres",
+      "Port": 5432,
+      "MaintenanceDB": "clickgarcom_db",
+      "Username": "postgres",
+      "SSLMode": "prefer"
+    }
+  }
+}

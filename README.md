@@ -19,7 +19,7 @@ Cliente (WhatsApp) → Webhook (Go) → Inbox → RabbitMQ → Worker (Go)
                                                            ↓
                                        ┌───────────────────┴───────────────────┐
                                        ↓                                       ↓
-                               WebSocket (KDS)                        Admin Panel (Node)
+                               WebSocket (KDS)                  Tenant Admin API + Web
 ```
 
 ## ✅ Funcionalidades Implementadas
@@ -90,7 +90,7 @@ git clone <seu-repo>
 cd clickgarcom
 
 # 2. Copie o .env
-cp services/go-core/.env.example services/go-core/.env
+cp platform/core-backend/.env.example platform/core-backend/.env
 
 # 3. Suba toda a stack local em containers
 make rebuild
@@ -100,8 +100,10 @@ make db-seed
 
 # 5. URLs locais
 # API HTTP:            http://localhost:8080
-# Admin Panel:         http://localhost:3002
+# Tenant Admin API:    http://localhost:3002/admin/api/health
+# Tenant Admin Web:    http://localhost:3004/login.html
 # Super Admin:         http://localhost:3003
+# pgAdmin:             http://localhost:5050
 # RabbitMQ UI:         http://localhost:15672
 # Grafana:             http://localhost:3001
 # Prometheus:          http://localhost:9090
@@ -110,6 +112,7 @@ make db-seed
 ## Stack Containerizada
 
 - `postgres`: PostgreSQL 17
+- `pgadmin`: interface web para o PostgreSQL local (porta `5050`)
 - `redis`: Redis 7
 - `rabbitmq`: RabbitMQ 3.13 + management UI
 - `prometheus`: métricas
@@ -119,7 +122,8 @@ make db-seed
 - `go-api`: API HTTP / webhooks (porta `8080`)
 - `go-worker`: processamento assíncrono
 - `go-outbox`: envio e processamento de outbox
-- `node-admin`: painel operacional (porta `3002`)
+- `node-admin`: tenant admin API (porta `3002`)
+- `web-admin`: tenant admin web/KDS/checkout (porta `3004`)
 - `super-admin`: painel estático de administração global (porta `3003`)
 
 ## Desenvolvimento
@@ -133,6 +137,7 @@ make run-worker
 make run-outbox
 make run-admin
 make run-super-admin
+make validate-migration-baseline
 
 # Limpar banco e filas
 make clean-all
@@ -144,7 +149,50 @@ make logs-super-admin
 # Acessar RabbitMQ UI
 http://localhost:15672
 # User: clickgarcom / Pass: clickgarcom123
+
+# Acessar pgAdmin
+http://localhost:5050
+# Login pgAdmin: admin@clickgarcom.dev / admin123
+# Servidor preconfigurado: host `postgres`, db `clickgarcom_db`, user `postgres`
+
+# Acessar Grafana
+http://localhost:3001
+# Login Grafana: admin / admin123
+# Dashboard inicial: ClickGarcom Critical Services
+# Dashboard adicional: ClickGarcom Overview
+
+# Acessar Prometheus
+http://localhost:9090
+# Targets: Status > Targets
 ```
+
+## Observabilidade
+
+- `Prometheus` coleta automaticamente `prometheus`, `go-api` e `rabbitmq`.
+- `Prometheus` coleta automaticamente `prometheus`, `go-api`, `go-worker`, `go-outbox`, `rabbitmq`, `postgres-exporter` e `redis-exporter`.
+- `Prometheus` tambem faz probes HTTP de `go-api`, `node-admin` e `web-admin` via `blackbox-exporter`.
+- `Grafana` sobe com datasource `Prometheus` e os dashboards `ClickGarcom Critical Services` e `ClickGarcom Overview` provisionados por arquivo.
+
+### Consultas uteis no Prometheus
+
+```promql
+up
+go_goroutines{job="go-api"}
+go_memstats_heap_alloc_bytes{job="go-api"}
+sum by (tenant_id) (kds_active_connections)
+sum by (event_type) (rate(kds_events_published_total[5m]))
+rabbitmq_connections
+rabbitmq_queues
+rabbitmq_queue_messages
+```
+
+### Como usar no dia a dia
+
+1. Abra `http://localhost:9090`, entre em `Status > Targets` e confirme que todos os jobs estao `UP`.
+2. Teste uma consulta PromQL simples, como `up` ou `sum by (tenant_id) (kds_active_connections)`.
+3. Abra `http://localhost:3001`, faca login com `admin / admin123` e abra o dashboard `ClickGarcom Overview`.
+4. Ajuste o intervalo de tempo no canto superior direito para `Last 15 minutes`, `Last 1 hour` ou conforme o problema investigado.
+5. Se um painel ficar vazio, gere trafego na aplicacao e recarregue; metricas como `kds_events_published_total` dependem de eventos reais.
 
 ## Filas RabbitMQ
 
@@ -201,18 +249,38 @@ curl http://localhost:8080/metrics
 ### Testes Automatizados
 ```bash
 # Rodar testes de unidade e concorrência (Backend)
-cd services/go-core
+cd platform/core-backend
 go test -v -race ./internal/infrastructure/websocket/...
 ```
 
 ## 📚 Documentação
 
 Documentação detalhada disponível em:
-- [`services/docs/walkthrough.md`](services/docs/walkthrough.md) - Guia completo das features implementadas
-- [`services/docs/project_architecture.md`](services/docs/project_architecture.md) - Arquitetura do sistema e responsabilidades dos serviços
-- [`services/docs/quick_reference.md`](services/docs/quick_reference.md) - Comandos, workflows e troubleshooting rápido
-- [`services/docs/06_bot_config_architecture.md`](services/docs/06_bot_config_architecture.md) - Evolução recomendada para templates, menus e conversation flows
-- [`services/docs/07_whatsapp_interactive_menu_architecture.md`](services/docs/07_whatsapp_interactive_menu_architecture.md) - Desenho do cardapio conversacional com imagens, carrinho e split para KDS
+- [`docs/walkthrough.md`](docs/walkthrough.md) - Guia completo das features implementadas
+- [`docs/project_architecture.md`](docs/project_architecture.md) - Arquitetura do sistema e responsabilidades dos serviços
+- [`docs/quick_reference.md`](docs/quick_reference.md) - Comandos, workflows e troubleshooting rápido
+- [`apps/tenant-admin/api/API_CONTRACT.md`](apps/tenant-admin/api/API_CONTRACT.md) - Contrato da API versionada, descoberta e RBAC
+- [`docs/kds-websocket-contract.md`](docs/kds-websocket-contract.md) - Contrato estável do KDS em WebSocket
+- [`docs/06_bot_config_architecture.md`](docs/06_bot_config_architecture.md) - Evolução recomendada para templates, menus e conversation flows
+- [`docs/07_whatsapp_interactive_menu_architecture.md`](docs/07_whatsapp_interactive_menu_architecture.md) - Desenho do cardapio conversacional com imagens, carrinho e split para KDS
+- [`docs/repository-migration-plan.md`](docs/repository-migration-plan.md) - Plano incremental para migrar o monorepo para `apps/` e `platform/` sem aumentar o risco operacional
+
+## Reuso do Tenant Admin API
+
+- contrato versionado: `GET /admin/api/v1/meta`
+- OpenAPI bruto: `GET /admin/api/v1/openapi.json`
+- tenant admin web atual pode seguir nos endpoints legados
+- novos clientes mobile devem preferir `/admin/api/v1/*`
+- rotas tenant-bound agora usam o tenant do JWT e RBAC por perfil
+
+Perfis operacionais suportados:
+
+- `ADMIN`
+- `MANAGER`
+- `WAITER`
+- `KITCHEN`
+- `BAR`
+- `CASHIER`
 
 ## Roadmap
 
@@ -315,20 +383,19 @@ Documentação detalhada disponível em:
 
 ```
 clickgarcom/
-├── services/
-│   ├── go-core/              # Backend principal (Go)
-│   │   ├── cmd/
-│   │   │   ├── api/          # HTTP API
-│   │   │   ├── worker/       # Message worker
-│   │   │   └── outbox-worker/ # Outbox processor
-│   │   ├── internal/
-│   │   │   ├── domain/       # Entidades e regras de negócio
-│   │   │   ├── application/  # Use cases
-│   │   │   ├── infrastructure/ # Repos, HTTP, RabbitMQ
-│   │   │   └── interfaces/   # HTTP handlers
-│   │   └── migrations/       # Database migrations
-│   ├── node-admin/           # Admin Panel BFF (NestJS + HTML/JS)
-│   └── docs/                 # Documentação
+├── apps/
+│   ├── tenant-admin/
+│   │   ├── api/              # Tenant Admin API (NestJS)
+│   │   └── web/              # Tenant Admin Web / KDS / Checkout
+│   └── super-admin/
+│       └── web/              # Super Admin web
+├── platform/
+│   └── core-backend/         # Backend principal (Go)
+│       ├── cmd/              # API, worker, outbox, migrations
+│       ├── internal/         # Domain, application, interfaces, infra
+│       └── pkg/              # Pacotes compartilhados
+├── infra/                    # Docker, Prometheus, RabbitMQ, test client
+├── docs/                     # Documentação de arquitetura e operação
 ├── docker-compose.yml
 ├── Makefile
 └── README.md

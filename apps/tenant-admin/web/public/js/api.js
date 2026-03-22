@@ -1,0 +1,184 @@
+// ClickGarçom Admin — API Client
+const runtimeConfig = window.CLICKGARCOM_RUNTIME_CONFIG || {};
+const API_BASE = String(runtimeConfig.apiBaseUrl || '/admin/api').replace(/\/+$/, '');
+const LOGIN_PAGE_PATH = String(runtimeConfig.loginPagePath || '/login.html').trim() || '/login.html';
+
+// Retrieve Auth Session
+let authSession = null;
+try {
+    const local = localStorage.getItem('clickgarcom_auth');
+    const session = sessionStorage.getItem('clickgarcom_auth');
+    if (local) authSession = JSON.parse(local);
+    else if (session) authSession = JSON.parse(session);
+} catch (e) {
+    console.error('Session parse error', e);
+}
+
+// Global Redirect if no session exists and not on login/register page
+if (!authSession && !window.location.pathname.includes('.html') && window.location.pathname !== LOGIN_PAGE_PATH && window.location.pathname !== '/register.html') {
+    window.location.href = LOGIN_PAGE_PATH;
+}
+
+// Parse JWT payload (to get tenant_id)
+let TENANT_ID = null;
+if (authSession?.token) {
+    try {
+        const payloadB64 = authSession.token.split('.')[1];
+        const payload = JSON.parse(atob(payloadB64));
+        TENANT_ID = payload.tenant_id;
+    } catch (e) {
+        console.error('JWT parse error', e);
+    }
+}
+
+function getAuthHeaders() {
+    return {
+        'Content-Type': 'application/json',
+        'Authorization': authSession ? `Bearer ${authSession.token}` : ''
+    };
+}
+
+async function handleResponse(res) {
+    if (res.status === 401 || res.status === 403) {
+        localStorage.removeItem('clickgarcom_auth');
+        sessionStorage.removeItem('clickgarcom_auth');
+        window.location.href = LOGIN_PAGE_PATH;
+        throw new Error('Sessão expirada. Faça login novamente.');
+    }
+    if (!res.ok) throw new Error(`API Error: ${res.status}`);
+    return res.json();
+}
+
+const api = {
+    async get(path, params = {}) {
+        const url = new URL(API_BASE + path, window.location.origin);
+        if (TENANT_ID) url.searchParams.set('tenant_id', TENANT_ID);
+        Object.entries(params).forEach(([k, v]) => {
+            if (v !== undefined && v !== null) url.searchParams.set(k, v);
+        });
+        const res = await fetch(url, { headers: { 'Authorization': getAuthHeaders().Authorization } });
+        return handleResponse(res);
+    },
+
+    async post(path, body) {
+        const finalBody = { ...body };
+        if (TENANT_ID && !finalBody.tenant_id) finalBody.tenant_id = TENANT_ID;
+
+        const res = await fetch(API_BASE + path, {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify(finalBody),
+        });
+        return handleResponse(res);
+    },
+
+    async put(path, body) {
+        const res = await fetch(API_BASE + path, {
+            method: 'PUT',
+            headers: getAuthHeaders(),
+            body: JSON.stringify(body),
+        });
+        return handleResponse(res);
+    },
+
+    async patch(path, body) {
+        const res = await fetch(API_BASE + path, {
+            method: 'PATCH',
+            headers: getAuthHeaders(),
+            body: JSON.stringify(body),
+        });
+        return handleResponse(res);
+    },
+
+    async delete(path) {
+        const res = await fetch(API_BASE + path, {
+            method: 'DELETE',
+            headers: { 'Authorization': getAuthHeaders().Authorization }
+        });
+        return handleResponse(res);
+    },
+};
+
+// Security: Escape HTML to prevent XSS
+function escapeHTML(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+// Toast notifications
+function showToast(message, type = 'success') {
+    let container = document.querySelector('.toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.className = 'toast-container';
+        document.body.appendChild(container);
+    }
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.textContent = message;
+    container.appendChild(toast);
+    setTimeout(() => toast.remove(), 3000);
+}
+
+// Format currency
+function formatCurrency(value) {
+    return `R$${Number(value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+}
+
+// Format date
+function formatDate(dateStr) {
+    const d = new Date(dateStr);
+    return d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+// Format time
+function formatTime(dateStr) {
+    const d = new Date(dateStr);
+    return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+}
+
+// Status label mapping
+function statusLabel(status) {
+    const map = {
+        PENDING: 'Pendente',
+        ACCEPTED: 'Em preparo',
+        READY: 'Pronto',
+        DELIVERED: 'Entregue',
+        CANCELED: 'Cancelado',
+    };
+    return map[status] || status;
+}
+
+function statusClass(status) {
+    const map = {
+        PENDING: 'status-pending',
+        ACCEPTED: 'status-prep',
+        READY: 'status-done',
+        DELIVERED: 'status-done',
+        CANCELED: 'status-canceled',
+    };
+    return map[status] || '';
+}
+
+// Generate gradient for avatars
+const gradients = [
+    'linear-gradient(135deg, #f97316, #dc2626)',
+    'linear-gradient(135deg, #8b5cf6, #3b82f6)',
+    'linear-gradient(135deg, #1abc9c, #0891b2)',
+    'linear-gradient(135deg, #f59e0b, #ef4444)',
+    'linear-gradient(135deg, #ec4899, #8b5cf6)',
+    'linear-gradient(135deg, #06b6d4, #3b82f6)',
+];
+
+function getGradient(index) {
+    return gradients[index % gradients.length];
+}
+
+function getInitials(name) {
+    return name.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase();
+}

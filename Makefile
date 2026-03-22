@@ -1,4 +1,4 @@
-.PHONY: help deploy-check deploy-sync deploy-remote redeploy
+.PHONY: help deploy-check deploy-sync deploy-remote redeploy validate-migration-baseline validate-layout-paths validate-compose validate-tenant-admin-api validate-tenant-admin-web validate-super-admin-web validate-core-backend
 
 -include .deploy.env
 
@@ -7,7 +7,15 @@ DEPLOY_HOST ?=
 DEPLOY_PORT ?= 22
 DEPLOY_PATH ?= /opt/clickgarcom
 DEPLOY_COMPOSE_CMD ?= docker compose
-DEPLOY_APP_SERVICES ?= go-migrate go-setup-rabbitmq go-api go-worker go-outbox node-admin super-admin
+DEPLOY_APP_SERVICES ?= go-migrate go-setup-rabbitmq go-api go-worker go-outbox node-admin web-admin super-admin
+
+CORE_BACKEND_DIR ?= platform/core-backend
+TENANT_ADMIN_API_DIR ?= apps/tenant-admin/api
+TENANT_ADMIN_WEB_DIR ?= apps/tenant-admin/web
+SUPER_ADMIN_WEB_DIR ?= apps/super-admin/web
+DOCS_DIR ?= docs
+GO_TEST_CACHE_DIR ?= /tmp/clickgarcom-gocache
+GO_TEST_TMP_DIR ?= /tmp/clickgarcom-gotmp
 
 help: ## Mostra este menu de ajuda
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -33,6 +41,9 @@ logs-rabbitmq: ## Logs do RabbitMQ
 
 logs-super-admin: ## Logs do Super Admin
 	docker-compose logs -f super-admin
+
+logs-pgadmin: ## Logs do pgAdmin
+	docker-compose logs -f pgadmin
 
 ps: ## Lista containers rodando
 	docker-compose ps
@@ -94,13 +105,13 @@ ngrok-url: ## Mostra a URL publica do ngrok para o webhook
 
 # ============ DATABASE ============
 migrate-up: ## Executa migrations
-	cd services/go-core && go run cmd/migrate/main.go -direction up
+	cd $(CORE_BACKEND_DIR) && go run cmd/migrate/main.go -direction up
 
 migrate-down: ## Reverte última migration
-	cd services/go-core && go run cmd/migrate/main.go -direction down
+	cd $(CORE_BACKEND_DIR) && go run cmd/migrate/main.go -direction down
 
 migrate-create: ## Cria nova migration (use: make migrate-create name=add_users)
-	cd services/go-core && migrate create -ext sql -dir cmd/migrate -seq $(name)
+	cd $(CORE_BACKEND_DIR) && migrate create -ext sql -dir cmd/migrate -seq $(name)
 
 db-reset: ## Reseta database (CUIDADO!)
 	docker-compose down -v
@@ -120,6 +131,11 @@ rabbitmq-ui: ## Abre RabbitMQ Management UI
 	@echo "User: clickgarcom | Pass: clickgarcom123"
 	@open http://localhost:15672 2>/dev/null || xdg-open http://localhost:15672 2>/dev/null || echo "Please open http://localhost:15672 manually"
 
+pgadmin-ui: ## Abre o pgAdmin local
+	@echo "Opening pgAdmin at http://localhost:$${PGADMIN_PORT:-5050}"
+	@echo "User: $${PGADMIN_DEFAULT_EMAIL:-admin@clickgarcom.dev} | Pass: $${PGADMIN_DEFAULT_PASSWORD:-admin123}"
+	@open http://localhost:$${PGADMIN_PORT:-5050} 2>/dev/null || xdg-open http://localhost:$${PGADMIN_PORT:-5050} 2>/dev/null || echo "Please open http://localhost:$${PGADMIN_PORT:-5050} manually"
+
 rabbitmq-queues: ## Lista filas do RabbitMQ
 	docker exec clickgarcom-rabbitmq rabbitmqctl list_queues name messages consumers
 
@@ -130,35 +146,35 @@ rabbitmq-reset: ## Reseta filas do RabbitMQ (CUIDADO!)
 
 # ============ GO COMMANDS ============
 run-api: ## Roda API localmente
-	cd services/go-core && go run cmd/api/main.go
+	cd $(CORE_BACKEND_DIR) && go run cmd/api/main.go
 
 run-worker: ## Roda Worker localmente
-	cd services/go-core && go run cmd/worker/main.go
+	cd $(CORE_BACKEND_DIR) && go run cmd/worker/main.go
 
 run-outbox: ## Roda Outbox Worker localmente
-	cd services/go-core && go run cmd/outbox-worker/main.go
+	cd $(CORE_BACKEND_DIR) && go run cmd/outbox-worker/main.go
 
 run-realtime: ## Roda a API com o hub WebSocket integrado
-	cd services/go-core && go run cmd/api/main.go
+	cd $(CORE_BACKEND_DIR) && go run cmd/api/main.go
 
 test: ## Roda testes
-	cd services/go-core && go test -v ./...
+	cd $(CORE_BACKEND_DIR) && GOCACHE=$(GO_TEST_CACHE_DIR) GOTMPDIR=$(GO_TEST_TMP_DIR) go test -v ./...
 
 test-coverage: ## Testes com coverage
-	cd services/go-core && go test -coverprofile=coverage.out ./... && go tool cover -html=coverage.out
+	cd $(CORE_BACKEND_DIR) && GOCACHE=$(GO_TEST_CACHE_DIR) GOTMPDIR=$(GO_TEST_TMP_DIR) go test -coverprofile=coverage.out ./... && go tool cover -html=coverage.out
 
 lint: ## Roda linter
-	cd services/go-core && golangci-lint run
+	cd $(CORE_BACKEND_DIR) && golangci-lint run
 
 fmt: ## Formata código
-	cd services/go-core && go fmt ./...
+	cd $(CORE_BACKEND_DIR) && go fmt ./...
 
 tidy: ## Limpa dependências
-	cd services/go-core && go mod tidy
+	cd $(CORE_BACKEND_DIR) && go mod tidy
 
 # ============ DEVELOPMENT ============
 dev: ## Modo desenvolvimento com hot-reload (precisa air instalado)
-	cd services/go-core && air
+	cd $(CORE_BACKEND_DIR) && air
 
 install-tools: ## Instala ferramentas de desenvolvimento
 	go install github.com/cosmtrek/air@latest
@@ -177,23 +193,23 @@ clean-all: ## Limpa TUDO (banco + filas)
 
 # ============ ADMIN PANEL ============
 run-admin: ## Roda Admin Panel localmente
-	cd services/node-admin && npm run start:dev
+	cd $(TENANT_ADMIN_API_DIR) && npm run start:dev
 
 install-admin: ## Instala dependências do Admin Panel
-	cd services/node-admin && npm install
+	cd $(TENANT_ADMIN_API_DIR) && npm install
 
 build-admin: ## Builda Admin Panel
-	cd services/node-admin && npm run build
+	cd $(TENANT_ADMIN_API_DIR) && npm run build
 
 run-super-admin: ## Roda Super Admin localmente (precisa serve instalado)
-	cd services/super-admin && npx serve public -l 3003
+	cd $(SUPER_ADMIN_WEB_DIR) && npx serve public -l 3003
 
 # ============ PRODUCTION ============
 build-api: ## Builda API para produção
-	cd services/go-core && CGO_ENABLED=0 GOOS=linux go build -o bin/api cmd/api/main.go
+	cd $(CORE_BACKEND_DIR) && CGO_ENABLED=0 GOOS=linux go build -o bin/api cmd/api/main.go
 
 build-worker: ## Builda Worker para produção
-	cd services/go-core && CGO_ENABLED=0 GOOS=linux go build -o bin/worker cmd/worker/main.go
+	cd $(CORE_BACKEND_DIR) && CGO_ENABLED=0 GOOS=linux go build -o bin/worker cmd/worker/main.go
 
 deploy-check: ## Valida configuracao minima para redeploy remoto
 	@test -n "$(DEPLOY_USER)" || (echo "Defina DEPLOY_USER em .deploy.env ou na linha de comando."; exit 1)
@@ -211,8 +227,8 @@ deploy-sync: deploy-check ## Sincroniza codigo com o servidor sem sobrescrever .
 		--exclude '.deploy.env' \
 		--exclude '.pid-*' \
 		--exclude '.ngrok.log' \
-		--exclude 'services/go-core/.env' \
-		--exclude 'services/node-admin/.env' \
+		--exclude '$(CORE_BACKEND_DIR)/.env' \
+		--exclude '$(TENANT_ADMIN_API_DIR)/.env' \
 		./ $(DEPLOY_USER)@$(DEPLOY_HOST):$(DEPLOY_PATH)/
 
 deploy-remote: deploy-check ## Rebuilda e reinicia servicos de aplicacao no servidor
@@ -221,7 +237,33 @@ deploy-remote: deploy-check ## Rebuilda e reinicia servicos de aplicacao no serv
 redeploy: deploy-sync deploy-remote ## Sincroniza codigo e faz redeploy completo da aplicacao no servidor
 
 clean: ## Limpa arquivos buildados
-	rm -rf services/go-core/bin/
+	rm -rf $(CORE_BACKEND_DIR)/bin/
+
+validate-migration-baseline: validate-layout-paths validate-compose validate-tenant-admin-api validate-tenant-admin-web validate-super-admin-web validate-core-backend ## Valida baseline antes e depois de mover diretorios
+
+validate-layout-paths: ## Valida os diretorios atuais do layout alvo
+	@test -d "$(CORE_BACKEND_DIR)" || (echo "Diretorio ausente: $(CORE_BACKEND_DIR)"; exit 1)
+	@test -d "$(TENANT_ADMIN_API_DIR)" || (echo "Diretorio ausente: $(TENANT_ADMIN_API_DIR)"; exit 1)
+	@test -d "$(TENANT_ADMIN_WEB_DIR)" || (echo "Diretorio ausente: $(TENANT_ADMIN_WEB_DIR)"; exit 1)
+	@test -d "$(SUPER_ADMIN_WEB_DIR)" || (echo "Diretorio ausente: $(SUPER_ADMIN_WEB_DIR)"; exit 1)
+
+validate-compose: ## Valida resolucao do docker compose para a migracao
+	docker compose config >/tmp/clickgarcom-compose-config.out
+	tail -n 20 /tmp/clickgarcom-compose-config.out
+
+validate-tenant-admin-api: ## Build do tenant admin API
+	cd $(TENANT_ADMIN_API_DIR) && npm run build
+
+validate-tenant-admin-web: ## Verifica o entrypoint do tenant admin web
+	cd $(TENANT_ADMIN_WEB_DIR) && node --check server.js
+
+validate-super-admin-web: ## Verifica a presenca do frontend do super admin
+	@test -f "$(SUPER_ADMIN_WEB_DIR)/nginx.conf" || (echo "Arquivo ausente: $(SUPER_ADMIN_WEB_DIR)/nginx.conf"; exit 1)
+	@test -f "$(SUPER_ADMIN_WEB_DIR)/public/index.html" || (echo "Arquivo ausente: $(SUPER_ADMIN_WEB_DIR)/public/index.html"; exit 1)
+
+validate-core-backend: ## Testa o core backend
+	@mkdir -p "$(GO_TEST_CACHE_DIR)" "$(GO_TEST_TMP_DIR)"
+	cd $(CORE_BACKEND_DIR) && GOCACHE=$(GO_TEST_CACHE_DIR) GOTMPDIR=$(GO_TEST_TMP_DIR) go test ./...
 
 # ============ MONITORING ============
 grafana: ## Abre Grafana
