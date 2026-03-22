@@ -63,7 +63,7 @@ Criterios de pronto:
 
 ## Epic 03 - Mesas e Comandas Assistidas
 
-Status: Planejado
+Status: Em execucao - lote 1 entregue
 
 Objetivo:
 Evoluir o fluxo de mesa/comanda para fechamento assistido e auditavel.
@@ -71,12 +71,12 @@ Evoluir o fluxo de mesa/comanda para fechamento assistido e auditavel.
 Tasks:
 - [ ] Implementar split por pessoa.
 - [ ] Implementar split por item.
-- [ ] Exibir total original, total rateado e diferenca pendente.
-- [ ] Permitir reabertura controlada de comanda fechada.
-- [ ] Criar historico de eventos da comanda.
+- [x] Exibir total original, total rateado e diferenca pendente.
+- [x] Permitir reabertura controlada de comanda fechada.
+- [x] Criar historico de eventos da comanda.
 - [ ] Registrar quem abriu, fechou, reabriu ou alterou uma comanda.
-- [ ] Exibir divergencias entre total da comanda, pagamentos aprovados e valor ainda devido.
-- [ ] Criar bloqueios para reabertura com pagamento finalizado, com permissao especial.
+- [x] Exibir divergencias entre total da comanda, pagamentos aprovados e valor ainda devido.
+- [x] Criar bloqueios para reabertura com pagamento finalizado, com permissao especial.
 
 Criterios de pronto:
 - Caixa ou garcom consegue fechar conta com suporte visual, sem calculo manual.

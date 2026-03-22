@@ -783,6 +783,46 @@ export function buildTenantAdminOpenApiDocument() {
                     },
                 },
             },
+            [`${ADMIN_API_VERSIONED_BASE_PATH}/tables/tabs/{tabId}/details`]: {
+                get: {
+                    tags: ['Tables'],
+                    summary: 'Detalha financeiro, historico e auditoria de uma comanda',
+                    security: [{ bearerAuth: [] }],
+                    parameters: [uuidPathParam('tabId', 'ID da comanda')],
+                    responses: {
+                        '200': versionedSuccessResponse('Detalhes da comanda.', {
+                            type: 'object',
+                            additionalProperties: true,
+                        }),
+                    },
+                },
+            },
+            [`${ADMIN_API_VERSIONED_BASE_PATH}/tables/tabs/{tabId}/reopen`]: {
+                post: {
+                    tags: ['Tables'],
+                    summary: 'Reabre uma comanda fechada com validacao financeira',
+                    security: [{ bearerAuth: [] }],
+                    parameters: [uuidPathParam('tabId', 'ID da comanda')],
+                    requestBody: {
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    type: 'object',
+                                    properties: {
+                                        reason: { type: 'string' },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    responses: {
+                        '200': versionedSuccessResponse('Comanda reaberta.', {
+                            type: 'object',
+                            additionalProperties: true,
+                        }),
+                    },
+                },
+            },
             [`${ADMIN_API_VERSIONED_BASE_PATH}/tables/{id}/tab`]: {
                 get: {
                     tags: ['Tables'],

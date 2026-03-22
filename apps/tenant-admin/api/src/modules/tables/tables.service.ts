@@ -7,7 +7,15 @@ import { Tab } from '../../entities/tab.entity';
 import { TableRequest, RequestStatus } from '../../entities/table-request.entity';
 import { AmqpService } from '../amqp/amqp.service';
 import { WalletService } from '../wallet/wallet.service';
+import { TenantUserRole } from '../auth/roles';
 import { v4 as uuidv4 } from 'uuid';
+
+type TabActorContext = {
+    userId?: string;
+    userName?: string;
+    userRole?: string;
+    reason?: string;
+};
 
 @Injectable()
 export class TablesService {
@@ -85,9 +93,16 @@ export class TablesService {
 
     // Retorna todas as tabs abertas
     async getTabs(tableId: string, tenantId: string) {
-        return this.tabRepo.find({
-            where: { tableId, tenantId, status: 'OPEN' },
-            order: { openedAt: 'ASC' }
+        const tabs = await this.tabRepo.find({
+            where: { tableId, tenantId },
+            order: { openedAt: 'DESC' },
+            take: 20,
+        });
+
+        return tabs.sort((left, right) => {
+            if (left.status === 'OPEN' && right.status !== 'OPEN') return -1;
+            if (left.status !== 'OPEN' && right.status === 'OPEN') return 1;
+            return new Date(right.openedAt || 0).getTime() - new Date(left.openedAt || 0).getTime();
         });
     }
 
@@ -229,7 +244,7 @@ export class TablesService {
         return req;
     }
 
-    async finalizeCloseRequest(requestId: string, tenantId: string, staffUserId?: string) {
+    async finalizeCloseRequest(requestId: string, tenantId: string, staffUserId?: string, staffUserName?: string) {
         const rows = await this.dataSource.query(
             `SELECT id, tab_id, status
                FROM service_requests
@@ -251,7 +266,9 @@ export class TablesService {
 
         const result = await this.finalizeTabInternal(String(request.tab_id), tenantId, {
             resolvedByUserId: staffUserId,
+            resolvedByUserName: staffUserName,
             requestId,
+            closureSource: 'CLOSE_REQUEST',
         });
 
         return {
@@ -262,9 +279,11 @@ export class TablesService {
         };
     }
 
-    async finalizeTab(tabId: string, tenantId: string, staffUserId?: string) {
+    async finalizeTab(tabId: string, tenantId: string, staffUserId?: string, staffUserName?: string) {
         const result = await this.finalizeTabInternal(tabId, tenantId, {
             resolvedByUserId: staffUserId,
+            resolvedByUserName: staffUserName,
+            closureSource: 'MANUAL_SETTLEMENT',
         });
 
         return {
@@ -275,12 +294,347 @@ export class TablesService {
     }
 
     async confirmApprovedPaymentSettlement(tenantId: string, tabId: string) {
-        const result = await this.finalizeTabInternal(tabId, tenantId, {});
+        const result = await this.finalizeTabInternal(tabId, tenantId, {
+            closureSource: 'PAYMENT_APPROVED',
+        });
         return {
             ok: true,
             alreadyClosed: result.alreadyClosed,
             tab: result.tab,
         };
+    }
+
+    async getTabDetails(tabId: string, tenantId: string, currentUserRole?: string) {
+        const [tabRows, paymentRows, closeRequestRows, eventRows, allocationRows] = await Promise.all([
+            this.dataSource.query(
+                `SELECT tb.id,
+                        tb.tenant_id,
+                        tb.table_id,
+                        tb.user_phone,
+                        tb.payment_notifier_phone,
+                        tb.subtotal,
+                        tb.service_fee,
+                        tb.total,
+                        tb.paid_amount,
+                        tb.status,
+                        tb.opened_at,
+                        tb.closed_at,
+                        tb.closed_by_user_id,
+                        tb.closed_by_user_name,
+                        tb.reopened_at,
+                        tb.reopened_by_user_id,
+                        tb.reopened_by_user_name,
+                        t.number AS table_number,
+                        tn.settings AS tenant_settings
+                   FROM tabs tb
+                   LEFT JOIN tables t
+                     ON t.id = tb.table_id
+                   LEFT JOIN tenants tn
+                     ON tn.id = tb.tenant_id
+                  WHERE tb.id = $1
+                    AND tb.tenant_id = $2
+                  LIMIT 1`,
+                [tabId, tenantId],
+            ),
+            this.dataSource.query(
+                `SELECT p.id,
+                        p.payment_type,
+                        p.amount,
+                        p.status,
+                        p.pix_txid,
+                        p.method,
+                        p.external_reference,
+                        p.created_at,
+                        p.paid_at,
+                        p.expired_at,
+                        p.updated_at,
+                        la.status AS latest_attempt_status,
+                        la.payment_method AS latest_attempt_method,
+                        la.provider_status AS latest_attempt_provider_status,
+                        la.provider_status_detail AS latest_attempt_provider_detail,
+                        la.requested_amount AS latest_attempt_requested_amount,
+                        la.settled_at AS latest_attempt_settled_at,
+                        la.created_at AS latest_attempt_created_at
+                   FROM payments p
+                   LEFT JOIN LATERAL (
+                        SELECT pa.status,
+                               pa.payment_method,
+                               pa.provider_status,
+                               pa.provider_status_detail,
+                               pa.requested_amount,
+                               pa.settled_at,
+                               pa.created_at
+                          FROM payment_attempts pa
+                         WHERE pa.payment_id = p.id
+                         ORDER BY pa.created_at DESC
+                         LIMIT 1
+                   ) la ON TRUE
+                  WHERE p.tenant_id = $1
+                    AND p.tab_id = $2
+                  ORDER BY p.created_at DESC`,
+                [tenantId, tabId],
+            ),
+            this.dataSource.query(
+                `SELECT id,
+                        status,
+                        description,
+                        created_at,
+                        resolved_at,
+                        resolved_by
+                   FROM service_requests
+                  WHERE tenant_id = $1
+                    AND tab_id = $2
+                    AND request_type = 'CLOSE_BILL'
+                  ORDER BY created_at DESC`,
+                [tenantId, tabId],
+            ),
+            this.dataSource.query(
+                `SELECT id,
+                        event_type,
+                        actor_user_id,
+                        actor_name,
+                        details,
+                        created_at
+                   FROM tab_events
+                  WHERE tenant_id = $1
+                    AND tab_id = $2
+                  ORDER BY created_at DESC
+                  LIMIT 200`,
+                [tenantId, tabId],
+            ).catch(() => []),
+            this.dataSource.query(
+                `SELECT COUNT(*)::int AS allocation_count
+                   FROM payment_item_allocations pia
+                   JOIN payments p
+                     ON p.id = pia.payment_id
+                  WHERE p.tenant_id = $1
+                    AND p.tab_id = $2`,
+                [tenantId, tabId],
+            ).catch(() => [{ allocation_count: 0 }]),
+        ]);
+
+        const tab = tabRows?.[0];
+        if (!tab) {
+            throw new NotFoundException('Comanda não encontrada');
+        }
+
+        const payments = (paymentRows || []).map((row: any) => ({
+            id: String(row.id),
+            paymentType: String(row.payment_type || 'FULL'),
+            amount: this.roundMoney(Number.parseFloat(String(row.amount ?? '0')) || 0),
+            status: String(row.status || 'PENDING'),
+            pixTxid: String(row.pix_txid || ''),
+            method: String(row.method || row.latest_attempt_method || '').trim() || null,
+            externalReference: String(row.external_reference || '').trim() || null,
+            createdAt: row.created_at,
+            paidAt: row.paid_at,
+            expiredAt: row.expired_at,
+            updatedAt: row.updated_at,
+            latestAttemptStatus: String(row.latest_attempt_status || '').trim() || null,
+            latestAttemptMethod: String(row.latest_attempt_method || '').trim() || null,
+            latestAttemptProviderStatus: String(row.latest_attempt_provider_status || '').trim() || null,
+            latestAttemptProviderDetail: String(row.latest_attempt_provider_detail || '').trim() || null,
+            latestAttemptRequestedAmount: this.roundMoney(Number.parseFloat(String(row.latest_attempt_requested_amount ?? '0')) || 0),
+            latestAttemptSettledAt: row.latest_attempt_settled_at || null,
+            latestAttemptCreatedAt: row.latest_attempt_created_at || null,
+        }));
+
+        const closeRequests = (closeRequestRows || []).map((row: any) => ({
+            id: String(row.id),
+            status: String(row.status || 'PENDING'),
+            description: String(row.description || '').trim() || null,
+            createdAt: row.created_at,
+            resolvedAt: row.resolved_at || null,
+            resolvedBy: row.resolved_by || null,
+        }));
+
+        const approvedPaymentsAmount = this.roundMoney(
+            payments
+                .filter((payment) => payment.status === 'CONFIRMED')
+                .reduce((sum, payment) => sum + payment.amount, 0),
+        );
+        const pendingPaymentsAmount = this.roundMoney(
+            payments
+                .filter((payment) => payment.status === 'PENDING')
+                .reduce((sum, payment) => sum + payment.amount, 0),
+        );
+        const approvedAttemptAmount = this.roundMoney(
+            payments
+                .filter((payment) => payment.latestAttemptStatus === 'APPROVED')
+                .reduce((sum, payment) => sum + (payment.latestAttemptRequestedAmount || payment.amount), 0),
+        );
+
+        const financial = this.buildTabFinancialSummary({
+            subtotal: Number.parseFloat(String(tab.subtotal ?? '0')) || 0,
+            serviceFee: Number.parseFloat(String(tab.service_fee ?? '0')) || 0,
+            total: Number.parseFloat(String(tab.total ?? '0')) || 0,
+            paidAmount: Number.parseFloat(String(tab.paid_amount ?? '0')) || 0,
+            status: String(tab.status || 'OPEN'),
+            approvedPaymentsAmount,
+            pendingPaymentsAmount,
+            approvedAttemptAmount,
+        });
+
+        const allocationCount = Number(allocationRows?.[0]?.allocation_count || 0);
+        const tenantSettings = this.parseTenantSettings(tab.tenant_settings);
+
+        return {
+            id: String(tab.id),
+            tenantId: String(tab.tenant_id),
+            tableId: tab.table_id ? String(tab.table_id) : null,
+            tableNumber: tab.table_number || null,
+            userPhone: String(tab.user_phone || '').trim() || null,
+            paymentNotifierPhone: String(tab.payment_notifier_phone || '').trim() || null,
+            status: String(tab.status || 'OPEN'),
+            openedAt: tab.opened_at,
+            closedAt: tab.closed_at || null,
+            closedByUserId: tab.closed_by_user_id || null,
+            closedByUserName: String(tab.closed_by_user_name || '').trim() || null,
+            reopenedAt: tab.reopened_at || null,
+            reopenedByUserId: tab.reopened_by_user_id || null,
+            reopenedByUserName: String(tab.reopened_by_user_name || '').trim() || null,
+            financial,
+            split: this.buildTabSplitSummary(payments, allocationCount, tenantSettings),
+            closeRequests,
+            payments,
+            history: this.buildTabHistory({
+                tab,
+                closeRequests,
+                payments,
+                eventRows: eventRows || [],
+            }),
+            permissions: {
+                ...this.buildTabReopenPolicy(
+                    {
+                        status: String(tab.status || 'OPEN'),
+                        approvedPaymentsAmount,
+                        approvedAttemptAmount,
+                    },
+                    currentUserRole,
+                ),
+            },
+        };
+    }
+
+    async reopenTab(tabId: string, tenantId: string, actor: TabActorContext) {
+        const queryRunner = this.dataSource.createQueryRunner();
+        await queryRunner.connect();
+        await queryRunner.startTransaction();
+
+        try {
+            const tabRows = await queryRunner.query(
+                `SELECT id,
+                        tenant_id,
+                        table_id,
+                        total,
+                        paid_amount,
+                        status,
+                        closed_at
+                   FROM tabs
+                  WHERE id = $1
+                    AND tenant_id = $2
+                  LIMIT 1
+                  FOR UPDATE`,
+                [tabId, tenantId],
+            );
+            const tab = tabRows?.[0];
+            if (!tab) {
+                throw new NotFoundException('Comanda não encontrada');
+            }
+
+            if (String(tab.status || '').trim().toUpperCase() !== 'CLOSED') {
+                throw new BadRequestException('Apenas comandas fechadas podem ser reabertas');
+            }
+
+            const paymentSummaryRows = await queryRunner.query(
+                `SELECT COALESCE(SUM(CASE WHEN status = 'CONFIRMED' THEN amount ELSE 0 END), 0) AS confirmed_total
+                   FROM payments
+                  WHERE tenant_id = $1
+                    AND tab_id = $2`,
+                [tenantId, tabId],
+            );
+            const approvedAttemptRows = await queryRunner.query(
+                `SELECT COUNT(*)::int AS approved_attempts
+                   FROM payment_attempts
+                  WHERE tenant_id = $1
+                    AND tab_id = $2
+                    AND status = 'APPROVED'`,
+                [tenantId, tabId],
+            );
+
+            const confirmedTotal = this.roundMoney(Number.parseFloat(String(paymentSummaryRows?.[0]?.confirmed_total ?? '0')) || 0);
+            const approvedAttempts = Number(approvedAttemptRows?.[0]?.approved_attempts || 0);
+            const reopenPolicy = this.buildTabReopenPolicy(
+                {
+                    status: 'CLOSED',
+                    approvedPaymentsAmount: confirmedTotal,
+                    approvedAttemptAmount: approvedAttempts > 0 ? confirmedTotal : 0,
+                },
+                actor.userRole,
+            );
+
+            if (!reopenPolicy.canReopen) {
+                throw new BadRequestException(reopenPolicy.reason || 'Reabertura não permitida para esta comanda');
+            }
+
+            await queryRunner.query(
+                `UPDATE tabs
+                    SET status = 'OPEN',
+                        closed_at = NULL,
+                        reopened_at = NOW(),
+                        reopened_by_user_id = COALESCE($3::uuid, reopened_by_user_id),
+                        reopened_by_user_name = COALESCE($4, reopened_by_user_name)
+                  WHERE id = $1
+                    AND tenant_id = $2`,
+                [
+                    tabId,
+                    tenantId,
+                    this.normalizeUuidOrNull(actor.userId),
+                    this.normalizeTextOrNull(actor.userName),
+                ],
+            );
+
+            if (tab.table_id) {
+                await queryRunner.query(
+                    `UPDATE tables
+                        SET status = 'OCCUPIED'
+                      WHERE id = $1
+                        AND tenant_id = $2`,
+                    [tab.table_id, tenantId],
+                );
+            }
+
+            await this.recordTabEvent(queryRunner, tenantId, tabId, 'TAB_REOPENED', {
+                actorUserId: actor.userId,
+                actorName: actor.userName,
+                details: {
+                    reason: this.normalizeTextOrNull(actor.reason),
+                    confirmed_payments_amount: confirmedTotal,
+                    approved_attempts: approvedAttempts,
+                },
+            });
+
+            const updatedRows = await queryRunner.query(
+                `SELECT id, tenant_id, table_id, total, paid_amount, status, opened_at, closed_at, reopened_at
+                   FROM tabs
+                  WHERE id = $1
+                    AND tenant_id = $2
+                  LIMIT 1`,
+                [tabId, tenantId],
+            );
+
+            await queryRunner.commitTransaction();
+
+            return {
+                ok: true,
+                tab: updatedRows?.[0] || tab,
+            };
+        } catch (error) {
+            await queryRunner.rollbackTransaction();
+            throw error;
+        } finally {
+            await queryRunner.release();
+        }
     }
 
     async getPublicTabById(tabId: string, accessToken?: string) {
@@ -592,7 +946,12 @@ export class TablesService {
     private async finalizeTabInternal(
         tabId: string,
         tenantId: string,
-        options: { resolvedByUserId?: string; requestId?: string },
+        options: {
+            resolvedByUserId?: string;
+            resolvedByUserName?: string;
+            requestId?: string;
+            closureSource?: string;
+        },
     ) {
         const queryRunner = this.dataSource.createQueryRunner();
         await queryRunner.connect();
@@ -609,7 +968,9 @@ export class TablesService {
                         status,
                         opened_at,
                         closed_at,
-                        closed_notified_at
+                        closed_notified_at,
+                        closed_by_user_id,
+                        closed_by_user_name
                    FROM tabs
                   WHERE id = $1
                     AND tenant_id = $2
@@ -632,11 +993,30 @@ export class TablesService {
                     `UPDATE tabs
                         SET status = 'CLOSED',
                             paid_amount = $1,
-                            closed_at = COALESCE(closed_at, NOW())
+                            closed_at = COALESCE(closed_at, NOW()),
+                            closed_by_user_id = COALESCE($4::uuid, closed_by_user_id),
+                            closed_by_user_name = COALESCE($5, closed_by_user_name)
                       WHERE id = $2
                         AND tenant_id = $3`,
-                    [nextPaidAmount, tabId, tenantId],
+                    [
+                        nextPaidAmount,
+                        tabId,
+                        tenantId,
+                        this.normalizeUuidOrNull(options.resolvedByUserId),
+                        this.normalizeTextOrNull(options.resolvedByUserName),
+                    ],
                 );
+
+                await this.recordTabEvent(queryRunner, tenantId, tabId, 'TAB_CLOSED', {
+                    actorUserId: options.resolvedByUserId,
+                    actorName: options.resolvedByUserName,
+                    details: {
+                        source: String(options.closureSource || 'MANUAL_SETTLEMENT'),
+                        request_id: options.requestId || null,
+                        total: this.roundMoney(total),
+                        paid_amount: nextPaidAmount,
+                    },
+                });
             }
 
             if (options.requestId) {
@@ -689,7 +1069,19 @@ export class TablesService {
             }
 
             const updatedRows = await queryRunner.query(
-                `SELECT id, tenant_id, table_id, total, paid_amount, status, opened_at, closed_at
+                `SELECT id,
+                        tenant_id,
+                        table_id,
+                        total,
+                        paid_amount,
+                        status,
+                        opened_at,
+                        closed_at,
+                        closed_by_user_id,
+                        closed_by_user_name,
+                        reopened_at,
+                        reopened_by_user_id,
+                        reopened_by_user_name
                    FROM tabs
                   WHERE id = $1
                     AND tenant_id = $2
@@ -720,6 +1112,279 @@ export class TablesService {
             throw error;
         } finally {
             await queryRunner.release();
+        }
+    }
+
+    private buildTabFinancialSummary(input: {
+        subtotal: number;
+        serviceFee: number;
+        total: number;
+        paidAmount: number;
+        status: string;
+        approvedPaymentsAmount: number;
+        pendingPaymentsAmount: number;
+        approvedAttemptAmount: number;
+    }) {
+        const subtotal = this.roundMoney(input.subtotal);
+        const serviceFee = this.roundMoney(input.serviceFee);
+        const total = this.roundMoney(input.total);
+        const paidAmount = this.roundMoney(input.paidAmount);
+        const amountDue = this.getAmountDue(total, paidAmount, input.status);
+        const reconciliationGap = this.roundMoney(paidAmount - input.approvedPaymentsAmount);
+        const overpaymentAmount = this.roundMoney(Math.max(0, paidAmount - total));
+        const manualAdjustmentAmount = reconciliationGap > 0 ? reconciliationGap : 0;
+
+        return {
+            subtotal,
+            serviceFee,
+            total,
+            paidAmount,
+            approvedPaymentsAmount: this.roundMoney(input.approvedPaymentsAmount),
+            pendingPaymentsAmount: this.roundMoney(input.pendingPaymentsAmount),
+            approvedAttemptAmount: this.roundMoney(input.approvedAttemptAmount),
+            amountDue,
+            reconciliationGap,
+            overpaymentAmount,
+            manualAdjustmentAmount,
+            settlementStatus: Math.abs(reconciliationGap) < 0.01
+                ? 'reconciled'
+                : reconciliationGap > 0
+                    ? 'manual_adjustment'
+                    : 'provider_pending',
+        };
+    }
+
+    private buildTabSplitSummary(payments: any[], allocationCount: number, tenantSettings: Record<string, unknown>) {
+        const counters = {
+            full: { count: 0, amount: 0 },
+            splitEqual: { count: 0, amount: 0 },
+            splitItems: { count: 0, amount: 0 },
+        };
+
+        (payments || []).forEach((payment) => {
+            if (payment.paymentType === 'SPLIT_EQUAL') {
+                counters.splitEqual.count += 1;
+                counters.splitEqual.amount += Number(payment.amount || 0);
+                return;
+            }
+            if (payment.paymentType === 'SPLIT_ITEMS') {
+                counters.splitItems.count += 1;
+                counters.splitItems.amount += Number(payment.amount || 0);
+                return;
+            }
+            counters.full.count += 1;
+            counters.full.amount += Number(payment.amount || 0);
+        });
+
+        return {
+            splitEnabled: !!tenantSettings?.split_enabled,
+            allocationCount: Number(allocationCount || 0),
+            full: {
+                count: counters.full.count,
+                amount: this.roundMoney(counters.full.amount),
+            },
+            splitEqual: {
+                count: counters.splitEqual.count,
+                amount: this.roundMoney(counters.splitEqual.amount),
+            },
+            splitItems: {
+                count: counters.splitItems.count,
+                amount: this.roundMoney(counters.splitItems.amount),
+            },
+        };
+    }
+
+    private buildTabHistory(input: {
+        tab: any;
+        closeRequests: any[];
+        payments: any[];
+        eventRows: any[];
+    }) {
+        const events: any[] = [];
+
+        events.push({
+            key: `opened-${input.tab.id}`,
+            type: 'TAB_OPENED',
+            label: 'Comanda aberta',
+            description: input.tab.table_number
+                ? `Mesa ${String(input.tab.table_number).trim()} iniciou atendimento`
+                : 'Comanda iniciada',
+            actorName: null,
+            createdAt: input.tab.opened_at,
+        });
+
+        (input.closeRequests || []).forEach((request) => {
+            events.push({
+                key: `close-request-${request.id}`,
+                type: 'CLOSE_REQUEST_CREATED',
+                label: 'Pedido de fechamento',
+                description: request.description || 'Cliente solicitou fechamento da conta',
+                actorName: null,
+                createdAt: request.createdAt,
+            });
+
+            if (request.resolvedAt) {
+                events.push({
+                    key: `close-request-resolved-${request.id}`,
+                    type: 'CLOSE_REQUEST_RESOLVED',
+                    label: 'Fechamento atendido',
+                    description: 'Solicitação de fechamento foi resolvida pela equipe',
+                    actorName: request.resolvedBy || null,
+                    createdAt: request.resolvedAt,
+                });
+            }
+        });
+
+        (input.payments || []).forEach((payment) => {
+            events.push({
+                key: `payment-${payment.id}`,
+                type: 'PAYMENT_CREATED',
+                label: `Pagamento ${this.mapPaymentTypeLabel(payment.paymentType)}`,
+                description: `${this.formatPaymentMethodLabel(payment.method || payment.latestAttemptMethod)} · ${this.roundMoney(payment.amount).toFixed(2)}`,
+                actorName: null,
+                createdAt: payment.createdAt,
+            });
+
+            if (payment.paidAt || payment.latestAttemptStatus === 'APPROVED') {
+                events.push({
+                    key: `payment-approved-${payment.id}`,
+                    type: 'PAYMENT_APPROVED',
+                    label: 'Pagamento aprovado',
+                    description: `${this.formatPaymentMethodLabel(payment.method || payment.latestAttemptMethod)} confirmado`,
+                    actorName: null,
+                    createdAt: payment.paidAt || payment.latestAttemptSettledAt || payment.updatedAt || payment.createdAt,
+                });
+            } else if (payment.latestAttemptStatus === 'REJECTED') {
+                events.push({
+                    key: `payment-rejected-${payment.id}`,
+                    type: 'PAYMENT_REJECTED',
+                    label: 'Pagamento recusado',
+                    description: payment.latestAttemptProviderDetail || 'Tentativa recusada pelo provedor',
+                    actorName: null,
+                    createdAt: payment.latestAttemptCreatedAt || payment.updatedAt || payment.createdAt,
+                });
+            }
+        });
+
+        (input.eventRows || []).forEach((row) => {
+            const details = this.parseJsonObject(row?.details);
+            events.push({
+                key: `event-${row.id}`,
+                type: String(row.event_type || 'TAB_EVENT'),
+                label: this.mapTabEventLabel(String(row.event_type || 'TAB_EVENT')),
+                description: this.buildTabEventDescription(String(row.event_type || 'TAB_EVENT'), details),
+                actorName: String(row.actor_name || '').trim() || null,
+                createdAt: row.created_at,
+            });
+        });
+
+        return events
+            .filter((event) => event.createdAt)
+            .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
+    }
+
+    private buildTabReopenPolicy(
+        input: { status: string; approvedPaymentsAmount: number; approvedAttemptAmount: number },
+        currentUserRole?: string,
+    ) {
+        const closed = String(input.status || '').trim().toUpperCase() === 'CLOSED';
+        if (!closed) {
+            return {
+                canReopen: false,
+                requiresManagerApproval: false,
+                reason: 'A comanda ainda está aberta',
+            };
+        }
+
+        const requiresManagerApproval = input.approvedPaymentsAmount > 0 || input.approvedAttemptAmount > 0;
+        const privileged = this.isManagerRole(currentUserRole);
+
+        if (requiresManagerApproval && !privileged) {
+            return {
+                canReopen: false,
+                requiresManagerApproval: true,
+                reason: 'Comanda com pagamento liquidado só pode ser reaberta por gerente ou admin',
+            };
+        }
+
+        return {
+            canReopen: true,
+            requiresManagerApproval,
+            reason: '',
+        };
+    }
+
+    private isManagerRole(role?: string) {
+        return [TenantUserRole.Admin, TenantUserRole.Manager].includes(String(role || '').trim().toUpperCase() as TenantUserRole);
+    }
+
+    private async recordTabEvent(
+        queryRunner: any,
+        tenantId: string,
+        tabId: string,
+        eventType: string,
+        options: { actorUserId?: string; actorName?: string; details?: Record<string, unknown> },
+    ) {
+        await queryRunner.query(
+            `INSERT INTO tab_events
+                (id, tenant_id, tab_id, event_type, actor_user_id, actor_name, details, created_at)
+             VALUES (gen_random_uuid(), $1, $2, $3, $4::uuid, $5, $6::jsonb, NOW())`,
+            [
+                tenantId,
+                tabId,
+                eventType,
+                this.normalizeUuidOrNull(options.actorUserId),
+                this.normalizeTextOrNull(options.actorName),
+                JSON.stringify(options.details || {}),
+            ],
+        );
+    }
+
+    private mapTabEventLabel(eventType: string) {
+        if (eventType === 'TAB_CLOSED') return 'Comanda fechada';
+        if (eventType === 'TAB_REOPENED') return 'Comanda reaberta';
+        return 'Evento da comanda';
+    }
+
+    private buildTabEventDescription(eventType: string, details: Record<string, any>) {
+        if (eventType === 'TAB_CLOSED') {
+            const source = String(details?.source || 'MANUAL_SETTLEMENT').trim();
+            if (source === 'PAYMENT_APPROVED') {
+                return 'Fechamento automático após pagamento aprovado';
+            }
+            if (source === 'CLOSE_REQUEST') {
+                return 'Fechamento concluído a partir de uma solicitação do salão';
+            }
+            return 'Fechamento manual registrado pela equipe';
+        }
+        if (eventType === 'TAB_REOPENED') {
+            const reason = String(details?.reason || '').trim();
+            return reason ? `Reabertura registrada: ${reason}` : 'Comanda reaberta para continuar o atendimento';
+        }
+        return 'Evento registrado na trilha de auditoria';
+    }
+
+    private mapPaymentTypeLabel(value?: string) {
+        if (value === 'SPLIT_EQUAL') return 'rateado por pessoa';
+        if (value === 'SPLIT_ITEMS') return 'rateado por item';
+        return 'integral';
+    }
+
+    private formatPaymentMethodLabel(value?: string | null) {
+        const normalized = String(value || '').trim().toUpperCase();
+        if (normalized === 'PIX') return 'Pix';
+        if (normalized === 'CREDIT_CARD') return 'Cartão de crédito';
+        if (normalized === 'DEBIT_CARD') return 'Cartão de débito';
+        return normalized || 'Forma não informada';
+    }
+
+    private parseJsonObject(value: unknown) {
+        if (!value) return {};
+        if (typeof value === 'object') return value as Record<string, any>;
+        try {
+            return JSON.parse(String(value));
+        } catch (_error) {
+            return {};
         }
     }
 
@@ -1058,6 +1723,11 @@ Esperamos te receber novamente em breve! 😊`;
         return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(text)
             ? text
             : null;
+    }
+
+    private normalizeTextOrNull(value?: string | null) {
+        const text = String(value || '').trim();
+        return text || null;
     }
 
     private roundMoney(value: number) {

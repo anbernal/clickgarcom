@@ -279,6 +279,184 @@ async function deleteTable(id) {
   }
 }
 
+function formatDateTime(dateStr) {
+  if (!dateStr) return '-';
+  return `${formatDate(dateStr)} às ${formatTime(dateStr)}`;
+}
+
+function getComandaStatusMeta(status) {
+  if (status === 'CLOSED') {
+    return { label: 'Fechada', cls: 'status-canceled' };
+  }
+  return { label: 'Aberta', cls: 'status-done' };
+}
+
+function renderComandaMetric(label, value, helper, accent = 'var(--text)') {
+  return `
+    <div style="border:1px solid var(--border); border-radius:12px; padding:14px; background:var(--card-bg);">
+      <div style="font-size:11px; text-transform:uppercase; font-weight:700; color:var(--text-light); margin-bottom:6px;">${escapeHTML(label)}</div>
+      <div style="font-size:22px; font-weight:800; color:${accent};">${escapeHTML(value)}</div>
+      <div style="font-size:12px; color:var(--text-light); margin-top:6px;">${escapeHTML(helper)}</div>
+    </div>
+  `;
+}
+
+function renderSettlementAlert(detail) {
+  const financial = detail?.financial || {};
+  const gap = Number(financial.reconciliationGap || 0);
+  const amountDue = Number(financial.amountDue || 0);
+
+  if (Math.abs(gap) >= 0.01) {
+    const tone = gap > 0 ? '#b45309' : '#2563eb';
+    const bg = gap > 0 ? 'rgba(245,158,11,0.08)' : 'rgba(59,130,246,0.08)';
+    const text = gap > 0
+      ? `A comanda registra ${formatCurrency(gap)} a mais do que os pagamentos confirmados.`
+      : `Existem ${formatCurrency(Math.abs(gap))} em pagamentos confirmados ainda não refletidos no fechamento.`;
+    return `
+      <div style="padding:14px 16px; border-radius:12px; background:${bg}; border:1px solid ${bg}; color:${tone}; font-size:13px; line-height:1.45;">
+        <strong>Conciliação em atenção.</strong> ${escapeHTML(text)}
+      </div>
+    `;
+  }
+
+  if (amountDue > 0 && detail.status !== 'CLOSED') {
+    return `
+      <div style="padding:14px 16px; border-radius:12px; background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.14); color:#b91c1c; font-size:13px; line-height:1.45;">
+        <strong>Pagamento pendente.</strong> Ainda faltam ${escapeHTML(formatCurrency(amountDue))} para encerrar a comanda.
+      </div>
+    `;
+  }
+
+  return `
+    <div style="padding:14px 16px; border-radius:12px; background:rgba(16,185,129,0.08); border:1px solid rgba(16,185,129,0.14); color:#047857; font-size:13px; line-height:1.45;">
+      <strong>Conciliação em dia.</strong> Valores da comanda e pagamentos registrados estão coerentes.
+    </div>
+  `;
+}
+
+function renderComandaPayments(detail) {
+  const payments = Array.isArray(detail?.payments) ? detail.payments : [];
+  if (!payments.length) {
+    return '<div style="font-size:12px; color:var(--text-light);">Nenhum pagamento registrado para esta comanda.</div>';
+  }
+
+  return payments.map((payment) => {
+    const attemptStatus = payment.latestAttemptStatus ? ` · Tentativa ${payment.latestAttemptStatus}` : '';
+    return `
+      <div style="border:1px solid var(--border); border-radius:10px; padding:12px; background:var(--bg);">
+        <div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start;">
+          <div>
+            <div style="font-weight:700; color:var(--text);">${escapeHTML(payment.paymentType || 'FULL')} · ${escapeHTML(payment.method || 'Forma não informada')}</div>
+            <div style="font-size:12px; color:var(--text-light); margin-top:4px;">${escapeHTML(formatDateTime(payment.createdAt))}${escapeHTML(attemptStatus)}</div>
+          </div>
+          <div style="text-align:right;">
+            <div class="mono" style="font-weight:700;">${formatCurrency(payment.amount)}</div>
+            <div style="font-size:12px; color:var(--text-light);">${escapeHTML(payment.status || 'PENDING')}</div>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderComandaHistory(detail) {
+  const history = Array.isArray(detail?.history) ? detail.history : [];
+  if (!history.length) {
+    return '<div style="font-size:12px; color:var(--text-light);">Sem eventos registrados ainda.</div>';
+  }
+
+  return history.map((event) => `
+    <div style="display:grid; grid-template-columns:110px 1fr; gap:12px; align-items:flex-start; padding:10px 0; border-bottom:1px solid var(--border);">
+      <div style="font-size:12px; color:var(--text-light);">${escapeHTML(formatDateTime(event.createdAt))}</div>
+      <div>
+        <div style="font-weight:700; color:var(--text);">${escapeHTML(event.label || 'Evento')}</div>
+        <div style="font-size:12px; color:var(--text-light); margin-top:4px;">${escapeHTML(event.description || 'Sem detalhe')}</div>
+        ${event.actorName ? `<div style="font-size:11px; color:var(--text-light); margin-top:4px;">por ${escapeHTML(event.actorName)}</div>` : ''}
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderComandaCard(detail, idx, tableId, tableNumber) {
+  const financial = detail?.financial || {};
+  const split = detail?.split || {};
+  const permissions = detail?.permissions || {};
+  const statusMeta = getComandaStatusMeta(detail?.status);
+  const identifier = String(detail?.id || '').slice(0, 8) || '--------';
+  const closeRequests = Array.isArray(detail?.closeRequests) ? detail.closeRequests : [];
+  const splitAmount = Number(split.splitEqual?.amount || 0) + Number(split.splitItems?.amount || 0);
+
+  return `
+    <div style="border:1px solid var(--border); border-radius:16px; padding:18px; margin-bottom:14px; background:var(--card-bg); box-shadow:var(--shadow); display:flex; flex-direction:column; gap:16px;">
+      <div style="display:flex; justify-content:space-between; gap:16px; align-items:flex-start; flex-wrap:wrap;">
+        <div>
+          <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+            <strong>Comanda ${idx + 1}</strong>
+            <span class="status-pill ${statusMeta.cls}">${escapeHTML(statusMeta.label)}</span>
+            <span style="font-size:12px; color:var(--text-light);">#${escapeHTML(identifier)}</span>
+          </div>
+          <div style="font-size:12px; color:var(--text-light); margin-top:8px;">
+            Abertura: ${escapeHTML(formatDateTime(detail?.openedAt))}
+            ${detail?.closedAt ? ` · Fechada: ${escapeHTML(formatDateTime(detail.closedAt))}` : ''}
+          </div>
+          <div style="font-size:12px; color:var(--text-light); margin-top:4px;">
+            Cliente: ${escapeHTML(detail?.userPhone || 'Não identificado')}
+            ${detail?.paymentNotifierPhone ? ` · Notificador: ${escapeHTML(detail.paymentNotifierPhone)}` : ''}
+          </div>
+        </div>
+        <div style="text-align:right; font-size:12px; color:var(--text-light);">
+          <div>${closeRequests.length} solicitação(ões) de fechamento</div>
+          <div>${split.splitEqual?.count || 0} rateios por pessoa · ${split.splitItems?.count || 0} por item</div>
+        </div>
+      </div>
+
+      ${renderSettlementAlert(detail)}
+
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:10px;">
+        ${renderComandaMetric('Total original', formatCurrency(financial.total || 0), 'Subtotal + taxa de serviço', 'var(--teal)')}
+        ${renderComandaMetric('Total rateado', formatCurrency(splitAmount), 'Pagamentos em divisão por pessoa/item', '#7c3aed')}
+        ${renderComandaMetric('Pago registrado', formatCurrency(financial.paidAmount || 0), 'Valor baixado na comanda', '#2563eb')}
+        ${renderComandaMetric('Pagamento confirmado', formatCurrency(financial.approvedPaymentsAmount || 0), 'Confirmado pelo fluxo de pagamento', '#0f766e')}
+        ${renderComandaMetric('Saldo pendente', formatCurrency(financial.amountDue || 0), detail?.status === 'CLOSED' ? 'Comanda encerrada' : 'Valor restante para fechar', '#b91c1c')}
+      </div>
+
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
+        <div style="display:flex; flex-direction:column; gap:10px;">
+          <div style="font-size:13px; font-weight:700; color:var(--text);">Pagamentos e rateio</div>
+          ${renderComandaPayments(detail)}
+          <div style="font-size:12px; color:var(--text-light);">
+            Divergência: <strong>${escapeHTML(formatCurrency(financial.reconciliationGap || 0))}</strong>
+            · Alocações por item: <strong>${escapeHTML(String(split.allocationCount || 0))}</strong>
+          </div>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:10px;">
+          <div style="font-size:13px; font-weight:700; color:var(--text);">Histórico da comanda</div>
+          <div style="border:1px solid var(--border); border-radius:12px; padding:0 12px; background:var(--bg); max-height:260px; overflow-y:auto;">
+            ${renderComandaHistory(detail)}
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex; justify-content:flex-end; gap:10px; flex-wrap:wrap;">
+        ${detail?.status !== 'CLOSED' ? `
+          <button class="btn-sm btn-primary" onclick="finalizeTabFromModal('${escapeHTML(String(detail.id))}', '${escapeHTML(String(tableId))}', '${escapeHTML(String(tableNumber))}')">
+            Conta finalizada
+          </button>
+        ` : `
+          <button
+            class="btn-sm ${permissions.canReopen ? 'btn-outline' : 'btn-danger'}"
+            ${permissions.canReopen ? '' : 'disabled'}
+            title="${escapeHTML(permissions.reason || '')}"
+            onclick="reopenTabFromModal('${escapeHTML(String(detail.id))}', '${escapeHTML(String(tableId))}', '${escapeHTML(String(tableNumber))}')"
+          >
+            Reabrir comanda
+          </button>
+        `}
+      </div>
+    </div>
+  `;
+}
+
 async function viewComandas(tableId, tableNumber) {
   try {
     const tabs = await api.get(`/tables/${tableId}/tabs`);
@@ -288,39 +466,29 @@ async function viewComandas(tableId, tableNumber) {
       return;
     }
 
-    const tabsHtml = tabs.map((tab, idx) => `
-      <div style="border:1px solid var(--border); border-radius:8px; padding:14px; margin-bottom:12px; background:var(--bg-color)">
-        <div style="display:flex; justify-content:space-between; margin-bottom:12px">
-          <div>
-            <strong>Comanda ${idx + 1}</strong> <span style="font-size:12px; color:var(--text-light)">(${tab.id.substring(0, 8)})</span><br/>
-            <span class="status-pill status-done" style="margin-top:4px; display:inline-block">${tab.status}</span>
-          </div>
-          <div style="text-align:right; font-size:12px; color:var(--text-light)">
-            <div><strong>Abertura:</strong></div>
-            <div>${formatDate(tab.openedAt)}</div>
-          </div>
-        </div>
-        <div style="background:var(--card-bg); border-radius:6px; padding:10px; margin-bottom:12px">
-          <div style="display:flex; justify-content:space-between; margin-bottom:4px">
-            <span style="color:var(--muted); font-size:14px">Subtotal</span>
-            <span class="mono" style="font-size:14px">${formatCurrency(tab.subtotal)}</span>
-          </div>
-          <div style="display:flex; justify-content:space-between; margin-bottom:4px">
-            <span style="color:var(--muted); font-size:14px">Taxa de servico</span>
-            <span class="mono" style="font-size:14px">${formatCurrency(tab.serviceFee)}</span>
-          </div>
-          <div style="display:flex; justify-content:space-between; font-weight:700; padding-top:6px; border-top:1px solid var(--border); font-size:16px">
-            <span>Total a Pagar</span>
-            <span class="mono" style="color:var(--teal)">${formatCurrency(tab.total)}</span>
-          </div>
-        </div>
-        <div style="display:flex; justify-content:flex-end;">
-          <button class="btn-sm btn-primary" onclick="finalizeTabFromModal('${escapeHTML(String(tab.id))}', '${escapeHTML(String(tableId))}', '${escapeHTML(String(tableNumber))}')">
-            Conta finalizada
-          </button>
-        </div>
-      </div>
-    `).join('');
+    const details = await Promise.all(
+      tabs.map((tab) => api.get(`/tables/tabs/${tab.id}/details`).catch(() => ({
+        id: tab.id,
+        status: tab.status,
+        openedAt: tab.openedAt,
+        financial: {
+          total: tab.total,
+          paidAmount: tab.paidAmount || 0,
+          approvedPaymentsAmount: 0,
+          amountDue: Math.max(0, Number(tab.total || 0) - Number(tab.paidAmount || 0)),
+          reconciliationGap: 0,
+        },
+        split: { splitEqual: { count: 0 }, splitItems: { count: 0 }, allocationCount: 0 },
+        closeRequests: [],
+        payments: [],
+        history: [],
+        permissions: { canReopen: false, reason: '' },
+      }))),
+    );
+
+    const tabsHtml = details.map((detail, idx) => renderComandaCard(detail, idx, tableId, tableNumber)).join('');
+    const openCount = details.filter((detail) => detail.status !== 'CLOSED').length;
+    const closedCount = details.filter((detail) => detail.status === 'CLOSED').length;
 
     openModal(`
       <div class="modal-header">
@@ -328,12 +496,29 @@ async function viewComandas(tableId, tableNumber) {
         <button class="modal-close" onclick="closeModal()">✕</button>
       </div>
       <div class="modal-body" style="max-height:60vh; overflow-y:auto; padding-right:8px">
-        ${tabs.length > 1 ? '<div class="alert alert-info" style="margin-bottom:16px"><i class="fas fa-info-circle"></i> Esta mesa possui comandas individuais/divididas.</div>' : ''}
+        <div style="margin-bottom:16px; padding:14px 16px; border-radius:12px; background:rgba(59,130,246,0.06); border:1px solid rgba(59,130,246,0.12); font-size:13px; color:var(--text-light);">
+          ${tabs.length > 1 ? 'Esta mesa possui comandas individuais/divididas.' : 'Esta mesa possui uma comanda principal.'}
+          <strong style="color:var(--text); margin-left:6px;">${openCount} aberta(s)</strong>
+          <span style="margin:0 6px;">·</span>
+          <strong style="color:var(--text);">${closedCount} fechada(s)</strong>
+        </div>
         ${tabsHtml}
       </div>
     `);
   } catch (err) {
     showToast(`Erro ao carregar as comandas: ${err.message}`, 'error');
+  }
+}
+
+async function reopenTabFromModal(tabId, tableId, tableNumber) {
+  const reason = window.prompt('Motivo da reabertura da comanda:') || '';
+  try {
+    await api.post(`/tables/tabs/${tabId}/reopen`, { reason });
+    await loadMesas();
+    await viewComandas(tableId, tableNumber);
+    showToast('Comanda reaberta com sucesso');
+  } catch (err) {
+    showToast(`Erro ao reabrir a comanda: ${err.message}`, 'error');
   }
 }
 

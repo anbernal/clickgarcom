@@ -84,7 +84,7 @@ export class TablesController {
     @Post('waiter/close-requests/:id/finalize')
     @Roles(...TENANT_SETTLEMENT_ROLES)
     async finalizeCloseRequest(@Request() req, @Param('id') id: string) {
-        return this.tablesService.finalizeCloseRequest(id, req.user.tenantId, req.user?.id);
+        return this.tablesService.finalizeCloseRequest(id, req.user.tenantId, req.user?.id, req.user?.name);
     }
 
     @Get('waiter/chats/open')
@@ -118,7 +118,24 @@ export class TablesController {
     @Post('tabs/:tabId/finalize')
     @Roles(...TENANT_SETTLEMENT_ROLES)
     async finalizeTab(@Request() req, @Param('tabId') tabId: string) {
-        return this.tablesService.finalizeTab(tabId, req.user.tenantId, req.user?.id);
+        return this.tablesService.finalizeTab(tabId, req.user.tenantId, req.user?.id, req.user?.name);
+    }
+
+    @Get('tabs/:tabId/details')
+    @Roles(...TENANT_TABLE_READ_ROLES)
+    async getTabDetails(@Request() req, @Param('tabId') tabId: string) {
+        return this.tablesService.getTabDetails(tabId, req.user.tenantId, req.user?.role);
+    }
+
+    @Post('tabs/:tabId/reopen')
+    @Roles(...TENANT_SETTLEMENT_ROLES)
+    async reopenTab(@Request() req, @Param('tabId') tabId: string, @Body('reason') reason?: string) {
+        return this.tablesService.reopenTab(tabId, req.user.tenantId, {
+            userId: req.user?.id,
+            userName: req.user?.name,
+            userRole: req.user?.role,
+            reason,
+        });
     }
 
     @Get(':id/tab')
