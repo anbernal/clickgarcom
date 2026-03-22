@@ -29,6 +29,9 @@ export class MenuItem {
     @Column({ type: 'decimal', precision: 10, scale: 2 })
     price!: number;
 
+    @Column({ type: 'decimal', precision: 10, scale: 2, name: 'cost_price', nullable: true })
+    costPrice!: number | null;
+
     @Column({ type: 'text', name: 'image_url', nullable: true })
     imageUrl!: string | null;
 

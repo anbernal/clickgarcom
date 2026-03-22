@@ -24,6 +24,15 @@ export class ReportsController {
         return this.reportsService.getSalesReport(req.user.tenantId, startDate, endDate);
     }
 
+    @Get('management')
+    managementReport(
+        @Request() req,
+        @Query('start_date') startDate?: string,
+        @Query('end_date') endDate?: string,
+    ) {
+        return this.reportsService.getManagementReport(req.user.tenantId, startDate, endDate);
+    }
+
     @Get('top-items')
     topItems(
         @Request() req,

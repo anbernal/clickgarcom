@@ -84,20 +84,23 @@ Criterios de pronto:
 
 ## Epic 04 - Relatorios Gerenciais
 
-Status: Planejado
+Status: Concluido
 
 Objetivo:
 Sair do relatorio basico e entregar visao gerencial de venda, operacao e perda.
 
 Tasks:
-- [ ] Adicionar margem por item e por categoria.
-- [ ] Adicionar taxa de cancelamento e valor perdido.
-- [ ] Adicionar tempo medio de preparo e tempo medio ate aceite.
-- [ ] Adicionar ticket medio por faixa horaria.
-- [ ] Adicionar pico por hora e por dia.
-- [ ] Adicionar comparativo de periodo contra periodo anterior.
-- [ ] Adicionar itens com baixa conversao no cardapio.
-- [ ] Adicionar ranking de categorias.
+- [x] Adicionar margem por item e por categoria.
+- [x] Adicionar taxa de cancelamento e valor perdido.
+- [x] Adicionar tempo medio de preparo e tempo medio ate aceite.
+- [x] Adicionar ticket medio por faixa horaria.
+- [x] Adicionar pico por hora e por dia.
+- [x] Adicionar comparativo de periodo contra periodo anterior.
+- [x] Adicionar itens com baixa conversao no cardapio.
+- [x] Adicionar ranking de categorias.
+
+Observacao:
+- A margem depende do custo base configurado no cardapio. O painel agora explicita a cobertura de custo para evitar leitura enganosa.
 
 Criterios de pronto:
 - Gestor consegue responder o que vende mais, o que atrasa mais e o que perde dinheiro.

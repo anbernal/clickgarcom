@@ -19,6 +19,12 @@ export class UpdateMenuItemDto {
     price?: number;
 
     @IsOptional()
+    @Type(() => Number)
+    @IsNumber({ maxDecimalPlaces: 2 })
+    @Min(0)
+    cost_price?: number;
+
+    @IsOptional()
     @IsUUID()
     category_id?: string;
 

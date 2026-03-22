@@ -654,6 +654,31 @@ export function buildTenantAdminOpenApiDocument() {
                     },
                 },
             },
+            [`${ADMIN_API_VERSIONED_BASE_PATH}/reports/management`]: {
+                get: {
+                    tags: ['Reports'],
+                    summary: 'Relatorio gerencial consolidado do tenant autenticado',
+                    security: [{ bearerAuth: [] }],
+                    parameters: [
+                        {
+                            name: 'start_date',
+                            in: 'query',
+                            schema: { type: 'string', format: 'date' },
+                        },
+                        {
+                            name: 'end_date',
+                            in: 'query',
+                            schema: { type: 'string', format: 'date' },
+                        },
+                    ],
+                    responses: {
+                        '200': versionedSuccessResponse('Resumo gerencial de vendas, margem, cancelamento e operacao.', {
+                            type: 'object',
+                            additionalProperties: true,
+                        }),
+                    },
+                },
+            },
             [`${ADMIN_API_VERSIONED_BASE_PATH}/reports/top-items`]: {
                 get: {
                     tags: ['Reports'],
@@ -1620,6 +1645,7 @@ export function buildTenantAdminOpenApiDocument() {
                         name: { type: 'string' },
                         description: { type: 'string' },
                         price: { type: 'number' },
+                        cost_price: { type: 'number', nullable: true },
                         category_id: { type: 'string', format: 'uuid' },
                         destination: { type: 'string', enum: ['KITCHEN', 'BAR'] },
                         prep_time_minutes: { type: 'integer' },
@@ -1637,6 +1663,7 @@ export function buildTenantAdminOpenApiDocument() {
                         name: { type: 'string' },
                         description: { type: 'string' },
                         price: { type: 'number' },
+                        cost_price: { type: 'number', nullable: true },
                         category_id: { type: 'string', format: 'uuid' },
                         destination: { type: 'string', enum: ['KITCHEN', 'BAR'] },
                         prep_time_minutes: { type: 'integer' },

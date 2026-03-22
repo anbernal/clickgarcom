@@ -84,6 +84,11 @@ function renderCardapio(filterCatId = null, search = '') {
               <div class="menu-name">${escapeHTML(item.name)}</div>
               <div class="menu-cat">${escapeHTML(item.category ? item.category.name : 'Sem categoria')}${item.whatsappShortName ? ' · WA: ' + escapeHTML(item.whatsappShortName) : ''}</div>
               <div class="menu-price">${escapeHTML(formatCurrency(item.price))}</div>
+              <div style="font-size:12px;color:var(--muted);margin-top:4px">
+                ${item.costPrice !== null && item.costPrice !== undefined
+                    ? `Custo: ${escapeHTML(formatCurrency(item.costPrice))} · Margem bruta: ${escapeHTML(formatCurrency(Number(item.price || 0) - Number(item.costPrice || 0)))}`
+                    : 'Custo não informado para margem'}
+              </div>
               <div style="font-size:12px;color:var(--muted);margin-top:6px">${escapeHTML(item.whatsappShortDescription || item.description || 'Sem descrição curta configurada')}</div>
               <div class="menu-footer">
                 <div class="status-pill ${item.available ? 'status-done' : 'status-pending'}">${item.available ? 'Ativo' : 'Inativo'}</div>
@@ -156,6 +161,13 @@ function openMenuItemModal(itemId) {
           <input type="number" step="0.01" id="mi-price" value="${item ? item.price : ''}" placeholder="0.00">
         </div>
         <div class="form-group">
+          <label>Custo Base (R$)</label>
+          <input type="number" step="0.01" id="mi-cost-price" value="${item && item.costPrice !== null && item.costPrice !== undefined ? item.costPrice : ''}" placeholder="Opcional">
+          <div style="font-size:12px;color:var(--muted);margin-top:6px">Usado nos relatórios de margem e ranking gerencial.</div>
+        </div>
+      </div>
+      <div class="form-row-2">
+        <div class="form-group">
           <label>Categoria</label>
           <select id="mi-category">
             <option value="">Sem categoria</option>
@@ -203,6 +215,7 @@ async function saveMenuItem(itemId) {
     name: document.getElementById('mi-name').value,
     description: document.getElementById('mi-description').value,
     price: parseFloat(document.getElementById('mi-price').value),
+    cost_price: document.getElementById('mi-cost-price').value === '' ? null : parseFloat(document.getElementById('mi-cost-price').value),
     category_id: document.getElementById('mi-category').value || null,
     destination: document.getElementById('mi-destination').value,
     prep_time_minutes: parseInt(document.getElementById('mi-prep').value) || 15,
@@ -213,6 +226,11 @@ async function saveMenuItem(itemId) {
 
   if (!data.name || !data.price) {
     showToast('Nome e preço são obrigatórios', 'error');
+    return;
+  }
+
+  if (data.cost_price !== null && Number.isNaN(data.cost_price)) {
+    showToast('Custo base inválido', 'error');
     return;
   }
 
