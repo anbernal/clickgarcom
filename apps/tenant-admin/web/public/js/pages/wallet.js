@@ -152,6 +152,33 @@ async function loadWallet() {
                     </div>
                 </div>
 
+                <div style="
+                    background: linear-gradient(135deg, rgba(59,130,246,0.08), rgba(26,188,156,0.06));
+                    border: 1px solid rgba(59,130,246,0.12);
+                    border-radius: 18px;
+                    padding: 22px 24px;
+                    margin-bottom: 28px;
+                    display:flex;
+                    align-items:center;
+                    justify-content:space-between;
+                    gap:18px;
+                ">
+                    <div>
+                        <div style="font-size:14px; font-weight:700; color:var(--dark); margin-bottom:6px;">Extrato detalhado de mensagens</div>
+                        <div style="font-size:13px; color:var(--muted); max-width:520px;">
+                            Veja linha por linha quem enviou, quando aconteceu e qual mensagem entrou no consumo do seu WhatsApp.
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        class="btn-sm btn-primary"
+                        style="padding:10px 16px; white-space:nowrap;"
+                        onclick="navigate('extratoMensagens')"
+                    >
+                        Ver extrato
+                    </button>
+                </div>
+
                 <!-- PIX Recharge Section -->
                 <div style="
                     background: var(--card-bg); border-radius:20px; padding:32px;

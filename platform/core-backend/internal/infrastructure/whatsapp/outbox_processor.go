@@ -3,6 +3,7 @@ package whatsapp
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/anbernal/clickgarcom/internal/domain/tenant"
@@ -155,10 +156,12 @@ func (p *OutboxProcessor) processMessage(ctx context.Context, msg *domain.Outbox
 			}
 			if p.logRepo != nil {
 				p.logRepo.Save(context.Background(), &tenant.MessageLog{
-					TenantID:  tid,
-					Direction: tenant.DirectionOut,
-					MessageID: mid,
-					Status:    "SENT",
+					TenantID:       tid,
+					Direction:      tenant.DirectionOut,
+					MessageID:      mid,
+					Status:         "SENT",
+					UserPhone:      strings.TrimSpace(msg.Recipient),
+					MessagePreview: sanitizeMessagePreview(msg.Payload),
 				})
 			}
 		}(*msg.TenantID, messageID)

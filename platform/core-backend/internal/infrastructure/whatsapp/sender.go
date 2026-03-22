@@ -103,7 +103,12 @@ func (s *Sender) SendImage(ctx context.Context, to, imageURL, caption string) (s
 	}
 
 	if billingTenant != nil {
-		if err := s.applyImmediateBilling(ctx, billingTenant, messageID); err != nil {
+		preview := caption
+		if strings.TrimSpace(preview) == "" {
+			preview = normalizedImageURL
+		}
+
+		if err := s.applyImmediateBilling(ctx, billingTenant, messageID, to, preview); err != nil {
 			s.logger.Warn("failed to apply image message billing",
 				zap.String("tenant_id", billingTenant.ID.String()),
 				zap.Error(err),
@@ -135,7 +140,7 @@ func (s *Sender) SendInteractiveButtons(ctx context.Context, to, bodyText string
 	}
 
 	if billingTenant != nil {
-		if err := s.applyImmediateBilling(ctx, billingTenant, messageID); err != nil {
+		if err := s.applyImmediateBilling(ctx, billingTenant, messageID, to, bodyText); err != nil {
 			s.logger.Warn("failed to apply interactive message billing",
 				zap.String("tenant_id", billingTenant.ID.String()),
 				zap.Error(err),
@@ -170,7 +175,7 @@ func (s *Sender) SendInteractiveList(
 	}
 
 	if billingTenant != nil {
-		if err := s.applyImmediateBilling(ctx, billingTenant, messageID); err != nil {
+		if err := s.applyImmediateBilling(ctx, billingTenant, messageID, to, bodyText); err != nil {
 			s.logger.Warn("failed to apply interactive list billing",
 				zap.String("tenant_id", billingTenant.ID.String()),
 				zap.Error(err),
@@ -213,7 +218,13 @@ func (s *Sender) loadTenantForBilling(ctx context.Context) (*tenantDomain.Tenant
 	return &t, nil
 }
 
-func (s *Sender) applyImmediateBilling(ctx context.Context, tenant *tenantDomain.Tenant, messageID string) error {
+func (s *Sender) applyImmediateBilling(
+	ctx context.Context,
+	tenant *tenantDomain.Tenant,
+	messageID string,
+	userPhone string,
+	messagePreview string,
+) error {
 	if tenant.BillingPlan == tenantDomain.PlanPrePaid {
 		if err := s.db.WithContext(ctx).
 			Model(&tenantDomain.Tenant{}).
@@ -225,10 +236,12 @@ func (s *Sender) applyImmediateBilling(ctx context.Context, tenant *tenantDomain
 	}
 
 	logEntry := &tenantDomain.MessageLog{
-		TenantID:  tenant.ID,
-		Direction: tenantDomain.DirectionOut,
-		MessageID: messageID,
-		Status:    "SENT",
+		TenantID:       tenant.ID,
+		Direction:      tenantDomain.DirectionOut,
+		MessageID:      messageID,
+		Status:         "SENT",
+		UserPhone:      strings.TrimSpace(userPhone),
+		MessagePreview: sanitizeMessagePreview(messagePreview),
 	}
 
 	if err := s.db.WithContext(ctx).Create(logEntry).Error; err != nil {
@@ -236,4 +249,18 @@ func (s *Sender) applyImmediateBilling(ctx context.Context, tenant *tenantDomain
 	}
 
 	return nil
+}
+
+func sanitizeMessagePreview(value string) string {
+	normalized := strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
+	if normalized == "" {
+		return ""
+	}
+
+	runes := []rune(normalized)
+	if len(runes) > 255 {
+		return string(runes[:255])
+	}
+
+	return normalized
 }

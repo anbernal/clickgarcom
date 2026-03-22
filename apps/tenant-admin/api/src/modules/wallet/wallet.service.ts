@@ -5,6 +5,11 @@ import { DataSource, Repository } from 'typeorm';
 
 import { Tenant } from '../../entities/tenant.entity';
 
+type MessageStatementQuery = {
+    page?: string | number;
+    limit?: string | number;
+};
+
 @Injectable()
 export class WalletService {
     constructor(
@@ -48,6 +53,134 @@ export class WalletService {
 
     async getPaymentStatus(tenantId: string, paymentId: string) {
         return this.requestWithFallback('get', `/payments/${paymentId}/status`, tenantId);
+    }
+
+    async getMessageStatement(tenantId: string, query: MessageStatementQuery = {}) {
+        const page = this.parsePositiveInt(query.page, 1, 100000);
+        const limit = this.parsePositiveInt(query.limit, 20, 100);
+        const offset = (page - 1) * limit;
+
+        if (!(await this.hasMessageLogsTable())) {
+            return {
+                page,
+                limit,
+                total: 0,
+                summary: {
+                    messagesIn: 0,
+                    messagesOut: 0,
+                    messagesUsed: 0,
+                },
+                items: [],
+            };
+        }
+
+        const hasDetailColumns = await this.hasMessageLogDetailColumns();
+        const detailPhoneExpr = hasDetailColumns ? `NULLIF(TRIM(ml.user_phone), '')` : `NULL`;
+        const detailPreviewExpr = hasDetailColumns ? `NULLIF(TRIM(ml.message_preview), '')` : `NULL`;
+
+        const [rows, totalRows, summary] = await Promise.all([
+            this.dataSource.query(
+                `SELECT
+                    ml.id,
+                    ml.direction,
+                    ml.status,
+                    ml.message_id,
+                    ml.created_at,
+                    COALESCE(
+                        ${detailPhoneExpr},
+                        inbound.user_phone,
+                        outbound.user_phone
+                    ) AS user_phone,
+                    COALESCE(
+                        ${detailPreviewExpr},
+                        inbound.message_preview,
+                        outbound.message_preview,
+                        CASE
+                            WHEN ml.direction = 'IN' THEN 'Mensagem recebida'
+                            ELSE 'Mensagem enviada'
+                        END
+                    ) AS message_preview
+                 FROM message_logs ml
+                 LEFT JOIN LATERAL (
+                    SELECT
+                        NULLIF(TRIM(ie.payload #>> '{entry,0,changes,0,value,messages,0,from}'), '') AS user_phone,
+                        LEFT(
+                            REGEXP_REPLACE(
+                                COALESCE(
+                                    NULLIF(TRIM(ie.payload #>> '{entry,0,changes,0,value,messages,0,text,body}'), ''),
+                                    NULLIF(TRIM(ie.payload #>> '{entry,0,changes,0,value,messages,0,interactive,button_reply,title}'), ''),
+                                    NULLIF(TRIM(ie.payload #>> '{entry,0,changes,0,value,messages,0,interactive,list_reply,title}'), ''),
+                                    NULLIF(TRIM(ie.payload #>> '{entry,0,changes,0,value,messages,0,interactive,list_reply,description}'), ''),
+                                    'Mensagem recebida'
+                                ),
+                                '\\s+',
+                                ' ',
+                                'g'
+                            ),
+                            255
+                        ) AS message_preview
+                    FROM inbox_events ie
+                    WHERE ie.tenant_id = $1
+                      AND ie.provider_message_id = ml.message_id
+                    ORDER BY ie.received_at DESC
+                    LIMIT 1
+                 ) inbound ON ml.direction = 'IN'
+                 LEFT JOIN LATERAL (
+                    SELECT
+                        NULLIF(TRIM(om.recipient), '') AS user_phone,
+                        LEFT(
+                            REGEXP_REPLACE(
+                                COALESCE(NULLIF(TRIM(om.payload), ''), 'Mensagem enviada'),
+                                '\\s+',
+                                ' ',
+                                'g'
+                            ),
+                            255
+                        ) AS message_preview
+                    FROM outbox_messages om
+                    WHERE om.tenant_id = $1
+                      AND om.destination = 'whatsapp'
+                      AND om.sent = TRUE
+                      AND ABS(EXTRACT(EPOCH FROM (COALESCE(om.sent_at, om.created_at) - ml.created_at))) <= 30
+                    ORDER BY ABS(EXTRACT(EPOCH FROM (COALESCE(om.sent_at, om.created_at) - ml.created_at))) ASC,
+                             COALESCE(om.sent_at, om.created_at) DESC
+                    LIMIT 1
+                 ) outbound ON ml.direction = 'OUT'
+                 WHERE ml.tenant_id = $1
+                 ORDER BY ml.created_at DESC
+                 LIMIT $2 OFFSET $3`,
+                [tenantId, limit, offset],
+            ),
+            this.dataSource.query(
+                `SELECT COUNT(*)::int AS total
+                 FROM message_logs
+                 WHERE tenant_id = $1`,
+                [tenantId],
+            ),
+            this.getMessageUsage(tenantId),
+        ]);
+
+        return {
+            page,
+            limit,
+            total: Number(totalRows?.[0]?.total || 0),
+            summary,
+            items: (rows || []).map((row: any) => {
+                const preview = String(row.message_preview || '').trim();
+
+                return {
+                    id: String(row.id || ''),
+                    direction: String(row.direction || 'OUT'),
+                    actor: String(row.direction || '').toUpperCase() === 'IN' ? 'user' : 'robot',
+                    status: row.status ? String(row.status) : null,
+                    messageId: row.message_id ? String(row.message_id) : null,
+                    userPhone: row.user_phone ? String(row.user_phone) : null,
+                    occurredAt: row.created_at,
+                    preview,
+                    previewShort: this.buildShortPreview(preview),
+                };
+            }),
+        };
     }
 
     private async requestWithFallback(
@@ -152,5 +285,40 @@ export class WalletService {
             `SELECT to_regclass('public.message_logs') AS reg`,
         );
         return !!rows?.[0]?.reg;
+    }
+
+    private async hasMessageLogDetailColumns(): Promise<boolean> {
+        const rows = await this.dataSource.query(
+            `SELECT COUNT(*)::int AS total
+             FROM information_schema.columns
+             WHERE table_schema = 'public'
+               AND table_name = 'message_logs'
+               AND column_name IN ('user_phone', 'message_preview')`,
+        );
+
+        return Number(rows?.[0]?.total || 0) === 2;
+    }
+
+    private parsePositiveInt(value: unknown, fallback: number, max: number) {
+        const parsed = Number.parseInt(String(value ?? ''), 10);
+        if (!Number.isFinite(parsed) || parsed <= 0) {
+            return fallback;
+        }
+
+        return Math.min(parsed, max);
+    }
+
+    private buildShortPreview(preview: string) {
+        const normalized = String(preview || '').trim();
+        if (!normalized) {
+            return 'Sem dados';
+        }
+
+        const chars = Array.from(normalized);
+        if (chars.length <= 5) {
+            return normalized;
+        }
+
+        return `${chars.slice(0, 5).join('')}...`;
     }
 }

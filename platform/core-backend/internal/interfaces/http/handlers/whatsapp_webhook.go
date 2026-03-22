@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -116,16 +117,20 @@ func (h *WhatsAppWebhookHandler) HandleWebhook(c *fiber.Ctx) error {
 	}
 
 	if resolvedTenant != nil {
+		userPhone, messagePreview := extractInboundBillingDetails(payload)
+
 		go func(tid uuid.UUID, mid string, billingPlan string, messagePrice float64) {
 			if billingPlan == tenant.PlanPrePaid {
 				_ = h.tenantRepo.DeductWalletBalance(context.Background(), tid, messagePrice)
 			}
 			if h.logRepo != nil {
 				_ = h.logRepo.Save(context.Background(), &tenant.MessageLog{
-					TenantID:  tid,
-					Direction: tenant.DirectionIn,
-					MessageID: mid,
-					Status:    "RECEIVED",
+					TenantID:       tid,
+					Direction:      tenant.DirectionIn,
+					MessageID:      mid,
+					Status:         "RECEIVED",
+					UserPhone:      userPhone,
+					MessagePreview: messagePreview,
 				})
 			}
 		}(resolvedTenant.ID, wamid, resolvedTenant.BillingPlan, resolvedTenant.MessagePrice)
@@ -216,6 +221,92 @@ func extractPhoneNumberMetadata(payload map[string]interface{}) (string, string)
 	phoneNumberID, _ := metadata["phone_number_id"].(string)
 	displayPhoneNumber, _ := metadata["display_phone_number"].(string)
 	return phoneNumberID, displayPhoneNumber
+}
+
+func extractInboundBillingDetails(payload map[string]interface{}) (string, string) {
+	entry, ok := payload["entry"].([]interface{})
+	if !ok || len(entry) == 0 {
+		return "", ""
+	}
+
+	changes, ok := entry[0].(map[string]interface{})["changes"].([]interface{})
+	if !ok || len(changes) == 0 {
+		return "", ""
+	}
+
+	value, ok := changes[0].(map[string]interface{})["value"].(map[string]interface{})
+	if !ok {
+		return "", ""
+	}
+
+	messages, ok := value["messages"].([]interface{})
+	if !ok || len(messages) == 0 {
+		return "", ""
+	}
+
+	message, ok := messages[0].(map[string]interface{})
+	if !ok {
+		return "", ""
+	}
+
+	userPhone, _ := message["from"].(string)
+	return strings.TrimSpace(userPhone), sanitizeInboundPreview(message)
+}
+
+func sanitizeInboundPreview(message map[string]interface{}) string {
+	candidates := []string{
+		lookupNestedString(message, "text", "body"),
+		lookupNestedString(message, "interactive", "button_reply", "title"),
+		lookupNestedString(message, "interactive", "list_reply", "title"),
+		lookupNestedString(message, "interactive", "list_reply", "description"),
+	}
+
+	for _, candidate := range candidates {
+		normalized := normalizeInboundPreview(candidate)
+		if normalized != "" {
+			return normalized
+		}
+	}
+
+	msgType, _ := message["type"].(string)
+	if normalized := normalizeInboundPreview(msgType); normalized != "" {
+		return normalized
+	}
+
+	return ""
+}
+
+func lookupNestedString(source map[string]interface{}, keys ...string) string {
+	var current interface{} = source
+
+	for _, key := range keys {
+		mapped, ok := current.(map[string]interface{})
+		if !ok {
+			return ""
+		}
+
+		current, ok = mapped[key]
+		if !ok {
+			return ""
+		}
+	}
+
+	value, _ := current.(string)
+	return value
+}
+
+func normalizeInboundPreview(value string) string {
+	normalized := strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
+	if normalized == "" {
+		return ""
+	}
+
+	runes := []rune(normalized)
+	if len(runes) > 255 {
+		return string(runes[:255])
+	}
+
+	return normalized
 }
 
 func (h *WhatsAppWebhookHandler) resolveTenantForBilling(ctx context.Context, phoneNumberID, displayPhoneNumber string) *tenant.Tenant {

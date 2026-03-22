@@ -17,6 +17,12 @@ export class MessageLog {
     @Column({ name: 'message_id', type: 'varchar', length: 255, nullable: true })
     messageId: string | null;
 
+    @Column({ name: 'user_phone', type: 'varchar', length: 30, nullable: true })
+    userPhone: string | null;
+
+    @Column({ name: 'message_preview', type: 'varchar', length: 255, nullable: true })
+    messagePreview: string | null;
+
     @CreateDateColumn({ name: 'created_at' })
     createdAt: Date;
 }

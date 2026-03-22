@@ -2,6 +2,11 @@
 const pages = {
     dashboard: { title: 'Dashboard', sub: 'Visão geral do seu restaurante hoje', loader: loadDashboard },
     wallet: { title: 'Carteira & Assinatura', sub: 'Faturamento e recarga de créditos TaaS', loader: loadWallet },
+    extratoMensagens: {
+        title: 'Extrato de Mensagens',
+        sub: 'Cada linha representa uma mensagem contabilizada no consumo do WhatsApp',
+        loader: loadExtratoMensagens,
+    },
     pedidos: { title: 'Pedidos', sub: 'Fila de pedidos recebidos', loader: loadPedidos },
     cardapio: { title: 'Cardápio', sub: 'Gerencie os itens do seu menu', loader: loadCardapio },
     categorias: { title: 'Categorias', sub: 'Organize o cardápio em categorias', loader: loadCategorias },
@@ -11,6 +16,8 @@ const pages = {
 };
 
 function navigate(pageId) {
+    const page = pages[pageId];
+
     // Update pages
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     const el = document.getElementById('page-' + pageId);
@@ -18,11 +25,10 @@ function navigate(pageId) {
 
     // Update nav
     document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-    const navItem = document.querySelector(`.nav-item[data-page="${pageId}"]`);
+    const navItem = document.querySelector(`.nav-item[data-page="${page?.nav || pageId}"]`);
     if (navItem) navItem.classList.add('active');
 
     // Update topbar
-    const page = pages[pageId];
     if (page) {
         document.getElementById('page-title').textContent = page.title;
         document.getElementById('page-sub').textContent = page.sub;

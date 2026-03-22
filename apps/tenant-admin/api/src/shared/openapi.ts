@@ -814,6 +814,31 @@ export function buildTenantAdminOpenApiDocument() {
                     },
                 },
             },
+            [`${ADMIN_API_VERSIONED_BASE_PATH}/wallet/messages/statement`]: {
+                get: {
+                    tags: ['Wallet'],
+                    summary: 'Lista o extrato paginado de mensagens contabilizadas',
+                    security: [{ bearerAuth: [] }],
+                    parameters: [
+                        {
+                            name: 'page',
+                            in: 'query',
+                            schema: { type: 'integer', minimum: 1, default: 1 },
+                        },
+                        {
+                            name: 'limit',
+                            in: 'query',
+                            schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
+                        },
+                    ],
+                    responses: {
+                        '200': versionedSuccessResponse('Extrato de mensagens.', {
+                            type: 'object',
+                            additionalProperties: true,
+                        }),
+                    },
+                },
+            },
             [`${ADMIN_API_VERSIONED_BASE_PATH}/payments/pix`]: {
                 post: {
                     tags: ['Wallet'],
