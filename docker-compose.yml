@@ -322,8 +322,25 @@ services:
       NGROK_API_URL: http://ngrok:4040
       NGROK_PUBLIC_URL: ${NGROK_PUBLIC_URL:-}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-clickgarcom-internal-token}
+      ADMIN_API_WATCH_MODE: ${ADMIN_API_WATCH_MODE:-false}
     ports:
       - "3002:3002"
+    command:
+      - sh
+      - -lc
+      - |
+        if [ "$ADMIN_API_WATCH_MODE" = "true" ]; then
+          rm -rf dist;
+          npm run start:api:dev;
+        else
+          node dist/main;
+        fi
+    volumes:
+      - ${TENANT_ADMIN_API_DIR:-./apps/tenant-admin/api}/src:/app/src
+      - ${TENANT_ADMIN_API_DIR:-./apps/tenant-admin/api}/package.json:/app/package.json:ro
+      - ${TENANT_ADMIN_API_DIR:-./apps/tenant-admin/api}/nest-cli.json:/app/nest-cli.json:ro
+      - ${TENANT_ADMIN_API_DIR:-./apps/tenant-admin/api}/tsconfig.json:/app/tsconfig.json:ro
+      - ${TENANT_ADMIN_API_DIR:-./apps/tenant-admin/api}/tsconfig.build.json:/app/tsconfig.build.json:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -351,8 +368,12 @@ services:
       ADMIN_API_BASE_URL: ${ADMIN_API_BASE_URL:-http://localhost:3002/admin/api}
       ADMIN_PUBLIC_API_BASE_URL: ${ADMIN_PUBLIC_API_BASE_URL:-http://localhost:3002/admin/api/public/tables}
       KDS_WS_URL: ${KDS_WS_URL:-ws://localhost:8080/ws/kds}
+      ADMIN_WEB_DISABLE_TEXT_ASSET_CACHE: ${ADMIN_WEB_DISABLE_TEXT_ASSET_CACHE:-true}
     ports:
       - "3004:3004"
+    volumes:
+      - ${TENANT_ADMIN_WEB_DIR:-./apps/tenant-admin/web}/public:/app/public:ro
+      - ${TENANT_ADMIN_WEB_DIR:-./apps/tenant-admin/web}/server.js:/app/server.js:ro
     depends_on:
       node-admin:
         condition: service_started
