@@ -201,19 +201,19 @@ Criterios de pronto:
 
 ## Epic 10 - Pagamentos e Conciliacao
 
-Status: Planejado
+Status: Em andamento
 
 Objetivo:
 Dar visibilidade operacional e financeira ao fluxo de pagamentos.
 
 Tasks:
-- [ ] Criar painel de pagamentos por status.
-- [ ] Exibir tentativas, rejeicoes e pendencias.
-- [ ] Exibir conciliacao entre pagamento local e webhook do provedor.
+- [x] Criar painel de pagamentos por status.
+- [x] Exibir tentativas, rejeicoes e pendencias.
+- [x] Exibir conciliacao entre pagamento local e webhook do provedor.
 - [ ] Criar retentativa manual assistida.
-- [ ] Criar baixa manual assistida com auditoria.
+- [x] Criar baixa manual assistida com auditoria.
 - [ ] Preparar fluxo de estorno.
-- [ ] Exibir divergencia entre comanda, pagamento aprovado e saldo restante.
+- [x] Exibir divergencia entre comanda, pagamento aprovado e saldo restante.
 
 Criterios de pronto:
 - Financeiro e operacao conseguem investigar pagamentos sem abrir o banco.

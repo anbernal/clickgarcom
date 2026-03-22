@@ -762,6 +762,46 @@ export function buildTenantAdminOpenApiDocument() {
                     },
                 },
             },
+            [`${ADMIN_API_VERSIONED_BASE_PATH}/tables/payments/overview`]: {
+                get: {
+                    tags: ['Tables'],
+                    summary: 'Painel operacional de pagamentos e conciliacao',
+                    security: [{ bearerAuth: [] }],
+                    parameters: [
+                        {
+                            name: 'start_date',
+                            in: 'query',
+                            schema: { type: 'string', format: 'date' },
+                        },
+                        {
+                            name: 'end_date',
+                            in: 'query',
+                            schema: { type: 'string', format: 'date' },
+                        },
+                        {
+                            name: 'status',
+                            in: 'query',
+                            schema: { type: 'string' },
+                        },
+                        {
+                            name: 'reconciliation',
+                            in: 'query',
+                            schema: { type: 'string' },
+                        },
+                        {
+                            name: 'search',
+                            in: 'query',
+                            schema: { type: 'string' },
+                        },
+                    ],
+                    responses: {
+                        '200': versionedSuccessResponse('Resumo de pagamentos, divergencias e fila operacional.', {
+                            type: 'object',
+                            additionalProperties: true,
+                        }),
+                    },
+                },
+            },
             [`${ADMIN_API_VERSIONED_BASE_PATH}/tables/{id}/status`]: {
                 patch: {
                     tags: ['Tables'],

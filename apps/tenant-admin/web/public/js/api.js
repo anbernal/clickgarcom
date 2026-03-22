@@ -70,6 +70,7 @@ const TENANT_PAGE_ACCESS = {
     cardapio: TENANT_ROUTE_GROUPS.menu_read,
     categorias: TENANT_ROUTE_GROUPS.menu_read,
     mesas: TENANT_ROUTE_GROUPS.table_read,
+    pagamentos: TENANT_ROUTE_GROUPS.settlement,
     vendas: TENANT_ROUTE_GROUPS.reports,
     configuracoes: TENANT_ROUTE_GROUPS.full_access,
     equipe: TENANT_ROUTE_GROUPS.full_access,

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Body, UseGuards, Request, Query } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { TablesService } from './tables.service';
 import { CreateManualRequestDto } from './dto/create-manual-request.dto';
@@ -26,6 +26,12 @@ export class TablesController {
     @Roles(...TENANT_TABLE_READ_ROLES)
     stats(@Request() req) {
         return this.tablesService.getTabStats(req.user.tenantId);
+    }
+
+    @Get('payments/overview')
+    @Roles(...TENANT_SETTLEMENT_ROLES)
+    getPaymentsOverview(@Request() req, @Query() query?: Record<string, string>) {
+        return this.tablesService.getPaymentsOverview(req.user.tenantId, query || {});
     }
 
     @Post()

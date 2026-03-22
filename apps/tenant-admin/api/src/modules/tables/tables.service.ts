@@ -128,6 +128,274 @@ export class TablesService {
         };
     }
 
+    async getPaymentsOverview(tenantId: string, query: Record<string, string>) {
+        const range = this.resolvePaymentsOverviewRange(query);
+        const [paymentRows, tabRows] = await Promise.all([
+            this.dataSource.query(
+                `SELECT p.id,
+                        p.tab_id,
+                        p.payment_type,
+                        p.amount,
+                        p.status,
+                        p.pix_txid,
+                        p.method,
+                        p.external_reference,
+                        p.created_at,
+                        p.paid_at,
+                        p.expired_at,
+                        p.updated_at,
+                        tb.status AS tab_status,
+                        tb.total AS tab_total,
+                        tb.paid_amount AS tab_paid_amount,
+                        tb.user_phone,
+                        t.number AS table_number,
+                        la.status AS latest_attempt_status,
+                        la.payment_method AS latest_attempt_method,
+                        la.provider_status AS latest_attempt_provider_status,
+                        la.provider_status_detail AS latest_attempt_provider_detail,
+                        la.requested_amount AS latest_attempt_requested_amount,
+                        la.settled_at AS latest_attempt_settled_at,
+                        la.created_at AS latest_attempt_created_at
+                   FROM payments p
+                   LEFT JOIN tabs tb
+                     ON tb.id = p.tab_id
+                   LEFT JOIN tables t
+                     ON t.id = tb.table_id
+                   LEFT JOIN LATERAL (
+                        SELECT pa.status,
+                               pa.payment_method,
+                               pa.provider_status,
+                               pa.provider_status_detail,
+                               pa.requested_amount,
+                               pa.settled_at,
+                               pa.created_at
+                          FROM payment_attempts pa
+                         WHERE pa.payment_id = p.id
+                         ORDER BY pa.created_at DESC
+                         LIMIT 1
+                   ) la ON TRUE
+                  WHERE p.tenant_id = $1
+                    AND p.tab_id IS NOT NULL
+                    AND p.created_at >= $2
+                    AND p.created_at < $3
+                  ORDER BY p.created_at DESC
+                  LIMIT 300`,
+                [tenantId, range.startDate.toISOString(), range.endDate.toISOString()],
+            ),
+            this.dataSource.query(
+                `WITH scoped_tabs AS (
+                    SELECT DISTINCT p.tab_id
+                      FROM payments p
+                     WHERE p.tenant_id = $1
+                       AND p.tab_id IS NOT NULL
+                       AND p.created_at >= $2
+                       AND p.created_at < $3
+                ),
+                latest_attempts AS (
+                    SELECT DISTINCT ON (pa.payment_id)
+                           pa.payment_id,
+                           pa.status,
+                           pa.requested_amount
+                      FROM payment_attempts pa
+                      JOIN payments p
+                        ON p.id = pa.payment_id
+                     WHERE p.tenant_id = $1
+                     ORDER BY pa.payment_id, pa.created_at DESC
+                ),
+                payment_totals AS (
+                    SELECT
+                        p.tab_id,
+                        COUNT(*)::int AS payments_count,
+                        COALESCE(SUM(CASE WHEN p.status = 'CONFIRMED' THEN p.amount ELSE 0 END), 0) AS confirmed_total,
+                        COALESCE(SUM(CASE WHEN p.status = 'PENDING' THEN p.amount ELSE 0 END), 0) AS pending_total,
+                        COALESCE(SUM(CASE WHEN la.status = 'APPROVED' THEN COALESCE(la.requested_amount, p.amount) ELSE 0 END), 0) AS approved_attempt_total,
+                        COALESCE(SUM(CASE WHEN la.status = 'REJECTED' THEN COALESCE(la.requested_amount, p.amount) ELSE 0 END), 0) AS rejected_attempt_total
+                      FROM payments p
+                      LEFT JOIN latest_attempts la
+                        ON la.payment_id = p.id
+                     WHERE p.tenant_id = $1
+                       AND p.tab_id IS NOT NULL
+                     GROUP BY p.tab_id
+                )
+                SELECT tb.id AS tab_id,
+                        tb.status,
+                        tb.total,
+                        tb.paid_amount,
+                        tb.user_phone,
+                        t.number AS table_number,
+                        COALESCE(pt.payments_count, 0)::int AS payments_count,
+                        COALESCE(pt.confirmed_total, 0) AS confirmed_total,
+                        COALESCE(pt.pending_total, 0) AS pending_total,
+                        COALESCE(pt.approved_attempt_total, 0) AS approved_attempt_total,
+                        COALESCE(pt.rejected_attempt_total, 0) AS rejected_attempt_total
+                   FROM scoped_tabs st
+                   JOIN tabs tb
+                     ON tb.id = st.tab_id
+                   LEFT JOIN tables t
+                     ON t.id = tb.table_id
+                   LEFT JOIN payment_totals pt
+                     ON pt.tab_id = tb.id`,
+                [tenantId, range.startDate.toISOString(), range.endDate.toISOString()],
+            ),
+        ]);
+
+        const tabSummaryMap = new Map();
+        const tabSummaries = (tabRows || []).map((row: any) => {
+            const financial = this.buildTabFinancialSummary({
+                subtotal: 0,
+                serviceFee: 0,
+                total: Number.parseFloat(String(row.total ?? '0')) || 0,
+                paidAmount: Number.parseFloat(String(row.paid_amount ?? '0')) || 0,
+                status: String(row.status || 'OPEN'),
+                approvedPaymentsAmount: Number.parseFloat(String(row.confirmed_total ?? '0')) || 0,
+                pendingPaymentsAmount: Number.parseFloat(String(row.pending_total ?? '0')) || 0,
+                approvedAttemptAmount: Number.parseFloat(String(row.approved_attempt_total ?? '0')) || 0,
+            });
+
+            const summary = {
+                tabId: String(row.tab_id),
+                tableNumber: row.table_number ? String(row.table_number) : null,
+                userPhone: String(row.user_phone || '').trim() || null,
+                status: String(row.status || 'OPEN'),
+                total: this.roundMoney(Number.parseFloat(String(row.total ?? '0')) || 0),
+                paidAmount: this.roundMoney(Number.parseFloat(String(row.paid_amount ?? '0')) || 0),
+                paymentsCount: Number(row.payments_count || 0),
+                rejectedAttemptAmount: this.roundMoney(Number.parseFloat(String(row.rejected_attempt_total ?? '0')) || 0),
+                financial,
+            };
+
+            tabSummaryMap.set(summary.tabId, summary);
+            return summary;
+        });
+
+        const basePayments = (paymentRows || []).map((row: any) => {
+            const tabId = String(row.tab_id || '');
+            const tabSummary = tabSummaryMap.get(tabId) || null;
+            const localStatus = String(row.status || 'PENDING').trim().toUpperCase();
+            const latestAttemptStatus = String(row.latest_attempt_status || '').trim().toUpperCase() || null;
+            const providerApprovedPending = latestAttemptStatus === 'APPROVED' && localStatus !== 'CONFIRMED';
+
+            return {
+                id: String(row.id),
+                tabId,
+                tableNumber: row.table_number ? String(row.table_number) : null,
+                userPhone: String(row.user_phone || '').trim() || null,
+                paymentType: String(row.payment_type || 'FULL'),
+                amount: this.roundMoney(Number.parseFloat(String(row.amount ?? '0')) || 0),
+                localStatus,
+                pixTxid: String(row.pix_txid || '').trim() || null,
+                method: String(row.method || row.latest_attempt_method || '').trim() || null,
+                externalReference: String(row.external_reference || '').trim() || null,
+                createdAt: row.created_at,
+                paidAt: row.paid_at || null,
+                expiredAt: row.expired_at || null,
+                updatedAt: row.updated_at || null,
+                latestAttemptStatus,
+                latestAttemptMethod: String(row.latest_attempt_method || '').trim() || null,
+                latestAttemptProviderStatus: String(row.latest_attempt_provider_status || '').trim() || null,
+                latestAttemptProviderDetail: String(row.latest_attempt_provider_detail || '').trim() || null,
+                latestAttemptRequestedAmount: this.roundMoney(Number.parseFloat(String(row.latest_attempt_requested_amount ?? '0')) || 0),
+                latestAttemptSettledAt: row.latest_attempt_settled_at || null,
+                latestAttemptCreatedAt: row.latest_attempt_created_at || null,
+                providerApprovedPending,
+                rejectedByProvider: latestAttemptStatus === 'REJECTED',
+                tab: tabSummary,
+                reconciliationStatus: tabSummary?.financial?.settlementStatus || (providerApprovedPending ? 'provider_pending' : 'awaiting_payment'),
+                amountDue: Number(tabSummary?.financial?.amountDue || 0),
+                reconciliationGap: Number(tabSummary?.financial?.reconciliationGap || 0),
+            };
+        });
+
+        const search = String(query?.search || '').trim().toLowerCase();
+        const statusFilter = String(query?.status || 'ALL').trim().toUpperCase();
+        const reconciliationFilter = String(query?.reconciliation || 'ALL').trim().toUpperCase();
+        const payments = basePayments.filter((payment) =>
+            this.matchesPaymentsOverviewFilters(payment, search, statusFilter, reconciliationFilter),
+        );
+
+        const visibleTabIds = new Set(payments.map((payment) => payment.tabId).filter(Boolean));
+        const tabsWithDivergence = tabSummaries
+            .filter((tab) => !visibleTabIds.size || visibleTabIds.has(tab.tabId))
+            .filter((tab) =>
+                Math.abs(Number(tab.financial?.reconciliationGap || 0)) >= 0.01
+                || Number(tab.financial?.amountDue || 0) > 0
+                || Number(tab.financial?.approvedAttemptAmount || 0) > Number(tab.financial?.approvedPaymentsAmount || 0),
+            )
+            .sort((left, right) => {
+                const rightExposure = Math.abs(Number(right.financial?.reconciliationGap || 0)) + Number(right.financial?.amountDue || 0);
+                const leftExposure = Math.abs(Number(left.financial?.reconciliationGap || 0)) + Number(left.financial?.amountDue || 0);
+                return rightExposure - leftExposure;
+            })
+            .slice(0, 12);
+
+        const summary = payments.reduce((acc, payment) => {
+            acc.totalPayments += 1;
+            acc.totalAmount += Number(payment.amount || 0);
+
+            if (payment.localStatus === 'CONFIRMED') {
+                acc.confirmedCount += 1;
+                acc.confirmedAmount += Number(payment.amount || 0);
+            } else {
+                acc.pendingCount += 1;
+                acc.pendingAmount += Number(payment.amount || 0);
+            }
+
+            if (payment.providerApprovedPending) {
+                acc.providerApprovedPendingCount += 1;
+                acc.providerApprovedPendingAmount += Number(payment.latestAttemptRequestedAmount || payment.amount || 0);
+            }
+
+            if (payment.rejectedByProvider) {
+                acc.rejectedCount += 1;
+                acc.rejectedAmount += Number(payment.latestAttemptRequestedAmount || payment.amount || 0);
+            }
+
+            return acc;
+        }, {
+            totalPayments: 0,
+            totalAmount: 0,
+            confirmedCount: 0,
+            confirmedAmount: 0,
+            pendingCount: 0,
+            pendingAmount: 0,
+            providerApprovedPendingCount: 0,
+            providerApprovedPendingAmount: 0,
+            rejectedCount: 0,
+            rejectedAmount: 0,
+        });
+
+        return {
+            period: {
+                start_date: this.toDateString(range.startDate),
+                end_date: this.toDateString(new Date(range.endDate.getTime() - 1)),
+                label: `${this.formatDateLabel(this.toDateString(range.startDate))} a ${this.formatDateLabel(this.toDateString(new Date(range.endDate.getTime() - 1)))}`,
+            },
+            filters_applied: {
+                status: statusFilter,
+                reconciliation: reconciliationFilter,
+                search,
+            },
+            summary: {
+                total_payments: summary.totalPayments,
+                total_amount: this.roundMoney(summary.totalAmount),
+                confirmed_count: summary.confirmedCount,
+                confirmed_amount: this.roundMoney(summary.confirmedAmount),
+                pending_count: summary.pendingCount,
+                pending_amount: this.roundMoney(summary.pendingAmount),
+                provider_approved_pending_count: summary.providerApprovedPendingCount,
+                provider_approved_pending_amount: this.roundMoney(summary.providerApprovedPendingAmount),
+                rejected_count: summary.rejectedCount,
+                rejected_amount: this.roundMoney(summary.rejectedAmount),
+                divergence_tabs_count: tabsWithDivergence.length,
+                divergence_amount: this.roundMoney(
+                    tabsWithDivergence.reduce((sum, tab) => sum + Math.abs(Number(tab.financial?.reconciliationGap || 0)) + Number(tab.financial?.amountDue || 0), 0),
+                ),
+            },
+            tabs_with_divergence: tabsWithDivergence,
+            payments,
+        };
+    }
+
     // --- Table Requests Methods ---
 
     async getPendingRequests(tenantId: string) {
@@ -1769,6 +2037,114 @@ Esperamos te receber novamente em breve! 😊`;
             return 0;
         }
         return this.roundMoney(Math.max(0, total - paidAmount));
+    }
+
+    private matchesPaymentsOverviewFilters(payment: any, search: string, statusFilter: string, reconciliationFilter: string) {
+        const paymentStatusKey = this.getPaymentsOverviewStatusKey(payment);
+        const reconciliationKey = String(payment?.reconciliationStatus || 'awaiting_payment').trim().toUpperCase();
+        const searchText = [
+            payment?.id,
+            payment?.tabId,
+            payment?.tableNumber,
+            payment?.userPhone,
+            payment?.paymentType,
+            payment?.method,
+            payment?.localStatus,
+            payment?.latestAttemptStatus,
+            payment?.externalReference,
+        ].join(' ').toLowerCase();
+
+        if (statusFilter !== 'ALL' && paymentStatusKey !== statusFilter) {
+            return false;
+        }
+
+        if (reconciliationFilter !== 'ALL' && reconciliationKey !== reconciliationFilter) {
+            return false;
+        }
+
+        if (search && !searchText.includes(search)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private getPaymentsOverviewStatusKey(payment: any) {
+        if (payment?.providerApprovedPending) {
+            return 'PROVIDER_APPROVED';
+        }
+        if (payment?.rejectedByProvider) {
+            return 'REJECTED';
+        }
+        if (String(payment?.localStatus || '').trim().toUpperCase() === 'CONFIRMED') {
+            return 'CONFIRMED';
+        }
+        return 'PENDING';
+    }
+
+    private resolvePaymentsOverviewRange(query?: Record<string, string>) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        let parsedStart = this.parseDateOnlySafe(query?.start_date);
+        let parsedEnd = this.parseDateOnlySafe(query?.end_date);
+
+        if (parsedEnd) {
+            parsedEnd.setDate(parsedEnd.getDate() + 1);
+        }
+
+        if (!parsedStart && !parsedEnd) {
+            parsedEnd = new Date(today);
+            parsedEnd.setDate(parsedEnd.getDate() + 1);
+            parsedStart = new Date(parsedEnd);
+            parsedStart.setDate(parsedStart.getDate() - 30);
+        } else if (parsedStart && !parsedEnd) {
+            parsedEnd = new Date(today);
+            parsedEnd.setDate(parsedEnd.getDate() + 1);
+        } else if (!parsedStart && parsedEnd) {
+            parsedStart = new Date(parsedEnd);
+            parsedStart.setDate(parsedStart.getDate() - 30);
+        }
+
+        if (!parsedStart || !parsedEnd || parsedStart >= parsedEnd) {
+            parsedEnd = new Date(today);
+            parsedEnd.setDate(parsedEnd.getDate() + 1);
+            parsedStart = new Date(parsedEnd);
+            parsedStart.setDate(parsedStart.getDate() - 30);
+        }
+
+        return {
+            startDate: parsedStart,
+            endDate: parsedEnd,
+        };
+    }
+
+    private parseDateOnlySafe(value?: string) {
+        const text = String(value || '').trim();
+        const match = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (!match) {
+            return null;
+        }
+
+        const [, year, month, day] = match;
+        const date = new Date(Number(year), Number(month) - 1, Number(day));
+        date.setHours(0, 0, 0, 0);
+        return Number.isNaN(date.getTime()) ? null : date;
+    }
+
+    private toDateString(date: Date) {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    }
+
+    private formatDateLabel(dateString: string) {
+        const date = new Date(`${dateString}T00:00:00`);
+        return date.toLocaleDateString('pt-BR', {
+            day: '2-digit',
+            month: 'short',
+        });
     }
 
     private normalizeUuidOrNull(value?: string) {
