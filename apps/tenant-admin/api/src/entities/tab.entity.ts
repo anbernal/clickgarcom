@@ -17,6 +17,30 @@ export class Tab {
     @Column({ name: 'payment_notifier_phone', type: 'varchar', length: 30, nullable: true })
     paymentNotifierPhone!: string | null;
 
+    @Column('uuid', { name: 'source_request_id', nullable: true })
+    sourceRequestId!: string | null;
+
+    @Column('uuid', { name: 'opened_by_user_id', nullable: true })
+    openedByUserId!: string | null;
+
+    @Column({ name: 'opened_by_user_name', type: 'varchar', length: 255, nullable: true })
+    openedByUserName!: string | null;
+
+    @Column('uuid', { name: 'closed_by_user_id', nullable: true })
+    closedByUserId!: string | null;
+
+    @Column({ name: 'closed_by_user_name', type: 'varchar', length: 255, nullable: true })
+    closedByUserName!: string | null;
+
+    @Column({ name: 'reopened_at', nullable: true })
+    reopenedAt!: Date | null;
+
+    @Column('uuid', { name: 'reopened_by_user_id', nullable: true })
+    reopenedByUserId!: string | null;
+
+    @Column({ name: 'reopened_by_user_name', type: 'varchar', length: 255, nullable: true })
+    reopenedByUserName!: string | null;
+
     @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
     subtotal!: number;
 

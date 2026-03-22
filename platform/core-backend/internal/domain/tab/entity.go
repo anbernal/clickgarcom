@@ -20,8 +20,11 @@ type Tab struct {
 	ID                   uuid.UUID  `json:"id" gorm:"type:uuid;primary_key"`
 	TenantID             uuid.UUID  `json:"tenant_id" gorm:"type:uuid;not null;index"`
 	TableID              *uuid.UUID `json:"table_id,omitempty" gorm:"type:uuid"`
+	SourceRequestID      *uuid.UUID `json:"source_request_id,omitempty" gorm:"column:source_request_id;type:uuid"`
 	UserPhone            string     `json:"user_phone" gorm:"type:varchar(30)"` // Fase 15: Quem abriu a comanda
 	PaymentNotifierPhone string     `json:"payment_notifier_phone,omitempty" gorm:"column:payment_notifier_phone;type:varchar(30)"`
+	OpenedByUserID       *uuid.UUID `json:"opened_by_user_id,omitempty" gorm:"column:opened_by_user_id;type:uuid"`
+	OpenedByUserName     string     `json:"opened_by_user_name,omitempty" gorm:"column:opened_by_user_name;type:varchar(255)"`
 
 	Subtotal   float64 `json:"subtotal" gorm:"type:decimal(10,2);default:0"`
 	ServiceFee float64 `json:"service_fee" gorm:"type:decimal(10,2);default:0"`

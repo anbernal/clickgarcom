@@ -19,6 +19,7 @@ func TestProcessTableEventSendsInteractiveApprovalButtons(t *testing.T) {
 	tenantID := uuid.New()
 	requestID := uuid.New()
 	tableID := uuid.New()
+	approverID := uuid.New()
 	phone := "5511911111111"
 
 	sessionRepo := newTestSessionRepo()
@@ -28,15 +29,17 @@ func TestProcessTableEventSendsInteractiveApprovalButtons(t *testing.T) {
 
 	tableRepo := &testProcessTableRepo{
 		requestsByID: map[uuid.UUID]*table.TableRequest{
-			requestID: {
-				ID:        requestID,
-				TenantID:  tenantID,
-				TableID:   &tableID,
-				UserPhone: phone,
-				PaxCount:  2,
-				Status:    table.RequestStatusPending,
+				requestID: {
+					ID:        requestID,
+					TenantID:  tenantID,
+					TableID:   &tableID,
+					UserPhone: phone,
+					PaxCount:  2,
+					Status:    table.RequestStatusPending,
+					ApprovedByUserID:   &approverID,
+					ApprovedByUserName: "Maria Gestora",
+				},
 			},
-		},
 		tablesByID: map[uuid.UUID]*table.Table{
 			tableID: {
 				ID:       tableID,
@@ -108,6 +111,15 @@ func TestProcessTableEventSendsInteractiveApprovalButtons(t *testing.T) {
 
 	if got := len(tabRepo.createdTabs); got != 1 {
 		t.Fatalf("expected 1 created tab, got %d", got)
+	}
+	if tabRepo.createdTabs[0].OpenedByUserID == nil || *tabRepo.createdTabs[0].OpenedByUserID != approverID {
+		t.Fatalf("expected opened_by_user_id %s, got %v", approverID, tabRepo.createdTabs[0].OpenedByUserID)
+	}
+	if tabRepo.createdTabs[0].OpenedByUserName != "Maria Gestora" {
+		t.Fatalf("expected opened_by_user_name Maria Gestora, got %q", tabRepo.createdTabs[0].OpenedByUserName)
+	}
+	if tabRepo.createdTabs[0].SourceRequestID == nil || *tabRepo.createdTabs[0].SourceRequestID != requestID {
+		t.Fatalf("expected source_request_id %s, got %v", requestID, tabRepo.createdTabs[0].SourceRequestID)
 	}
 
 	sess, err := sessionRepo.Find(ctx, phone, tenantID.String())

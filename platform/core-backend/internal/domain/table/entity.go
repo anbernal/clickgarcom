@@ -46,6 +46,8 @@ type TableRequest struct {
 	UserPhone string        `json:"user_phone" gorm:"not null"`
 	PaxCount  int           `json:"pax_count" gorm:"not null"`
 	Status    RequestStatus `json:"status" gorm:"type:varchar(20);default:PENDING"`
+	ApprovedByUserID   *uuid.UUID `json:"approved_by_user_id,omitempty" gorm:"type:uuid"`
+	ApprovedByUserName string     `json:"approved_by_user_name,omitempty" gorm:"type:varchar(255)"`
 	CreatedAt time.Time     `json:"created_at"`
 	UpdatedAt time.Time     `json:"updated_at"`
 

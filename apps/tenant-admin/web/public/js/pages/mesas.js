@@ -629,6 +629,11 @@ function renderComandaCard(detail, idx, tableId, tableNumber) {
             Abertura: ${escapeHTML(formatDateTime(detail?.openedAt))}
             ${detail?.closedAt ? ` · Fechada: ${escapeHTML(formatDateTime(detail.closedAt))}` : ''}
           </div>
+          ${detail?.openedByUserName ? `
+            <div style="font-size:12px; color:var(--text-light); margin-top:4px;">
+              Aberta por ${escapeHTML(detail.openedByUserName)}
+            </div>
+          ` : ''}
           <div style="font-size:12px; color:var(--text-light); margin-top:4px;">
             Cliente: ${escapeHTML(detail?.userPhone || 'Não identificado')}
             ${detail?.paymentNotifierPhone ? ` · Notificador: ${escapeHTML(detail.paymentNotifierPhone)}` : ''}

@@ -60,7 +60,7 @@ export class TablesController {
     @Post('requests/:id/approve')
     @Roles(...TENANT_FLOOR_ROLES)
     async approveRequest(@Request() req, @Param('id') id: string, @Body('tableId') tableId?: string) {
-        return this.tablesService.approveRequest(id, req.user.tenantId, tableId);
+        return this.tablesService.approveRequest(id, req.user.tenantId, tableId, req.user?.id, req.user?.name);
     }
 
     @Post('requests/:id/reject')
@@ -72,7 +72,7 @@ export class TablesController {
     @Post('requests/manual')
     @Roles(...TENANT_FLOOR_ROLES)
     async createManualRequest(@Request() req, @Body() body: CreateManualRequestDto) {
-        return this.tablesService.createManualRequest(req.user.tenantId, body);
+        return this.tablesService.createManualRequest(req.user.tenantId, body, req.user?.id, req.user?.name);
     }
 
     @Get('waiter/close-requests')

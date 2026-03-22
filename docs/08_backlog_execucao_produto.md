@@ -17,7 +17,7 @@ Este documento transforma as sugestoes de melhoria em tasks executaveis, alinhad
 
 ## Epic 01 - Carteira e Cobranca Transparente
 
-Status: Em execucao - lotes 1 e 2 entregues
+Status: Concluido
 
 Objetivo:
 Deixar evidente para o tenant o que foi consumido, o que foi cobrado, qual o ritmo de uso e qual o risco de saldo.
@@ -74,7 +74,7 @@ Tasks:
 - [x] Exibir total original, total rateado e diferenca pendente.
 - [x] Permitir reabertura controlada de comanda fechada.
 - [x] Criar historico de eventos da comanda.
-- [ ] Registrar quem abriu, fechou, reabriu ou alterou uma comanda.
+- [x] Registrar quem abriu, fechou, reabriu ou alterou uma comanda.
 - [x] Exibir divergencias entre total da comanda, pagamentos aprovados e valor ainda devido.
 - [x] Criar bloqueios para reabertura com pagamento finalizado, com permissao especial.
 

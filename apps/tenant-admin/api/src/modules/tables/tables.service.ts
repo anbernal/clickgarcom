@@ -194,7 +194,7 @@ export class TablesService {
         }));
     }
 
-    async approveRequest(requestId: string, tenantId: string, tableId?: string) {
+    async approveRequest(requestId: string, tenantId: string, tableId?: string, approvedByUserId?: string, approvedByUserName?: string) {
         const req = await this.tableRequestRepo.findOne({ where: { id: requestId, tenantId } });
         if (!req) throw new Error('Request not found');
         if (req.status === RequestStatus.REJECTED) {
@@ -208,6 +208,8 @@ export class TablesService {
         // Keep the request pending until Go-Core consumes the event and finalizes
         // the approval, otherwise the worker ignores the message as already handled.
         req.status = RequestStatus.PENDING;
+        req.approvedByUserId = this.normalizeUuidOrNull(approvedByUserId);
+        req.approvedByUserName = this.normalizeTextOrNull(approvedByUserName);
         await this.tableRequestRepo.save(req);
 
         // Note: The actual Go-Core updates are triggered by the event
@@ -226,7 +228,7 @@ export class TablesService {
         return req;
     }
 
-    async createManualRequest(tenantId: string, data: { tableId: string, userPhone: string, paxCount: number }) {
+    async createManualRequest(tenantId: string, data: { tableId: string, userPhone: string, paxCount: number }, approvedByUserId?: string, approvedByUserName?: string) {
         // 1. Create request directly as PENDING
         const req = this.tableRequestRepo.create({
             id: uuidv4(),
@@ -239,7 +241,7 @@ export class TablesService {
         await this.tableRequestRepo.save(req);
 
         // 2. Immediatelly approve it to trigger Go-Core WhatsApp notification
-        await this.approveRequest(req.id, tenantId);
+        await this.approveRequest(req.id, tenantId, undefined, approvedByUserId, approvedByUserName);
 
         return req;
     }
@@ -318,6 +320,8 @@ export class TablesService {
                         tb.paid_amount,
                         tb.status,
                         tb.opened_at,
+                        tb.opened_by_user_id,
+                        tb.opened_by_user_name,
                         tb.closed_at,
                         tb.closed_by_user_id,
                         tb.closed_by_user_name,
@@ -533,6 +537,8 @@ export class TablesService {
             paymentNotifierPhone: String(tab.payment_notifier_phone || '').trim() || null,
             status: String(tab.status || 'OPEN'),
             openedAt: tab.opened_at,
+            openedByUserId: tab.opened_by_user_id || null,
+            openedByUserName: String(tab.opened_by_user_name || '').trim() || null,
             closedAt: tab.closed_at || null,
             closedByUserId: tab.closed_by_user_id || null,
             closedByUserName: String(tab.closed_by_user_name || '').trim() || null,
@@ -1256,7 +1262,7 @@ export class TablesService {
             description: input.tab.table_number
                 ? `Mesa ${String(input.tab.table_number).trim()} iniciou atendimento`
                 : 'Comanda iniciada',
-            actorName: null,
+            actorName: String(input.tab.opened_by_user_name || '').trim() || null,
             createdAt: input.tab.opened_at,
         });
 

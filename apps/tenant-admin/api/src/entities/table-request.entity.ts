@@ -24,6 +24,12 @@ export class TableRequest {
     @Column({ name: 'pax_count' })
     paxCount: number;
 
+    @Column({ name: 'approved_by_user_id', type: 'uuid', nullable: true })
+    approvedByUserId: string | null;
+
+    @Column({ name: 'approved_by_user_name', nullable: true })
+    approvedByUserName: string | null;
+
     @Column({
         type: 'varchar',
         default: RequestStatus.PENDING,
