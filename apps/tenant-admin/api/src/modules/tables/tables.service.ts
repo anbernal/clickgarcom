@@ -396,6 +396,170 @@ export class TablesService {
         };
     }
 
+    async refreshPaymentStatus(tenantId: string, paymentId: string) {
+        const rows = await this.dataSource.query(
+            `SELECT id, tab_id
+               FROM payments
+              WHERE id = $1
+                AND tenant_id = $2
+              LIMIT 1`,
+            [paymentId, tenantId],
+        );
+
+        const payment = rows?.[0];
+        if (!payment) {
+            throw new NotFoundException('Pagamento não encontrado');
+        }
+
+        const status = await this.walletService.getPaymentStatus(tenantId, paymentId);
+        const tabId = payment.tab_id ? String(payment.tab_id) : null;
+        const detail = tabId ? await this.getTabDetails(tabId, tenantId) : null;
+
+        return {
+            payment_id: paymentId,
+            status,
+            tab_detail: detail
+                ? {
+                    id: detail.id,
+                    tableNumber: detail.tableNumber,
+                    status: detail.status,
+                    financial: detail.financial,
+                  }
+                : null,
+        };
+    }
+
+    async retryPaymentAsPix(tenantId: string, paymentId: string, actor: Pick<TabActorContext, 'userId' | 'userName'>) {
+        const paymentRows = await this.dataSource.query(
+            `SELECT p.id,
+                    p.tab_id,
+                    p.status,
+                    p.method,
+                    p.expired_at,
+                    la.status AS latest_attempt_status
+               FROM payments p
+               LEFT JOIN LATERAL (
+                    SELECT pa.status
+                      FROM payment_attempts pa
+                     WHERE pa.payment_id = p.id
+                     ORDER BY pa.created_at DESC
+                     LIMIT 1
+               ) la ON TRUE
+              WHERE p.id = $1
+                AND p.tenant_id = $2
+              LIMIT 1`,
+            [paymentId, tenantId],
+        );
+
+        const payment = paymentRows?.[0];
+        if (!payment) {
+            throw new NotFoundException('Pagamento não encontrado');
+        }
+
+        const tabId = String(payment.tab_id || '').trim();
+        if (!tabId) {
+            throw new BadRequestException('Este pagamento não está vinculado a uma comanda');
+        }
+
+        if (String(payment.status || '').trim().toUpperCase() === 'CONFIRMED') {
+            throw new BadRequestException('Pagamento já confirmado. Não é necessário gerar nova cobrança');
+        }
+
+        const latestAttemptStatus = String(payment.latest_attempt_status || '').trim().toUpperCase();
+        const expiredAt = payment.expired_at ? new Date(payment.expired_at) : null;
+        const activeSelectedPayment = this.isPendingPaymentStillActive({
+            status: payment.status,
+            latestAttemptStatus,
+            expiredAt,
+        });
+
+        if (activeSelectedPayment) {
+            throw new BadRequestException('Este pagamento ainda está ativo. Atualize o status antes de gerar uma nova cobrança PIX');
+        }
+
+        const tab = await this.loadTenantTabContext(tabId, tenantId);
+        if (!tab) {
+            throw new NotFoundException('Comanda não encontrada');
+        }
+
+        const amountDue = this.getAmountDue(tab.total, tab.paidAmount, tab.status);
+        if (amountDue <= 0) {
+            return {
+                payment_id: paymentId,
+                approved: true,
+                amount_due: 0,
+                message: 'A comanda já está quitada',
+            };
+        }
+
+        const activePendingRows = await this.dataSource.query(
+            `SELECT p.id,
+                    p.status,
+                    p.expired_at,
+                    la.status AS latest_attempt_status
+               FROM payments p
+               LEFT JOIN LATERAL (
+                    SELECT pa.status
+                      FROM payment_attempts pa
+                     WHERE pa.payment_id = p.id
+                     ORDER BY pa.created_at DESC
+                     LIMIT 1
+               ) la ON TRUE
+              WHERE p.tenant_id = $1
+                AND p.tab_id = $2
+                AND p.id <> $3`,
+            [tenantId, tabId, paymentId],
+        );
+
+        const hasOtherActivePending = (activePendingRows || []).some((row: any) =>
+            this.isPendingPaymentStillActive({
+                status: row?.status,
+                latestAttemptStatus: row?.latest_attempt_status,
+                expiredAt: row?.expired_at ? new Date(row.expired_at) : null,
+            }),
+        );
+
+        if (hasOtherActivePending) {
+            throw new BadRequestException('Já existe outra cobrança pendente ativa para esta comanda. Atualize o status antes de gerar um novo PIX');
+        }
+
+        const orderId = await this.resolveAnchorOrderId(tabId, tenantId);
+        const retry = await this.walletService.createPixPayment(tenantId, {
+            order_id: orderId,
+            amount: amountDue,
+            description: this.buildCheckoutDescription(tab),
+            payer_email: 'cliente@email.com',
+            payer_name: 'Cliente',
+            payer_cpf: '19119119100',
+        });
+
+        await this.dataSource.query(
+            `INSERT INTO tab_events
+                (id, tenant_id, tab_id, event_type, actor_user_id, actor_name, details, created_at)
+             VALUES (gen_random_uuid(), $1, $2, $3, $4::uuid, $5, $6::jsonb, NOW())`,
+            [
+                tenantId,
+                tabId,
+                'PAYMENT_RETRY_CREATED',
+                this.normalizeUuidOrNull(actor.userId),
+                this.normalizeTextOrNull(actor.userName),
+                JSON.stringify({
+                    source_payment_id: paymentId,
+                    new_payment_id: retry?.payment_id || null,
+                    amount_due: amountDue,
+                    method: 'PIX',
+                }),
+            ],
+        );
+
+        return {
+            source_payment_id: paymentId,
+            tab_id: tabId,
+            amount_due: amountDue,
+            retry,
+        };
+    }
+
     // --- Table Requests Methods ---
 
     async getPendingRequests(tenantId: string) {
@@ -1664,6 +1828,7 @@ export class TablesService {
     private mapTabEventLabel(eventType: string) {
         if (eventType === 'TAB_CLOSED') return 'Comanda fechada';
         if (eventType === 'TAB_REOPENED') return 'Comanda reaberta';
+        if (eventType === 'PAYMENT_RETRY_CREATED') return 'Nova cobrança PIX gerada';
         return 'Evento da comanda';
     }
 
@@ -1681,6 +1846,10 @@ export class TablesService {
         if (eventType === 'TAB_REOPENED') {
             const reason = String(details?.reason || '').trim();
             return reason ? `Reabertura registrada: ${reason}` : 'Comanda reaberta para continuar o atendimento';
+        }
+        if (eventType === 'PAYMENT_RETRY_CREATED') {
+            const amountDue = this.roundMoney(Number(details?.amount_due || 0));
+            return `Equipe gerou uma nova cobrança PIX de ${amountDue.toFixed(2)}`;
         }
         return 'Evento registrado na trilha de auditoria';
     }
@@ -1782,6 +1951,72 @@ export class TablesService {
             tenantName: String(row.tenant_name || 'ClickGarcom'),
             tenantSettings: this.parseTenantSettings(row.tenant_settings),
         };
+    }
+
+    private async loadTenantTabContext(tabId: string, tenantId: string) {
+        const rows = await this.dataSource.query(
+            `SELECT tb.id,
+                    tb.tenant_id,
+                    tb.table_id,
+                    tb.user_phone,
+                    tb.total,
+                    tb.paid_amount,
+                    tb.status,
+                    tb.opened_at,
+                    tb.closed_at,
+                    t.number AS table_number,
+                    tn.name AS tenant_name,
+                    tn.settings AS tenant_settings
+               FROM tabs tb
+               JOIN tenants tn
+                 ON tn.id = tb.tenant_id
+               LEFT JOIN tables t
+                 ON t.id = tb.table_id
+              WHERE tb.id = $1
+                AND tb.tenant_id = $2
+              LIMIT 1`,
+            [tabId, tenantId],
+        );
+
+        const row = rows?.[0];
+        if (!row) return null;
+
+        return {
+            id: String(row.id),
+            tenantId: String(row.tenant_id),
+            tableId: row.table_id ? String(row.table_id) : null,
+            userPhone: String(row.user_phone || ''),
+            total: Number.parseFloat(String(row.total ?? '0')) || 0,
+            paidAmount: Number.parseFloat(String(row.paid_amount ?? '0')) || 0,
+            status: String(row.status || 'OPEN'),
+            openedAt: row.opened_at,
+            closedAt: row.closed_at,
+            tableNumber: row.table_number || null,
+            tenantName: String(row.tenant_name || 'ClickGarcom'),
+            tenantSettings: this.parseTenantSettings(row.tenant_settings),
+        };
+    }
+
+    private isPendingPaymentStillActive(input: { status?: string; latestAttemptStatus?: string; expiredAt?: Date | null }) {
+        const status = String(input.status || '').trim().toUpperCase();
+        const latestAttemptStatus = String(input.latestAttemptStatus || '').trim().toUpperCase();
+        const expiredAt = input.expiredAt instanceof Date && !Number.isNaN(input.expiredAt.getTime())
+            ? input.expiredAt
+            : null;
+
+        if (status === 'CONFIRMED') {
+            return false;
+        }
+
+        if (expiredAt && expiredAt.getTime() <= Date.now()) {
+            return false;
+        }
+
+        if (['REJECTED', 'CANCELLED', 'CANCELED', 'EXPIRED'].includes(latestAttemptStatus)) {
+            return false;
+        }
+
+        return status === 'PENDING' || !status;
     }
 
     private normalizePhoneDigits(value: unknown) {

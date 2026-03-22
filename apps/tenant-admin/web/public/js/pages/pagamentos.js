@@ -241,7 +241,12 @@ function renderPagamentosTable(rows) {
                 </td>
                 <td>${escapeHTML(formatDateTime(payment.createdAt))}</td>
                 <td class="mono">${formatCurrency(payment.amount || 0)}</td>
-                <td><button class="btn-sm btn-outline" onclick="openPagamentoTabDetail('${payment.tabId}')">Detalhe</button></td>
+                <td>
+                  <div style="display:flex;gap:6px;justify-content:flex-end">
+                    <button class="btn-sm btn-outline" onclick="refreshPagamentoStatus('${payment.id}')">Atualizar</button>
+                    <button class="btn-sm btn-outline" onclick="openPagamentoTabDetail('${payment.tabId}')">Detalhe</button>
+                  </div>
+                </td>
               </tr>
             `;
           }).join('')}
@@ -277,6 +282,8 @@ async function openPagamentoTabDetail(tabId) {
 function renderPagamentoTabDetailModal(detail) {
   const financial = detail?.financial || {};
   const canFinalize = canFinalizePagamentoDetail(detail);
+  const refreshablePayment = getRefreshablePayment(detail);
+  const retryablePayment = getRetryablePayment(detail);
 
   openModal(`
     <div class="modal-header">
@@ -306,6 +313,8 @@ function renderPagamentoTabDetailModal(detail) {
     </div>
     <div class="modal-footer">
       <button class="btn-sm btn-outline" onclick="closeModal()">Fechar</button>
+      ${refreshablePayment ? `<button class="btn-sm btn-outline" onclick="refreshPagamentoStatus('${refreshablePayment.id}', '${detail.id}')">Atualizar status</button>` : ''}
+      ${retryablePayment ? `<button class="btn-sm btn-outline" onclick="retryPagamentoPix('${retryablePayment.id}')">Gerar novo PIX</button>` : ''}
       ${canFinalize ? `<button class="btn-sm btn-primary" onclick="finalizePagamentoTab('${detail.id}')">Registrar baixa / finalizar</button>` : ''}
     </div>
   `);
@@ -343,6 +352,104 @@ function canFinalizePagamentoDetail(detail) {
   const amountDue = Number(financial.amountDue || 0);
 
   return amountDue <= 0.01 || approvedPayments >= total || approvedAttempts >= total;
+}
+
+function getRefreshablePayment(detail) {
+  const payments = Array.isArray(detail?.payments) ? detail.payments : [];
+  return payments.find((payment) => String(payment.status || '').toUpperCase() !== 'CONFIRMED') || null;
+}
+
+function getRetryablePayment(detail) {
+  const payments = Array.isArray(detail?.payments) ? detail.payments : [];
+  return payments.find((payment) => {
+    if (String(payment.status || '').toUpperCase() === 'CONFIRMED') {
+      return false;
+    }
+
+    const latestAttemptStatus = String(payment.latestAttemptStatus || '').toUpperCase();
+    const expiredAt = payment.expiredAt ? new Date(payment.expiredAt) : null;
+    const expired = expiredAt instanceof Date && !Number.isNaN(expiredAt.getTime()) && expiredAt.getTime() <= Date.now();
+
+    return expired || latestAttemptStatus === 'REJECTED';
+  }) || null;
+}
+
+async function refreshPagamentoStatus(paymentId, tabId = '') {
+  try {
+    const response = await api.post(`/tables/payments/${paymentId}/refresh-status`, {});
+    const approved = !!response?.status?.approved;
+    showToast(approved ? 'Pagamento atualizado como aprovado.' : 'Status consultado com sucesso.');
+    await loadPagamentos();
+    if (tabId) {
+      await openPagamentoTabDetail(tabId);
+    }
+  } catch (err) {
+    showToast(`Erro ao atualizar status: ${err.message}`, 'error');
+  }
+}
+
+async function retryPagamentoPix(paymentId) {
+  try {
+    const response = await api.post(`/tables/payments/${paymentId}/retry-pix`, {});
+    const retry = response?.retry || {};
+    if (response?.approved) {
+      showToast('A comanda já está quitada.');
+      await loadPagamentos();
+      closeModal();
+      return;
+    }
+
+    openPagamentoPixRetryModal(response);
+    await loadPagamentos();
+  } catch (err) {
+    showToast(`Erro ao gerar novo PIX: ${err.message}`, 'error');
+  }
+}
+
+function openPagamentoPixRetryModal(response) {
+  const retry = response?.retry || {};
+  const qrCode = retry?.qr_code || '';
+  const qrCodeBase64 = retry?.qr_code_base64 || '';
+
+  openModal(`
+    <div class="modal-header">
+      <h3>Nova cobrança PIX gerada</h3>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body" style="display:flex;flex-direction:column;gap:16px">
+      <div style="padding:12px 14px;border-radius:12px;background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.16);font-size:13px;color:var(--text)">
+        Valor em aberto: <strong>${formatCurrency(response?.amount_due || 0)}</strong>
+      </div>
+      ${qrCodeBase64 ? `
+        <div style="display:flex;justify-content:center">
+          <img src="data:image/png;base64,${escapeHTML(qrCodeBase64)}" alt="QR Code PIX" style="max-width:240px;width:100%;border-radius:16px;border:1px solid var(--border);padding:12px;background:#fff">
+        </div>
+      ` : ''}
+      <div class="form-group" style="margin:0">
+        <label>Copia e cola PIX</label>
+        <textarea id="pagamentos-retry-qr-code" readonly style="min-height:120px">${escapeHTML(qrCode)}</textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-sm btn-outline" onclick="closeModal()">Fechar</button>
+      <button class="btn-sm btn-primary" onclick="copyPagamentoPixCode()">Copiar código</button>
+    </div>
+  `);
+}
+
+async function copyPagamentoPixCode() {
+  const value = document.getElementById('pagamentos-retry-qr-code')?.value || '';
+  if (!value) {
+    showToast('Nenhum código PIX disponível.', 'error');
+    return;
+  }
+
+  try {
+    await navigator.clipboard.writeText(value);
+    showToast('Código PIX copiado.');
+  } catch (_error) {
+    showToast('Não foi possível copiar automaticamente.', 'error');
+  }
 }
 
 function applyPagamentosFilters() {

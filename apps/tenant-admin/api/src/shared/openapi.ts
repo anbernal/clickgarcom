@@ -802,6 +802,35 @@ export function buildTenantAdminOpenApiDocument() {
                     },
                 },
             },
+            [`${ADMIN_API_VERSIONED_BASE_PATH}/tables/payments/{paymentId}/refresh-status`]: {
+                post: {
+                    tags: ['Tables'],
+                    summary: 'Forca atualizacao do status de um pagamento no provedor',
+                    security: [{ bearerAuth: [] }],
+                    parameters: [uuidPathParam('paymentId', 'ID do pagamento')],
+                    responses: {
+                        '200': versionedSuccessResponse('Status do pagamento atualizado.', {
+                            type: 'object',
+                            additionalProperties: true,
+                        }),
+                    },
+                },
+            },
+            [`${ADMIN_API_VERSIONED_BASE_PATH}/tables/payments/{paymentId}/retry-pix`]: {
+                post: {
+                    tags: ['Tables'],
+                    summary: 'Gera nova cobranca PIX assistida para um pagamento expirado ou recusado',
+                    security: [{ bearerAuth: [] }],
+                    parameters: [uuidPathParam('paymentId', 'ID do pagamento')],
+                    responses: {
+                        '200': versionedSuccessResponse('Nova cobranca PIX gerada.', {
+                            type: 'object',
+                            additionalProperties: true,
+                        }),
+                        '400': versionedErrorResponse('Pagamento ainda ativo ou comanda ja quitada.'),
+                    },
+                },
+            },
             [`${ADMIN_API_VERSIONED_BASE_PATH}/tables/{id}/status`]: {
                 patch: {
                     tags: ['Tables'],

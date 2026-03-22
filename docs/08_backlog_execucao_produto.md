@@ -210,7 +210,7 @@ Tasks:
 - [x] Criar painel de pagamentos por status.
 - [x] Exibir tentativas, rejeicoes e pendencias.
 - [x] Exibir conciliacao entre pagamento local e webhook do provedor.
-- [ ] Criar retentativa manual assistida.
+- [x] Criar retentativa manual assistida.
 - [x] Criar baixa manual assistida com auditoria.
 - [ ] Preparar fluxo de estorno.
 - [x] Exibir divergencia entre comanda, pagamento aprovado e saldo restante.

@@ -34,6 +34,21 @@ export class TablesController {
         return this.tablesService.getPaymentsOverview(req.user.tenantId, query || {});
     }
 
+    @Post('payments/:paymentId/refresh-status')
+    @Roles(...TENANT_SETTLEMENT_ROLES)
+    refreshPaymentStatus(@Request() req, @Param('paymentId') paymentId: string) {
+        return this.tablesService.refreshPaymentStatus(req.user.tenantId, paymentId);
+    }
+
+    @Post('payments/:paymentId/retry-pix')
+    @Roles(...TENANT_SETTLEMENT_ROLES)
+    retryPaymentAsPix(@Request() req, @Param('paymentId') paymentId: string) {
+        return this.tablesService.retryPaymentAsPix(req.user.tenantId, paymentId, {
+            userId: req.user?.id,
+            userName: req.user?.name,
+        });
+    }
+
     @Post()
     @Roles(...TENANT_TABLE_WRITE_ROLES)
     create(@Request() req, @Body() body: CreateTableDto) {
