@@ -17,7 +17,7 @@ Este documento transforma as sugestoes de melhoria em tasks executaveis, alinhad
 
 ## Epic 01 - Carteira e Cobranca Transparente
 
-Status: Em execucao - lote 1 entregue
+Status: Em execucao - lotes 1 e 2 entregues
 
 Objetivo:
 Deixar evidente para o tenant o que foi consumido, o que foi cobrado, qual o ritmo de uso e qual o risco de saldo.
@@ -30,8 +30,9 @@ Tasks:
 - [x] Adicionar CTA de exportacao no extrato.
 - [x] Adicionar bloco de fechamento mensal na tela da carteira.
 - [x] Adicionar bloco de previsao/alerta de saldo na tela da carteira.
-- [ ] Preparar contrato para futura exportacao PDF.
-- [ ] Preparar task futura de painel `cobrado x ainda nao faturado`.
+- [x] Implementar exportacao PDF do extrato via janela de impressao do navegador, respeitando os filtros ativos.
+- [x] Entregar painel financeiro mensal com `cobrado x cobertura financeira` para pre-pago e `cobrado x fechamento` para pos-pago.
+- [ ] Evoluir para fechamento `faturado x recebido` quando existir entidade de invoice/competencia explicita.
 
 Criterios de pronto:
 - Tenant consegue entender consumo passado, previsao futura e risco atual sem precisar abrir suporte.

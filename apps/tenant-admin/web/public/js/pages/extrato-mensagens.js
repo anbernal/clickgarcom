@@ -179,6 +179,7 @@ async function loadExtratoMensagens() {
                                 <button type="submit" class="btn-sm btn-primary" style="padding:10px 16px;">Aplicar filtros</button>
                                 <button type="button" class="btn-sm btn-outline" style="padding:10px 16px;" id="message-statement-clear-filters">Limpar filtros</button>
                                 <button type="button" class="btn-sm btn-outline" style="padding:10px 16px;" id="message-statement-export">Exportar CSV</button>
+                                <button type="button" class="btn-sm btn-outline" style="padding:10px 16px;" id="message-statement-export-pdf">Exportar PDF</button>
                             </div>
                         </form>
                     </div>
@@ -300,6 +301,11 @@ function bindMessageStatementFilters() {
     if (exportButton) {
         exportButton.addEventListener('click', downloadMessageStatementCsv);
     }
+
+    const exportPdfButton = document.getElementById('message-statement-export-pdf');
+    if (exportPdfButton) {
+        exportPdfButton.addEventListener('click', downloadMessageStatementPdf);
+    }
 }
 
 function handleMessageStatementFilterSubmit(event) {
@@ -407,6 +413,81 @@ async function downloadMessageStatementCsv() {
     }
 }
 
+async function downloadMessageStatementPdf() {
+    const button = document.getElementById('message-statement-export-pdf');
+    if (!button) return;
+
+    const originalLabel = button.textContent;
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+        showToast('Permita pop-ups no navegador para gerar o PDF.', 'error');
+        return;
+    }
+
+    button.disabled = true;
+    button.textContent = 'Preparando...';
+
+    printWindow.document.open();
+    printWindow.document.write(`
+        <!DOCTYPE html>
+        <html lang="pt-BR">
+        <head>
+            <meta charset="UTF-8">
+            <title>Gerando extrato...</title>
+            <style>
+                body { font-family: Arial, sans-serif; padding: 32px; color: #111827; }
+                .loading { font-size: 16px; font-weight: 700; }
+                .muted { color: #6b7280; font-size: 13px; margin-top: 8px; }
+            </style>
+        </head>
+        <body>
+            <div class="loading">Preparando extrato para PDF...</div>
+            <div class="muted">Isso pode levar alguns segundos dependendo do volume filtrado.</div>
+        </body>
+        </html>
+    `);
+    printWindow.document.close();
+
+    try {
+        const dataset = await loadMessageStatementPrintDataset();
+        printWindow.document.open();
+        printWindow.document.write(buildMessageStatementPrintDocument(dataset));
+        printWindow.document.close();
+
+        window.setTimeout(() => {
+            printWindow.focus();
+            printWindow.print();
+        }, 350);
+
+        showToast('Janela de impressão aberta. Escolha "Salvar como PDF".', 'success');
+    } catch (err) {
+        printWindow.document.open();
+        printWindow.document.write(`
+            <!DOCTYPE html>
+            <html lang="pt-BR">
+            <head>
+                <meta charset="UTF-8">
+                <title>Falha ao gerar extrato</title>
+                <style>
+                    body { font-family: Arial, sans-serif; padding: 32px; color: #111827; }
+                    .error { font-size: 18px; font-weight: 700; color: #b91c1c; }
+                    .muted { color: #6b7280; font-size: 13px; margin-top: 8px; }
+                </style>
+            </head>
+            <body>
+                <div class="error">Falha ao gerar o extrato para PDF.</div>
+                <div class="muted">${escapeHTML(err.message || 'Tente novamente.')}</div>
+            </body>
+            </html>
+        `);
+        printWindow.document.close();
+        showToast(err.message || 'Falha ao gerar PDF.', 'error');
+    } finally {
+        button.disabled = false;
+        button.textContent = originalLabel;
+    }
+}
+
 function triggerMessageStatementFileDownload(blob, filename) {
     const url = window.URL.createObjectURL(blob);
     const anchor = document.createElement('a');
@@ -416,6 +497,284 @@ function triggerMessageStatementFileDownload(blob, filename) {
     anchor.click();
     anchor.remove();
     window.URL.revokeObjectURL(url);
+}
+
+async function loadMessageStatementPrintDataset() {
+    const params = buildMessageStatementExportParams();
+    const items = [];
+    let page = 1;
+    let total = 0;
+    let summary = null;
+    const limit = 100;
+
+    while (page <= 1000) {
+        const response = await api.get('/wallet/messages/statement', {
+            ...params,
+            page,
+            limit,
+        });
+        const batch = Array.isArray(response?.items) ? response.items : [];
+
+        if (!summary) {
+            summary = response?.summary || {};
+            total = Number(response?.total || batch.length || 0);
+        }
+
+        items.push(...batch);
+
+        if (!batch.length || items.length >= total) {
+            break;
+        }
+
+        page += 1;
+    }
+
+    return {
+        generatedAt: new Date().toISOString(),
+        filters: resolveMessageStatementFilters(messageStatementState.filters),
+        summary: summary || {},
+        total,
+        items: total > 0 ? items.slice(0, total) : items,
+    };
+}
+
+function buildMessageStatementPrintDocument(dataset) {
+    const summary = dataset?.summary || {};
+    const items = Array.isArray(dataset?.items) ? dataset.items : [];
+    const filters = dataset?.filters || {};
+    const messagesIn = Number(summary.messagesIn || 0);
+    const messagesOut = Number(summary.messagesOut || 0);
+    const messagesUsed = Number(summary.messagesUsed || (messagesIn + messagesOut));
+    const unitPrice = Number(summary.unitPrice || 0.02);
+    const totalAmount = Number(summary.totalAmount || (messagesUsed * unitPrice));
+    const generatedAt = dataset?.generatedAt ? new Date(dataset.generatedAt) : new Date();
+    const rows = items.length
+        ? items.map((item) => `
+            <tr>
+                <td>${escapeHTML(item.userPhone || 'Nao identificado')}</td>
+                <td>${escapeHTML(item.actor === 'user' ? 'Usuario' : 'Robo')}</td>
+                <td>${escapeHTML(`${formatStatementDate(item.occurredAt)} ${formatStatementTime(item.occurredAt)}`)}</td>
+                <td>${escapeHTML(item.preview || 'Sem dados')}</td>
+                <td class="numeric">R$ ${formatWalletCurrency(item.amount || unitPrice)}</td>
+            </tr>
+        `).join('')
+        : `
+            <tr>
+                <td colspan="5" class="empty">Nenhum registro encontrado para o recorte selecionado.</td>
+            </tr>
+        `;
+
+    return `
+        <!DOCTYPE html>
+        <html lang="pt-BR">
+        <head>
+            <meta charset="UTF-8">
+            <title>Extrato de Mensagens</title>
+            <style>
+                @page {
+                    size: A4 portrait;
+                    margin: 12mm;
+                }
+
+                * {
+                    box-sizing: border-box;
+                }
+
+                body {
+                    font-family: Arial, sans-serif;
+                    color: #0f172a;
+                    margin: 0;
+                    background: #ffffff;
+                }
+
+                .page {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 18px;
+                }
+
+                .hero {
+                    border: 1px solid #cbd5e1;
+                    border-radius: 16px;
+                    padding: 20px 22px;
+                    background: linear-gradient(135deg, #f8fafc 0%, #eef2ff 100%);
+                }
+
+                .eyebrow {
+                    font-size: 11px;
+                    font-weight: 700;
+                    letter-spacing: 1px;
+                    text-transform: uppercase;
+                    color: #64748b;
+                    margin-bottom: 8px;
+                }
+
+                .title {
+                    font-size: 26px;
+                    font-weight: 800;
+                    margin-bottom: 8px;
+                }
+
+                .subtitle {
+                    font-size: 12px;
+                    color: #475569;
+                    line-height: 1.5;
+                }
+
+                .meta {
+                    display: grid;
+                    grid-template-columns: repeat(4, minmax(0, 1fr));
+                    gap: 12px;
+                }
+
+                .meta-card {
+                    border: 1px solid #e2e8f0;
+                    border-radius: 12px;
+                    padding: 14px;
+                    background: #ffffff;
+                }
+
+                .meta-label {
+                    font-size: 11px;
+                    font-weight: 700;
+                    text-transform: uppercase;
+                    color: #64748b;
+                    margin-bottom: 6px;
+                }
+
+                .meta-value {
+                    font-size: 20px;
+                    font-weight: 800;
+                    color: #0f172a;
+                }
+
+                .meta-detail {
+                    font-size: 11px;
+                    color: #475569;
+                    margin-top: 6px;
+                    line-height: 1.4;
+                }
+
+                .table-wrap {
+                    border: 1px solid #e2e8f0;
+                    border-radius: 14px;
+                    overflow: hidden;
+                }
+
+                table {
+                    width: 100%;
+                    border-collapse: collapse;
+                }
+
+                th, td {
+                    padding: 10px 12px;
+                    border-bottom: 1px solid #e2e8f0;
+                    text-align: left;
+                    vertical-align: top;
+                    font-size: 11px;
+                    line-height: 1.5;
+                }
+
+                th {
+                    background: #f8fafc;
+                    font-size: 10px;
+                    text-transform: uppercase;
+                    letter-spacing: 0.5px;
+                    color: #64748b;
+                }
+
+                td.numeric {
+                    white-space: nowrap;
+                    font-weight: 700;
+                }
+
+                tr:last-child td {
+                    border-bottom: none;
+                }
+
+                .empty {
+                    text-align: center;
+                    color: #64748b;
+                    padding: 22px;
+                }
+
+                .footer {
+                    font-size: 10px;
+                    color: #64748b;
+                    display: flex;
+                    justify-content: space-between;
+                    gap: 12px;
+                    border-top: 1px solid #e2e8f0;
+                    padding-top: 10px;
+                }
+
+                @media print {
+                    .page {
+                        gap: 14px;
+                    }
+                }
+            </style>
+        </head>
+        <body>
+            <div class="page">
+                <section class="hero">
+                    <div class="eyebrow">Transparencia de cobranca</div>
+                    <div class="title">Extrato de Mensagens</div>
+                    <div class="subtitle">
+                        ${escapeHTML(buildMessageStatementFilterSummary(filters))}
+                        <br>
+                        Gerado em ${escapeHTML(generatedAt.toLocaleString('pt-BR'))}.
+                    </div>
+                </section>
+
+                <section class="meta">
+                    <div class="meta-card">
+                        <div class="meta-label">Mensagens cobradas</div>
+                        <div class="meta-value">${escapeHTML(formatWalletInteger(messagesUsed))}</div>
+                        <div class="meta-detail">${escapeHTML(`${dataset.total || items.length} lancamento(s) no recorte`)}</div>
+                    </div>
+                    <div class="meta-card">
+                        <div class="meta-label">Recebidas do usuario</div>
+                        <div class="meta-value">${escapeHTML(formatWalletInteger(messagesIn))}</div>
+                        <div class="meta-detail">Entradas via WhatsApp</div>
+                    </div>
+                    <div class="meta-card">
+                        <div class="meta-label">Respostas do robo</div>
+                        <div class="meta-value">${escapeHTML(formatWalletInteger(messagesOut))}</div>
+                        <div class="meta-detail">Saidas cobradas no recorte</div>
+                    </div>
+                    <div class="meta-card">
+                        <div class="meta-label">Total cobrado</div>
+                        <div class="meta-value">R$ ${escapeHTML(formatWalletCurrency(totalAmount))}</div>
+                        <div class="meta-detail">${escapeHTML(`Preco unitario: R$ ${formatWalletCurrency(unitPrice)}`)}</div>
+                    </div>
+                </section>
+
+                <section class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Telefone do usuario</th>
+                                <th>Origem</th>
+                                <th>Data e hora</th>
+                                <th>Descricao</th>
+                                <th>Valor</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${rows}
+                        </tbody>
+                    </table>
+                </section>
+
+                <div class="footer">
+                    <span>ClickGarcom · Extrato de mensagens contabilizadas</span>
+                    <span>Recorte filtrado: ${escapeHTML(buildMessageStatementFilterSummary(filters))}</span>
+                </div>
+            </div>
+        </body>
+        </html>
+    `;
 }
 
 function resolveMessageStatementFilters(filters) {

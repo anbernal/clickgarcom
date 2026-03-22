@@ -49,6 +49,22 @@ type WalletLowBalanceAlert = {
     recommendedRechargeMessages: number;
 };
 
+type WalletFinancialOverview = {
+    referenceMonth: string;
+    mode: 'pre_paid' | 'post_paid';
+    chargedMessages: number;
+    chargedAmount: number;
+    confirmedRechargeAmount: number;
+    confirmedRechargeCount: number;
+    amountCoveredByRecharge: number;
+    amountCoveredByPreviousBalance: number;
+    amountAddedToBalance: number;
+    estimatedOpeningBalance: number | null;
+    currentBalance: number;
+    amountPendingInvoice: number;
+    note: string;
+};
+
 type WalletUsageAnalytics = {
     messagesIn: number;
     messagesOut: number;
@@ -57,6 +73,7 @@ type WalletUsageAnalytics = {
     previousMonthSummary: WalletMonthlySummary;
     forecast: WalletForecastSummary;
     lowBalanceAlert: WalletLowBalanceAlert | null;
+    financialOverview: WalletFinancialOverview;
 };
 
 @Injectable()
@@ -99,6 +116,7 @@ export class WalletService {
             previous_month_summary: usage.previousMonthSummary,
             forecast: usage.forecast,
             low_balance_alert: usage.lowBalanceAlert,
+            financial_overview: usage.financialOverview,
         };
     }
 
@@ -278,12 +296,21 @@ export class WalletService {
         messagesRemaining: number | null,
     ): Promise<WalletUsageAnalytics> {
         if (!(await this.hasMessageLogsTable())) {
+            const currentMonthSummary = this.buildEmptyMonthlySummary(
+                this.resolveCurrentMonthReference(),
+                messagePrice,
+            );
+            const previousMonthSummary = this.buildEmptyMonthlySummary(
+                this.resolvePreviousMonthReference(),
+                messagePrice,
+            );
+
             return {
                 messagesIn: 0,
                 messagesOut: 0,
                 messagesUsed: 0,
-                currentMonthSummary: this.buildEmptyMonthlySummary(this.resolveCurrentMonthReference(), messagePrice),
-                previousMonthSummary: this.buildEmptyMonthlySummary(this.resolvePreviousMonthReference(), messagePrice),
+                currentMonthSummary,
+                previousMonthSummary,
                 forecast: {
                     averageDailyMessages: 0,
                     expectedNext30DaysMessages: 0,
@@ -293,6 +320,12 @@ export class WalletService {
                     estimatedDaysRemaining: null,
                 },
                 lowBalanceAlert: null,
+                financialOverview: await this.buildFinancialOverview(
+                    tenantId,
+                    billingPlan,
+                    walletBalance,
+                    currentMonthSummary,
+                ),
             };
         }
 
@@ -368,6 +401,12 @@ export class WalletService {
             messagesUsed: previousMonthMessagesUsed,
             amount: this.normalizeCurrencyValue(previousMonthMessagesUsed * messagePrice),
         };
+        const financialOverview = await this.buildFinancialOverview(
+            tenantId,
+            billingPlan,
+            walletBalance,
+            currentMonthSummary,
+        );
 
         return {
             messagesIn,
@@ -383,6 +422,7 @@ export class WalletService {
                 messagesRemaining,
                 forecast,
             ),
+            financialOverview,
         };
     }
 
@@ -403,6 +443,13 @@ export class WalletService {
         );
 
         return Number(rows?.[0]?.total || 0) === 2;
+    }
+
+    private async hasPaymentsTable(): Promise<boolean> {
+        const rows = await this.dataSource.query(
+            `SELECT to_regclass('public.payments') AS reg`,
+        );
+        return !!rows?.[0]?.reg;
     }
 
     private async buildMessageStatementBaseQuery(tenantId: string, filters: MessageStatementFilters) {
@@ -673,6 +720,131 @@ export class WalletService {
 
         const factor = 10 ** decimals;
         return Math.round(parsed * factor) / factor;
+    }
+
+    private async buildFinancialOverview(
+        tenantId: string,
+        billingPlan: string,
+        walletBalance: number,
+        currentMonthSummary: WalletMonthlySummary,
+    ): Promise<WalletFinancialOverview> {
+        const mode = billingPlan === 'post_paid' ? 'post_paid' : 'pre_paid';
+        const chargedAmount = this.normalizeCurrencyValue(currentMonthSummary.amount || 0);
+        const currentBalance = this.normalizeCurrencyValue(walletBalance);
+
+        if (!(await this.hasPaymentsTable())) {
+            return {
+                referenceMonth: currentMonthSummary.referenceMonth,
+                mode,
+                chargedMessages: currentMonthSummary.messagesUsed,
+                chargedAmount,
+                confirmedRechargeAmount: 0,
+                confirmedRechargeCount: 0,
+                amountCoveredByRecharge: 0,
+                amountCoveredByPreviousBalance: 0,
+                amountAddedToBalance: 0,
+                estimatedOpeningBalance: null,
+                currentBalance,
+                amountPendingInvoice: mode === 'post_paid' ? chargedAmount : 0,
+                note: mode === 'post_paid'
+                    ? 'O consumo do mes segue apurado normalmente, mas o detalhamento financeiro do fechamento ainda nao esta disponivel.'
+                    : 'O consumo do mes segue apurado normalmente, mas o historico de recargas confirmadas nao esta disponivel para conciliacao.',
+            };
+        }
+
+        const rows = await this.dataSource.query(
+            `SELECT
+                COALESCE(SUM(CASE
+                    WHEN status = 'CONFIRMED'
+                     AND tab_id IS NULL
+                     AND order_id IS NULL
+                     AND DATE_TRUNC('month', COALESCE(paid_at, created_at) AT TIME ZONE '${MESSAGE_STATEMENT_TIMEZONE}') =
+                         DATE_TRUNC('month', NOW() AT TIME ZONE '${MESSAGE_STATEMENT_TIMEZONE}')
+                    THEN amount
+                    ELSE 0
+                END), 0)::numeric(10,2) AS confirmed_recharge_amount,
+                COALESCE(COUNT(*) FILTER (
+                    WHERE status = 'CONFIRMED'
+                      AND tab_id IS NULL
+                      AND order_id IS NULL
+                      AND DATE_TRUNC('month', COALESCE(paid_at, created_at) AT TIME ZONE '${MESSAGE_STATEMENT_TIMEZONE}') =
+                          DATE_TRUNC('month', NOW() AT TIME ZONE '${MESSAGE_STATEMENT_TIMEZONE}')
+                ), 0)::int AS confirmed_recharge_count
+             FROM payments
+             WHERE tenant_id = $1`,
+            [tenantId],
+        );
+
+        const row = rows?.[0] || {};
+        const confirmedRechargeAmount = this.normalizeCurrencyValue(row.confirmed_recharge_amount || 0);
+        const confirmedRechargeCount = Number(row.confirmed_recharge_count || 0);
+        const amountCoveredByRecharge = mode === 'pre_paid'
+            ? this.normalizeCurrencyValue(Math.min(chargedAmount, confirmedRechargeAmount))
+            : 0;
+        const amountCoveredByPreviousBalance = mode === 'pre_paid'
+            ? this.normalizeCurrencyValue(Math.max(0, chargedAmount - confirmedRechargeAmount))
+            : 0;
+        const amountAddedToBalance = mode === 'pre_paid'
+            ? this.normalizeCurrencyValue(Math.max(0, confirmedRechargeAmount - chargedAmount))
+            : 0;
+        const estimatedOpeningBalance = mode === 'pre_paid'
+            ? this.normalizeCurrencyValue(currentBalance + chargedAmount - confirmedRechargeAmount)
+            : null;
+        const amountPendingInvoice = mode === 'post_paid' ? chargedAmount : 0;
+
+        return {
+            referenceMonth: currentMonthSummary.referenceMonth,
+            mode,
+            chargedMessages: currentMonthSummary.messagesUsed,
+            chargedAmount,
+            confirmedRechargeAmount,
+            confirmedRechargeCount,
+            amountCoveredByRecharge,
+            amountCoveredByPreviousBalance,
+            amountAddedToBalance,
+            estimatedOpeningBalance,
+            currentBalance,
+            amountPendingInvoice,
+            note: this.buildFinancialOverviewNote(
+                mode,
+                chargedAmount,
+                confirmedRechargeAmount,
+                amountCoveredByPreviousBalance,
+                amountAddedToBalance,
+            ),
+        };
+    }
+
+    private buildFinancialOverviewNote(
+        mode: 'pre_paid' | 'post_paid',
+        chargedAmount: number,
+        confirmedRechargeAmount: number,
+        amountCoveredByPreviousBalance: number,
+        amountAddedToBalance: number,
+    ) {
+        if (mode === 'post_paid') {
+            return chargedAmount > 0
+                ? 'No plano pos-pago, o consumo deste mes ainda compoe o fechamento financeiro pendente.'
+                : 'No plano pos-pago, o fechamento do mes ainda nao tem consumo contabilizado.';
+        }
+
+        if (chargedAmount <= 0 && confirmedRechargeAmount <= 0) {
+            return 'Ainda nao houve consumo nem recarga confirmada neste mes.';
+        }
+
+        if (chargedAmount > 0 && confirmedRechargeAmount <= 0) {
+            return 'Nao houve recarga confirmada neste mes. O consumo foi abatido do saldo que ja estava disponivel na carteira.';
+        }
+
+        if (amountCoveredByPreviousBalance > 0) {
+            return 'As recargas confirmadas deste mes cobriram parte do consumo. A diferenca foi abatida do saldo anterior da carteira.';
+        }
+
+        if (amountAddedToBalance > 0) {
+            return 'As recargas confirmadas deste mes superaram o consumo e reforcaram o saldo disponivel da carteira.';
+        }
+
+        return 'As recargas confirmadas deste mes equivalem ao consumo ja abatido da carteira.';
     }
 
     private buildEmptyMonthlySummary(referenceMonth: string, messagePrice: number): WalletMonthlySummary {

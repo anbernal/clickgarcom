@@ -41,6 +41,7 @@ async function loadWallet() {
         const previousMonthSummary = res.previous_month_summary || {};
         const forecast = res.forecast || {};
         const lowBalanceAlert = res.low_balance_alert || null;
+        const financialOverview = res.financial_overview || {};
         const averageDailyMessages = Number(forecast.averageDailyMessages || 0);
         const expectedNext30DaysMessages = Number(forecast.expectedNext30DaysMessages || 0);
         const expectedNext30DaysAmount = Number(forecast.expectedNext30DaysAmount || 0);
@@ -49,6 +50,19 @@ async function loadWallet() {
         const estimatedDaysRemaining = forecast.estimatedDaysRemaining === null || forecast.estimatedDaysRemaining === undefined
             ? null
             : Number(forecast.estimatedDaysRemaining);
+        const financialReferenceMonth = String(financialOverview.referenceMonth || currentMonthSummary.referenceMonth || '');
+        const chargedMessages = Number(financialOverview.chargedMessages || currentMonthSummary.messagesUsed || 0);
+        const chargedAmount = Number(financialOverview.chargedAmount || currentMonthSummary.amount || 0);
+        const confirmedRechargeAmount = Number(financialOverview.confirmedRechargeAmount || 0);
+        const confirmedRechargeCount = Number(financialOverview.confirmedRechargeCount || 0);
+        const amountCoveredByRecharge = Number(financialOverview.amountCoveredByRecharge || 0);
+        const amountCoveredByPreviousBalance = Number(financialOverview.amountCoveredByPreviousBalance || 0);
+        const amountAddedToBalance = Number(financialOverview.amountAddedToBalance || 0);
+        const estimatedOpeningBalance = financialOverview.estimatedOpeningBalance === null || financialOverview.estimatedOpeningBalance === undefined
+            ? null
+            : Number(financialOverview.estimatedOpeningBalance);
+        const amountPendingInvoice = Number(financialOverview.amountPendingInvoice || 0);
+        const financialNote = String(financialOverview.note || '');
 
         const remainingLabel = isPrePaid
             ? formatWalletInteger(messagesRemaining)
@@ -209,6 +223,122 @@ async function loadWallet() {
                         <div style="font-size:26px; font-weight:800; font-family:'Sora',sans-serif; color:var(--accent-blue);">R$ ${formatWalletCurrency(previousMonthSummary.amount || 0)}</div>
                         <div style="font-size:13px; color:var(--text);">${formatWalletMonthReference(previousMonthSummary.referenceMonth)}</div>
                         <div style="font-size:12px; color:var(--muted);">${formatWalletInteger(previousMonthSummary.messagesUsed || 0)} mensagens · IN ${formatWalletInteger(previousMonthSummary.messagesIn || 0)} · OUT ${formatWalletInteger(previousMonthSummary.messagesOut || 0)}</div>
+                    </div>
+                </div>
+
+                <div style="
+                    background: var(--card-bg);
+                    border-radius:18px;
+                    padding:24px;
+                    border:1px solid var(--border);
+                    box-shadow: var(--shadow);
+                    margin-bottom:16px;
+                ">
+                    <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:18px; flex-wrap:wrap; margin-bottom:18px;">
+                        <div>
+                            <div style="font-size:14px; font-weight:800; color:var(--dark); margin-bottom:6px;">
+                                ${isPrePaid ? 'Cobrado x cobertura financeira' : 'Cobrado x fechamento financeiro'}
+                            </div>
+                            <div style="font-size:13px; color:var(--muted); max-width:720px;">
+                                ${isPrePaid
+                ? 'No pré-pago, o consumo é abatido do saldo. Este quadro mostra o que foi consumido no mês e como isso se relaciona com as recargas confirmadas.'
+                : 'No pós-pago, o consumo do mês ainda compõe o fechamento financeiro do período.'}
+                            </div>
+                        </div>
+                        <div style="font-size:12px; color:var(--muted); font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">
+                            Referência ${formatWalletMonthReference(financialReferenceMonth)}
+                        </div>
+                    </div>
+
+                    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:14px;">
+                        <div style="
+                            background:rgba(240,242,245,0.6);
+                            border:1px solid var(--border);
+                            border-radius:14px;
+                            padding:18px;
+                        ">
+                            <div style="font-size:12px; color:var(--muted); text-transform:uppercase; font-weight:700; letter-spacing:0.5px; margin-bottom:8px;">Cobrado no mês</div>
+                            <div style="font-size:28px; font-weight:800; font-family:'Sora',sans-serif; color:var(--dark);">R$ ${formatWalletCurrency(chargedAmount)}</div>
+                            <div style="font-size:12px; color:var(--muted); margin-top:6px;">${formatWalletInteger(chargedMessages)} mensagens contabilizadas</div>
+                        </div>
+
+                        <div style="
+                            background:rgba(240,242,245,0.6);
+                            border:1px solid var(--border);
+                            border-radius:14px;
+                            padding:18px;
+                        ">
+                            <div style="font-size:12px; color:var(--muted); text-transform:uppercase; font-weight:700; letter-spacing:0.5px; margin-bottom:8px;">Recargas confirmadas</div>
+                            <div style="font-size:28px; font-weight:800; font-family:'Sora',sans-serif; color:var(--accent-blue);">R$ ${formatWalletCurrency(confirmedRechargeAmount)}</div>
+                            <div style="font-size:12px; color:var(--muted); margin-top:6px;">${formatWalletInteger(confirmedRechargeCount)} pagamento(s) aprovados no mês</div>
+                        </div>
+
+                        <div style="
+                            background:rgba(240,242,245,0.6);
+                            border:1px solid var(--border);
+                            border-radius:14px;
+                            padding:18px;
+                        ">
+                            <div style="font-size:12px; color:var(--muted); text-transform:uppercase; font-weight:700; letter-spacing:0.5px; margin-bottom:8px;">
+                                ${isPrePaid ? 'Saldo inicial estimado' : 'Pendente de fechamento'}
+                            </div>
+                            <div style="font-size:28px; font-weight:800; font-family:'Sora',sans-serif; color:${isPrePaid ? 'var(--teal)' : 'var(--accent-orange)'};">
+                                ${isPrePaid
+                ? (estimatedOpeningBalance === null ? '—' : `R$ ${formatWalletCurrency(estimatedOpeningBalance)}`)
+                : `R$ ${formatWalletCurrency(amountPendingInvoice)}`}
+                            </div>
+                            <div style="font-size:12px; color:var(--muted); margin-top:6px;">
+                                ${isPrePaid
+                ? 'Saldo antes do consumo e das recargas do mês'
+                : 'Valor ainda não faturado no período atual'}
+                            </div>
+                        </div>
+
+                        <div style="
+                            background:rgba(240,242,245,0.6);
+                            border:1px solid var(--border);
+                            border-radius:14px;
+                            padding:18px;
+                        ">
+                            <div style="font-size:12px; color:var(--muted); text-transform:uppercase; font-weight:700; letter-spacing:0.5px; margin-bottom:8px;">Saldo atual</div>
+                            <div style="font-size:28px; font-weight:800; font-family:'Sora',sans-serif; color:${balanceColor};">R$ ${formatWalletCurrency(balance)}</div>
+                            <div style="font-size:12px; color:var(--muted); margin-top:6px;">
+                                ${isPrePaid ? 'Após dedução do consumo e crédito das recargas' : 'Visão atual disponibilizada pela carteira'}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="
+                        margin-top:16px;
+                        padding:18px 20px;
+                        border-radius:14px;
+                        border:1px solid ${isPrePaid ? 'rgba(26,188,156,0.16)' : 'rgba(245,158,11,0.18)'};
+                        background:${isPrePaid ? 'rgba(26,188,156,0.06)' : 'rgba(245,158,11,0.08)'};
+                    ">
+                        <div style="font-size:12px; color:var(--muted); text-transform:uppercase; font-weight:700; letter-spacing:0.5px; margin-bottom:8px;">
+                            ${isPrePaid ? 'Equação do mês' : 'Leitura financeira'}
+                        </div>
+                        <div style="font-size:20px; font-weight:800; font-family:'Sora',sans-serif; color:var(--dark); line-height:1.4;">
+                            ${isPrePaid
+                ? (estimatedOpeningBalance === null
+                    ? 'Saldo inicial estimado indisponível para conciliação automática neste ambiente.'
+                    : `R$ ${formatWalletCurrency(estimatedOpeningBalance)} + R$ ${formatWalletCurrency(confirmedRechargeAmount)} - R$ ${formatWalletCurrency(chargedAmount)} = R$ ${formatWalletCurrency(balance)}`)
+                : `R$ ${formatWalletCurrency(chargedAmount)} em mensagens contabilizadas no mês atual.`}
+                        </div>
+                        <div style="font-size:12px; color:var(--muted); margin-top:8px;">
+                            ${isPrePaid
+                ? (
+                    amountCoveredByPreviousBalance > 0
+                        ? `Do consumo do mês, R$ ${formatWalletCurrency(amountCoveredByRecharge)} foram cobertos pelas recargas confirmadas e R$ ${formatWalletCurrency(amountCoveredByPreviousBalance)} vieram do saldo anterior.`
+                        : amountAddedToBalance > 0
+                            ? `Após cobrir todo o consumo do mês, as recargas ainda adicionaram R$ ${formatWalletCurrency(amountAddedToBalance)} ao saldo da carteira.`
+                            : `As recargas confirmadas do mês cobriram exatamente o consumo apurado neste período.`
+                )
+                : `Valor pendente de fechamento neste momento: R$ ${formatWalletCurrency(amountPendingInvoice)}.`}
+                        </div>
+                        ${financialNote ? `
+                            <div style="font-size:12px; color:var(--text); margin-top:10px;">${escapeHTML(financialNote)}</div>
+                        ` : ''}
                     </div>
                 </div>
 
