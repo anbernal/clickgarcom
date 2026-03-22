@@ -41,6 +41,10 @@ export class OrdersController {
             req.user.tenantId,
             body.prep_minutes,
             body.cancel_reason,
+            body.cancel_reason_code,
+            body.cancel_category,
+            req.user?.id,
+            req.user?.name,
         );
     }
 }

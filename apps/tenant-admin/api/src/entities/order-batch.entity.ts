@@ -43,4 +43,16 @@ export class OrderBatch {
 
     @Column({ type: 'text', name: 'cancel_reason', nullable: true })
     cancelReason!: string | null;
+
+    @Column({ type: 'varchar', length: 60, name: 'cancel_reason_code', nullable: true })
+    cancelReasonCode!: string | null;
+
+    @Column({ type: 'varchar', length: 20, name: 'cancel_category', nullable: true })
+    cancelCategory!: string | null;
+
+    @Column('uuid', { name: 'canceled_by_user_id', nullable: true })
+    canceledByUserId!: string | null;
+
+    @Column({ type: 'varchar', length: 255, name: 'canceled_by_user_name', nullable: true })
+    canceledByUserName!: string | null;
 }

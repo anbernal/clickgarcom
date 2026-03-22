@@ -18,6 +18,24 @@ const DEFAULT_ORDER_SLA = {
   ready: { warningMinutes: 4, criticalMinutes: 8, label: 'Entrega' },
 };
 
+const DEFAULT_ORDER_STATION_SLA = {
+  ATTENDANCE: {
+    pending: DEFAULT_ORDER_SLA.pending,
+    accepted: DEFAULT_ORDER_SLA.accepted,
+    ready: DEFAULT_ORDER_SLA.ready,
+  },
+  KITCHEN: {
+    pending: DEFAULT_ORDER_SLA.pending,
+    accepted: DEFAULT_ORDER_SLA.accepted,
+    ready: DEFAULT_ORDER_SLA.ready,
+  },
+  BAR: {
+    pending: DEFAULT_ORDER_SLA.pending,
+    accepted: { warningMinutes: 8, criticalMinutes: 14, label: 'Preparo' },
+    ready: DEFAULT_ORDER_SLA.ready,
+  },
+};
+
 function resolveWebSocketUrl() {
   const configuredWs = String(runtimeConfig.kdsWsUrl || '').trim();
   if (configuredWs) return configuredWs;
@@ -473,6 +491,7 @@ function buildCardHTML(order) {
           class="order-timer ${stage.elapsed.warning ? 'warning' : ''} ${stage.elapsed.urgent ? 'urgent' : ''}"
           data-start="${escapeHTML(stage.startedAt || '')}"
           data-stage="${escapeHTML(stage.key)}"
+          data-station="${escapeHTML(stage.stationKey || 'ATTENDANCE')}"
         >
           ⏱ ${escapeHTML(stage.label)} ${escapeHTML(stage.elapsed.text)}
         </span>
@@ -489,13 +508,14 @@ function renderStats(containerId, pending, accepted, ready, destination, station
   const warningCount = Number(stationSummary?.warningCount || 0);
   const avgAcceptanceMinutes = formatOperationalMinutes(stationSummary?.avgAcceptanceMinutes);
   const avgPreparationMinutes = formatOperationalMinutes(stationSummary?.avgPreparationMinutes);
+  const preparationSla = getStationStageSlaConfig(destination, 'accepted');
   const bottleneckLabel = stationSummary?.bottleneckLabel || 'Fluxo sob controle';
   const bottleneckDetail = Number(stationSummary?.bottleneckDelayedCount || 0) > 0
     ? `${stationSummary.bottleneckDelayedCount} acima do SLA · fila ${stationSummary.bottleneckQueueCount || 0}`
     : `${stationSummary?.bottleneckQueueCount || 0} pedido(s) no estágio mais carregado`;
   el.innerHTML = `
     <div class="stat-card"><div class="stat-icon" style="background:var(--red-bg)">🔴</div><div><div class="stat-value" style="color:var(--red)">${pending}</div><div class="stat-label">Aguardando aceite</div></div></div>
-    <div class="stat-card"><div class="stat-icon" style="background:var(--yellow-bg)">⏱</div><div><div class="stat-value" style="color:#8a6e00">${accepted}</div><div class="stat-label">Em preparo</div></div></div>
+    <div class="stat-card"><div class="stat-icon" style="background:var(--yellow-bg)">⏱</div><div><div class="stat-value" style="color:#8a6e00">${accepted}</div><div class="stat-label">Em preparo · SLA ${escapeHTML(String(preparationSla.criticalMinutes || 0))} min</div></div></div>
     <div class="stat-card"><div class="stat-icon" style="background:var(--green-bg)">✅</div><div><div class="stat-value" style="color:var(--green)">${ready}</div><div class="stat-label">Prontos</div></div></div>
     <div class="stat-card"><div class="stat-icon" style="background:var(--surface-2)">${icon}</div><div><div class="stat-value">${pending + accepted + ready}</div><div class="stat-label">Total ativos</div></div></div>
     <div class="stat-card"><div class="stat-icon" style="background:${delayedCount > 0 ? 'var(--red-bg)' : 'var(--yellow-bg)'}">🚨</div><div><div class="stat-value" style="color:${delayedCount > 0 ? 'var(--red)' : '#8a6e00'}">${delayedCount}</div><div class="stat-label">${warningCount > 0 ? `${warningCount} em atenção` : 'Acima do SLA'}</div></div></div>
@@ -645,12 +665,14 @@ function updateNavBadges() {
 }
 
 // ─── ACTIONS ───────────────────────────────────────────────────
-async function updateStatus(orderId, newStatus, cancelReason, prepMinutes) {
+async function updateStatus(orderId, newStatus, cancelReason, prepMinutes, cancelReasonCode, cancelCategory) {
   try {
     const orderRef = allOrders[orderId];
     const displayCode = getOrderDisplayCode(orderRef || { id: orderId });
     const body = { status: newStatus };
     if (cancelReason) body.cancel_reason = cancelReason;
+    if (cancelReasonCode) body.cancel_reason_code = cancelReasonCode;
+    if (cancelCategory) body.cancel_category = cancelCategory;
     if (newStatus === 'ACCEPTED' && Number.isFinite(prepMinutes)) {
       body.prep_minutes = prepMinutes;
     }
@@ -733,6 +755,9 @@ function confirmReject() {
   const sel = document.querySelector('.reason-opt.selected');
   if (!sel) { document.getElementById('err-no-reason').classList.add('show'); return; }
   const val = sel.querySelector('input').value;
+  const code = sel.dataset.code || '';
+  const category = sel.dataset.category || '';
+  const reasonLabel = sel.dataset.label || sel.textContent.trim();
   if (val === '__custom__') {
     const txt = document.getElementById('custom-text').value.trim();
     if (!txt) {
@@ -740,9 +765,9 @@ function confirmReject() {
       document.getElementById('custom-text').focus();
       return;
     }
-    updateStatus(modalState.orderId, 'CANCELED', txt);
+    updateStatus(modalState.orderId, 'CANCELED', txt, undefined, code || 'OTHER', category || 'other');
   } else {
-    updateStatus(modalState.orderId, 'CANCELED', val);
+    updateStatus(modalState.orderId, 'CANCELED', reasonLabel, undefined, code, category);
   }
   closeModal();
 }
@@ -786,6 +811,10 @@ function normalizeOrder(order) {
     delivered_at: order.delivered_at || order.deliveredAt || null,
     canceled_at: order.canceled_at || order.canceledAt || null,
     cancel_reason: order.cancel_reason || order.cancelReason || '',
+    cancel_reason_code: order.cancel_reason_code || order.cancelReasonCode || '',
+    cancel_category: order.cancel_category || order.cancelCategory || '',
+    canceled_by_user_id: order.canceled_by_user_id || order.canceledByUserId || '',
+    canceled_by_user_name: order.canceled_by_user_name || order.canceledByUserName || '',
     items: items.map((item) => ({
       ...item,
       menu_item_id: item.menu_item_id || item.menuItemId || null,
@@ -876,7 +905,7 @@ function getElapsedWithSla(dateStr, slaConfig) {
 function startTimerUpdates() {
   timerInterval = setInterval(() => {
     document.querySelectorAll('.order-timer[data-start][data-stage]').forEach(el => {
-      const stage = getStageSlaConfig(el.dataset.stage);
+      const stage = getStageSlaConfig(el.dataset.stage, el.dataset.station);
       const elapsed = getElapsedWithSla(el.dataset.start, stage);
       el.textContent = `⏱ ${stage.label} ${elapsed.text}`;
       el.classList.toggle('warning', elapsed.warning);
@@ -890,33 +919,56 @@ function getStationOperations(destination) {
   return stations.find((station) => station.destination === destination) || null;
 }
 
-function getStageSlaConfig(stageKey) {
-  const current = operationsSummary?.sla || DEFAULT_ORDER_SLA;
-  if (stageKey === 'accepted') return current.accepted || DEFAULT_ORDER_SLA.accepted;
-  if (stageKey === 'ready') return current.ready || DEFAULT_ORDER_SLA.ready;
-  return current.pending || DEFAULT_ORDER_SLA.pending;
+function getStageSlaConfig(stageKey, stationKey = 'ATTENDANCE') {
+  return getStationStageSlaConfig(stationKey, stageKey);
+}
+
+function getStationStageSlaConfig(stationKey, stageKey) {
+  const normalizedStationKey = normalizeStationKey(stationKey);
+  const stationSla = operationsSummary?.stationSla?.[normalizedStationKey]
+    || DEFAULT_ORDER_STATION_SLA[normalizedStationKey]
+    || DEFAULT_ORDER_STATION_SLA.ATTENDANCE;
+  const genericSla = operationsSummary?.sla || DEFAULT_ORDER_SLA;
+  if (stageKey === 'accepted') return stationSla.accepted || genericSla.accepted || DEFAULT_ORDER_SLA.accepted;
+  if (stageKey === 'ready') return stationSla.ready || genericSla.ready || DEFAULT_ORDER_SLA.ready;
+  return stationSla.pending || genericSla.pending || DEFAULT_ORDER_SLA.pending;
 }
 
 function getOrderStageSnapshot(order) {
   if (order?.status === 'ACCEPTED') {
-    return buildOrderStageSnapshot('accepted', order.accepted_at || order.created_at);
+    return buildOrderStageSnapshot('accepted', order.accepted_at || order.created_at, resolveOrderStationKey(order, 'accepted'));
   }
   if (order?.status === 'READY') {
-    return buildOrderStageSnapshot('ready', order.ready_at || order.created_at);
+    return buildOrderStageSnapshot('ready', order.ready_at || order.created_at, resolveOrderStationKey(order, 'ready'));
   }
-  return buildOrderStageSnapshot('pending', order?.created_at || order?.createdAt);
+  return buildOrderStageSnapshot('pending', order?.created_at || order?.createdAt, resolveOrderStationKey(order, 'pending'));
 }
 
-function buildOrderStageSnapshot(stageKey, startedAt) {
-  const stage = getStageSlaConfig(stageKey);
+function buildOrderStageSnapshot(stageKey, startedAt, stationKey = 'ATTENDANCE') {
+  const stage = getStageSlaConfig(stageKey, stationKey);
   return {
     key: stageKey,
+    stationKey,
     label: stage.label || 'Etapa',
     warningMinutes: Number(stage.warningMinutes || 0),
     criticalMinutes: Number(stage.criticalMinutes || 0),
     startedAt: startedAt || '',
     elapsed: getElapsedWithSla(startedAt, stage),
   };
+}
+
+function resolveOrderStationKey(order, stageKey) {
+  if (stageKey !== 'accepted') {
+    return 'ATTENDANCE';
+  }
+  return normalizeStationKey(order?.destination);
+}
+
+function normalizeStationKey(value) {
+  const normalized = String(value || '').toUpperCase();
+  if (normalized === 'BAR') return 'BAR';
+  if (normalized === 'KITCHEN') return 'KITCHEN';
+  return 'ATTENDANCE';
 }
 
 function formatOperationalMinutes(value) {

@@ -21,10 +21,53 @@ const ORDER_SLA_MINUTES = {
     READY: { warning: 4, critical: 8, label: 'Entrega' },
 } as const;
 
+const ORDER_STATION_SLA_MINUTES = {
+    ATTENDANCE: {
+        PENDING: ORDER_SLA_MINUTES.PENDING,
+        ACCEPTED: ORDER_SLA_MINUTES.ACCEPTED,
+        READY: ORDER_SLA_MINUTES.READY,
+    },
+    KITCHEN: {
+        PENDING: ORDER_SLA_MINUTES.PENDING,
+        ACCEPTED: { warning: 12, critical: 20, label: 'Preparo' },
+        READY: ORDER_SLA_MINUTES.READY,
+    },
+    BAR: {
+        PENDING: ORDER_SLA_MINUTES.PENDING,
+        ACCEPTED: { warning: 8, critical: 14, label: 'Preparo' },
+        READY: ORDER_SLA_MINUTES.READY,
+    },
+} as const;
+
 const ORDER_DESTINATION_LABELS: Record<string, string> = {
     KITCHEN: 'Cozinha',
     BAR: 'Bar',
 };
+
+const ORDER_SHIFT_WINDOWS = [
+    { key: 'overnight', label: 'Madrugada', startHour: 0, endHour: 5 },
+    { key: 'morning', label: 'Manha', startHour: 6, endHour: 10 },
+    { key: 'lunch', label: 'Almoco', startHour: 11, endHour: 14 },
+    { key: 'afternoon', label: 'Tarde', startHour: 15, endHour: 18 },
+    { key: 'dinner', label: 'Jantar', startHour: 19, endHour: 23 },
+] as const;
+
+const ORDER_DELAY_BANDS = [
+    { key: 'up_to_5', label: 'Ate 5 min', min: 0, max: 5 },
+    { key: 'from_5_to_10', label: '5 a 10 min', min: 5, max: 10 },
+    { key: 'from_10_to_20', label: '10 a 20 min', min: 10, max: 20 },
+    { key: 'over_20', label: '20+ min', min: 20, max: Number.POSITIVE_INFINITY },
+] as const;
+
+const CANCEL_REASON_CATALOG = {
+    INGREDIENTE_EM_FALTA: { label: 'Ingrediente em falta', category: 'stock' },
+    ITEM_FORA_CARDAPIO: { label: 'Item fora do cardapio hoje', category: 'stock' },
+    EQUIPAMENTO_COM_PROBLEMA: { label: 'Equipamento com problema', category: 'operational' },
+    COZINHA_SOBRECARREGADA: { label: 'Cozinha sobrecarregada', category: 'operational' },
+    CLIENTE_DESISTIU: { label: 'Cliente desistiu do pedido', category: 'customer' },
+    PEDIDO_DUPLICADO: { label: 'Pedido duplicado ou engano de lancamento', category: 'customer' },
+    OTHER: { label: 'Outro motivo', category: 'other' },
+} as const;
 
 type BatchSyncResult = {
     batch: OrderBatch;
@@ -36,6 +79,8 @@ type BatchSyncResult = {
 };
 
 type OrderOperationalStage = keyof typeof ORDER_SLA_MINUTES;
+type OrderStationKey = keyof typeof ORDER_STATION_SLA_MINUTES;
+type CancelCategory = 'stock' | 'operational' | 'customer' | 'other';
 
 type StationOperationsSummary = {
     destination: string;
@@ -64,6 +109,18 @@ type StationOperationsSummary = {
         customer: number;
         other: number;
     };
+};
+
+type DelayBandSummaryItem = {
+    key: string;
+    label: string;
+    count: number;
+};
+
+type ShiftVolumeItem = {
+    key: string;
+    label: string;
+    count: number;
 };
 
 @Injectable()
@@ -123,7 +180,10 @@ export class OrdersService {
                     ready_at,
                     delivered_at,
                     canceled_at,
-                    cancel_reason
+                    cancel_reason,
+                    cancel_reason_code,
+                    cancel_category,
+                    canceled_by_user_name
                  FROM orders
                  WHERE tenant_id = $1
                    AND created_at >= NOW() - INTERVAL '7 days'`,
@@ -138,7 +198,8 @@ export class OrdersService {
         return {
             generatedAt: new Date().toISOString(),
             sla: this.buildOrderSlaPayload(),
-            overall: this.buildOverallOperationsSummary(stations),
+            stationSla: this.buildStationSlaPayload(),
+            overall: this.buildOverallOperationsSummary(stations, activeOrders, recentRows || []),
             stations,
         };
     }
@@ -149,6 +210,10 @@ export class OrdersService {
         tenantId: string,
         prepMinutes?: number,
         cancelReason?: string,
+        cancelReasonCode?: string,
+        cancelCategory?: string,
+        canceledByUserId?: string,
+        canceledByUserName?: string,
     ) {
         const order = await this.findOne(id, tenantId);
         if (!order) throw new BadRequestException('Order not found');
@@ -174,8 +239,17 @@ export class OrdersService {
                 order.deliveredAt = now;
                 break;
             case 'CANCELED':
+                const cancelMetadata = this.resolveCancelMetadata(
+                    cancelReason,
+                    cancelReasonCode,
+                    cancelCategory,
+                );
                 order.canceledAt = now;
-                order.cancelReason = (cancelReason || '').trim() || null;
+                order.cancelReason = cancelMetadata.reason;
+                order.cancelReasonCode = cancelMetadata.code;
+                order.cancelCategory = cancelMetadata.category;
+                order.canceledByUserId = this.normalizeUuidOrNull(canceledByUserId);
+                order.canceledByUserName = this.normalizeTextOrNull(canceledByUserName, 255);
                 break;
         }
 
@@ -318,12 +392,33 @@ export class OrdersService {
                 batch.canceledAt = now;
                 changed = true;
             }
-            if (!batch.cancelReason) {
-                const reason = orders
-                    .map((current) => String(current.cancelReason || '').trim())
-                    .find(Boolean);
-                if (reason) {
-                    batch.cancelReason = reason;
+            const canceledSource = orders.find((current) =>
+                current.cancelReason
+                || current.cancelReasonCode
+                || current.cancelCategory
+                || current.canceledByUserId
+                || current.canceledByUserName,
+            );
+
+            if (canceledSource) {
+                if (!batch.cancelReason && canceledSource.cancelReason) {
+                    batch.cancelReason = canceledSource.cancelReason;
+                    changed = true;
+                }
+                if (!batch.cancelReasonCode && canceledSource.cancelReasonCode) {
+                    batch.cancelReasonCode = canceledSource.cancelReasonCode;
+                    changed = true;
+                }
+                if (!batch.cancelCategory && canceledSource.cancelCategory) {
+                    batch.cancelCategory = canceledSource.cancelCategory;
+                    changed = true;
+                }
+                if (!batch.canceledByUserId && canceledSource.canceledByUserId) {
+                    batch.canceledByUserId = canceledSource.canceledByUserId;
+                    changed = true;
+                }
+                if (!batch.canceledByUserName && canceledSource.canceledByUserName) {
+                    batch.canceledByUserName = canceledSource.canceledByUserName;
                     changed = true;
                 }
             }
@@ -421,25 +516,46 @@ export class OrdersService {
 
     private buildOrderSlaPayload() {
         return {
-            pending: {
-                warningMinutes: ORDER_SLA_MINUTES.PENDING.warning,
-                criticalMinutes: ORDER_SLA_MINUTES.PENDING.critical,
-                label: ORDER_SLA_MINUTES.PENDING.label,
+            pending: this.buildStageSlaPayload(ORDER_SLA_MINUTES.PENDING),
+            accepted: this.buildStageSlaPayload(ORDER_SLA_MINUTES.ACCEPTED),
+            ready: this.buildStageSlaPayload(ORDER_SLA_MINUTES.READY),
+        };
+    }
+
+    private buildStationSlaPayload() {
+        return {
+            ATTENDANCE: {
+                pending: this.buildStageSlaPayload(ORDER_STATION_SLA_MINUTES.ATTENDANCE.PENDING),
+                accepted: this.buildStageSlaPayload(ORDER_STATION_SLA_MINUTES.ATTENDANCE.ACCEPTED),
+                ready: this.buildStageSlaPayload(ORDER_STATION_SLA_MINUTES.ATTENDANCE.READY),
             },
-            accepted: {
-                warningMinutes: ORDER_SLA_MINUTES.ACCEPTED.warning,
-                criticalMinutes: ORDER_SLA_MINUTES.ACCEPTED.critical,
-                label: ORDER_SLA_MINUTES.ACCEPTED.label,
+            KITCHEN: {
+                pending: this.buildStageSlaPayload(ORDER_STATION_SLA_MINUTES.KITCHEN.PENDING),
+                accepted: this.buildStageSlaPayload(ORDER_STATION_SLA_MINUTES.KITCHEN.ACCEPTED),
+                ready: this.buildStageSlaPayload(ORDER_STATION_SLA_MINUTES.KITCHEN.READY),
             },
-            ready: {
-                warningMinutes: ORDER_SLA_MINUTES.READY.warning,
-                criticalMinutes: ORDER_SLA_MINUTES.READY.critical,
-                label: ORDER_SLA_MINUTES.READY.label,
+            BAR: {
+                pending: this.buildStageSlaPayload(ORDER_STATION_SLA_MINUTES.BAR.PENDING),
+                accepted: this.buildStageSlaPayload(ORDER_STATION_SLA_MINUTES.BAR.ACCEPTED),
+                ready: this.buildStageSlaPayload(ORDER_STATION_SLA_MINUTES.BAR.READY),
             },
         };
     }
 
-    private buildOverallOperationsSummary(stations: StationOperationsSummary[]) {
+    private buildStageSlaPayload(config: { warning: number; critical: number; label: string }) {
+        return {
+            warningMinutes: config.warning,
+            criticalMinutes: config.critical,
+            label: config.label,
+        };
+    }
+
+    private buildOverallOperationsSummary(
+        stations: StationOperationsSummary[],
+        activeOrders: Order[],
+        recentRows: any[],
+    ) {
+        const cancellationSummary = this.buildCancellationSummary(recentRows || []);
         return {
             activeCount: stations.reduce((sum, station) => sum + station.activeCount, 0),
             pendingCount: stations.reduce((sum, station) => sum + station.pendingCount, 0),
@@ -448,6 +564,10 @@ export class OrdersService {
             delayedCount: stations.reduce((sum, station) => sum + station.delayedCount, 0),
             warningCount: stations.reduce((sum, station) => sum + station.warningCount, 0),
             cancellationsLast7Days: stations.reduce((sum, station) => sum + station.cancellationsLast7Days, 0),
+            cancellationTopReason: cancellationSummary.topReason,
+            cancellationCategoryBreakdown: cancellationSummary.categories,
+            delayBands: this.buildDelayBandSummary(activeOrders),
+            shiftVolumeToday: this.buildShiftVolumeToday(recentRows || []),
         };
     }
 
@@ -468,6 +588,7 @@ export class OrdersService {
         const readyMetrics = this.buildActiveStageMetrics('READY', readyOrders, now);
         const cancellationSummary = this.buildCancellationSummary(stationRecentRows);
         const bottleneck = this.resolveStationBottleneck(
+            destination,
             pendingOrders.length,
             acceptedOrders.length,
             readyOrders.length,
@@ -518,20 +639,26 @@ export class OrdersService {
         orders: Order[],
         now: Date,
     ) {
-        const thresholds = ORDER_SLA_MINUTES[stage];
-        const elapsedMinutes = orders
-            .map((order) => this.resolveStageElapsedMinutes(stage, order, now))
-            .filter((value): value is number => value !== null);
+        const samples = orders
+            .map((order) => {
+                const elapsed = this.resolveStageElapsedMinutes(stage, order, now);
+                if (elapsed === null) return null;
+                return {
+                    elapsed,
+                    thresholds: this.resolveStageThresholds(stage, order),
+                };
+            })
+            .filter((value): value is NonNullable<typeof value> => value !== null);
 
-        const delayedCount = elapsedMinutes.filter((value) => value >= thresholds.critical).length;
-        const warningCount = elapsedMinutes.filter(
-            (value) => value >= thresholds.warning && value < thresholds.critical,
+        const delayedCount = samples.filter((value) => value.elapsed >= value.thresholds.critical).length;
+        const warningCount = samples.filter(
+            (value) => value.elapsed >= value.thresholds.warning && value.elapsed < value.thresholds.critical,
         ).length;
 
         return {
             delayedCount,
             warningCount,
-            averageMinutes: this.roundMinutes(this.calculateAverage(elapsedMinutes)),
+            averageMinutes: this.roundMinutes(this.calculateAverage(samples.map((value) => value.elapsed))),
         };
     }
 
@@ -564,7 +691,11 @@ export class OrdersService {
             if (reason) {
                 reasonCounts.set(reason, (reasonCounts.get(reason) || 0) + 1);
             }
-            const category = this.classifyCancelReason(reason);
+            const category = this.resolveCancelCategory(
+                row?.cancel_category,
+                row?.cancel_reason_code,
+                reason,
+            );
             categories[category] += 1;
         });
 
@@ -578,7 +709,56 @@ export class OrdersService {
         };
     }
 
+    private buildDelayBandSummary(orders: Order[]): DelayBandSummaryItem[] {
+        const counters = new Map<string, number>();
+        ORDER_DELAY_BANDS.forEach((band) => counters.set(band.key, 0));
+
+        (orders || []).forEach((order) => {
+            const stage = this.resolveOperationalStageForOrder(order);
+            const elapsed = this.resolveStageElapsedMinutes(stage, order, new Date());
+            if (elapsed === null) return;
+
+            const thresholds = this.resolveStageThresholds(stage, order);
+            const overtime = Math.max(0, elapsed - thresholds.critical);
+            if (overtime <= 0) return;
+
+            const band = ORDER_DELAY_BANDS.find((current) => overtime > current.min && overtime <= current.max)
+                || ORDER_DELAY_BANDS[ORDER_DELAY_BANDS.length - 1];
+            counters.set(band.key, (counters.get(band.key) || 0) + 1);
+        });
+
+        return ORDER_DELAY_BANDS.map((band) => ({
+            key: band.key,
+            label: band.label,
+            count: counters.get(band.key) || 0,
+        }));
+    }
+
+    private buildShiftVolumeToday(rows: any[]): ShiftVolumeItem[] {
+        const todayKey = this.resolveSaoPauloDateKey(new Date());
+        const counters = new Map<string, number>();
+        ORDER_SHIFT_WINDOWS.forEach((shift) => counters.set(shift.key, 0));
+
+        (rows || []).forEach((row) => {
+            const createdAt = this.parseDate(row?.created_at);
+            if (!createdAt) return;
+            if (this.resolveSaoPauloDateKey(createdAt) !== todayKey) return;
+
+            const hour = this.resolveSaoPauloHour(createdAt);
+            const shift = ORDER_SHIFT_WINDOWS.find((current) => hour >= current.startHour && hour <= current.endHour);
+            if (!shift) return;
+            counters.set(shift.key, (counters.get(shift.key) || 0) + 1);
+        });
+
+        return ORDER_SHIFT_WINDOWS.map((shift) => ({
+            key: shift.key,
+            label: shift.label,
+            count: counters.get(shift.key) || 0,
+        }));
+    }
+
     private resolveStationBottleneck(
+        destination: string,
         pendingQueue: number,
         acceptedQueue: number,
         readyQueue: number,
@@ -589,19 +769,19 @@ export class OrdersService {
         const candidates = [
             {
                 stage: 'PENDING',
-                label: ORDER_SLA_MINUTES.PENDING.label,
+                label: this.resolveStageThresholdsForDestination('PENDING', destination).label,
                 delayedCount: pendingDelayed,
                 queueCount: pendingQueue,
             },
             {
                 stage: 'ACCEPTED',
-                label: ORDER_SLA_MINUTES.ACCEPTED.label,
+                label: this.resolveStageThresholdsForDestination('ACCEPTED', destination).label,
                 delayedCount: acceptedDelayed,
                 queueCount: acceptedQueue,
             },
             {
                 stage: 'READY',
-                label: ORDER_SLA_MINUTES.READY.label,
+                label: this.resolveStageThresholdsForDestination('READY', destination).label,
                 delayedCount: readyDelayed,
                 queueCount: readyQueue,
             },
@@ -634,6 +814,45 @@ export class OrdersService {
                     : (order.readyAt || order.createdAt);
 
         return this.diffMinutes(startAt, now);
+    }
+
+    private resolveOperationalStageForOrder(order: Order): OrderOperationalStage {
+        if (order.status === 'ACCEPTED') return 'ACCEPTED';
+        if (order.status === 'READY') return 'READY';
+        return 'PENDING';
+    }
+
+    private resolveStageThresholds(
+        stage: OrderOperationalStage,
+        order?: Pick<Order, 'destination'> | null,
+    ) {
+        return this.resolveStageThresholdsForDestination(stage, order?.destination);
+    }
+
+    private resolveStageThresholdsForDestination(
+        stage: OrderOperationalStage,
+        destination?: string | null,
+    ) {
+        const stationKey = this.resolveStationKeyForStage(stage, destination);
+        return ORDER_STATION_SLA_MINUTES[stationKey][stage];
+    }
+
+    private resolveStationKeyForStage(
+        stage: OrderOperationalStage,
+        destination?: string | null,
+    ): OrderStationKey {
+        if (stage !== 'ACCEPTED') {
+            return 'ATTENDANCE';
+        }
+
+        const normalized = String(destination || '').toUpperCase();
+        if (normalized === 'BAR') {
+            return 'BAR';
+        }
+        if (normalized === 'KITCHEN') {
+            return 'KITCHEN';
+        }
+        return 'ATTENDANCE';
     }
 
     private diffMinutes(startValue: unknown, endValue: unknown) {
@@ -696,6 +915,95 @@ export class OrdersService {
         }
 
         return 'other';
+    }
+
+    private resolveCancelMetadata(
+        cancelReason?: string,
+        cancelReasonCode?: string,
+        cancelCategory?: string,
+    ) {
+        const normalizedCode = this.normalizeCancelReasonCode(cancelReasonCode);
+        const catalogEntry = normalizedCode ? CANCEL_REASON_CATALOG[normalizedCode as keyof typeof CANCEL_REASON_CATALOG] : null;
+        const normalizedReason = this.normalizeTextOrNull(cancelReason, 255)
+            || (catalogEntry ? catalogEntry.label : null);
+        const category = this.resolveCancelCategory(cancelCategory, normalizedCode, normalizedReason || '');
+
+        return {
+            reason: normalizedReason,
+            code: normalizedCode || (normalizedReason ? 'OTHER' : null),
+            category: normalizedReason ? category : null,
+        };
+    }
+
+    private resolveCancelCategory(
+        cancelCategory: unknown,
+        cancelReasonCode?: unknown,
+        cancelReason?: string,
+    ): CancelCategory {
+        const normalizedCategory = String(cancelCategory || '').trim().toLowerCase();
+        if (
+            normalizedCategory === 'stock'
+            || normalizedCategory === 'operational'
+            || normalizedCategory === 'customer'
+            || normalizedCategory === 'other'
+        ) {
+            return normalizedCategory;
+        }
+
+        const normalizedCode = this.normalizeCancelReasonCode(cancelReasonCode);
+        if (normalizedCode) {
+            const catalogEntry = CANCEL_REASON_CATALOG[normalizedCode as keyof typeof CANCEL_REASON_CATALOG];
+            if (catalogEntry) return catalogEntry.category;
+        }
+
+        return this.classifyCancelReason(cancelReason || '');
+    }
+
+    private normalizeCancelReasonCode(value: unknown) {
+        const normalized = String(value || '').trim().toUpperCase().replace(/[^A-Z0-9_]+/g, '_');
+        return normalized || null;
+    }
+
+    private normalizeUuidOrNull(value: unknown) {
+        const normalized = String(value || '').trim();
+        return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(normalized)
+            ? normalized
+            : null;
+    }
+
+    private normalizeTextOrNull(value: unknown, maxLength = 255) {
+        const normalized = String(value || '').trim();
+        if (!normalized) return null;
+        return normalized.slice(0, maxLength);
+    }
+
+    private resolveSaoPauloDateKey(value: unknown) {
+        const date = this.parseDate(value);
+        if (!date) return '';
+        const parts = new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'America/Sao_Paulo',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+        }).formatToParts(date);
+
+        const year = parts.find((part) => part.type === 'year')?.value || '0000';
+        const month = parts.find((part) => part.type === 'month')?.value || '00';
+        const day = parts.find((part) => part.type === 'day')?.value || '00';
+        return `${year}-${month}-${day}`;
+    }
+
+    private resolveSaoPauloHour(value: unknown) {
+        const date = this.parseDate(value);
+        if (!date) return 0;
+        const parts = new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'America/Sao_Paulo',
+            hour: '2-digit',
+            hourCycle: 'h23',
+        }).formatToParts(date);
+
+        const hour = Number(parts.find((part) => part.type === 'hour')?.value || 0);
+        return Number.isFinite(hour) ? hour : 0;
     }
 
     private async buildAcceptedItemsSummary(order: Order, tenantId: string): Promise<string> {
@@ -835,6 +1143,10 @@ export class OrdersService {
                         delivered_at: order.deliveredAt,
                         canceled_at: order.canceledAt,
                         cancel_reason: order.cancelReason,
+                        cancel_reason_code: order.cancelReasonCode,
+                        cancel_category: order.cancelCategory,
+                        canceled_by_user_id: order.canceledByUserId,
+                        canceled_by_user_name: order.canceledByUserName,
                         items: (order.items || []).map((item) => ({
                             id: item.id,
                             order_id: item.orderId,

@@ -1300,6 +1300,10 @@ export function buildTenantAdminOpenApiDocument() {
                         delivered_at: { type: 'string', format: 'date-time', nullable: true },
                         canceled_at: { type: 'string', format: 'date-time', nullable: true },
                         cancel_reason: { type: 'string' },
+                        cancel_reason_code: { type: 'string', nullable: true },
+                        cancel_category: { type: 'string', enum: ['stock', 'operational', 'customer', 'other'], nullable: true },
+                        canceled_by_user_id: { type: 'string', format: 'uuid', nullable: true },
+                        canceled_by_user_name: { type: 'string', nullable: true },
                         items: {
                             type: 'array',
                             items: { $ref: '#/components/schemas/OrderItem' },
@@ -1324,6 +1328,8 @@ export function buildTenantAdminOpenApiDocument() {
                         status: { type: 'string', enum: ['PENDING', 'ACCEPTED', 'READY', 'DELIVERED', 'CANCELED'] },
                         prep_minutes: { type: 'integer' },
                         cancel_reason: { type: 'string' },
+                        cancel_reason_code: { type: 'string' },
+                        cancel_category: { type: 'string', enum: ['stock', 'operational', 'customer', 'other'] },
                     },
                 },
                 Table: {

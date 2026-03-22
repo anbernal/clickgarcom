@@ -2025,31 +2025,43 @@
             <div id="reject-form" style="display:none">
                 <div class="modal-label">Motivo da recusa <span style="color:var(--red)">*obrigatório</span></div>
                 <div class="reject-reasons">
-                    <label class="reason-opt" onclick="selectReason(this)">
+                    <label class="reason-opt" data-code="INGREDIENTE_EM_FALTA" data-category="stock" data-label="Ingrediente em falta" onclick="selectReason(this)">
                         <div class="reason-check">
                             <div class="reason-check-dot"></div>
-                        </div><input type="radio" name="rej" value="Ingrediente em falta" style="display:none"><span
+                        </div><input type="radio" name="rej" value="INGREDIENTE_EM_FALTA" style="display:none"><span
                             class="reason-text">🥬 Ingrediente em falta</span>
                     </label>
-                    <label class="reason-opt" onclick="selectReason(this)">
+                    <label class="reason-opt" data-code="ITEM_FORA_CARDAPIO" data-category="stock" data-label="Item fora do cardapio hoje" onclick="selectReason(this)">
                         <div class="reason-check">
                             <div class="reason-check-dot"></div>
-                        </div><input type="radio" name="rej" value="Equipamento com problema" style="display:none"><span
+                        </div><input type="radio" name="rej" value="ITEM_FORA_CARDAPIO" style="display:none"><span
+                            class="reason-text">📋 Item fora do cardápio hoje</span>
+                    </label>
+                    <label class="reason-opt" data-code="EQUIPAMENTO_COM_PROBLEMA" data-category="operational" data-label="Equipamento com problema" onclick="selectReason(this)">
+                        <div class="reason-check">
+                            <div class="reason-check-dot"></div>
+                        </div><input type="radio" name="rej" value="EQUIPAMENTO_COM_PROBLEMA" style="display:none"><span
                             class="reason-text">🔧 Equipamento com problema</span>
                     </label>
-                    <label class="reason-opt" onclick="selectReason(this)">
+                    <label class="reason-opt" data-code="COZINHA_SOBRECARREGADA" data-category="operational" data-label="Cozinha sobrecarregada" onclick="selectReason(this)">
                         <div class="reason-check">
                             <div class="reason-check-dot"></div>
-                        </div><input type="radio" name="rej" value="Cozinha sobrecarregada" style="display:none"><span
-                            class="reason-text">🔥 Cozinha sobrecarregada</span>
+                        </div><input type="radio" name="rej" value="COZINHA_SOBRECARREGADA"
+                            style="display:none"><span class="reason-text">🔥 Cozinha sobrecarregada</span>
                     </label>
-                    <label class="reason-opt" onclick="selectReason(this)">
+                    <label class="reason-opt" data-code="CLIENTE_DESISTIU" data-category="customer" data-label="Cliente desistiu do pedido" onclick="selectReason(this)">
                         <div class="reason-check">
                             <div class="reason-check-dot"></div>
-                        </div><input type="radio" name="rej" value="Item fora do cardápio hoje"
-                            style="display:none"><span class="reason-text">📋 Item fora do cardápio hoje</span>
+                        </div><input type="radio" name="rej" value="CLIENTE_DESISTIU" style="display:none"><span
+                            class="reason-text">🙋 Cliente desistiu do pedido</span>
                     </label>
-                    <label class="reason-opt" onclick="selectReason(this)">
+                    <label class="reason-opt" data-code="PEDIDO_DUPLICADO" data-category="customer" data-label="Pedido duplicado ou engano de lancamento" onclick="selectReason(this)">
+                        <div class="reason-check">
+                            <div class="reason-check-dot"></div>
+                        </div><input type="radio" name="rej" value="PEDIDO_DUPLICADO" style="display:none"><span
+                            class="reason-text">🧾 Pedido duplicado / engano</span>
+                    </label>
+                    <label class="reason-opt" data-code="OTHER" data-category="other" data-label="Outro motivo" onclick="selectReason(this)">
                         <div class="reason-check">
                             <div class="reason-check-dot"></div>
                         </div><input type="radio" name="rej" value="__custom__" style="display:none"><span
