@@ -31,6 +31,140 @@ if (authSession?.token) {
     }
 }
 
+const TENANT_ROLE_ALIASES = {
+    ADMINISTRATOR: 'ADMIN',
+    GERENTE: 'MANAGER',
+    MANAGER: 'MANAGER',
+    WAITER: 'WAITER',
+    ATENDENTE: 'WAITER',
+    SALAO: 'WAITER',
+    GARCOM: 'WAITER',
+    'GARÇOM': 'WAITER',
+    KITCHEN: 'KITCHEN',
+    COZINHA: 'KITCHEN',
+    BAR: 'BAR',
+    CASHIER: 'CASHIER',
+    CAIXA: 'CASHIER',
+};
+
+const TENANT_ROUTE_GROUPS = {
+    full_access: ['ADMIN', 'MANAGER'],
+    menu_read: ['ADMIN', 'MANAGER', 'WAITER', 'KITCHEN', 'BAR', 'CASHIER'],
+    menu_write: ['ADMIN', 'MANAGER'],
+    order_read_write: ['ADMIN', 'MANAGER', 'WAITER', 'KITCHEN', 'BAR'],
+    table_read: ['ADMIN', 'MANAGER', 'WAITER', 'CASHIER'],
+    table_write: ['ADMIN', 'MANAGER'],
+    floor_operations: ['ADMIN', 'MANAGER', 'WAITER'],
+    settlement: ['ADMIN', 'MANAGER', 'WAITER', 'CASHIER'],
+    reports: ['ADMIN', 'MANAGER', 'CASHIER'],
+    wallet: ['ADMIN', 'MANAGER', 'CASHIER'],
+    bot_config: ['ADMIN', 'MANAGER'],
+};
+
+const TENANT_PAGE_ACCESS = {
+    dashboard: ['ADMIN', 'MANAGER', 'WAITER', 'KITCHEN', 'BAR', 'CASHIER'],
+    wallet: TENANT_ROUTE_GROUPS.wallet,
+    extratoMensagens: TENANT_ROUTE_GROUPS.wallet,
+    pedidos: TENANT_ROUTE_GROUPS.order_read_write,
+    cardapio: TENANT_ROUTE_GROUPS.menu_read,
+    categorias: TENANT_ROUTE_GROUPS.menu_read,
+    mesas: TENANT_ROUTE_GROUPS.table_read,
+    vendas: TENANT_ROUTE_GROUPS.reports,
+    configuracoes: TENANT_ROUTE_GROUPS.full_access,
+    equipe: TENANT_ROUTE_GROUPS.full_access,
+};
+
+function normalizeTenantUserRole(role) {
+    const normalized = String(role || '').trim().toUpperCase();
+    return TENANT_ROLE_ALIASES[normalized] || normalized;
+}
+
+function getStoredAuthContainer() {
+    if (localStorage.getItem('clickgarcom_auth')) {
+        return localStorage;
+    }
+
+    if (sessionStorage.getItem('clickgarcom_auth')) {
+        return sessionStorage;
+    }
+
+    return null;
+}
+
+function persistAuthSession() {
+    const storage = getStoredAuthContainer();
+    if (!storage || !authSession) {
+        return;
+    }
+
+    storage.setItem('clickgarcom_auth', JSON.stringify(authSession));
+}
+
+function buildFallbackPermissions(role) {
+    const normalizedRole = normalizeTenantUserRole(role);
+    const routeGroups = Object.entries(TENANT_ROUTE_GROUPS)
+        .filter(([, roles]) => roles.includes(normalizedRole))
+        .map(([key]) => key);
+    const pages = Object.entries(TENANT_PAGE_ACCESS)
+        .filter(([, roles]) => roles.includes(normalizedRole))
+        .map(([pageId]) => pageId);
+
+    return {
+        pages,
+        routeGroups,
+        actions: {
+            manageUsers: routeGroups.includes('full_access'),
+            manageSettings: routeGroups.includes('full_access'),
+            manageMenu: routeGroups.includes('menu_write'),
+            manageOrders: routeGroups.includes('order_read_write'),
+            manageTables: routeGroups.includes('table_write'),
+            manageSettlement: routeGroups.includes('settlement'),
+            viewReports: routeGroups.includes('reports'),
+            viewWallet: routeGroups.includes('wallet'),
+        },
+    };
+}
+
+function getCurrentUser() {
+    return authSession?.user || null;
+}
+
+function getCurrentUserRole() {
+    return normalizeTenantUserRole(getCurrentUser()?.role);
+}
+
+function getCurrentUserPermissions() {
+    const storedPermissions = getCurrentUser()?.permissions;
+    if (storedPermissions && Array.isArray(storedPermissions.pages)) {
+        return storedPermissions;
+    }
+
+    return buildFallbackPermissions(getCurrentUserRole());
+}
+
+function canAccessRouteGroup(routeGroup) {
+    return getCurrentUserPermissions().routeGroups?.includes(routeGroup);
+}
+
+function canAccessPage(pageId) {
+    return getCurrentUserPermissions().pages?.includes(pageId);
+}
+
+function setAuthSessionUser(user) {
+    if (!authSession) {
+        return;
+    }
+
+    authSession = {
+        ...authSession,
+        user: {
+            ...(authSession.user || {}),
+            ...(user || {}),
+        },
+    };
+    persistAuthSession();
+}
+
 function getAuthHeaders() {
     return {
         'Content-Type': 'application/json',

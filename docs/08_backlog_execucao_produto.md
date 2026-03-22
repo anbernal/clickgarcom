@@ -63,7 +63,7 @@ Criterios de pronto:
 
 ## Epic 03 - Mesas e Comandas Assistidas
 
-Status: Em execucao - lotes 1 e 2 entregues
+Status: Concluido
 
 Objetivo:
 Evoluir o fluxo de mesa/comanda para fechamento assistido e auditavel.
@@ -160,19 +160,19 @@ Criterios de pronto:
 
 ## Epic 08 - Usuarios e Permissoes
 
-Status: Planejado
+Status: Em execucao - lote 1 entregue
 
 Objetivo:
 Transformar a matriz de papeis em controle real de equipe.
 
 Tasks:
-- [ ] Criar CRUD de usuarios internos do tenant.
-- [ ] Permitir trocar senha.
-- [ ] Permitir desativar usuario.
-- [ ] Restringir paginas do frontend por papel.
+- [x] Criar CRUD de usuarios internos do tenant.
+- [x] Permitir trocar senha.
+- [x] Permitir desativar usuario.
+- [x] Restringir paginas do frontend por papel.
 - [ ] Restringir acoes sensiveis por papel.
 - [ ] Criar tela de auditoria de acessos e acoes.
-- [ ] Criar fluxo de reset assistido de senha.
+- [x] Criar fluxo de reset assistido de senha.
 
 Criterios de pronto:
 - O tenant opera com equipe multiusuario sem compartilhar login de admin.

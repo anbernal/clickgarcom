@@ -184,6 +184,139 @@ export function buildTenantAdminOpenApiDocument() {
                     },
                 },
             },
+            [`${ADMIN_API_VERSIONED_BASE_PATH}/auth/password`]: {
+                patch: {
+                    tags: ['Auth'],
+                    summary: 'Troca a senha do usuario autenticado',
+                    security: [{ bearerAuth: [] }],
+                    requestBody: {
+                        required: true,
+                        content: {
+                            'application/json': {
+                                schema: { $ref: '#/components/schemas/PasswordChangeRequest' },
+                            },
+                        },
+                    },
+                    responses: {
+                        '200': versionedSuccessResponse('Senha atualizada.', {
+                            type: 'object',
+                            properties: {
+                                message: { type: 'string' },
+                            },
+                        }),
+                    },
+                },
+            },
+            [`${ADMIN_API_VERSIONED_BASE_PATH}/auth/users`]: {
+                get: {
+                    tags: ['Auth'],
+                    summary: 'Lista usuarios internos do tenant',
+                    security: [{ bearerAuth: [] }],
+                    responses: {
+                        '200': versionedSuccessResponse('Usuarios internos.', {
+                            $ref: '#/components/schemas/TenantUserListResponse',
+                        }),
+                    },
+                },
+                post: {
+                    tags: ['Auth'],
+                    summary: 'Cria usuario interno do tenant',
+                    security: [{ bearerAuth: [] }],
+                    requestBody: {
+                        required: true,
+                        content: {
+                            'application/json': {
+                                schema: { $ref: '#/components/schemas/TenantUserCreateRequest' },
+                            },
+                        },
+                    },
+                    responses: {
+                        '200': versionedSuccessResponse('Usuario criado.', {
+                            type: 'object',
+                            properties: {
+                                message: { type: 'string' },
+                                user: { $ref: '#/components/schemas/TenantUser' },
+                            },
+                        }),
+                    },
+                },
+            },
+            [`${ADMIN_API_VERSIONED_BASE_PATH}/auth/users/{id}`]: {
+                patch: {
+                    tags: ['Auth'],
+                    summary: 'Atualiza usuario interno do tenant',
+                    security: [{ bearerAuth: [] }],
+                    parameters: [uuidPathParam('id', 'ID do usuario interno')],
+                    requestBody: {
+                        required: true,
+                        content: {
+                            'application/json': {
+                                schema: { $ref: '#/components/schemas/TenantUserUpdateRequest' },
+                            },
+                        },
+                    },
+                    responses: {
+                        '200': versionedSuccessResponse('Usuario atualizado.', {
+                            type: 'object',
+                            properties: {
+                                message: { type: 'string' },
+                                user: { $ref: '#/components/schemas/TenantUser' },
+                            },
+                        }),
+                    },
+                },
+            },
+            [`${ADMIN_API_VERSIONED_BASE_PATH}/auth/users/{id}/status`]: {
+                patch: {
+                    tags: ['Auth'],
+                    summary: 'Ativa ou desativa usuario interno do tenant',
+                    security: [{ bearerAuth: [] }],
+                    parameters: [uuidPathParam('id', 'ID do usuario interno')],
+                    requestBody: {
+                        required: true,
+                        content: {
+                            'application/json': {
+                                schema: { $ref: '#/components/schemas/TenantUserStatusRequest' },
+                            },
+                        },
+                    },
+                    responses: {
+                        '200': versionedSuccessResponse('Status do usuario atualizado.', {
+                            type: 'object',
+                            properties: {
+                                message: { type: 'string' },
+                                user: { $ref: '#/components/schemas/TenantUser' },
+                            },
+                        }),
+                    },
+                },
+            },
+            [`${ADMIN_API_VERSIONED_BASE_PATH}/auth/users/{id}/password`]: {
+                patch: {
+                    tags: ['Auth'],
+                    summary: 'Redefine a senha de usuario interno do tenant',
+                    security: [{ bearerAuth: [] }],
+                    parameters: [uuidPathParam('id', 'ID do usuario interno')],
+                    requestBody: {
+                        required: true,
+                        content: {
+                            'application/json': {
+                                schema: { $ref: '#/components/schemas/TenantUserPasswordResetRequest' },
+                            },
+                        },
+                    },
+                    responses: {
+                        '200': versionedSuccessResponse('Senha redefinida.', {
+                            type: 'object',
+                            properties: {
+                                message: { type: 'string' },
+                                userId: { type: 'string', format: 'uuid' },
+                                updatedAt: { type: 'string', format: 'date-time' },
+                            },
+                        }),
+                    },
+                },
+            },
             [`${ADMIN_API_VERSIONED_BASE_PATH}/menu`]: {
                 get: {
                     tags: ['Menu'],
@@ -1262,11 +1395,126 @@ export function buildTenantAdminOpenApiDocument() {
                         id: { type: 'string', format: 'uuid' },
                         name: { type: 'string' },
                         email: { type: 'string', format: 'email' },
+                        phone: { type: 'string', nullable: true },
                         role: { type: 'string', enum: [...roleMetadata.supported_roles] },
                         tenant_id: { type: 'string', format: 'uuid' },
                         tenant_name: { type: 'string' },
+                        active: { type: 'boolean' },
+                        isOpen: { type: 'boolean' },
+                        last_login_at: { type: 'string', format: 'date-time', nullable: true },
+                        permissions: { $ref: '#/components/schemas/AuthPermissions' },
                     },
                     required: ['id', 'email', 'role', 'tenant_id'],
+                },
+                AuthPermissions: {
+                    type: 'object',
+                    properties: {
+                        pages: {
+                            type: 'array',
+                            items: { type: 'string' },
+                        },
+                        routeGroups: {
+                            type: 'array',
+                            items: { type: 'string' },
+                        },
+                        actions: {
+                            type: 'object',
+                            additionalProperties: {
+                                type: 'boolean',
+                            },
+                        },
+                    },
+                },
+                PasswordChangeRequest: {
+                    type: 'object',
+                    required: ['currentPassword', 'newPassword'],
+                    properties: {
+                        currentPassword: { type: 'string' },
+                        newPassword: { type: 'string', minLength: 6 },
+                    },
+                },
+                TenantUser: {
+                    type: 'object',
+                    properties: {
+                        id: { type: 'string', format: 'uuid' },
+                        name: { type: 'string' },
+                        email: { type: 'string', format: 'email' },
+                        phone: { type: 'string', nullable: true },
+                        role: { type: 'string', enum: [...roleMetadata.supported_roles] },
+                        roleLabel: { type: 'string' },
+                        active: { type: 'boolean' },
+                        isCurrentUser: { type: 'boolean' },
+                        lastLoginAt: { type: 'string', format: 'date-time', nullable: true },
+                        createdAt: { type: 'string', format: 'date-time' },
+                        updatedAt: { type: 'string', format: 'date-time' },
+                        permissions: {
+                            type: 'object',
+                            additionalProperties: {
+                                type: 'boolean',
+                            },
+                        },
+                    },
+                },
+                TenantUserListResponse: {
+                    type: 'object',
+                    properties: {
+                        currentUserId: { type: 'string', format: 'uuid' },
+                        currentUserRole: { type: 'string', enum: [...roleMetadata.supported_roles] },
+                        summary: {
+                            type: 'object',
+                            additionalProperties: true,
+                        },
+                        roleOptions: {
+                            type: 'array',
+                            items: {
+                                type: 'object',
+                                properties: {
+                                    value: { type: 'string', enum: [...roleMetadata.supported_roles] },
+                                    label: { type: 'string' },
+                                    assignable: { type: 'boolean' },
+                                },
+                            },
+                        },
+                        users: {
+                            type: 'array',
+                            items: { $ref: '#/components/schemas/TenantUser' },
+                        },
+                    },
+                },
+                TenantUserCreateRequest: {
+                    type: 'object',
+                    required: ['name', 'email', 'password', 'role'],
+                    properties: {
+                        name: { type: 'string' },
+                        email: { type: 'string', format: 'email' },
+                        password: { type: 'string', minLength: 6 },
+                        role: { type: 'string', enum: [...roleMetadata.supported_roles] },
+                        phone: { type: 'string', nullable: true },
+                        active: { type: 'boolean' },
+                    },
+                },
+                TenantUserUpdateRequest: {
+                    type: 'object',
+                    properties: {
+                        name: { type: 'string' },
+                        email: { type: 'string', format: 'email' },
+                        role: { type: 'string', enum: [...roleMetadata.supported_roles] },
+                        phone: { type: 'string', nullable: true },
+                    },
+                },
+                TenantUserStatusRequest: {
+                    type: 'object',
+                    required: ['active'],
+                    properties: {
+                        active: { type: 'boolean' },
+                    },
+                },
+                TenantUserPasswordResetRequest: {
+                    type: 'object',
+                    required: ['password'],
+                    properties: {
+                        password: { type: 'string', minLength: 6 },
+                    },
                 },
                 MenuItem: {
                     type: 'object',
