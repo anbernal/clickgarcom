@@ -11,7 +11,6 @@ import * as bcrypt from 'bcrypt';
 import axios from 'axios';
 import { Tenant, TenantSettings } from '../../entities/tenant.entity';
 import { User } from '../../entities/user.entity';
-import { MessageLog } from '../../entities/message-log.entity';
 
 type TenantPayload = {
     name?: string;
@@ -33,8 +32,6 @@ export class SuperAdminService {
         private readonly tenantRepo: Repository<Tenant>,
         @InjectRepository(User)
         private readonly userRepo: Repository<User>,
-        @InjectRepository(MessageLog)
-        private readonly messageLogRepo: Repository<MessageLog>,
         private readonly dataSource: DataSource,
     ) { }
 
@@ -262,7 +259,7 @@ export class SuperAdminService {
 
     async updateTenant(id: string, payload: TenantPayload) {
         const tenant = await this.tenantRepo.findOne({ where: { id } });
-        if (!tenant) throw new NotFoundException('Tenant não encontrado.');
+        if (!tenant) throw new NotFoundException('Tenant nao encontrado.');
 
         const name = String(payload.name || '').trim();
         const slug = String(payload.slug || '').trim().toLowerCase();
@@ -327,7 +324,7 @@ export class SuperAdminService {
 
     async setTenantActive(id: string, active: boolean) {
         const tenant = await this.tenantRepo.findOne({ where: { id } });
-        if (!tenant) throw new NotFoundException('Tenant não encontrado.');
+        if (!tenant) throw new NotFoundException('Tenant nao encontrado.');
         tenant.active = !!active;
         await this.tenantRepo.save(tenant);
         return {
@@ -338,7 +335,7 @@ export class SuperAdminService {
 
     async updateWallet(id: string, payload: { amount?: number; billing_plan?: string }) {
         const tenant = await this.tenantRepo.findOne({ where: { id } });
-        if (!tenant) throw new NotFoundException('Tenant não encontrado.');
+        if (!tenant) throw new NotFoundException('Tenant nao encontrado.');
 
         if (payload.billing_plan) {
             const plan = String(payload.billing_plan).trim();
@@ -352,7 +349,7 @@ export class SuperAdminService {
         if (payload.amount !== undefined && payload.amount !== null) {
             const amount = Number(payload.amount);
             if (!Number.isFinite(amount)) {
-                throw new BadRequestException('O valor recarregado deve ser um número válido.');
+                throw new BadRequestException('O valor recarregado deve ser um numero valido.');
             }
             tenant.walletBalance = Number(tenant.walletBalance || 0) + amount;
         }
@@ -374,18 +371,18 @@ export class SuperAdminService {
     ) {
         const existingSlug = await this.tenantRepo.findOne({ where: { slug } });
         if (existingSlug && existingSlug.id !== currentTenantId) {
-            throw new BadRequestException('Slug já cadastrado.');
+            throw new BadRequestException('Slug ja cadastrado.');
         }
 
         const existingPhone = await this.tenantRepo.findOne({ where: { whatsappNumber } });
         if (existingPhone && existingPhone.id !== currentTenantId) {
-            throw new BadRequestException('Número de WhatsApp já cadastrado.');
+            throw new BadRequestException('Numero de WhatsApp ja cadastrado.');
         }
 
         if (wabaId) {
             const existingWaba = await this.tenantRepo.findOne({ where: { wabaId } });
             if (existingWaba && existingWaba.id !== currentTenantId) {
-                throw new BadRequestException('Phone-Number-ID da Meta já cadastrado.');
+                throw new BadRequestException('Phone-Number-ID da Meta ja cadastrado.');
             }
         }
     }

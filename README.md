@@ -124,7 +124,8 @@ make db-seed
 - `go-outbox`: envio e processamento de outbox
 - `node-admin`: tenant admin API (porta `3002`)
 - `web-admin`: tenant admin web/KDS/checkout (porta `3004`)
-- `super-admin`: painel estático de administração global (porta `3003`)
+- `super-admin-api`: backend do super admin (porta `3005`)
+- `super-admin`: frontend do super admin (porta `3003`)
 
 ## Desenvolvimento
 ```bash
@@ -136,6 +137,7 @@ make run-api
 make run-worker
 make run-outbox
 make run-admin
+make run-super-admin-api
 make run-super-admin
 make validate-migration-baseline
 
@@ -144,6 +146,7 @@ make clean-all
 
 # Ver logs
 make logs
+make logs-super-admin-api
 make logs-super-admin
 
 # Acessar RabbitMQ UI
@@ -388,6 +391,7 @@ clickgarcom/
 │   │   ├── api/              # Tenant Admin API (NestJS)
 │   │   └── web/              # Tenant Admin Web / KDS / Checkout
 │   └── super-admin/
+│       ├── api/              # Super Admin API (NestJS)
 │       └── web/              # Super Admin web
 ├── platform/
 │   └── core-backend/         # Backend principal (Go)

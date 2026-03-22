@@ -37,7 +37,6 @@ export function buildTenantAdminOpenApiDocument() {
             { name: 'Wallet' },
             { name: 'Bot Config' },
             { name: 'Public Checkout' },
-            { name: 'Super Admin' },
         ],
         paths: {
             [`${ADMIN_API_VERSIONED_BASE_PATH}/health`]: {
@@ -1037,138 +1036,6 @@ export function buildTenantAdminOpenApiDocument() {
                     },
                 },
             },
-            [`${ADMIN_API_VERSIONED_BASE_PATH}/super-admin/metrics`]: {
-                get: {
-                    tags: ['Super Admin'],
-                    summary: 'Metricas agregadas do super admin',
-                    security: [{ superAdminKey: [] }],
-                    responses: {
-                        '200': versionedSuccessResponse('Metricas do super admin.', {
-                            type: 'object',
-                            additionalProperties: true,
-                        }),
-                    },
-                },
-            },
-            [`${ADMIN_API_VERSIONED_BASE_PATH}/super-admin/tenants`]: {
-                get: {
-                    tags: ['Super Admin'],
-                    summary: 'Lista tenants cadastrados',
-                    security: [{ superAdminKey: [] }],
-                    responses: {
-                        '200': versionedSuccessResponse('Tenants cadastrados.', {
-                            type: 'array',
-                            items: {
-                                type: 'object',
-                                additionalProperties: true,
-                            },
-                        }),
-                    },
-                },
-                post: {
-                    tags: ['Super Admin'],
-                    summary: 'Cria tenant via super admin',
-                    security: [{ superAdminKey: [] }],
-                    requestBody: {
-                        required: true,
-                        content: {
-                            'application/json': {
-                                schema: {
-                                    type: 'object',
-                                    additionalProperties: true,
-                                },
-                            },
-                        },
-                    },
-                    responses: {
-                        '200': versionedSuccessResponse('Tenant criado.', {
-                            type: 'object',
-                            additionalProperties: true,
-                        }),
-                    },
-                },
-            },
-            [`${ADMIN_API_VERSIONED_BASE_PATH}/super-admin/tenants/{id}`]: {
-                patch: {
-                    tags: ['Super Admin'],
-                    summary: 'Atualiza tenant via super admin',
-                    security: [{ superAdminKey: [] }],
-                    parameters: [uuidPathParam('id', 'ID do tenant')],
-                    requestBody: {
-                        required: true,
-                        content: {
-                            'application/json': {
-                                schema: {
-                                    type: 'object',
-                                    additionalProperties: true,
-                                },
-                            },
-                        },
-                    },
-                    responses: {
-                        '200': versionedSuccessResponse('Tenant atualizado.', {
-                            type: 'object',
-                            additionalProperties: true,
-                        }),
-                    },
-                },
-            },
-            [`${ADMIN_API_VERSIONED_BASE_PATH}/super-admin/tenants/{id}/active`]: {
-                patch: {
-                    tags: ['Super Admin'],
-                    summary: 'Ativa ou inativa tenant',
-                    security: [{ superAdminKey: [] }],
-                    parameters: [uuidPathParam('id', 'ID do tenant')],
-                    requestBody: {
-                        required: true,
-                        content: {
-                            'application/json': {
-                                schema: {
-                                    type: 'object',
-                                    required: ['active'],
-                                    properties: {
-                                        active: { type: 'boolean' },
-                                    },
-                                },
-                            },
-                        },
-                    },
-                    responses: {
-                        '200': versionedSuccessResponse('Status do tenant atualizado.', {
-                            type: 'object',
-                            additionalProperties: true,
-                        }),
-                    },
-                },
-            },
-            [`${ADMIN_API_VERSIONED_BASE_PATH}/super-admin/tenants/{id}/wallet`]: {
-                patch: {
-                    tags: ['Super Admin'],
-                    summary: 'Ajusta carteira/plano do tenant',
-                    security: [{ superAdminKey: [] }],
-                    parameters: [uuidPathParam('id', 'ID do tenant')],
-                    requestBody: {
-                        required: true,
-                        content: {
-                            'application/json': {
-                                schema: {
-                                    type: 'object',
-                                    properties: {
-                                        amount: { type: 'number' },
-                                        billing_plan: { type: 'string' },
-                                    },
-                                },
-                            },
-                        },
-                    },
-                    responses: {
-                        '200': versionedSuccessResponse('Carteira atualizada.', {
-                            type: 'object',
-                            additionalProperties: true,
-                        }),
-                    },
-                },
-            },
         },
         components: {
             securitySchemes: {
@@ -1176,11 +1043,6 @@ export function buildTenantAdminOpenApiDocument() {
                     type: 'http',
                     scheme: 'bearer',
                     bearerFormat: 'JWT',
-                },
-                superAdminKey: {
-                    type: 'apiKey',
-                    in: 'header',
-                    name: 'x-super-admin-key',
                 },
             },
             schemas: {

@@ -23,7 +23,6 @@ import { TablesModule } from './modules/tables/tables.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { AmqpModule } from './modules/amqp/amqp.module';
 import { AuthModule } from './modules/auth/auth.module';
-import { SuperAdminModule } from './modules/super-admin/super-admin.module';
 import { WalletModule } from './modules/wallet/wallet.module';
 import { BotConfigModule } from './modules/bot-config/bot-config.module';
 import { RolesGuard } from './modules/auth/roles.guard';
@@ -49,7 +48,6 @@ import { AppController } from './app.controller';
         TablesModule,
         ReportsModule,
         AuthModule,
-        SuperAdminModule,
         WalletModule,
         BotConfigModule,
     ],

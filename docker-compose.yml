@@ -368,15 +368,59 @@ services:
     networks:
       - clickgarcom-network
 
+  super-admin-api:
+    build:
+      context: ${SUPER_ADMIN_API_DIR:-./apps/super-admin/api}
+      dockerfile: Dockerfile
+    container_name: clickgarcom-super-admin-api
+    environment:
+      APP_PORT: 3005
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_USER: postgres
+      DATABASE_PASSWORD: postgres123
+      DATABASE_NAME: clickgarcom_db
+      NGROK_API_URL: http://ngrok:4040
+      NGROK_PUBLIC_URL: ${NGROK_PUBLIC_URL:-}
+      PUBLIC_WEBHOOK_BASE_URL: ${PUBLIC_WEBHOOK_BASE_URL:-}
+      SUPER_ADMIN_KEY: ${SUPER_ADMIN_KEY:-}
+    ports:
+      - "3005:3005"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      go-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3005/admin/api/health', (res) => process.exit(res.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - clickgarcom-network
+
   super-admin:
     build:
       context: ${SUPER_ADMIN_WEB_DIR:-./apps/super-admin/web}
       dockerfile: Dockerfile
     container_name: clickgarcom-super-admin
+    environment:
+      PORT: 3003
+      SUPER_ADMIN_API_BASE_URL: ${SUPER_ADMIN_API_BASE_URL:-http://super-admin-api:3005/admin/api/super-admin}
+      SUPER_ADMIN_BROWSER_API_BASE_URL: ${SUPER_ADMIN_BROWSER_API_BASE_URL:-/admin/api/super-admin}
     ports:
-      - "3003:80"
+      - "3003:3003"
     depends_on:
-      - node-admin
+      super-admin-api:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3003/health', (res) => process.exit(res.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     restart: unless-stopped
     networks:
       - clickgarcom-network

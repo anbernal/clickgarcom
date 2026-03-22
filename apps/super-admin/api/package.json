@@ -1,0 +1,32 @@
+{
+  "name": "clickgarcom-super-admin-api",
+  "version": "1.0.0",
+  "description": "ClickGarcom Super Admin API",
+  "private": true,
+  "scripts": {
+    "build": "nest build",
+    "start": "nest start",
+    "start:dev": "nest start --watch",
+    "start:prod": "node dist/main"
+  },
+  "dependencies": {
+    "@nestjs/common": "^10.3.0",
+    "@nestjs/config": "^3.1.0",
+    "@nestjs/core": "^10.3.0",
+    "@nestjs/platform-express": "^10.3.0",
+    "@nestjs/typeorm": "^10.0.1",
+    "axios": "^1.13.5",
+    "bcrypt": "^6.0.0",
+    "pg": "^8.11.3",
+    "reflect-metadata": "^0.2.1",
+    "rxjs": "^7.8.1",
+    "typeorm": "^0.3.19"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^10.3.0",
+    "@types/bcrypt": "^6.0.0",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.3"
+  }
+}

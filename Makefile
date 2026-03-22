@@ -1,4 +1,4 @@
-.PHONY: help deploy-check deploy-sync deploy-remote redeploy validate-migration-baseline validate-layout-paths validate-compose validate-tenant-admin-api validate-tenant-admin-web validate-super-admin-web validate-core-backend
+.PHONY: help deploy-check deploy-sync deploy-remote redeploy validate-migration-baseline validate-layout-paths validate-compose validate-tenant-admin-api validate-tenant-admin-web validate-super-admin-api validate-super-admin-web validate-core-backend
 
 -include .deploy.env
 
@@ -7,11 +7,12 @@ DEPLOY_HOST ?=
 DEPLOY_PORT ?= 22
 DEPLOY_PATH ?= /opt/clickgarcom
 DEPLOY_COMPOSE_CMD ?= docker compose
-DEPLOY_APP_SERVICES ?= go-migrate go-setup-rabbitmq go-api go-worker go-outbox node-admin web-admin super-admin
+DEPLOY_APP_SERVICES ?= go-migrate go-setup-rabbitmq go-api go-worker go-outbox node-admin web-admin super-admin-api super-admin
 
 CORE_BACKEND_DIR ?= platform/core-backend
 TENANT_ADMIN_API_DIR ?= apps/tenant-admin/api
 TENANT_ADMIN_WEB_DIR ?= apps/tenant-admin/web
+SUPER_ADMIN_API_DIR ?= apps/super-admin/api
 SUPER_ADMIN_WEB_DIR ?= apps/super-admin/web
 DOCS_DIR ?= docs
 GO_TEST_CACHE_DIR ?= /tmp/clickgarcom-gocache
@@ -41,6 +42,9 @@ logs-rabbitmq: ## Logs do RabbitMQ
 
 logs-super-admin: ## Logs do Super Admin
 	docker-compose logs -f super-admin
+
+logs-super-admin-api: ## Logs da API do Super Admin
+	docker-compose logs -f super-admin-api
 
 logs-pgadmin: ## Logs do pgAdmin
 	docker-compose logs -f pgadmin
@@ -201,8 +205,11 @@ install-admin: ## Instala dependências do Admin Panel
 build-admin: ## Builda Admin Panel
 	cd $(TENANT_ADMIN_API_DIR) && npm run build
 
-run-super-admin: ## Roda Super Admin localmente (precisa serve instalado)
-	cd $(SUPER_ADMIN_WEB_DIR) && npx serve public -l 3003
+run-super-admin: ## Roda frontend do Super Admin localmente
+	cd $(SUPER_ADMIN_WEB_DIR) && PORT=3003 node server.js
+
+run-super-admin-api: ## Roda API do Super Admin localmente
+	cd $(SUPER_ADMIN_API_DIR) && npm run start:dev
 
 # ============ PRODUCTION ============
 build-api: ## Builda API para produção
@@ -239,12 +246,13 @@ redeploy: deploy-sync deploy-remote ## Sincroniza codigo e faz redeploy completo
 clean: ## Limpa arquivos buildados
 	rm -rf $(CORE_BACKEND_DIR)/bin/
 
-validate-migration-baseline: validate-layout-paths validate-compose validate-tenant-admin-api validate-tenant-admin-web validate-super-admin-web validate-core-backend ## Valida baseline antes e depois de mover diretorios
+validate-migration-baseline: validate-layout-paths validate-compose validate-tenant-admin-api validate-tenant-admin-web validate-super-admin-api validate-super-admin-web validate-core-backend ## Valida baseline antes e depois de mover diretorios
 
 validate-layout-paths: ## Valida os diretorios atuais do layout alvo
 	@test -d "$(CORE_BACKEND_DIR)" || (echo "Diretorio ausente: $(CORE_BACKEND_DIR)"; exit 1)
 	@test -d "$(TENANT_ADMIN_API_DIR)" || (echo "Diretorio ausente: $(TENANT_ADMIN_API_DIR)"; exit 1)
 	@test -d "$(TENANT_ADMIN_WEB_DIR)" || (echo "Diretorio ausente: $(TENANT_ADMIN_WEB_DIR)"; exit 1)
+	@test -d "$(SUPER_ADMIN_API_DIR)" || (echo "Diretorio ausente: $(SUPER_ADMIN_API_DIR)"; exit 1)
 	@test -d "$(SUPER_ADMIN_WEB_DIR)" || (echo "Diretorio ausente: $(SUPER_ADMIN_WEB_DIR)"; exit 1)
 
 validate-compose: ## Valida resolucao do docker compose para a migracao
@@ -257,8 +265,11 @@ validate-tenant-admin-api: ## Build do tenant admin API
 validate-tenant-admin-web: ## Verifica o entrypoint do tenant admin web
 	cd $(TENANT_ADMIN_WEB_DIR) && node --check server.js
 
-validate-super-admin-web: ## Verifica a presenca do frontend do super admin
-	@test -f "$(SUPER_ADMIN_WEB_DIR)/nginx.conf" || (echo "Arquivo ausente: $(SUPER_ADMIN_WEB_DIR)/nginx.conf"; exit 1)
+validate-super-admin-api: ## Build da API do super admin
+	cd $(SUPER_ADMIN_API_DIR) && npm run build
+
+validate-super-admin-web: ## Verifica o entrypoint do frontend do super admin
+	@test -f "$(SUPER_ADMIN_WEB_DIR)/server.js" || (echo "Arquivo ausente: $(SUPER_ADMIN_WEB_DIR)/server.js"; exit 1)
 	@test -f "$(SUPER_ADMIN_WEB_DIR)/public/index.html" || (echo "Arquivo ausente: $(SUPER_ADMIN_WEB_DIR)/public/index.html"; exit 1)
 
 validate-core-backend: ## Testa o core backend

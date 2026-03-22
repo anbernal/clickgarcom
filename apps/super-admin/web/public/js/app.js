@@ -13,11 +13,12 @@ function resolveApiBase() {
     const custom = (localStorage.getItem('clickgarcom_super_admin_api_base') || '').trim();
     if (custom) return custom.replace(/\/+$/, '');
 
-    if (window.location.port === '3002') {
-        return `${window.location.origin}/admin/api/super-admin`;
+    const runtimeConfig = window.CLICKGARCOM_SUPER_ADMIN_CONFIG || {};
+    if (String(runtimeConfig.apiBaseUrl || '').trim()) {
+        return String(runtimeConfig.apiBaseUrl).trim().replace(/\/+$/, '');
     }
 
-    return `${window.location.protocol}//${window.location.hostname}:3002/admin/api/super-admin`;
+    return `${window.location.origin}/admin/api/super-admin`;
 }
 
 const API_BASE = resolveApiBase();
