@@ -7,6 +7,7 @@ import (
 
 	"github.com/anbernal/clickgarcom/internal/domain/tenant"
 	domain "github.com/anbernal/clickgarcom/internal/domain/whatsapp"
+	"github.com/anbernal/clickgarcom/internal/infrastructure/metrics"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -33,6 +34,12 @@ func NewOutboxProcessor(db *gorm.DB, apiClient *MetaAPIClient, logRepo tenant.Me
 }
 
 func (p *OutboxProcessor) ProcessPending(ctx context.Context) error {
+	startedAt := time.Now()
+	defer func() {
+		metrics.ObserveOutboxRunDuration(time.Since(startedAt).Seconds())
+		metrics.SetOutboxLastRunTimestamp(float64(time.Now().Unix()))
+	}()
+
 	// 1. Buscar mensagens pendentes
 	var messages []domain.OutboxMessage
 
@@ -47,6 +54,9 @@ func (p *OutboxProcessor) ProcessPending(ctx context.Context) error {
 		return fmt.Errorf("failed to fetch pending messages: %w", err)
 	}
 
+	metrics.SetOutboxPendingMessages(len(messages))
+	metrics.ObserveOutboxBatchSize(len(messages))
+
 	if len(messages) == 0 {
 		return nil // Nada a processar
 	}
@@ -58,10 +68,13 @@ func (p *OutboxProcessor) ProcessPending(ctx context.Context) error {
 	// 2. Processar cada mensagem
 	for _, msg := range messages {
 		if err := p.processMessage(ctx, &msg); err != nil {
+			metrics.IncOutboxMessagesProcessed("error")
 			p.logger.Error("failed to process message",
 				zap.String("id", msg.ID.String()),
 				zap.Error(err),
 			)
+		} else {
+			metrics.IncOutboxMessagesProcessed("success")
 		}
 	}
 

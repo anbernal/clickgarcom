@@ -42,6 +42,9 @@ logs-rabbitmq: ## Logs do RabbitMQ
 logs-super-admin: ## Logs do Super Admin
 	docker-compose logs -f super-admin
 
+logs-pgadmin: ## Logs do pgAdmin
+	docker-compose logs -f pgadmin
+
 ps: ## Lista containers rodando
 	docker-compose ps
 
@@ -127,6 +130,11 @@ rabbitmq-ui: ## Abre RabbitMQ Management UI
 	@echo "Opening RabbitMQ Management at http://localhost:15672"
 	@echo "User: clickgarcom | Pass: clickgarcom123"
 	@open http://localhost:15672 2>/dev/null || xdg-open http://localhost:15672 2>/dev/null || echo "Please open http://localhost:15672 manually"
+
+pgadmin-ui: ## Abre o pgAdmin local
+	@echo "Opening pgAdmin at http://localhost:$${PGADMIN_PORT:-5050}"
+	@echo "User: $${PGADMIN_DEFAULT_EMAIL:-admin@clickgarcom.dev} | Pass: $${PGADMIN_DEFAULT_PASSWORD:-admin123}"
+	@open http://localhost:$${PGADMIN_PORT:-5050} 2>/dev/null || xdg-open http://localhost:$${PGADMIN_PORT:-5050} 2>/dev/null || echo "Please open http://localhost:$${PGADMIN_PORT:-5050} manually"
 
 rabbitmq-queues: ## Lista filas do RabbitMQ
 	docker exec clickgarcom-rabbitmq rabbitmqctl list_queues name messages consumers

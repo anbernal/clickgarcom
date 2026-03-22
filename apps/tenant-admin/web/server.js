@@ -25,6 +25,14 @@ const server = http.createServer((req, res) => {
   const requestUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
   const pathname = decodeURIComponent(requestUrl.pathname);
 
+  if (pathname === '/health') {
+    return sendJson(res, 200, {
+      status: 'ok',
+      service: 'web-admin',
+      timestamp: Math.floor(Date.now() / 1000),
+    });
+  }
+
   if (pathname === '/_config.js') {
     return sendRuntimeConfig(res);
   }

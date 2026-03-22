@@ -3,7 +3,9 @@ package rabbitmq
 import (
 	"context"
 	"fmt"
+	"time"
 
+	"github.com/anbernal/clickgarcom/internal/infrastructure/metrics"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"go.uber.org/zap"
 )
@@ -55,8 +57,12 @@ func (c *Consumer) Consume(queueName string, handler MessageHandler) error {
 
 	// Processar mensagens
 	go func() {
+		metrics.SetConsumerActive(queueName, true)
+		defer metrics.SetConsumerActive(queueName, false)
+
 		for msg := range msgs {
 			ctx := context.Background()
+			startedAt := time.Now()
 
 			c.logger.Debug("message received",
 				zap.String("queue", queueName),
@@ -65,6 +71,9 @@ func (c *Consumer) Consume(queueName string, handler MessageHandler) error {
 
 			// Processar mensagem
 			if err := handler(ctx, msg.Body); err != nil {
+				metrics.IncConsumerMessagesProcessed(queueName, "error")
+				metrics.ObserveConsumerProcessingDuration(queueName, "error", time.Since(startedAt).Seconds())
+
 				c.logger.Error("error processing message",
 					zap.String("queue", queueName),
 					zap.String("message_id", msg.MessageId),
@@ -99,6 +108,9 @@ func (c *Consumer) Consume(queueName string, handler MessageHandler) error {
 					}
 				*/
 			} else {
+				metrics.IncConsumerMessagesProcessed(queueName, "success")
+				metrics.ObserveConsumerProcessingDuration(queueName, "success", time.Since(startedAt).Seconds())
+
 				// Ack manual
 				msg.Ack(false)
 				c.logger.Debug("message processed successfully",

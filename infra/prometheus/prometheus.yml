@@ -3,6 +3,11 @@ global:
   evaluation_interval: 15s
 
 scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['prometheus:9090']
+
   # Go API metrics
   - job_name: 'go-api'
     static_configs:
@@ -15,17 +20,51 @@ scrape_configs:
       - targets: ['go-worker:8081']
     metrics_path: '/metrics'
 
+  # Outbox Worker metrics
+  - job_name: 'go-outbox'
+    static_configs:
+      - targets: ['go-outbox:8082']
+    metrics_path: '/metrics'
+
   # RabbitMQ metrics
   - job_name: 'rabbitmq'
     static_configs:
       - targets: ['rabbitmq:15692']
 
-  # Postgres exporter (adicionar depois)
-  # - job_name: 'postgres'
-  #   static_configs:
-  #     - targets: ['postgres-exporter:9187']
+  # Postgres exporter
+  - job_name: 'postgres-exporter'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
 
-  # Redis exporter (adicionar depois)
-  # - job_name: 'redis'
-  #   static_configs:
-  #     - targets: ['redis-exporter:9121']
+  # Redis exporter
+  - job_name: 'redis-exporter'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+
+  # HTTP health probes for critical services
+  - job_name: 'http-health'
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - http://go-api:8080/health
+        labels:
+          service: go-api
+      - targets:
+          - http://node-admin:3002/admin/api/health
+        labels:
+          service: node-admin
+      - targets:
+          - http://web-admin:3004/health
+        labels:
+          service: web-admin
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [service]
+        target_label: service
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115

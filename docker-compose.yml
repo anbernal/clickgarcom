@@ -23,6 +23,25 @@ services:
     networks:
       - clickgarcom-network
 
+  pgadmin:
+    image: dpage/pgadmin4:9.13
+    container_name: clickgarcom-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@clickgarcom.dev}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-admin123}
+      PGADMIN_REPLACE_SERVERS_ON_STARTUP: "True"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+      - ./infra/docker/pgadmin/servers.json:/pgadmin4/servers.json:ro
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - clickgarcom-network
+
   redis:
     image: redis:7-alpine
     container_name: clickgarcom-redis
@@ -68,6 +87,7 @@ services:
     container_name: clickgarcom-prometheus
     volumes:
       - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./infra/prometheus/blackbox.yml:/etc/prometheus/blackbox.yml:ro
       - prometheus_data:/prometheus
     ports:
       - "9090:9090"
@@ -77,14 +97,51 @@ services:
     networks:
       - clickgarcom-network
 
+  blackbox-exporter:
+    image: prom/blackbox-exporter:latest
+    container_name: clickgarcom-blackbox-exporter
+    command:
+      - '--config.file=/etc/blackbox_exporter/config.yml'
+    volumes:
+      - ./infra/prometheus/blackbox.yml:/etc/blackbox_exporter/config.yml:ro
+    networks:
+      - clickgarcom-network
+
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:latest
+    container_name: clickgarcom-postgres-exporter
+    environment:
+      DATA_SOURCE_NAME: postgresql://postgres:postgres123@postgres:5432/clickgarcom_db?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - clickgarcom-network
+
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: clickgarcom-redis-exporter
+    environment:
+      REDIS_ADDR: redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - clickgarcom-network
+
   grafana:
     image: grafana/grafana:latest
     container_name: clickgarcom-grafana
     environment:
       GF_SECURITY_ADMIN_PASSWORD: admin123
       GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/clickgarcom-critical-services.json
     volumes:
       - grafana_data:/var/lib/grafana
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/etc/grafana/dashboards:ro
     ports:
       - "3001:3000"
     depends_on:
@@ -186,6 +243,8 @@ services:
       DATABASE_HOST: postgres
       REDIS_HOST: redis
       RABBITMQ_HOST: rabbitmq
+      METRICS_ENABLED: "true"
+      METRICS_PORT: 8081
       PUBLIC_ADMIN_BASE_URL: ${PUBLIC_ADMIN_BASE_URL:-}
       ADMIN_INTERNAL_BASE_URL: http://node-admin:3002
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-clickgarcom-internal-token}
@@ -202,6 +261,12 @@ services:
         condition: service_completed_successfully
       go-setup-rabbitmq:
         condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "HEALTHCHECK_URL=http://127.0.0.1:8081/health /app/bin/healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     restart: unless-stopped
     networks:
       - clickgarcom-network
@@ -218,12 +283,20 @@ services:
       DATABASE_HOST: postgres
       REDIS_HOST: redis
       RABBITMQ_HOST: rabbitmq
+      METRICS_ENABLED: "true"
+      METRICS_PORT: 8082
     command: ["./bin/outbox-worker"]
     depends_on:
       postgres:
         condition: service_healthy
       go-migrate:
         condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "HEALTHCHECK_URL=http://127.0.0.1:8082/health /app/bin/healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     restart: unless-stopped
     networks:
       - clickgarcom-network
@@ -258,6 +331,12 @@ services:
         condition: service_healthy
       go-migrate:
         condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3002/admin/api/health', (res) => process.exit(res.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     restart: unless-stopped
     networks:
       - clickgarcom-network
@@ -279,6 +358,12 @@ services:
         condition: service_started
       go-api:
         condition: service_started
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3004/health', (res) => process.exit(res.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     restart: unless-stopped
     networks:
       - clickgarcom-network
@@ -343,6 +428,7 @@ services:
 
 volumes:
   postgres_data:
+  pgadmin_data:
   redis_data:
   rabbitmq_data:
   prometheus_data:

@@ -137,10 +137,13 @@ curl http://localhost:3002/admin/api/v1/openapi.json
 make grafana
 # Acessa: http://localhost:3001
 # User: admin | Pass: admin123
+# Dashboard inicial: ClickGarcom Critical Services
+# Dashboard adicional: ClickGarcom Overview
 
 # Abrir Prometheus
 make prometheus
 # Acessa: http://localhost:9090
+# Verifique os jobs em Status > Targets
 ```
 
 ### 🏗️ Production

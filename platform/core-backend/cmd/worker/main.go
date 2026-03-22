@@ -16,6 +16,7 @@ import (
 
 	"github.com/anbernal/clickgarcom/internal/application"
 	"github.com/anbernal/clickgarcom/internal/config"
+	"github.com/anbernal/clickgarcom/internal/infrastructure/metrics"
 	adminclient "github.com/anbernal/clickgarcom/internal/infrastructure/nodeadmin"
 	infraMP "github.com/anbernal/clickgarcom/internal/infrastructure/payment"
 	"github.com/anbernal/clickgarcom/internal/infrastructure/persistence/postgres"
@@ -81,6 +82,11 @@ func main() {
 	}
 	defer redisClient.Close()
 	logger.Info("Connected to Redis successfully")
+
+	var metricsServer *http.Server
+	if cfg.Metrics.Enabled {
+		metricsServer = metrics.StartServer(cfg.Metrics.Port, "go-worker", logger.Log)
+	}
 
 	// 5. Repositories
 	inboxRepo := postgres.NewInboxRepository(db.DB)
@@ -221,6 +227,7 @@ func main() {
 
 	<-quit
 	logger.Info("Shutting down worker...")
+	metrics.ShutdownServer(metricsServer, logger.Log, "go-worker")
 }
 
 func resolvePublicCheckoutBaseURL() string {

@@ -103,6 +103,7 @@ make db-seed
 # Tenant Admin API:    http://localhost:3002/admin/api/health
 # Tenant Admin Web:    http://localhost:3004/login.html
 # Super Admin:         http://localhost:3003
+# pgAdmin:             http://localhost:5050
 # RabbitMQ UI:         http://localhost:15672
 # Grafana:             http://localhost:3001
 # Prometheus:          http://localhost:9090
@@ -111,6 +112,7 @@ make db-seed
 ## Stack Containerizada
 
 - `postgres`: PostgreSQL 17
+- `pgadmin`: interface web para o PostgreSQL local (porta `5050`)
 - `redis`: Redis 7
 - `rabbitmq`: RabbitMQ 3.13 + management UI
 - `prometheus`: métricas
@@ -147,7 +149,50 @@ make logs-super-admin
 # Acessar RabbitMQ UI
 http://localhost:15672
 # User: clickgarcom / Pass: clickgarcom123
+
+# Acessar pgAdmin
+http://localhost:5050
+# Login pgAdmin: admin@clickgarcom.dev / admin123
+# Servidor preconfigurado: host `postgres`, db `clickgarcom_db`, user `postgres`
+
+# Acessar Grafana
+http://localhost:3001
+# Login Grafana: admin / admin123
+# Dashboard inicial: ClickGarcom Critical Services
+# Dashboard adicional: ClickGarcom Overview
+
+# Acessar Prometheus
+http://localhost:9090
+# Targets: Status > Targets
 ```
+
+## Observabilidade
+
+- `Prometheus` coleta automaticamente `prometheus`, `go-api` e `rabbitmq`.
+- `Prometheus` coleta automaticamente `prometheus`, `go-api`, `go-worker`, `go-outbox`, `rabbitmq`, `postgres-exporter` e `redis-exporter`.
+- `Prometheus` tambem faz probes HTTP de `go-api`, `node-admin` e `web-admin` via `blackbox-exporter`.
+- `Grafana` sobe com datasource `Prometheus` e os dashboards `ClickGarcom Critical Services` e `ClickGarcom Overview` provisionados por arquivo.
+
+### Consultas uteis no Prometheus
+
+```promql
+up
+go_goroutines{job="go-api"}
+go_memstats_heap_alloc_bytes{job="go-api"}
+sum by (tenant_id) (kds_active_connections)
+sum by (event_type) (rate(kds_events_published_total[5m]))
+rabbitmq_connections
+rabbitmq_queues
+rabbitmq_queue_messages
+```
+
+### Como usar no dia a dia
+
+1. Abra `http://localhost:9090`, entre em `Status > Targets` e confirme que todos os jobs estao `UP`.
+2. Teste uma consulta PromQL simples, como `up` ou `sum by (tenant_id) (kds_active_connections)`.
+3. Abra `http://localhost:3001`, faca login com `admin / admin123` e abra o dashboard `ClickGarcom Overview`.
+4. Ajuste o intervalo de tempo no canto superior direito para `Last 15 minutes`, `Last 1 hour` ou conforme o problema investigado.
+5. Se um painel ficar vazio, gere trafego na aplicacao e recarregue; metricas como `kds_events_published_total` dependem de eventos reais.
 
 ## Filas RabbitMQ
 

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -11,6 +12,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/anbernal/clickgarcom/internal/config"
+	"github.com/anbernal/clickgarcom/internal/infrastructure/metrics"
 	"github.com/anbernal/clickgarcom/internal/infrastructure/persistence/postgres"
 	"github.com/anbernal/clickgarcom/internal/infrastructure/whatsapp"
 	"github.com/anbernal/clickgarcom/pkg/database"
@@ -49,6 +51,12 @@ func main() {
 	defer db.Close()
 	logger.Info("Connected to PostgreSQL successfully")
 
+	var metricsServer *http.Server
+	if cfg.Metrics.Enabled {
+		metricsServer = metrics.StartServer(cfg.Metrics.Port, "go-outbox", logger.Log)
+	}
+	defer metrics.ShutdownServer(metricsServer, logger.Log, "go-outbox")
+
 	// 4. Criar WhatsApp API Client
 	whatsappAPI := whatsapp.NewMetaAPIClient(
 		cfg.WhatsApp.APIToken,
@@ -80,6 +88,7 @@ func main() {
 		<-quit
 		logger.Info("Shutting down outbox worker...")
 		cancel()
+		metrics.ShutdownServer(metricsServer, logger.Log, "go-outbox")
 	}()
 
 	logger.Info("Outbox worker is running...")
