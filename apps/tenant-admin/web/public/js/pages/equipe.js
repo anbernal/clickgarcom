@@ -9,6 +9,7 @@ const equipeRoleVisuals = {
 
 const equipeState = {
     payload: null,
+    audit: [],
     filters: {
         search: '',
         role: 'ALL',
@@ -34,7 +35,12 @@ async function loadEquipePage() {
     container.innerHTML = '<div class="loading"><div class="spinner"></div> Carregando equipe...</div>';
 
     try {
-        equipeState.payload = await api.get('/auth/users');
+        const [usersPayload, auditPayload] = await Promise.all([
+            api.get('/auth/users'),
+            api.get('/auth/audit').catch(() => ({ items: [] })),
+        ]);
+        equipeState.payload = usersPayload;
+        equipeState.audit = Array.isArray(auditPayload?.items) ? auditPayload.items : [];
         renderEquipePage();
     } catch (err) {
         container.innerHTML = `
@@ -67,6 +73,7 @@ function renderEquipePage() {
     const roleBreakdown = Array.isArray(summary.roleBreakdown) ? summary.roleBreakdown : [];
     const users = getEquipeFilteredUsers();
     const currentUser = getCurrentUser() || {};
+    const auditItems = Array.isArray(equipeState.audit) ? equipeState.audit : [];
 
     container.innerHTML = `
         <div class="stats-grid">
@@ -182,6 +189,32 @@ function renderEquipePage() {
                 `}
             </div>
         </div>
+
+        <div class="section-grid">
+            <div class="card">
+                <div class="card-header">
+                    <div>
+                        <div class="card-title">Auditoria de acessos</div>
+                        <div class="card-subtitle">Últimos eventos de login e troca de senha no tenant-admin</div>
+                    </div>
+                </div>
+                <div style="padding:18px 22px;">
+                    ${renderEquipeAuditList(auditItems.filter((item) => ['LOGIN_SUCCESS', 'PASSWORD_CHANGED'].includes(String(item.eventType || ''))))}
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <div>
+                        <div class="card-title">Auditoria de gestão</div>
+                        <div class="card-subtitle">Criação, edição, bloqueio e reset assistido de senha</div>
+                    </div>
+                </div>
+                <div style="padding:18px 22px;">
+                    ${renderEquipeAuditList(auditItems.filter((item) => !['LOGIN_SUCCESS', 'PASSWORD_CHANGED'].includes(String(item.eventType || ''))))}
+                </div>
+            </div>
+        </div>
     `;
 }
 
@@ -294,6 +327,45 @@ function formatEquipeDateTime(dateStr) {
     }
 
     return `${formatDate(dateStr)} às ${formatTime(dateStr)}`;
+}
+
+function renderEquipeAuditList(items) {
+    if (!items.length) {
+        return '<div style="font-size:12px; color:var(--muted);">Nenhum evento auditável registrado ainda.</div>';
+    }
+
+    return items.slice(0, 12).map((item) => `
+        <div style="padding:12px 0; border-bottom:1px solid var(--border); display:grid; grid-template-columns:120px 1fr; gap:12px; align-items:flex-start;">
+            <div style="font-size:11px; color:var(--muted);">${escapeHTML(formatEquipeDateTime(item.createdAt))}</div>
+            <div>
+                <div style="font-size:13px; font-weight:700; color:var(--dark);">${escapeHTML(item.description || item.eventType || 'Evento')}</div>
+                <div style="font-size:12px; color:var(--muted); margin-top:4px;">
+                    ${escapeHTML(buildEquipeAuditMeta(item))}
+                </div>
+            </div>
+        </div>
+    `).join('');
+}
+
+function buildEquipeAuditMeta(item) {
+    const actor = String(item?.actorName || '').trim();
+    const actorRole = formatEquipeRoleLabel(item?.actorRole || '');
+    const target = String(item?.targetUserName || '').trim();
+    const parts = [];
+
+    if (actor) {
+        parts.push(`ator: ${actor}${actorRole && actorRole !== '-' ? ` (${actorRole})` : ''}`);
+    }
+
+    if (target && target !== actor) {
+        parts.push(`alvo: ${target}`);
+    }
+
+    if (!parts.length) {
+        parts.push('evento automático do tenant');
+    }
+
+    return parts.join(' · ');
 }
 
 function setEquipeFilter(field, value) {

@@ -38,9 +38,17 @@ export class AuthController {
     @Roles(...TENANT_FULL_ACCESS_ROLES)
     async toggleStatus(@Request() req, @Body() data: { currentStatus?: boolean; is_open?: boolean }) {
         if (typeof data.is_open === 'boolean') {
-            return this.authService.setTenantStatus(req.user.tenantId, data.is_open);
+            return this.authService.setTenantStatus(req.user.tenantId, data.is_open, {
+                userId: req.user.id,
+                userName: req.user.name,
+                userRole: req.user.role,
+            });
         }
-        return this.authService.toggleTenantStatus(req.user.tenantId, !!data.currentStatus);
+        return this.authService.toggleTenantStatus(req.user.tenantId, !!data.currentStatus, undefined, {
+            userId: req.user.id,
+            userName: req.user.name,
+            userRole: req.user.role,
+        });
     }
 
     @UseGuards(JwtAuthGuard)
@@ -54,7 +62,11 @@ export class AuthController {
     @Put('messages')
     @Roles(...TENANT_FULL_ACCESS_ROLES)
     async updateMessages(@Request() req, @Body() data: any) {
-        return this.authService.updateTenantMessages(req.user.tenantId, data || {});
+        return this.authService.updateTenantMessages(req.user.tenantId, data || {}, {
+            userId: req.user.id,
+            userName: req.user.name,
+            userRole: req.user.role,
+        });
     }
 
     @UseGuards(JwtAuthGuard)
@@ -70,6 +82,7 @@ export class AuthController {
     async listUsers(@Request() req) {
         return this.authService.listUsers(req.user.tenantId, {
             userId: req.user.id,
+            userName: req.user.name,
             userRole: req.user.role,
         });
     }
@@ -80,6 +93,7 @@ export class AuthController {
     async createUser(@Request() req, @Body() data: CreateTenantUserDto) {
         return this.authService.createUser(req.user.tenantId, {
             userId: req.user.id,
+            userName: req.user.name,
             userRole: req.user.role,
         }, data);
     }
@@ -90,6 +104,7 @@ export class AuthController {
     async updateUser(@Request() req, @Param('id') id: string, @Body() data: UpdateTenantUserDto) {
         return this.authService.updateUser(req.user.tenantId, id, {
             userId: req.user.id,
+            userName: req.user.name,
             userRole: req.user.role,
         }, data);
     }
@@ -100,6 +115,7 @@ export class AuthController {
     async updateUserStatus(@Request() req, @Param('id') id: string, @Body() data: UpdateTenantUserStatusDto) {
         return this.authService.updateUserStatus(req.user.tenantId, id, {
             userId: req.user.id,
+            userName: req.user.name,
             userRole: req.user.role,
         }, data);
     }
@@ -110,7 +126,15 @@ export class AuthController {
     async resetUserPassword(@Request() req, @Param('id') id: string, @Body() data: ResetTenantUserPasswordDto) {
         return this.authService.resetUserPassword(req.user.tenantId, id, {
             userId: req.user.id,
+            userName: req.user.name,
             userRole: req.user.role,
         }, data);
+    }
+
+    @UseGuards(JwtAuthGuard)
+    @Get('audit')
+    @Roles(...TENANT_FULL_ACCESS_ROLES)
+    async listAudit(@Request() req) {
+        return this.authService.listAuditLogs(req.user.tenantId);
     }
 }

@@ -30,6 +30,11 @@ function applyNavigationPermissions() {
         const routeGroup = navItem.dataset.routeGroup;
         navItem.style.display = canAccessRouteGroup(routeGroup) ? '' : 'none';
     });
+
+    const btnExpediente = document.getElementById('btn-expediente');
+    if (btnExpediente) {
+        btnExpediente.style.display = canPerformAction('toggleTenantStatus') ? '' : 'none';
+    }
 }
 
 function navigate(pageId, options = {}) {
@@ -214,6 +219,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnExpediente = document.getElementById('btn-expediente');
     if (btnExpediente) {
         btnExpediente.addEventListener('click', async () => {
+            if (!canPerformAction('toggleTenantStatus')) {
+                showToast('Seu perfil nao pode alterar o expediente.', 'error');
+                return;
+            }
             const isOpen = btnExpediente.classList.contains('active');
             const nextState = !isOpen;
             try {

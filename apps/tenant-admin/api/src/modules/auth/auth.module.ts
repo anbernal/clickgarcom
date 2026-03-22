@@ -7,10 +7,11 @@ import { AuthService } from './auth.service';
 import { User } from '../../entities/user.entity';
 import { Tenant } from '../../entities/tenant.entity';
 import { JwtStrategy } from './jwt.strategy';
+import { UserAccessAuditLog } from '../../entities/user-access-audit-log.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User, Tenant]),
+    TypeOrmModule.forFeature([User, Tenant, UserAccessAuditLog]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

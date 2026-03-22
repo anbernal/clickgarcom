@@ -358,11 +358,18 @@ function renderPedidoDateCell(order) {
 }
 
 function renderPedidoActionCell(order) {
+  const canManageOrders = canPerformAction('manageOrders');
+  const canCancelOrders = canPerformAction('cancelOrders');
+
+  if (!canManageOrders) {
+    return '<span style="font-size:12px; color:var(--muted);">Sem ação</span>';
+  }
+
   if (order.status === 'PENDING') {
     return `
       <div style="display:flex; gap:8px; flex-wrap:wrap;">
         <button class="btn-sm btn-dark" onclick="updateOrderStatus('${order.id}', 'ACCEPTED')">Aceitar</button>
-        <button class="btn-sm btn-outline" onclick="openOrderCancelDialog('${order.id}')">Cancelar</button>
+        ${canCancelOrders ? `<button class="btn-sm btn-outline" onclick="openOrderCancelDialog('${order.id}')">Cancelar</button>` : ''}
       </div>
     `;
   }
@@ -371,7 +378,7 @@ function renderPedidoActionCell(order) {
     return `
       <div style="display:flex; gap:8px; flex-wrap:wrap;">
         <button class="btn-sm btn-primary" onclick="updateOrderStatus('${order.id}', 'READY')">Pronto</button>
-        <button class="btn-sm btn-outline" onclick="openOrderCancelDialog('${order.id}')">Cancelar</button>
+        ${canCancelOrders ? `<button class="btn-sm btn-outline" onclick="openOrderCancelDialog('${order.id}')">Cancelar</button>` : ''}
       </div>
     `;
   }
@@ -552,6 +559,10 @@ function formatTableNumber(number) {
 }
 
 function openOrderCancelDialog(orderId) {
+  if (!canPerformAction('cancelOrders')) {
+    showToast('Seu perfil nao pode cancelar pedidos.', 'error');
+    return;
+  }
   const order = pedidosState.orders.find((item) => item.id === orderId);
   if (!order) return;
 
@@ -656,6 +667,15 @@ async function confirmOrderCancel() {
 }
 
 async function updateOrderStatus(orderId, newStatus, extraPayload = {}) {
+  if (!canPerformAction('manageOrders')) {
+    showToast('Seu perfil nao pode alterar pedidos.', 'error');
+    return;
+  }
+
+  if (newStatus === 'CANCELED' && !canPerformAction('cancelOrders')) {
+    showToast('Seu perfil nao pode cancelar pedidos.', 'error');
+    return;
+  }
   try {
     await api.patch(`/orders/${orderId}/status`, { status: newStatus, ...extraPayload });
     showToast(`Pedido atualizado para ${statusLabel(newStatus)}`);

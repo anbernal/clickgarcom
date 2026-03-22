@@ -160,7 +160,7 @@ Criterios de pronto:
 
 ## Epic 08 - Usuarios e Permissoes
 
-Status: Em execucao - lote 1 entregue
+Status: Concluido
 
 Objetivo:
 Transformar a matriz de papeis em controle real de equipe.
@@ -170,8 +170,8 @@ Tasks:
 - [x] Permitir trocar senha.
 - [x] Permitir desativar usuario.
 - [x] Restringir paginas do frontend por papel.
-- [ ] Restringir acoes sensiveis por papel.
-- [ ] Criar tela de auditoria de acessos e acoes.
+- [x] Restringir acoes sensiveis por papel.
+- [x] Criar tela de auditoria de acessos e acoes.
 - [x] Criar fluxo de reset assistido de senha.
 
 Criterios de pronto:

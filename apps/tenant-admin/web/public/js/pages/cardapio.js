@@ -23,6 +23,7 @@ async function loadCardapio() {
 
 function renderCardapio(filterCatId = null, search = '') {
   const container = document.getElementById('page-cardapio');
+  const canManageMenu = canPerformAction('manageMenu');
 
   let filtered = cardapioItems;
   if (filterCatId) {
@@ -59,14 +60,14 @@ function renderCardapio(filterCatId = null, search = '') {
       <div class="card-header">
         <div>
           <div class="card-title">Gestão de Cardápio</div>
-          <div class="card-subtitle">Adicione, edite ou remova itens</div>
+          <div class="card-subtitle">${canManageMenu ? 'Adicione, edite ou remova itens' : 'Visualização em modo leitura para seu perfil atual'}</div>
         </div>
         <div style="display:flex;gap:10px">
           <div class="search-box">
             <span>🔍</span>
             <input type="text" placeholder="Buscar item..." id="cardapio-search" value="${search}">
           </div>
-          <button class="btn-sm btn-dark" onclick="openMenuItemModal()">+ Novo Item</button>
+          ${canManageMenu ? '<button class="btn-sm btn-dark" onclick="openMenuItemModal()">+ Novo Item</button>' : ''}
         </div>
       </div>
       <div class="cat-tags" id="cardapio-cat-tags">
@@ -86,20 +87,24 @@ function renderCardapio(filterCatId = null, search = '') {
               <div style="font-size:12px;color:var(--muted);margin-top:6px">${escapeHTML(item.whatsappShortDescription || item.description || 'Sem descrição curta configurada')}</div>
               <div class="menu-footer">
                 <div class="status-pill ${item.available ? 'status-done' : 'status-pending'}">${item.available ? 'Ativo' : 'Inativo'}</div>
-                <div style="display:flex;gap:6px">
-                  <button class="btn-sm btn-outline" onclick="openMenuItemModal('${item.id}')">✏️</button>
-                  <button class="btn-sm btn-outline" onclick="deleteMenuItem('${item.id}')">🗑</button>
-                </div>
+                ${canManageMenu ? `
+                  <div style="display:flex;gap:6px">
+                    <button class="btn-sm btn-outline" onclick="openMenuItemModal('${item.id}')">✏️</button>
+                    <button class="btn-sm btn-outline" onclick="deleteMenuItem('${item.id}')">🗑</button>
+                  </div>
+                ` : '<div style="font-size:11px;color:var(--muted)">Somente leitura</div>'}
               </div>
             </div>
           </div>
         `).join('')}
+        ${canManageMenu ? `
         <div class="menu-card" style="border:2px dashed var(--border);display:flex;align-items:center;justify-content:center;cursor:pointer;min-height:160px" onclick="openMenuItemModal()">
           <div style="text-align:center;color:var(--muted)">
             <div style="font-size:28px">➕</div>
             <div style="font-size:13px;font-weight:600;margin-top:6px">Novo Item</div>
           </div>
         </div>
+        ` : ''}
       </div>
     </div>
   `;
@@ -119,6 +124,10 @@ function renderCardapio(filterCatId = null, search = '') {
 }
 
 function openMenuItemModal(itemId) {
+  if (!canPerformAction('manageMenu')) {
+    showToast('Seu perfil nao pode alterar o cardápio.', 'error');
+    return;
+  }
   const item = itemId ? cardapioItems.find(i => i.id === itemId) : null;
   const isEdit = !!item;
 
@@ -186,6 +195,10 @@ function openMenuItemModal(itemId) {
 }
 
 async function saveMenuItem(itemId) {
+  if (!canPerformAction('manageMenu')) {
+    showToast('Seu perfil nao pode alterar o cardápio.', 'error');
+    return;
+  }
   const data = {
     name: document.getElementById('mi-name').value,
     description: document.getElementById('mi-description').value,
@@ -219,6 +232,10 @@ async function saveMenuItem(itemId) {
 }
 
 async function deleteMenuItem(itemId) {
+  if (!canPerformAction('manageMenu')) {
+    showToast('Seu perfil nao pode alterar o cardápio.', 'error');
+    return;
+  }
   if (!confirm('Tem certeza que deseja remover este item?')) return;
   try {
     await api.delete(`/menu/${itemId}`);

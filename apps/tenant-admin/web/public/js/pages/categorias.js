@@ -3,6 +3,7 @@ let categoriasData = [];
 
 async function loadCategorias() {
     const container = document.getElementById('page-categorias');
+    const canManageMenu = canPerformAction('manageMenu');
     container.innerHTML = '<div class="loading"><div class="spinner"></div> Carregando categorias...</div>';
 
     try {
@@ -14,9 +15,9 @@ async function loadCategorias() {
         <div class="card-header">
           <div>
             <div class="card-title">Gestão de Categorias</div>
-            <div class="card-subtitle">Organize o cardápio em categorias</div>
+            <div class="card-subtitle">${canManageMenu ? 'Organize o cardápio em categorias' : 'Visualização em modo leitura para seu perfil atual'}</div>
           </div>
-          <button class="btn-sm btn-dark" onclick="openCategoryModal()">+ Nova Categoria</button>
+          ${canManageMenu ? '<button class="btn-sm btn-dark" onclick="openCategoryModal()">+ Nova Categoria</button>' : ''}
         </div>
         <div class="form-row" style="background:var(--bg);font-size:12px;font-weight:700;color:var(--muted);letter-spacing:0.8px;text-transform:uppercase">
           <div style="flex:2">Nome da Categoria</div>
@@ -41,8 +42,10 @@ async function loadCategorias() {
                 <span class="status-pill ${cat.active ? 'status-done' : 'status-pending'}">${cat.active ? 'Ativo' : 'Inativo'}</span>
               </div>
               <div style="flex:1;display:flex;gap:6px">
-                <button class="btn-sm btn-outline" onclick="openCategoryModal('${cat.id}')">✏️ Editar</button>
-                <button class="btn-sm btn-outline" onclick="deleteCategory('${cat.id}')">🗑</button>
+                ${canManageMenu ? `
+                  <button class="btn-sm btn-outline" onclick="openCategoryModal('${cat.id}')">✏️ Editar</button>
+                  <button class="btn-sm btn-outline" onclick="deleteCategory('${cat.id}')">🗑</button>
+                ` : '<span style="font-size:11px;color:var(--muted)">Somente leitura</span>'}
               </div>
             </div>
           `).join('')}
@@ -55,6 +58,10 @@ async function loadCategorias() {
 }
 
 function openCategoryModal(id = '') {
+    if (!canPerformAction('manageMenu')) {
+        showToast('Seu perfil nao pode alterar categorias.', 'error');
+        return;
+    }
     const category = id ? categoriasData.find(cat => cat.id === id) : null;
     const isEdit = !!id;
     openModal(`
@@ -98,6 +105,10 @@ function openCategoryModal(id = '') {
 }
 
 async function saveCategory(id) {
+    if (!canPerformAction('manageMenu')) {
+        showToast('Seu perfil nao pode alterar categorias.', 'error');
+        return;
+    }
     const data = {
         name: document.getElementById('cat-name').value,
         description: document.getElementById('cat-description').value,
@@ -127,6 +138,10 @@ async function saveCategory(id) {
 }
 
 async function deleteCategory(id) {
+    if (!canPerformAction('manageMenu')) {
+        showToast('Seu perfil nao pode alterar categorias.', 'error');
+        return;
+    }
     if (!confirm('Tem certeza? Itens desta categoria ficarão sem categoria.')) return;
     try {
         await api.delete(`/categories/${id}`);

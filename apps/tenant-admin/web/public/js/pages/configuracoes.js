@@ -87,6 +87,7 @@ async function loadConfiguracoesPage() {
 }
 
 function renderConfiguracoesUI(container) {
+    const canToggleTenantStatus = canPerformAction('toggleTenantStatus');
     const groups = activeGroup
         ? MessageGroups.filter(g => g.id === activeGroup)
         : MessageGroups;
@@ -113,9 +114,15 @@ function renderConfiguracoesUI(container) {
             : 'Novos pedidos bloqueados. Clientes com comanda aberta podem finalizar.'}</div>
                         </div>
                     </div>
-                    <button type="button" class="btn-sm ${expedienteAberto ? 'btn-danger' : 'btn-primary'}" id="btn-expediente-config" onclick="toggleExpedienteFromConfig()">
-                        ${expedienteAberto ? '⏸ Fechar Expediente' : '▶ Abrir Expediente'}
-                    </button>
+                    ${canToggleTenantStatus ? `
+                        <button type="button" class="btn-sm ${expedienteAberto ? 'btn-danger' : 'btn-primary'}" id="btn-expediente-config" onclick="toggleExpedienteFromConfig()">
+                            ${expedienteAberto ? '⏸ Fechar Expediente' : '▶ Abrir Expediente'}
+                        </button>
+                    ` : `
+                        <div style="font-size:12px; color:var(--text-light); max-width:220px; text-align:right;">
+                            Alteração de expediente liberada apenas para perfis de gestão.
+                        </div>
+                    `}
                 </div>
             </div>
         </div>
@@ -265,6 +272,10 @@ async function handleSaveMessages(e) {
 }
 
 async function toggleExpedienteFromConfig() {
+    if (!canPerformAction('toggleTenantStatus')) {
+        showToast('Seu perfil nao pode alterar o expediente.', 'error');
+        return;
+    }
     const btn = document.getElementById('btn-expediente-config');
     if (!btn) return;
 

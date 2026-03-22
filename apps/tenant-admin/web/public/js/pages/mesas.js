@@ -33,16 +33,21 @@ function getTableStatusMeta(status) {
 }
 
 function renderTableActions(table) {
+  const canManageTables = canPerformAction('manageTables');
+
   if (table.status === 'OCCUPIED') {
     return `
       <div style="display:flex; gap:8px; margin-top:10px;">
         <button class="btn-sm btn-primary" style="flex:1" onclick="viewComandas('${table.id}', '${escapeHTML(String(table.number))}')">Ver Comanda(s)</button>
-        <button class="btn-sm btn-outline" style="flex:1" onclick="changeTableStatus('${table.id}', 'AVAILABLE')">Liberar</button>
+        ${canManageTables ? `<button class="btn-sm btn-outline" style="flex:1" onclick="changeTableStatus('${table.id}', 'AVAILABLE')">Liberar</button>` : ''}
       </div>
     `;
   }
 
   if (table.status === 'RESERVED') {
+    if (!canManageTables) {
+      return '<div style="font-size:12px; color:var(--text-light); margin-top:10px;">Aguardando ação de um gestor.</div>';
+    }
     return `
       <div style="display:flex; gap:8px; margin-top:10px;">
         <button class="btn-sm btn-primary" style="flex:1" onclick="changeTableStatus('${table.id}', 'OCCUPIED')">Confirmar Chegada</button>
@@ -52,9 +57,16 @@ function renderTableActions(table) {
   }
 
   if (table.status === 'CLEANING') {
+    if (!canManageTables) {
+      return '<div style="font-size:12px; color:var(--text-light); margin-top:10px;">Aguardando liberação da mesa.</div>';
+    }
     return `
       <button class="btn-sm btn-outline" style="margin-top:10px; width:100%" onclick="changeTableStatus('${table.id}', 'AVAILABLE')">Marcar Livre</button>
     `;
+  }
+
+  if (!canManageTables) {
+    return '<div style="font-size:12px; color:var(--text-light); margin-top:10px;">Somente leitura para este perfil.</div>';
   }
 
   return `
@@ -99,6 +111,7 @@ function renderTableCard(table) {
 
 function renderManagementCard(tables) {
   const reservedCount = tables.filter((table) => table.status === 'RESERVED').length;
+  const canManageTables = canPerformAction('manageTables');
 
   return `
     <div class="full-card" style="margin-bottom:24px; padding:24px; border:none; box-shadow:0 4px 20px rgba(0,0,0,0.03);">
@@ -112,7 +125,9 @@ function renderManagementCard(tables) {
           <div>
             <h2 style="margin:0 0 6px 0; font-size:18px; font-weight:700; color:var(--text); letter-spacing:-0.4px;">Cadastro de Mesas</h2>
             <p style="margin:0; font-size:13px; color:var(--text-light); max-width:400px; line-height:1.4;">
-              Adicione as mesas do seu salão e defina a capacidade de lugares de cada uma para otimizar o fluxo de atendimento.
+              ${canManageTables
+                ? 'Adicione as mesas do seu salão e defina a capacidade de lugares de cada uma para otimizar o fluxo de atendimento.'
+                : 'Seu perfil acompanha ocupação e comandas em modo leitura, sem alterar o cadastro das mesas.'}
             </p>
           </div>
         </div>
@@ -143,9 +158,11 @@ function renderManagementCard(tables) {
               </div>
             </div>
 
-            <button class="btn btn-primary" type="button" onclick="createTable()" style="height:42px; padding:0 24px; border-radius:8px; font-size:14px; font-weight:600; letter-spacing:0.2px; transition:transform 0.1s;">
-              + Adicionar
-            </button>
+            ${canManageTables ? `
+              <button class="btn btn-primary" type="button" onclick="createTable()" style="height:42px; padding:0 24px; border-radius:8px; font-size:14px; font-weight:600; letter-spacing:0.2px; transition:transform 0.1s;">
+                + Adicionar
+              </button>
+            ` : ''}
           </div>
         </div>
 
@@ -228,6 +245,10 @@ if (window.registerPageHandler) {
 }
 
 async function createTable() {
+  if (!canPerformAction('manageTables')) {
+    showToast('Seu perfil nao pode cadastrar mesas.', 'error');
+    return;
+  }
   const numberInput = document.getElementById('table-number-inline');
   const capacityInput = document.getElementById('table-capacity-inline');
   const number = numberInput ? numberInput.value.trim() : '';
@@ -255,6 +276,10 @@ async function createTable() {
 }
 
 async function changeTableStatus(id, status) {
+  if (!canPerformAction('manageTables')) {
+    showToast('Seu perfil nao pode alterar o status das mesas.', 'error');
+    return;
+  }
   try {
     await api.patch(`/tables/${id}/status`, { status });
     showToast('Status atualizado');
@@ -265,6 +290,10 @@ async function changeTableStatus(id, status) {
 }
 
 async function deleteTable(id) {
+  if (!canPerformAction('manageTables')) {
+    showToast('Seu perfil nao pode excluir mesas.', 'error');
+    return;
+  }
   const table = mesasTableCache.find((item) => item.id === id);
   if (!table) {
     showToast('Mesa não encontrada na listagem atual', 'error');
@@ -676,13 +705,15 @@ function renderComandaCard(detail, idx, tableId, tableNumber) {
 
       <div style="display:flex; justify-content:flex-end; gap:10px; flex-wrap:wrap;">
         ${detail?.status !== 'CLOSED' ? `
-          <button class="btn-sm btn-primary" onclick="finalizeTabFromModal('${escapeHTML(String(detail.id))}', '${escapeHTML(String(tableId))}', '${escapeHTML(String(tableNumber))}')">
-            Conta finalizada
-          </button>
+          ${canPerformAction('manageSettlement') ? `
+            <button class="btn-sm btn-primary" onclick="finalizeTabFromModal('${escapeHTML(String(detail.id))}', '${escapeHTML(String(tableId))}', '${escapeHTML(String(tableNumber))}')">
+              Conta finalizada
+            </button>
+          ` : '<span style="font-size:12px; color:var(--text-light);">Fechamento disponivel apenas para perfis de caixa/gestão.</span>'}
         ` : `
           <button
             class="btn-sm ${permissions.canReopen ? 'btn-outline' : 'btn-danger'}"
-            ${permissions.canReopen ? '' : 'disabled'}
+            ${permissions.canReopen && canPerformAction('manageSettlement') ? '' : 'disabled'}
             title="${escapeHTML(permissions.reason || '')}"
             onclick="reopenTabFromModal('${escapeHTML(String(detail.id))}', '${escapeHTML(String(tableId))}', '${escapeHTML(String(tableNumber))}')"
           >
@@ -740,6 +771,10 @@ async function viewComandas(tableId, tableNumber) {
 }
 
 async function reopenTabFromModal(tabId, tableId, tableNumber) {
+  if (!canPerformAction('manageSettlement')) {
+    showToast('Seu perfil nao pode reabrir comandas.', 'error');
+    return;
+  }
   const reason = window.prompt('Motivo da reabertura da comanda:') || '';
   try {
     await api.post(`/tables/tabs/${tabId}/reopen`, { reason });
@@ -752,6 +787,10 @@ async function reopenTabFromModal(tabId, tableId, tableNumber) {
 }
 
 async function finalizeTabFromModal(tabId, tableId, tableNumber) {
+  if (!canPerformAction('manageSettlement')) {
+    showToast('Seu perfil nao pode finalizar comandas.', 'error');
+    return;
+  }
   const confirmed = window.confirm('Confirmar que o pagamento foi recebido e finalizar esta comanda?');
   if (!confirmed) return;
 

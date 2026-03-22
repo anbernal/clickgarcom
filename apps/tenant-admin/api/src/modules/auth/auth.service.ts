@@ -4,6 +4,7 @@ import { Not, Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { User } from '../../entities/user.entity';
+import { UserAccessAuditLog } from '../../entities/user-access-audit-log.entity';
 import { MessageTemplates, Tenant, TenantSettings } from '../../entities/tenant.entity';
 import { DEFAULT_MESSAGE_TEMPLATES, MESSAGE_TEMPLATE_KEYS } from '../../shared/message-templates';
 import { ChangePasswordDto } from './dto/change-password.dto';
@@ -16,6 +17,7 @@ import {
     TENANT_BOT_CONFIG_ROLES,
     TENANT_FLOOR_ROLES,
     TENANT_FULL_ACCESS_ROLES,
+    TENANT_ORDER_CANCEL_ROLES,
     TENANT_MENU_READ_ROLES,
     TENANT_MENU_WRITE_ROLES,
     TENANT_ORDER_WRITE_ROLES,
@@ -31,6 +33,7 @@ import {
 type TenantActorContext = {
     userId: string;
     userRole: string;
+    userName?: string;
 };
 
 type ManagedTenantUser = {
@@ -56,6 +59,7 @@ type ManagedTenantUser = {
 export class AuthService {
     constructor(
         @InjectRepository(User) private readonly userRepository: Repository<User>,
+        @InjectRepository(UserAccessAuditLog) private readonly userAccessAuditLogRepository: Repository<UserAccessAuditLog>,
         @InjectRepository(Tenant) private readonly tenantRepository: Repository<Tenant>,
         private readonly jwtService: JwtService,
     ) { }
@@ -135,6 +139,18 @@ export class AuthService {
         // Update last login
         user.lastLoginAt = new Date();
         await this.userRepository.save(user);
+        await this.recordAuditEvent(user.tenantId, {
+            actorUserId: user.id,
+            actorName: user.name,
+            actorRole: user.role,
+            targetUserId: user.id,
+            targetUserName: user.name,
+            eventType: 'LOGIN_SUCCESS',
+            description: 'Login efetuado com sucesso no tenant admin.',
+            metadata: {
+                email: user.email,
+            },
+        });
 
         const payload = {
             sub: user.id,
@@ -199,6 +215,30 @@ export class AuthService {
         };
     }
 
+    async listAuditLogs(tenantId: string, limitRaw?: number) {
+        const limit = Math.max(1, Math.min(100, Number(limitRaw || 30)));
+        const logs = await this.userAccessAuditLogRepository.find({
+            where: { tenantId },
+            order: { createdAt: 'DESC' },
+            take: limit,
+        });
+
+        return {
+            items: logs.map((log) => ({
+                id: log.id,
+                eventType: log.eventType,
+                description: log.description,
+                actorUserId: log.actorUserId,
+                actorName: log.actorName,
+                actorRole: normalizeTenantRole(log.actorRole),
+                targetUserId: log.targetUserId,
+                targetUserName: log.targetUserName,
+                metadata: log.metadata || null,
+                createdAt: new Date(log.createdAt).toISOString(),
+            })),
+        };
+    }
+
     async createUser(tenantId: string, actor: TenantActorContext, payload: CreateTenantUserDto) {
         const role = this.normalizeAndValidateRole(payload.role);
         this.assertActorCanAssignRole(actor.userRole, role);
@@ -218,6 +258,20 @@ export class AuthService {
         });
 
         const savedUser = await this.userRepository.save(user);
+        await this.recordAuditEvent(tenantId, {
+            actorUserId: actor.userId,
+            actorName: actor.userName || null,
+            actorRole: actor.userRole,
+            targetUserId: savedUser.id,
+            targetUserName: savedUser.name,
+            eventType: 'USER_CREATED',
+            description: `Usuário ${savedUser.name} criado com perfil ${this.getRoleLabel(savedUser.role)}.`,
+            metadata: {
+                email: savedUser.email,
+                role: normalizeTenantRole(savedUser.role),
+                active: !!savedUser.active,
+            },
+        });
 
         return {
             message: 'Usuário criado com sucesso.',
@@ -252,7 +306,31 @@ export class AuthService {
             user.phone = this.normalizeOptionalText(payload.phone);
         }
 
+        const previousUserSnapshot = {
+            name: user.name,
+            email: user.email,
+            role: normalizeTenantRole(user.role),
+            phone: user.phone || null,
+        };
         const savedUser = await this.userRepository.save(user);
+        await this.recordAuditEvent(tenantId, {
+            actorUserId: actor.userId,
+            actorName: actor.userName || null,
+            actorRole: actor.userRole,
+            targetUserId: savedUser.id,
+            targetUserName: savedUser.name,
+            eventType: 'USER_UPDATED',
+            description: `Cadastro de ${savedUser.name} atualizado.`,
+            metadata: {
+                before: previousUserSnapshot,
+                after: {
+                    name: savedUser.name,
+                    email: savedUser.email,
+                    role: normalizeTenantRole(savedUser.role),
+                    phone: savedUser.phone || null,
+                },
+            },
+        });
 
         return {
             message: 'Usuário atualizado com sucesso.',
@@ -277,8 +355,24 @@ export class AuthService {
             await this.ensureAnotherActiveAdminExists(tenantId, user.id);
         }
 
+        const previousActive = !!user.active;
         user.active = payload.active;
         const savedUser = await this.userRepository.save(user);
+        await this.recordAuditEvent(tenantId, {
+            actorUserId: actor.userId,
+            actorName: actor.userName || null,
+            actorRole: actor.userRole,
+            targetUserId: savedUser.id,
+            targetUserName: savedUser.name,
+            eventType: 'USER_STATUS_UPDATED',
+            description: payload.active
+                ? `Acesso de ${savedUser.name} reativado.`
+                : `Acesso de ${savedUser.name} desativado.`,
+            metadata: {
+                beforeActive: previousActive,
+                afterActive: !!savedUser.active,
+            },
+        });
 
         return {
             message: payload.active ? 'Usuário ativado com sucesso.' : 'Usuário desativado com sucesso.',
@@ -297,6 +391,16 @@ export class AuthService {
 
         user.passwordHash = await this.hashPassword(payload.password);
         const savedUser = await this.userRepository.save(user);
+        await this.recordAuditEvent(tenantId, {
+            actorUserId: actor.userId,
+            actorName: actor.userName || null,
+            actorRole: actor.userRole,
+            targetUserId: savedUser.id,
+            targetUserName: savedUser.name,
+            eventType: 'USER_PASSWORD_RESET',
+            description: `Senha de ${savedUser.name} redefinida por gestão.`,
+            metadata: null,
+        });
 
         return {
             message: 'Senha redefinida com sucesso.',
@@ -323,17 +427,27 @@ export class AuthService {
 
         user.passwordHash = await this.hashPassword(payload.newPassword);
         await this.userRepository.save(user);
+        await this.recordAuditEvent(tenantId, {
+            actorUserId: user.id,
+            actorName: user.name,
+            actorRole: user.role,
+            targetUserId: user.id,
+            targetUserName: user.name,
+            eventType: 'PASSWORD_CHANGED',
+            description: 'Usuário alterou a própria senha.',
+            metadata: null,
+        });
 
         return {
             message: 'Senha atualizada com sucesso.',
         };
     }
 
-    async toggleTenantStatus(tenantId: string, currentStatus: boolean, token?: string): Promise<any> {
-        return this.setTenantStatus(tenantId, !currentStatus);
+    async toggleTenantStatus(tenantId: string, currentStatus: boolean, token?: string, actor?: TenantActorContext): Promise<any> {
+        return this.setTenantStatus(tenantId, !currentStatus, actor);
     }
 
-    async setTenantStatus(tenantId: string, isOpen: boolean): Promise<any> {
+    async setTenantStatus(tenantId: string, isOpen: boolean, actor?: TenantActorContext): Promise<any> {
         const tenant = await this.tenantRepository.findOne({ where: { id: tenantId } });
         if (!tenant) {
             throw new HttpException('Restaurante não encontrado.', HttpStatus.NOT_FOUND);
@@ -341,6 +455,16 @@ export class AuthService {
 
         tenant.isOpen = isOpen;
         await this.tenantRepository.save(tenant);
+        await this.recordAuditEvent(tenantId, {
+            actorUserId: actor?.userId,
+            actorName: actor?.userName,
+            actorRole: actor?.userRole,
+            eventType: 'TENANT_STATUS_UPDATED',
+            description: tenant.isOpen ? 'Expediente aberto no tenant admin.' : 'Expediente fechado no tenant admin.',
+            metadata: {
+                isOpen: !!tenant.isOpen,
+            },
+        });
 
         return {
             success: true,
@@ -368,7 +492,7 @@ export class AuthService {
         };
     }
 
-    async updateTenantMessages(tenantId: string, payload: any): Promise<any> {
+    async updateTenantMessages(tenantId: string, payload: any, actor?: TenantActorContext): Promise<any> {
         const tenant = await this.tenantRepository.findOne({ where: { id: tenantId } });
         if (!tenant) {
             throw new HttpException('Restaurante não encontrado.', HttpStatus.NOT_FOUND);
@@ -390,6 +514,16 @@ export class AuthService {
         };
 
         await this.tenantRepository.save(tenant);
+        await this.recordAuditEvent(tenantId, {
+            actorUserId: actor?.userId,
+            actorName: actor?.userName,
+            actorRole: actor?.userRole,
+            eventType: 'MESSAGE_TEMPLATES_UPDATED',
+            description: 'Templates de mensagens automáticas atualizados.',
+            metadata: {
+                customizedKeys: Object.keys(cleanMessages),
+            },
+        });
 
         return {
             status: 'updated',
@@ -459,6 +593,7 @@ export class AuthService {
             { key: 'menu_read', roles: TENANT_MENU_READ_ROLES },
             { key: 'menu_write', roles: TENANT_MENU_WRITE_ROLES },
             { key: 'order_read_write', roles: TENANT_ORDER_WRITE_ROLES },
+            { key: 'order_cancel', roles: TENANT_ORDER_CANCEL_ROLES },
             { key: 'table_read', roles: TENANT_TABLE_READ_ROLES },
             { key: 'table_write', roles: TENANT_TABLE_WRITE_ROLES },
             { key: 'floor_operations', roles: TENANT_FLOOR_ROLES },
@@ -485,8 +620,10 @@ export class AuthService {
             actions: {
                 manageUsers: this.isRoleAllowed(normalizedRole, TENANT_FULL_ACCESS_ROLES),
                 manageSettings: this.isRoleAllowed(normalizedRole, TENANT_FULL_ACCESS_ROLES),
+                toggleTenantStatus: this.isRoleAllowed(normalizedRole, TENANT_FULL_ACCESS_ROLES),
                 manageMenu: this.isRoleAllowed(normalizedRole, TENANT_MENU_WRITE_ROLES),
                 manageOrders: this.isRoleAllowed(normalizedRole, TENANT_ORDER_WRITE_ROLES),
+                cancelOrders: this.isRoleAllowed(normalizedRole, TENANT_ORDER_CANCEL_ROLES),
                 manageTables: this.isRoleAllowed(normalizedRole, TENANT_TABLE_WRITE_ROLES),
                 manageSettlement: this.isRoleAllowed(normalizedRole, TENANT_SETTLEMENT_ROLES),
                 viewReports: this.isRoleAllowed(normalizedRole, TENANT_REPORT_ROLES),
@@ -624,5 +761,37 @@ export class AuthService {
     private async hashPassword(password: string) {
         const salt = await bcrypt.genSalt(10);
         return bcrypt.hash(password, salt);
+    }
+
+    private async recordAuditEvent(
+        tenantId: string,
+        payload: {
+            actorUserId?: string | null;
+            actorName?: string | null;
+            actorRole?: string | null;
+            targetUserId?: string | null;
+            targetUserName?: string | null;
+            eventType: string;
+            description: string;
+            metadata?: Record<string, unknown> | null;
+        },
+    ) {
+        const log = this.userAccessAuditLogRepository.create({
+            tenantId,
+            actorUserId: this.normalizeUuidOrNull(payload.actorUserId),
+            actorName: this.normalizeOptionalText(payload.actorName),
+            actorRole: this.normalizeOptionalText(payload.actorRole),
+            targetUserId: this.normalizeUuidOrNull(payload.targetUserId),
+            targetUserName: this.normalizeOptionalText(payload.targetUserName),
+            eventType: payload.eventType,
+            description: payload.description,
+            metadata: payload.metadata || null,
+        });
+        await this.userAccessAuditLogRepository.save(log);
+    }
+
+    private normalizeUuidOrNull(value?: string | null) {
+        const normalized = String(value || '').trim();
+        return normalized || null;
     }
 }

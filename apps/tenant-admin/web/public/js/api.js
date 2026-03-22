@@ -52,6 +52,7 @@ const TENANT_ROUTE_GROUPS = {
     menu_read: ['ADMIN', 'MANAGER', 'WAITER', 'KITCHEN', 'BAR', 'CASHIER'],
     menu_write: ['ADMIN', 'MANAGER'],
     order_read_write: ['ADMIN', 'MANAGER', 'WAITER', 'KITCHEN', 'BAR'],
+    order_cancel: ['ADMIN', 'MANAGER', 'WAITER'],
     table_read: ['ADMIN', 'MANAGER', 'WAITER', 'CASHIER'],
     table_write: ['ADMIN', 'MANAGER'],
     floor_operations: ['ADMIN', 'MANAGER', 'WAITER'],
@@ -115,8 +116,10 @@ function buildFallbackPermissions(role) {
         actions: {
             manageUsers: routeGroups.includes('full_access'),
             manageSettings: routeGroups.includes('full_access'),
+            toggleTenantStatus: routeGroups.includes('full_access'),
             manageMenu: routeGroups.includes('menu_write'),
             manageOrders: routeGroups.includes('order_read_write'),
+            cancelOrders: routeGroups.includes('order_cancel'),
             manageTables: routeGroups.includes('table_write'),
             manageSettlement: routeGroups.includes('settlement'),
             viewReports: routeGroups.includes('reports'),
@@ -148,6 +151,10 @@ function canAccessRouteGroup(routeGroup) {
 
 function canAccessPage(pageId) {
     return getCurrentUserPermissions().pages?.includes(pageId);
+}
+
+function canPerformAction(actionKey) {
+    return !!getCurrentUserPermissions().actions?.[actionKey];
 }
 
 function setAuthSessionUser(user) {

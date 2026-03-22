@@ -6,6 +6,7 @@ import { OrderBatch } from '../../entities/order-batch.entity';
 import { Tenant } from '../../entities/tenant.entity';
 import { DEFAULT_MESSAGE_TEMPLATES, resolveMessageTemplate } from '../../shared/message-templates';
 import { AmqpService } from '../amqp/amqp.service';
+import { TENANT_ORDER_CANCEL_ROLES, normalizeTenantRole } from '../auth/roles';
 
 const VALID_TRANSITIONS: Record<string, string[]> = {
     PENDING: ['ACCEPTED', 'CANCELED'],
@@ -214,6 +215,7 @@ export class OrdersService {
         cancelCategory?: string,
         canceledByUserId?: string,
         canceledByUserName?: string,
+        actorRole?: string,
     ) {
         const order = await this.findOne(id, tenantId);
         if (!order) throw new BadRequestException('Order not found');
@@ -239,6 +241,7 @@ export class OrdersService {
                 order.deliveredAt = now;
                 break;
             case 'CANCELED':
+                this.assertCanCancelOrder(actorRole);
                 const cancelMetadata = this.resolveCancelMetadata(
                     cancelReason,
                     cancelReasonCode,
@@ -276,6 +279,17 @@ export class OrdersService {
         await this.publishOrderStatusChanged(saved);
 
         return saved;
+    }
+
+    private assertCanCancelOrder(actorRole?: string) {
+        const normalizedRole = normalizeTenantRole(actorRole);
+        const canCancel = TENANT_ORDER_CANCEL_ROLES
+            .map((role) => normalizeTenantRole(role))
+            .includes(normalizedRole);
+
+        if (!canCancel) {
+            throw new BadRequestException('Seu perfil nao pode cancelar pedidos por esta tela.');
+        }
     }
 
     private async enqueueAcceptedMessage(order: Order, tenantId: string, prepMinutes?: number, batchOrders?: Order[]) {

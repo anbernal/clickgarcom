@@ -15,6 +15,7 @@ import { User } from './entities/user.entity';
 import { Tenant } from './entities/tenant.entity';
 import { MessageLog } from './entities/message-log.entity';
 import { BotFlowDefinition } from './entities/bot-flow-definition.entity';
+import { UserAccessAuditLog } from './entities/user-access-audit-log.entity';
 
 import { MenuModule } from './modules/menu/menu.module';
 import { CategoriesModule } from './modules/categories/categories.module';
@@ -38,7 +39,7 @@ import { AppController } from './app.controller';
             username: process.env.DATABASE_USER || 'postgres',
             password: process.env.DATABASE_PASSWORD || 'postgres123',
             database: process.env.DATABASE_NAME || 'clickgarcom_db',
-            entities: [MenuCategory, MenuItem, Order, OrderItem, OrderBatch, Table, Tab, TableRequest, User, Tenant, MessageLog, BotFlowDefinition],
+            entities: [MenuCategory, MenuItem, Order, OrderItem, OrderBatch, Table, Tab, TableRequest, User, Tenant, MessageLog, BotFlowDefinition, UserAccessAuditLog],
             synchronize: false,
         }),
         AmqpModule,

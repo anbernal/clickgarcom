@@ -45,6 +45,7 @@ export class OrdersController {
             body.cancel_category,
             req.user?.id,
             req.user?.name,
+            req.user?.role,
         );
     }
 }

@@ -317,6 +317,24 @@ export function buildTenantAdminOpenApiDocument() {
                     },
                 },
             },
+            [`${ADMIN_API_VERSIONED_BASE_PATH}/auth/audit`]: {
+                get: {
+                    tags: ['Auth'],
+                    summary: 'Lista trilha de auditoria de acessos e gestão de usuários',
+                    security: [{ bearerAuth: [] }],
+                    responses: {
+                        '200': versionedSuccessResponse('Eventos auditáveis do tenant.', {
+                            type: 'object',
+                            properties: {
+                                items: {
+                                    type: 'array',
+                                    items: { $ref: '#/components/schemas/AuthAuditLogItem' },
+                                },
+                            },
+                        }),
+                    },
+                },
+            },
             [`${ADMIN_API_VERSIONED_BASE_PATH}/menu`]: {
                 get: {
                     tags: ['Menu'],
@@ -1514,6 +1532,25 @@ export function buildTenantAdminOpenApiDocument() {
                     required: ['password'],
                     properties: {
                         password: { type: 'string', minLength: 6 },
+                    },
+                },
+                AuthAuditLogItem: {
+                    type: 'object',
+                    properties: {
+                        id: { type: 'string', format: 'uuid' },
+                        eventType: { type: 'string' },
+                        description: { type: 'string' },
+                        actorUserId: { type: 'string', format: 'uuid', nullable: true },
+                        actorName: { type: 'string', nullable: true },
+                        actorRole: { type: 'string', nullable: true, enum: [...roleMetadata.supported_roles] },
+                        targetUserId: { type: 'string', format: 'uuid', nullable: true },
+                        targetUserName: { type: 'string', nullable: true },
+                        metadata: {
+                            type: 'object',
+                            nullable: true,
+                            additionalProperties: true,
+                        },
+                        createdAt: { type: 'string', format: 'date-time' },
                     },
                 },
                 MenuItem: {
