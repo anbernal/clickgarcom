@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -2466,6 +2468,180 @@ func TestFindSessionOpenTabAllowsApprovedSharedParticipantButBlocksClosing(t *te
 	}
 	if !strings.Contains(response, "Somente esse número pode fechar e pagar por aqui") {
 		t.Fatalf("expected owner-only warning, got %q", response)
+	}
+}
+
+func TestHandleClosingTabUsesNgrokPublicURLDiscoveredAtRuntime(t *testing.T) {
+	ctx := context.Background()
+	tenantID := uuid.New()
+	tableID := uuid.New()
+	tabID := uuid.New()
+	ownerPhone := "5511975062841"
+
+	t.Setenv("PUBLIC_ADMIN_BASE_URL", "")
+	t.Setenv("PUBLIC_WEB_BASE_URL", "")
+	t.Setenv("PUBLIC_WEBHOOK_BASE_URL", "")
+	t.Setenv("NGROK_PUBLIC_URL", "")
+
+	ngrokAPI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/tunnels" {
+			t.Fatalf("unexpected ngrok API path %q", r.URL.Path)
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"tunnels": []map[string]any{
+				{"public_url": "https://checkout.example.com"},
+			},
+		})
+	}))
+	defer ngrokAPI.Close()
+	t.Setenv("NGROK_API_URL", ngrokAPI.URL)
+
+	sess := session.NewSession(ownerPhone, tenantID)
+	sess.TabID = &tabID
+	sess.TableID = &tableID
+	sess.TransitionTo(session.StateClosingTab)
+
+	openTab := &tab.Tab{
+		ID:         tabID,
+		TenantID:   tenantID,
+		TableID:    &tableID,
+		UserPhone:  ownerPhone,
+		Status:     tab.StatusOpen,
+		Subtotal:   59.5,
+		ServiceFee: 5.95,
+		Total:      65.45,
+		PaidAmount: 0,
+		OpenedAt:   time.Now(),
+	}
+
+	uc := NewHandleWhatsAppMessageUseCase(
+		nil,
+		&testTenantRepo{tenant: testTenant(tenantID)},
+		nil,
+		nil,
+		&testTabRepo{byID: map[uuid.UUID]*tab.Tab{tabID: openTab}},
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		"http://localhost:3002",
+		zap.NewNop(),
+	)
+
+	response, newState, err := uc.handleClosingTab(ctx, sess, "1")
+	if err != nil {
+		t.Fatalf("handleClosingTab() error = %v", err)
+	}
+	if newState != session.StateMainMenu {
+		t.Fatalf("expected new state %s, got %s", session.StateMainMenu, newState)
+	}
+	if !strings.Contains(response, "https://checkout.example.com/checkout.html#") {
+		t.Fatalf("expected runtime-discovered checkout link, got %q", response)
+	}
+	if strings.Contains(response, "Ainda não consegui gerar um link público de pagamento") {
+		t.Fatalf("expected payment link to be generated, got %q", response)
+	}
+}
+
+func TestExecuteSendsPaymentUnavailableMenuWithOpenMenuAndCallWaiterButtons(t *testing.T) {
+	ctx := context.Background()
+	tenantID := uuid.New()
+	tableID := uuid.New()
+	tabID := uuid.New()
+	ownerPhone := "5511975062841"
+
+	t.Setenv("PUBLIC_ADMIN_BASE_URL", "")
+	t.Setenv("PUBLIC_WEB_BASE_URL", "")
+	t.Setenv("PUBLIC_WEBHOOK_BASE_URL", "")
+	t.Setenv("NGROK_PUBLIC_URL", "")
+
+	ngrokAPI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/tunnels" {
+			t.Fatalf("unexpected ngrok API path %q", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"tunnels": []map[string]any{}})
+	}))
+	defer ngrokAPI.Close()
+	t.Setenv("NGROK_API_URL", ngrokAPI.URL)
+
+	sessionRepo := newTestSessionRepo()
+	sender := &testWhatsAppSender{}
+	sess := session.NewSession(ownerPhone, tenantID)
+	sess.TabID = &tabID
+	sess.TableID = &tableID
+	sess.TransitionTo(session.StateClosingTab)
+	if err := sessionRepo.Save(ctx, sess); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	openTab := &tab.Tab{
+		ID:         tabID,
+		TenantID:   tenantID,
+		TableID:    &tableID,
+		UserPhone:  ownerPhone,
+		Status:     tab.StatusOpen,
+		Subtotal:   59.5,
+		ServiceFee: 5.95,
+		Total:      65.45,
+		PaidAmount: 0,
+		OpenedAt:   time.Now(),
+	}
+
+	uc := NewHandleWhatsAppMessageUseCase(
+		sessionRepo,
+		&testTenantRepo{tenant: testTenant(tenantID)},
+		nil,
+		nil,
+		&testTabRepo{byID: map[uuid.UUID]*tab.Tab{tabID: openTab}},
+		nil,
+		nil,
+		nil,
+		nil,
+		sender,
+		"http://localhost:3002",
+		zap.NewNop(),
+	)
+
+	if err := uc.Execute(ctx, HandleMessageInput{
+		From:     ownerPhone,
+		Text:     "1",
+		TenantID: tenantID,
+	}); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if got := len(sender.interactiveMessages); got != 1 {
+		t.Fatalf("expected 1 interactive fallback message, got %d", got)
+	}
+	if got := len(sender.listMessages); got != 0 {
+		t.Fatalf("expected no interactive list messages, got %d", got)
+	}
+	if got := len(sender.textMessages); got != 0 {
+		t.Fatalf("expected no plain text fallback, got %d", got)
+	}
+
+	message := sender.interactiveMessages[0]
+	if !strings.Contains(message.Body, "Ainda não consegui gerar um link público de pagamento") {
+		t.Fatalf("expected payment unavailable body, got %q", message.Body)
+	}
+	if len(message.Buttons) != 2 {
+		t.Fatalf("expected 2 buttons, got %d", len(message.Buttons))
+	}
+	if message.Buttons[0].Reply.ID != mainMenuOpenActionID || message.Buttons[0].Reply.Title != "Abrir menu" {
+		t.Fatalf("expected first button to open menu, got %+v", message.Buttons[0].Reply)
+	}
+	if message.Buttons[1].Reply.ID != "4" || message.Buttons[1].Reply.Title != "Chamar garçom" {
+		t.Fatalf("expected second button to call waiter, got %+v", message.Buttons[1].Reply)
+	}
+
+	updated, err := sessionRepo.Find(ctx, ownerPhone, tenantID.String())
+	if err != nil {
+		t.Fatalf("Find() error = %v", err)
+	}
+	if updated == nil || updated.State != session.StateMainMenu {
+		t.Fatalf("expected session to return to main menu, got %+v", updated)
 	}
 }
 

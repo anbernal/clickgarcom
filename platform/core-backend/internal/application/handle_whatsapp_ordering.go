@@ -2,7 +2,9 @@ package application
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"strconv"
@@ -307,6 +309,8 @@ func (uc *HandleWhatsAppMessageUseCase) handleMainMenuSimplified(
 	}
 
 	switch text {
+	case mainMenuOpenActionID:
+		return whatsapp.MainMenuMessage(), session.StateMainMenu, nil
 	case "1":
 		return uc.startOrderingFlow(ctx, sess)
 
@@ -1764,15 +1768,11 @@ func (uc *HandleWhatsAppMessageUseCase) handleClosingTab(
 			return buildClosingTabOwnerOnlyMessage(), session.StateMainMenu, nil
 		}
 
-		checkoutBase := strings.TrimRight(strings.TrimSpace(uc.publicCheckoutBaseURL), "/")
-		if checkoutBase == "" {
-			checkoutBase = "http://localhost:3002"
-		}
-		if isLocalCheckoutBase(checkoutBase) {
-			return "💳 *Pagamento pelo celular*\n\n" +
-					"Ainda não consegui gerar um link público de pagamento para o seu celular.\n\n" +
-					"Se preferir, responda *2* e a equipe finaliza com você por aqui.\n\n" +
-					whatsapp.MainMenuMessage(),
+		checkoutBase := uc.resolveCurrentPublicCheckoutBaseURL()
+		if checkoutBase == "" || isLocalCheckoutBase(checkoutBase) {
+			return buildClosingTabPaymentUnavailableMessage(
+					"Ainda não consegui gerar um link público de pagamento para o seu celular.",
+				),
 				session.StateMainMenu, nil
 		}
 
@@ -1782,10 +1782,9 @@ func (uc *HandleWhatsAppMessageUseCase) handleClosingTab(
 				zap.Error(err),
 				zap.String("tab_id", userTab.ID.String()),
 			)
-			return "💳 *Pagamento pelo celular*\n\n" +
-					"Não consegui gerar um link seguro de pagamento agora.\n\n" +
-					"Se preferir, responda *2* e a equipe finaliza com você por aqui.\n\n" +
-					whatsapp.MainMenuMessage(),
+			return buildClosingTabPaymentUnavailableMessage(
+					"Não consegui gerar um link seguro de pagamento agora.",
+				),
 				session.StateMainMenu, nil
 		}
 
@@ -2764,4 +2763,129 @@ func formatCheckoutAccessTTL(ttl time.Duration) string {
 func isLocalCheckoutBase(baseURL string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(baseURL))
 	return strings.Contains(normalized, "localhost") || strings.Contains(normalized, "127.0.0.1")
+}
+
+func buildClosingTabPaymentUnavailableMessage(reason string) string {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = "Ainda não consegui gerar um link público de pagamento para o seu celular."
+	}
+
+	return "💳 *Pagamento pelo celular*\n\n" +
+		reason + "\n\n" +
+		"Você pode abrir o menu novamente ou chamar um garçom por aqui."
+}
+
+func buildClosingTabPaymentUnavailableTextFallback(body string) string {
+	return strings.TrimSpace(body) + "\n\n" +
+		"*0* - 📱 Abrir menu\n" +
+		"*4* - 🙋 Chamar garçom"
+}
+
+func (uc *HandleWhatsAppMessageUseCase) isClosingTabPaymentUnavailableMessage(message string) bool {
+	body := strings.TrimSpace(message)
+	if !strings.HasPrefix(body, "💳 *Pagamento pelo celular*") {
+		return false
+	}
+
+	return strings.Contains(body, "Ainda não consegui gerar um link público de pagamento") ||
+		strings.Contains(body, "Não consegui gerar um link seguro de pagamento")
+}
+
+func (uc *HandleWhatsAppMessageUseCase) resolveCurrentPublicCheckoutBaseURL() string {
+	candidates := []string{
+		uc.publicCheckoutBaseURL,
+		os.Getenv("PUBLIC_ADMIN_BASE_URL"),
+		os.Getenv("PUBLIC_WEB_BASE_URL"),
+		os.Getenv("PUBLIC_WEBHOOK_BASE_URL"),
+		os.Getenv("NGROK_PUBLIC_URL"),
+	}
+
+	localFallback := ""
+	for _, candidate := range candidates {
+		base := strings.TrimRight(strings.TrimSpace(candidate), "/")
+		if base == "" {
+			continue
+		}
+		if !isLocalCheckoutBase(base) {
+			uc.publicCheckoutBaseURL = base
+			return base
+		}
+		if localFallback == "" {
+			localFallback = base
+		}
+	}
+
+	if ngrokBase := resolveNgrokPublicCheckoutBaseURL(); ngrokBase != "" {
+		uc.publicCheckoutBaseURL = ngrokBase
+		return ngrokBase
+	}
+
+	if localFallback != "" {
+		return localFallback
+	}
+
+	return ""
+}
+
+func resolveNgrokPublicCheckoutBaseURL() string {
+	apiCandidates := []string{}
+	if configured := strings.TrimSpace(os.Getenv("NGROK_API_URL")); configured != "" {
+		apiCandidates = append(apiCandidates, configured)
+	} else {
+		apiCandidates = append(apiCandidates,
+			"http://ngrok:4040",
+			"http://localhost:4040",
+		)
+	}
+
+	client := &http.Client{Timeout: 2 * time.Second}
+	for _, candidate := range apiCandidates {
+		apiBase := strings.TrimRight(strings.TrimSpace(candidate), "/")
+		if apiBase == "" {
+			continue
+		}
+
+		tunnelsURL := apiBase
+		if !strings.HasSuffix(strings.ToLower(tunnelsURL), "/api/tunnels") {
+			tunnelsURL += "/api/tunnels"
+		}
+
+		req, err := http.NewRequest(http.MethodGet, tunnelsURL, nil)
+		if err != nil {
+			continue
+		}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+
+		var payload struct {
+			Tunnels []struct {
+				PublicURL string `json:"public_url"`
+			} `json:"tunnels"`
+		}
+		err = json.NewDecoder(resp.Body).Decode(&payload)
+		resp.Body.Close()
+		if err != nil {
+			continue
+		}
+
+		for _, tunnel := range payload.Tunnels {
+			publicURL := strings.TrimRight(strings.TrimSpace(tunnel.PublicURL), "/")
+			if strings.HasPrefix(strings.ToLower(publicURL), "https://") {
+				return publicURL
+			}
+		}
+
+		for _, tunnel := range payload.Tunnels {
+			publicURL := strings.TrimRight(strings.TrimSpace(tunnel.PublicURL), "/")
+			if publicURL != "" {
+				return publicURL
+			}
+		}
+	}
+
+	return ""
 }

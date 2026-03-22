@@ -86,6 +86,7 @@ const (
 	requestTableActionID     = "request_table"
 	defaultWelcomeMenuAction = "btn_request_table"
 	mainMenuListButtonText   = "Abrir menu"
+	mainMenuOpenActionID     = "0"
 	tabSummaryNewOrderID     = "1"
 	tabSummaryCloseTabID     = "2"
 	tabSummaryBackMenuID     = "0"
@@ -249,6 +250,11 @@ func (uc *HandleWhatsAppMessageUseCase) Execute(ctx context.Context, input Handl
 		} else if newState == session.StateViewingTab {
 			if err := uc.sendTabSummaryMenu(ctx, input.From, sess); err != nil {
 				return fmt.Errorf("failed to send tab summary response: %w", err)
+			}
+			sendMessage = nil
+		} else if newState == session.StateMainMenu && uc.isClosingTabPaymentUnavailableMessage(response) {
+			if err := uc.sendClosingTabPaymentUnavailableMenu(ctx, input.From, input.TenantID, response); err != nil {
+				return fmt.Errorf("failed to send payment unavailable response: %w", err)
 			}
 			sendMessage = nil
 		} else if newState == session.StateWaitingAdminApproval {
@@ -775,6 +781,8 @@ func (uc *HandleWhatsAppMessageUseCase) handleMainMenu(
 	}
 
 	switch text {
+	case mainMenuOpenActionID:
+		return whatsapp.MainMenuMessage(), session.StateMainMenu, nil
 	case "1":
 		// Fazer pedido
 		// TODO: Buscar categorias do menu
@@ -1818,6 +1826,30 @@ func (uc *HandleWhatsAppMessageUseCase) sendSingleActionMenu(
 	return nil
 }
 
+func (uc *HandleWhatsAppMessageUseCase) sendClosingTabPaymentUnavailableMenu(
+	ctx context.Context,
+	to string,
+	tenantID uuid.UUID,
+	body string,
+) error {
+	decoratedBody := whatsapp.WithRestaurantHeader(uc.resolveTenantName(ctx, tenantID), strings.TrimSpace(body))
+	decoratedFallback := whatsapp.WithRestaurantHeader(
+		uc.resolveTenantName(ctx, tenantID),
+		buildClosingTabPaymentUnavailableTextFallback(body),
+	)
+	ctx = whatsapp.WithTenantID(ctx, tenantID)
+	if _, err := uc.sender.SendInteractiveButtons(ctx, to, decoratedBody, buildClosingTabPaymentUnavailableButtons()); err != nil {
+		uc.logger.Warn("failed to send payment unavailable interactive menu, falling back to text",
+			zap.Error(err),
+			zap.String("tenant_id", tenantID.String()),
+			zap.String("to", to),
+		)
+		return uc.sender.SendText(ctx, to, decoratedFallback)
+	}
+
+	return nil
+}
+
 func (uc *HandleWhatsAppMessageUseCase) sendJoinRequestDecisionMenu(
 	ctx context.Context,
 	to string,
@@ -2026,6 +2058,25 @@ func buildSingleReplyButtons(buttonID string, title string) []whatsapp.Interacti
 	button.Reply.ID = strings.TrimSpace(buttonID)
 	button.Reply.Title = strings.TrimSpace(title)
 	return []whatsapp.InteractiveButton{button}
+}
+
+func buildClosingTabPaymentUnavailableButtons() []whatsapp.InteractiveButton {
+	return []whatsapp.InteractiveButton{
+		{
+			Type: "reply",
+			Reply: struct {
+				ID    string `json:"id"`
+				Title string `json:"title"`
+			}{ID: mainMenuOpenActionID, Title: "Abrir menu"},
+		},
+		{
+			Type: "reply",
+			Reply: struct {
+				ID    string `json:"id"`
+				Title string `json:"title"`
+			}{ID: "4", Title: "Chamar garçom"},
+		},
+	}
 }
 
 func buildJoinRequestDecisionButtons(requestID uuid.UUID) []whatsapp.InteractiveButton {

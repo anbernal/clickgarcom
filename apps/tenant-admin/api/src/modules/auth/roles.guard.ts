@@ -21,7 +21,9 @@ export class RolesGuard implements CanActivate {
         const userRole = normalizeTenantRole(request?.user?.role);
 
         if (!userRole) {
-            throw new ForbiddenException('Perfil sem permissão para acessar este recurso.');
+            // This guard runs globally, before route-level JwtAuthGuard populates request.user.
+            // When no authenticated user is present yet, defer the decision to JwtAuthGuard.
+            return true;
         }
 
         const allowedRoles = new Set(requiredRoles.map((role) => normalizeTenantRole(role)));
