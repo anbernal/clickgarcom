@@ -184,6 +184,46 @@ export function buildTenantAdminOpenApiDocument() {
                     },
                 },
             },
+            [`${ADMIN_API_VERSIONED_BASE_PATH}/auth/settings/operational`]: {
+                get: {
+                    tags: ['Auth'],
+                    summary: 'Lê configurações operacionais do tenant',
+                    security: [{ bearerAuth: [] }],
+                    responses: {
+                        '200': versionedSuccessResponse('Configurações operacionais.', {
+                            type: 'object',
+                            properties: {
+                                tenant_id: { type: 'string', format: 'uuid' },
+                                settings: { $ref: '#/components/schemas/TenantOperationalSettings' },
+                                defaults: { $ref: '#/components/schemas/TenantOperationalSettings' },
+                            },
+                        }),
+                    },
+                },
+                put: {
+                    tags: ['Auth'],
+                    summary: 'Atualiza configurações operacionais do tenant',
+                    security: [{ bearerAuth: [] }],
+                    requestBody: {
+                        required: true,
+                        content: {
+                            'application/json': {
+                                schema: { $ref: '#/components/schemas/TenantOperationalSettingsWriteRequest' },
+                            },
+                        },
+                    },
+                    responses: {
+                        '200': versionedSuccessResponse('Configurações operacionais atualizadas.', {
+                            type: 'object',
+                            properties: {
+                                status: { type: 'string' },
+                                settings: { $ref: '#/components/schemas/TenantOperationalSettings' },
+                                defaults: { $ref: '#/components/schemas/TenantOperationalSettings' },
+                            },
+                        }),
+                    },
+                },
+            },
             [`${ADMIN_API_VERSIONED_BASE_PATH}/auth/password`]: {
                 patch: {
                     tags: ['Auth'],
@@ -1449,6 +1489,26 @@ export function buildTenantAdminOpenApiDocument() {
                     properties: {
                         currentPassword: { type: 'string' },
                         newPassword: { type: 'string', minLength: 6 },
+                    },
+                },
+                TenantOperationalSettings: {
+                    type: 'object',
+                    properties: {
+                        service_fee_percent: { type: 'number', minimum: 0, maximum: 30 },
+                        split_enabled: { type: 'boolean' },
+                        auto_accept_orders: { type: 'boolean' },
+                        nps_enabled: { type: 'boolean' },
+                        voucher_enabled: { type: 'boolean' },
+                    },
+                },
+                TenantOperationalSettingsWriteRequest: {
+                    type: 'object',
+                    properties: {
+                        service_fee_percent: { type: 'number', minimum: 0, maximum: 30 },
+                        split_enabled: { type: 'boolean' },
+                        auto_accept_orders: { type: 'boolean' },
+                        nps_enabled: { type: 'boolean' },
+                        voucher_enabled: { type: 'boolean' },
                     },
                 },
                 TenantUser: {

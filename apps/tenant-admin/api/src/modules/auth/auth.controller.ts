@@ -5,6 +5,7 @@ import { ChangePasswordDto } from './dto/change-password.dto';
 import { CreateTenantUserDto } from './dto/create-tenant-user.dto';
 import { LoginDto } from './dto/login.dto';
 import { ResetTenantUserPasswordDto } from './dto/reset-tenant-user-password.dto';
+import { UpdateTenantOperationalSettingsDto } from './dto/update-tenant-operational-settings.dto';
 import { UpdateTenantUserDto } from './dto/update-tenant-user.dto';
 import { UpdateTenantUserStatusDto } from './dto/update-tenant-user-status.dto';
 import { Roles } from './roles.decorator';
@@ -59,10 +60,28 @@ export class AuthController {
     }
 
     @UseGuards(JwtAuthGuard)
+    @Get('settings/operational')
+    @Roles(...TENANT_FULL_ACCESS_ROLES)
+    async getOperationalSettings(@Request() req) {
+        return this.authService.getTenantOperationalSettings(req.user.tenantId);
+    }
+
+    @UseGuards(JwtAuthGuard)
     @Put('messages')
     @Roles(...TENANT_FULL_ACCESS_ROLES)
     async updateMessages(@Request() req, @Body() data: any) {
         return this.authService.updateTenantMessages(req.user.tenantId, data || {}, {
+            userId: req.user.id,
+            userName: req.user.name,
+            userRole: req.user.role,
+        });
+    }
+
+    @UseGuards(JwtAuthGuard)
+    @Put('settings/operational')
+    @Roles(...TENANT_FULL_ACCESS_ROLES)
+    async updateOperationalSettings(@Request() req, @Body() data: UpdateTenantOperationalSettingsDto) {
+        return this.authService.updateTenantOperationalSettings(req.user.tenantId, data || {}, {
             userId: req.user.id,
             userName: req.user.name,
             userRole: req.user.role,

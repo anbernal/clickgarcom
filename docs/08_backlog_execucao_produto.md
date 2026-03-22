@@ -104,19 +104,19 @@ Criterios de pronto:
 
 ## Epic 05 - Configuracoes Operacionais do Restaurante
 
-Status: Planejado
+Status: Concluido
 
 Objetivo:
 Dar autonomia ao tenant para ajustar regras do negocio que hoje estao escondidas no modelo.
 
 Tasks:
-- [ ] Expor `service_fee_percent` na tela de configuracoes.
-- [ ] Expor `auto_accept_orders`.
-- [ ] Expor `split_enabled`.
-- [ ] Expor `nps_enabled`.
-- [ ] Expor `voucher_enabled`.
-- [ ] Criar validacoes e ajuda contextual para cada flag.
-- [ ] Registrar historico de alteracao de configuracoes sensiveis.
+- [x] Expor `service_fee_percent` na tela de configuracoes.
+- [x] Expor `auto_accept_orders`.
+- [x] Expor `split_enabled`.
+- [x] Expor `nps_enabled`.
+- [x] Expor `voucher_enabled`.
+- [x] Criar validacoes e ajuda contextual para cada flag.
+- [x] Registrar historico de alteracao de configuracoes sensiveis.
 
 Criterios de pronto:
 - Tenant consegue ajustar regras basicas sem acionar o super-admin ou mexer direto no banco.

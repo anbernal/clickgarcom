@@ -59,6 +59,8 @@ const MessageGroups = [
 
 let configuracoesDefaults = {};
 let configuracoesAtuais = {};
+let configuracoesOperacionais = {};
+let configuracoesOperacionaisDefaults = {};
 let expedienteAberto = false;
 let activeGroup = null; // null = mostra todos
 
@@ -70,14 +72,17 @@ async function loadConfiguracoesPage() {
     container.innerHTML = '<div class="loading"><div class="spinner"></div> Carregando...</div>';
 
     try {
-        const [me, res] = await Promise.all([
+        const [me, res, operational] = await Promise.all([
             api.get('/auth/me'),
             api.get('/auth/messages'),
+            api.get('/auth/settings/operational'),
         ]);
 
         expedienteAberto = !!me.isOpen;
         configuracoesAtuais = res.messages || {};
         configuracoesDefaults = res.defaults || {};
+        configuracoesOperacionais = operational.settings || {};
+        configuracoesOperacionaisDefaults = operational.defaults || {};
 
         renderConfiguracoesUI(container);
     } catch (err) {
@@ -124,6 +129,61 @@ function renderConfiguracoesUI(container) {
                         </div>
                     `}
                 </div>
+            </div>
+        </div>
+    `;
+
+    html += `
+        <div class="full-card" style="margin-bottom: 20px;">
+            <div class="card-header">
+                <div>
+                    <div class="card-title">⚙️ Regras Operacionais</div>
+                    <div class="card-subtitle">Defina taxa de serviço, divisão de conta e automações base do restaurante</div>
+                </div>
+            </div>
+            <div style="padding: 20px 22px;">
+                <form id="form-operational-settings" style="display:flex; flex-direction:column; gap:18px;">
+                    <div style="display:grid; grid-template-columns:1.1fr 0.9fr; gap:18px;">
+                        <div style="border:1px solid var(--border); border-radius:14px; padding:18px; background:var(--card-bg);">
+                            <div style="font-size:13px; font-weight:700; color:var(--text); margin-bottom:12px;">Taxa de serviço padrão</div>
+                            <div class="form-row-2" style="align-items:end;">
+                                <div class="form-group" style="margin:0;">
+                                    <label for="operational-service-fee">Percentual</label>
+                                    <input
+                                        id="operational-service-fee"
+                                        type="number"
+                                        min="0"
+                                        max="30"
+                                        step="0.5"
+                                        value="${escapeHTML(String(configuracoesOperacionais.service_fee_percent ?? configuracoesOperacionaisDefaults.service_fee_percent ?? 10))}"
+                                    />
+                                </div>
+                                <div style="font-size:12px; color:var(--text-light); line-height:1.5;">
+                                    Aplicada nas comandas e pedidos. Faixa permitida: <strong>0% a 30%</strong>.
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style="border:1px solid var(--border); border-radius:14px; padding:18px; background:linear-gradient(135deg, rgba(26,188,156,0.06), rgba(59,130,246,0.05));">
+                            <div style="font-size:13px; font-weight:700; color:var(--text); margin-bottom:10px;">Leitura operacional</div>
+                            <div style="font-size:12px; color:var(--text-light); line-height:1.6;">
+                                Essas chaves controlam comportamento estrutural do atendimento. Qualquer alteração fica registrada na auditoria da equipe.
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:14px;">
+                        ${renderOperationalToggleCard('split_enabled', 'Split de comanda', 'Permite dividir a conta por pessoa ou por item na operação de mesas.')}
+                        ${renderOperationalToggleCard('auto_accept_orders', 'Aceite automático de pedidos', 'Quando ligado, reduz etapas manuais na fila de pedidos. Use só se a operação estiver estável.')}
+                        ${renderOperationalToggleCard('nps_enabled', 'Coleta de NPS', 'Mantém o fluxo preparado para medir satisfação do cliente após atendimento.')}
+                        ${renderOperationalToggleCard('voucher_enabled', 'Voucher habilitado', 'Reserva a operação para cupons e campanhas promocionais futuras.')}
+                    </div>
+
+                    <div style="display:flex; justify-content:flex-end; gap:10px;">
+                        <button type="button" class="btn-sm btn-outline" onclick="resetOperationalSettingsForm()">Restaurar padrão</button>
+                        <button type="submit" class="btn-sm btn-primary" id="btn-save-operational-settings">Salvar regras operacionais</button>
+                    </div>
+                </form>
             </div>
         </div>
     `;
@@ -210,6 +270,7 @@ function renderConfiguracoesUI(container) {
     container.innerHTML = html;
 
     // ─── EVENT LISTENERS ───
+    document.getElementById('form-operational-settings').addEventListener('submit', handleSaveOperationalSettings);
     document.getElementById('form-config-messages').addEventListener('submit', handleSaveMessages);
 
     document.querySelectorAll('#config-group-tags .cat-tag').forEach(tag => {
@@ -218,6 +279,22 @@ function renderConfiguracoesUI(container) {
             renderConfiguracoesUI(container);
         });
     });
+}
+
+function renderOperationalToggleCard(key, title, description) {
+    const currentValue = typeof configuracoesOperacionais[key] === 'boolean'
+        ? configuracoesOperacionais[key]
+        : !!configuracoesOperacionaisDefaults[key];
+
+    return `
+        <label style="display:flex; gap:14px; align-items:flex-start; border:1px solid var(--border); border-radius:14px; padding:16px; background:var(--card-bg); cursor:pointer;">
+            <input type="checkbox" id="operational-${key}" ${currentValue ? 'checked' : ''} style="margin-top:3px; width:16px; height:16px;">
+            <div>
+                <div style="font-size:13px; font-weight:700; color:var(--text); margin-bottom:6px;">${title}</div>
+                <div style="font-size:12px; color:var(--text-light); line-height:1.5;">${description}</div>
+            </div>
+        </label>
+    `;
 }
 
 function handleMessageChange(key) {
@@ -267,6 +344,51 @@ async function handleSaveMessages(e) {
         showToast('Erro ao salvar. Tente novamente.', 'error');
     } finally {
         btnSave.innerHTML = '💾 Salvar Alterações';
+        btnSave.disabled = false;
+    }
+}
+
+function resetOperationalSettingsForm() {
+    document.getElementById('operational-service-fee').value = String(configuracoesOperacionaisDefaults.service_fee_percent ?? 10);
+    ['split_enabled', 'auto_accept_orders', 'nps_enabled', 'voucher_enabled'].forEach((key) => {
+        const checkbox = document.getElementById(`operational-${key}`);
+        if (checkbox) {
+            checkbox.checked = !!configuracoesOperacionaisDefaults[key];
+        }
+    });
+}
+
+async function handleSaveOperationalSettings(e) {
+    e.preventDefault();
+    const btnSave = document.getElementById('btn-save-operational-settings');
+    btnSave.innerHTML = '<span class="spinner" style="width: 14px; height: 14px; border-width: 2px;"></span> Salvando...';
+    btnSave.disabled = true;
+
+    const payload = {
+        service_fee_percent: Number(document.getElementById('operational-service-fee').value || 0),
+        split_enabled: !!document.getElementById('operational-split_enabled').checked,
+        auto_accept_orders: !!document.getElementById('operational-auto_accept_orders').checked,
+        nps_enabled: !!document.getElementById('operational-nps_enabled').checked,
+        voucher_enabled: !!document.getElementById('operational-voucher_enabled').checked,
+    };
+
+    if (!Number.isFinite(payload.service_fee_percent) || payload.service_fee_percent < 0 || payload.service_fee_percent > 30) {
+        showToast('A taxa de serviço deve ficar entre 0% e 30%.', 'error');
+        btnSave.innerHTML = 'Salvar regras operacionais';
+        btnSave.disabled = false;
+        return;
+    }
+
+    try {
+        const res = await api.put('/auth/settings/operational', payload);
+        configuracoesOperacionais = res.settings || payload;
+        showToast('Regras operacionais salvas com sucesso!', 'success');
+        loadConfiguracoesPage();
+    } catch (err) {
+        console.error(err);
+        showToast(err.message || 'Erro ao salvar as regras operacionais.', 'error');
+    } finally {
+        btnSave.innerHTML = 'Salvar regras operacionais';
         btnSave.disabled = false;
     }
 }

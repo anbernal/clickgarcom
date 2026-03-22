@@ -10,6 +10,7 @@ import { DEFAULT_MESSAGE_TEMPLATES, MESSAGE_TEMPLATE_KEYS } from '../../shared/m
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { CreateTenantUserDto } from './dto/create-tenant-user.dto';
 import { ResetTenantUserPasswordDto } from './dto/reset-tenant-user-password.dto';
+import { UpdateTenantOperationalSettingsDto } from './dto/update-tenant-operational-settings.dto';
 import { UpdateTenantUserDto } from './dto/update-tenant-user.dto';
 import { UpdateTenantUserStatusDto } from './dto/update-tenant-user-status.dto';
 import {
@@ -55,6 +56,17 @@ type ManagedTenantUser = {
     };
 };
 
+const DEFAULT_OPERATIONAL_SETTINGS: Required<Pick<
+    TenantSettings,
+    'service_fee_percent' | 'split_enabled' | 'auto_accept_orders' | 'nps_enabled' | 'voucher_enabled'
+>> = {
+    service_fee_percent: 10,
+    split_enabled: true,
+    auto_accept_orders: false,
+    nps_enabled: true,
+    voucher_enabled: true,
+};
+
 @Injectable()
 export class AuthService {
     constructor(
@@ -88,11 +100,7 @@ export class AuthService {
             whatsappNumber: whatsapp,
             isOpen: false,
             settings: {
-                split_enabled: true,
-                auto_accept_orders: false,
-                nps_enabled: true,
-                voucher_enabled: true,
-                service_fee_percent: 10
+                ...DEFAULT_OPERATIONAL_SETTINGS,
             }
         });
         const savedTenant = await this.tenantRepository.save(newTenant);
@@ -492,6 +500,21 @@ export class AuthService {
         };
     }
 
+    async getTenantOperationalSettings(tenantId: string) {
+        const tenant = await this.tenantRepository.findOne({ where: { id: tenantId } });
+        if (!tenant) {
+            throw new HttpException('Restaurante não encontrado.', HttpStatus.NOT_FOUND);
+        }
+
+        const settings = this.mergeOperationalSettings(tenant.settings || {});
+
+        return {
+            tenant_id: tenant.id,
+            settings,
+            defaults: DEFAULT_OPERATIONAL_SETTINGS,
+        };
+    }
+
     async updateTenantMessages(tenantId: string, payload: any, actor?: TenantActorContext): Promise<any> {
         const tenant = await this.tenantRepository.findOne({ where: { id: tenantId } });
         if (!tenant) {
@@ -529,6 +552,47 @@ export class AuthService {
             status: 'updated',
             messages: cleanMessages,
             defaults: DEFAULT_MESSAGE_TEMPLATES,
+        };
+    }
+
+    async updateTenantOperationalSettings(
+        tenantId: string,
+        payload: UpdateTenantOperationalSettingsDto,
+        actor?: TenantActorContext,
+    ) {
+        const tenant = await this.tenantRepository.findOne({ where: { id: tenantId } });
+        if (!tenant) {
+            throw new HttpException('Restaurante não encontrado.', HttpStatus.NOT_FOUND);
+        }
+
+        const previous = this.mergeOperationalSettings(tenant.settings || {});
+        const next = this.mergeOperationalSettings({
+            ...(tenant.settings || {}),
+            ...payload,
+        });
+
+        tenant.settings = {
+            ...(tenant.settings || {}),
+            ...next,
+        };
+
+        await this.tenantRepository.save(tenant);
+        await this.recordAuditEvent(tenantId, {
+            actorUserId: actor?.userId,
+            actorName: actor?.userName,
+            actorRole: actor?.userRole,
+            eventType: 'OPERATIONAL_SETTINGS_UPDATED',
+            description: 'Configurações operacionais do restaurante atualizadas.',
+            metadata: {
+                before: previous,
+                after: next,
+            },
+        });
+
+        return {
+            status: 'updated',
+            settings: next,
+            defaults: DEFAULT_OPERATIONAL_SETTINGS,
         };
     }
 
@@ -761,6 +825,26 @@ export class AuthService {
     private async hashPassword(password: string) {
         const salt = await bcrypt.genSalt(10);
         return bcrypt.hash(password, salt);
+    }
+
+    private mergeOperationalSettings(settings: TenantSettings) {
+        return {
+            service_fee_percent: Number.isFinite(Number(settings?.service_fee_percent))
+                ? Number(settings?.service_fee_percent)
+                : DEFAULT_OPERATIONAL_SETTINGS.service_fee_percent,
+            split_enabled: typeof settings?.split_enabled === 'boolean'
+                ? settings.split_enabled
+                : DEFAULT_OPERATIONAL_SETTINGS.split_enabled,
+            auto_accept_orders: typeof settings?.auto_accept_orders === 'boolean'
+                ? settings.auto_accept_orders
+                : DEFAULT_OPERATIONAL_SETTINGS.auto_accept_orders,
+            nps_enabled: typeof settings?.nps_enabled === 'boolean'
+                ? settings.nps_enabled
+                : DEFAULT_OPERATIONAL_SETTINGS.nps_enabled,
+            voucher_enabled: typeof settings?.voucher_enabled === 'boolean'
+                ? settings.voucher_enabled
+                : DEFAULT_OPERATIONAL_SETTINGS.voucher_enabled,
+        };
     }
 
     private async recordAuditEvent(
