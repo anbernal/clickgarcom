@@ -95,13 +95,13 @@ services:
   # ============ GO CORE ============
   go-migrate:
     build:
-      context: ./services/go-core
+      context: ${CORE_BACKEND_DIR:-./platform/core-backend}
       dockerfile: Dockerfile
     container_name: clickgarcom-go-migrate
     env_file:
-      - ./services/go-core/.env
+      - ${CORE_BACKEND_DIR:-./platform/core-backend}/.env
     volumes:
-      - ./services/go-core/cmd/migrate:/app/cmd/migrate:ro
+      - ${CORE_BACKEND_DIR:-./platform/core-backend}/cmd/migrate:/app/cmd/migrate:ro
     environment:
       APP_ENV: docker
       DATABASE_HOST: postgres
@@ -117,11 +117,11 @@ services:
 
   go-setup-rabbitmq:
     build:
-      context: ./services/go-core
+      context: ${CORE_BACKEND_DIR:-./platform/core-backend}
       dockerfile: Dockerfile
     container_name: clickgarcom-go-setup-rabbitmq
     env_file:
-      - ./services/go-core/.env
+      - ${CORE_BACKEND_DIR:-./platform/core-backend}/.env
     environment:
       APP_ENV: docker
       DATABASE_HOST: postgres
@@ -137,17 +137,19 @@ services:
 
   go-api:
     build:
-      context: ./services/go-core
+      context: ${CORE_BACKEND_DIR:-./platform/core-backend}
       dockerfile: Dockerfile
     container_name: clickgarcom-go-api
     env_file:
-      - ./services/go-core/.env
+      - ${CORE_BACKEND_DIR:-./platform/core-backend}/.env
     environment:
       APP_ENV: docker
       DATABASE_HOST: postgres
       REDIS_HOST: redis
       RABBITMQ_HOST: rabbitmq
       PUBLIC_ADMIN_BASE_URL: ${PUBLIC_ADMIN_BASE_URL:-}
+      PUBLIC_WEB_INTERNAL_BASE_URL: http://web-admin:3004
+      PUBLIC_ADMIN_INTERNAL_BASE_URL: http://node-admin:3002
       NGROK_PUBLIC_URL: ${NGROK_PUBLIC_URL:-}
     ports:
       - "8080:8080"
@@ -174,11 +176,11 @@ services:
 
   go-worker:
     build:
-      context: ./services/go-core
+      context: ${CORE_BACKEND_DIR:-./platform/core-backend}
       dockerfile: Dockerfile
     container_name: clickgarcom-go-worker
     env_file:
-      - ./services/go-core/.env
+      - ${CORE_BACKEND_DIR:-./platform/core-backend}/.env
     environment:
       APP_ENV: docker
       DATABASE_HOST: postgres
@@ -206,11 +208,11 @@ services:
 
   go-outbox:
     build:
-      context: ./services/go-core
+      context: ${CORE_BACKEND_DIR:-./platform/core-backend}
       dockerfile: Dockerfile
     container_name: clickgarcom-go-outbox
     env_file:
-      - ./services/go-core/.env
+      - ${CORE_BACKEND_DIR:-./platform/core-backend}/.env
     environment:
       APP_ENV: docker
       DATABASE_HOST: postgres
@@ -229,13 +231,14 @@ services:
   # ============ ADMIN PANEL ============
   node-admin:
     build:
-      context: ./services/node-admin
+      context: ${TENANT_ADMIN_API_DIR:-./apps/tenant-admin/api}
       dockerfile: Dockerfile
     container_name: clickgarcom-admin
     env_file:
-      - ./services/node-admin/.env
+      - ${TENANT_ADMIN_API_DIR:-./apps/tenant-admin/api}/.env
     environment:
       APP_PORT: 3002
+      ADMIN_WEB_ENABLED: ${ADMIN_WEB_ENABLED:-false}
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
       DATABASE_USER: postgres
@@ -259,9 +262,30 @@ services:
     networks:
       - clickgarcom-network
 
+  web-admin:
+    build:
+      context: ${TENANT_ADMIN_WEB_DIR:-./apps/tenant-admin/web}
+      dockerfile: Dockerfile
+    container_name: clickgarcom-web-admin
+    environment:
+      PORT: 3004
+      ADMIN_API_BASE_URL: ${ADMIN_API_BASE_URL:-http://localhost:3002/admin/api}
+      ADMIN_PUBLIC_API_BASE_URL: ${ADMIN_PUBLIC_API_BASE_URL:-http://localhost:3002/admin/api/public/tables}
+      KDS_WS_URL: ${KDS_WS_URL:-ws://localhost:8080/ws/kds}
+    ports:
+      - "3004:3004"
+    depends_on:
+      node-admin:
+        condition: service_started
+      go-api:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - clickgarcom-network
+
   super-admin:
     build:
-      context: ./services/super-admin
+      context: ${SUPER_ADMIN_WEB_DIR:-./apps/super-admin/web}
       dockerfile: Dockerfile
     container_name: clickgarcom-super-admin
     ports:

@@ -19,7 +19,7 @@ Cliente (WhatsApp) → Webhook (Go) → Inbox → RabbitMQ → Worker (Go)
                                                            ↓
                                        ┌───────────────────┴───────────────────┐
                                        ↓                                       ↓
-                               WebSocket (KDS)                        Admin Panel (Node)
+                               WebSocket (KDS)                  Tenant Admin API + Web
 ```
 
 ## ✅ Funcionalidades Implementadas
@@ -90,7 +90,7 @@ git clone <seu-repo>
 cd clickgarcom
 
 # 2. Copie o .env
-cp services/go-core/.env.example services/go-core/.env
+cp platform/core-backend/.env.example platform/core-backend/.env
 
 # 3. Suba toda a stack local em containers
 make rebuild
@@ -100,7 +100,8 @@ make db-seed
 
 # 5. URLs locais
 # API HTTP:            http://localhost:8080
-# Admin Panel:         http://localhost:3002
+# Tenant Admin API:    http://localhost:3002/admin/api/health
+# Tenant Admin Web:    http://localhost:3004/login.html
 # Super Admin:         http://localhost:3003
 # RabbitMQ UI:         http://localhost:15672
 # Grafana:             http://localhost:3001
@@ -119,7 +120,8 @@ make db-seed
 - `go-api`: API HTTP / webhooks (porta `8080`)
 - `go-worker`: processamento assíncrono
 - `go-outbox`: envio e processamento de outbox
-- `node-admin`: painel operacional (porta `3002`)
+- `node-admin`: tenant admin API (porta `3002`)
+- `web-admin`: tenant admin web/KDS/checkout (porta `3004`)
 - `super-admin`: painel estático de administração global (porta `3003`)
 
 ## Desenvolvimento
@@ -133,6 +135,7 @@ make run-worker
 make run-outbox
 make run-admin
 make run-super-admin
+make validate-migration-baseline
 
 # Limpar banco e filas
 make clean-all
@@ -201,18 +204,38 @@ curl http://localhost:8080/metrics
 ### Testes Automatizados
 ```bash
 # Rodar testes de unidade e concorrência (Backend)
-cd services/go-core
+cd platform/core-backend
 go test -v -race ./internal/infrastructure/websocket/...
 ```
 
 ## 📚 Documentação
 
 Documentação detalhada disponível em:
-- [`services/docs/walkthrough.md`](services/docs/walkthrough.md) - Guia completo das features implementadas
-- [`services/docs/project_architecture.md`](services/docs/project_architecture.md) - Arquitetura do sistema e responsabilidades dos serviços
-- [`services/docs/quick_reference.md`](services/docs/quick_reference.md) - Comandos, workflows e troubleshooting rápido
-- [`services/docs/06_bot_config_architecture.md`](services/docs/06_bot_config_architecture.md) - Evolução recomendada para templates, menus e conversation flows
-- [`services/docs/07_whatsapp_interactive_menu_architecture.md`](services/docs/07_whatsapp_interactive_menu_architecture.md) - Desenho do cardapio conversacional com imagens, carrinho e split para KDS
+- [`docs/walkthrough.md`](docs/walkthrough.md) - Guia completo das features implementadas
+- [`docs/project_architecture.md`](docs/project_architecture.md) - Arquitetura do sistema e responsabilidades dos serviços
+- [`docs/quick_reference.md`](docs/quick_reference.md) - Comandos, workflows e troubleshooting rápido
+- [`apps/tenant-admin/api/API_CONTRACT.md`](apps/tenant-admin/api/API_CONTRACT.md) - Contrato da API versionada, descoberta e RBAC
+- [`docs/kds-websocket-contract.md`](docs/kds-websocket-contract.md) - Contrato estável do KDS em WebSocket
+- [`docs/06_bot_config_architecture.md`](docs/06_bot_config_architecture.md) - Evolução recomendada para templates, menus e conversation flows
+- [`docs/07_whatsapp_interactive_menu_architecture.md`](docs/07_whatsapp_interactive_menu_architecture.md) - Desenho do cardapio conversacional com imagens, carrinho e split para KDS
+- [`docs/repository-migration-plan.md`](docs/repository-migration-plan.md) - Plano incremental para migrar o monorepo para `apps/` e `platform/` sem aumentar o risco operacional
+
+## Reuso do Tenant Admin API
+
+- contrato versionado: `GET /admin/api/v1/meta`
+- OpenAPI bruto: `GET /admin/api/v1/openapi.json`
+- tenant admin web atual pode seguir nos endpoints legados
+- novos clientes mobile devem preferir `/admin/api/v1/*`
+- rotas tenant-bound agora usam o tenant do JWT e RBAC por perfil
+
+Perfis operacionais suportados:
+
+- `ADMIN`
+- `MANAGER`
+- `WAITER`
+- `KITCHEN`
+- `BAR`
+- `CASHIER`
 
 ## Roadmap
 
@@ -315,20 +338,19 @@ Documentação detalhada disponível em:
 
 ```
 clickgarcom/
-├── services/
-│   ├── go-core/              # Backend principal (Go)
-│   │   ├── cmd/
-│   │   │   ├── api/          # HTTP API
-│   │   │   ├── worker/       # Message worker
-│   │   │   └── outbox-worker/ # Outbox processor
-│   │   ├── internal/
-│   │   │   ├── domain/       # Entidades e regras de negócio
-│   │   │   ├── application/  # Use cases
-│   │   │   ├── infrastructure/ # Repos, HTTP, RabbitMQ
-│   │   │   └── interfaces/   # HTTP handlers
-│   │   └── migrations/       # Database migrations
-│   ├── node-admin/           # Admin Panel BFF (NestJS + HTML/JS)
-│   └── docs/                 # Documentação
+├── apps/
+│   ├── tenant-admin/
+│   │   ├── api/              # Tenant Admin API (NestJS)
+│   │   └── web/              # Tenant Admin Web / KDS / Checkout
+│   └── super-admin/
+│       └── web/              # Super Admin web
+├── platform/
+│   └── core-backend/         # Backend principal (Go)
+│       ├── cmd/              # API, worker, outbox, migrations
+│       ├── internal/         # Domain, application, interfaces, infra
+│       └── pkg/              # Pacotes compartilhados
+├── infra/                    # Docker, Prometheus, RabbitMQ, test client
+├── docs/                     # Documentação de arquitetura e operação
 ├── docker-compose.yml
 ├── Makefile
 └── README.md
