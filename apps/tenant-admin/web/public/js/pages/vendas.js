@@ -7,7 +7,7 @@ const VENDAS_PRESET_LABELS = {
 };
 
 let vendasState = {
-  filters: buildVendasPresetRange('last30'),
+  filters: buildVendasPresetRange('last30', ''),
   management: null,
   sales: [],
   tablesData: [],
@@ -464,7 +464,7 @@ function buildMarginSummary(categoryRows) {
   });
 }
 
-function buildVendasPresetRange(preset) {
+function buildVendasPresetRange(preset, search = '') {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
@@ -491,17 +491,17 @@ function buildVendasPresetRange(preset) {
     preset,
     startDate: toInputDate(start),
     endDate: toInputDate(end),
-    search: vendasState.filters?.search || '',
+    search,
   };
 }
 
 function selectVendasPreset(preset) {
-  vendasState.filters = buildVendasPresetRange(preset);
+  vendasState.filters = buildVendasPresetRange(preset, vendasState.filters?.search || '');
   loadVendas();
 }
 
 function resetVendasRange() {
-  vendasState.filters = buildVendasPresetRange('last30');
+  vendasState.filters = buildVendasPresetRange('last30', '');
   loadVendas();
 }
 

@@ -15,6 +15,7 @@ type TabActorContext = {
     userName?: string;
     userRole?: string;
     reason?: string;
+    requestedAmount?: number;
 };
 
 @Injectable()
@@ -144,6 +145,7 @@ export class TablesService {
                         p.paid_at,
                         p.expired_at,
                         p.updated_at,
+                        p.metadata,
                         tb.status AS tab_status,
                         tb.total AS tab_total,
                         tb.paid_amount AS tab_paid_amount,
@@ -151,6 +153,7 @@ export class TablesService {
                         t.number AS table_number,
                         la.status AS latest_attempt_status,
                         la.payment_method AS latest_attempt_method,
+                        la.provider_payment_id AS latest_attempt_provider_payment_id,
                         la.provider_status AS latest_attempt_provider_status,
                         la.provider_status_detail AS latest_attempt_provider_detail,
                         la.requested_amount AS latest_attempt_requested_amount,
@@ -164,6 +167,7 @@ export class TablesService {
                    LEFT JOIN LATERAL (
                         SELECT pa.status,
                                pa.payment_method,
+                               pa.provider_payment_id,
                                pa.provider_status,
                                pa.provider_status_detail,
                                pa.requested_amount,
@@ -274,6 +278,7 @@ export class TablesService {
             const localStatus = String(row.status || 'PENDING').trim().toUpperCase();
             const latestAttemptStatus = String(row.latest_attempt_status || '').trim().toUpperCase() || null;
             const providerApprovedPending = latestAttemptStatus === 'APPROVED' && localStatus !== 'CONFIRMED';
+            const refundPreparation = this.parseRefundPreparation(row.metadata);
 
             return {
                 id: String(row.id),
@@ -292,6 +297,7 @@ export class TablesService {
                 updatedAt: row.updated_at || null,
                 latestAttemptStatus,
                 latestAttemptMethod: String(row.latest_attempt_method || '').trim() || null,
+                latestAttemptProviderPaymentId: String(row.latest_attempt_provider_payment_id || '').trim() || null,
                 latestAttemptProviderStatus: String(row.latest_attempt_provider_status || '').trim() || null,
                 latestAttemptProviderDetail: String(row.latest_attempt_provider_detail || '').trim() || null,
                 latestAttemptRequestedAmount: this.roundMoney(Number.parseFloat(String(row.latest_attempt_requested_amount ?? '0')) || 0),
@@ -303,6 +309,19 @@ export class TablesService {
                 reconciliationStatus: tabSummary?.financial?.settlementStatus || (providerApprovedPending ? 'provider_pending' : 'awaiting_payment'),
                 amountDue: Number(tabSummary?.financial?.amountDue || 0),
                 reconciliationGap: Number(tabSummary?.financial?.reconciliationGap || 0),
+                refundPreparation,
+                refundEligibility: this.buildRefundEligibility({
+                    paymentAmount: Number.parseFloat(String(row.amount ?? '0')) || 0,
+                    localStatus,
+                    latestAttemptStatus,
+                    latestAttemptProviderPaymentId: String(row.latest_attempt_provider_payment_id || '').trim() || null,
+                    paymentType: String(row.payment_type || 'FULL'),
+                    tabStatus: String(tabSummary?.status || ''),
+                    reconciliationGap: Number(tabSummary?.financial?.reconciliationGap || 0),
+                    amountDue: Number(tabSummary?.financial?.amountDue || 0),
+                    overpaymentAmount: Number(tabSummary?.financial?.overpaymentAmount || 0),
+                    refundPreparation,
+                }),
             };
         });
 
@@ -350,6 +369,11 @@ export class TablesService {
                 acc.rejectedAmount += Number(payment.latestAttemptRequestedAmount || payment.amount || 0);
             }
 
+            if (payment.refundPreparation?.status === 'prepared') {
+                acc.refundPreparedCount += 1;
+                acc.refundPreparedAmount += Number(payment.refundPreparation.requestedAmount || payment.amount || 0);
+            }
+
             return acc;
         }, {
             totalPayments: 0,
@@ -362,6 +386,8 @@ export class TablesService {
             providerApprovedPendingAmount: 0,
             rejectedCount: 0,
             rejectedAmount: 0,
+            refundPreparedCount: 0,
+            refundPreparedAmount: 0,
         });
 
         return {
@@ -386,6 +412,8 @@ export class TablesService {
                 provider_approved_pending_amount: this.roundMoney(summary.providerApprovedPendingAmount),
                 rejected_count: summary.rejectedCount,
                 rejected_amount: this.roundMoney(summary.rejectedAmount),
+                refund_prepared_count: summary.refundPreparedCount,
+                refund_prepared_amount: this.roundMoney(summary.refundPreparedAmount),
                 divergence_tabs_count: tabsWithDivergence.length,
                 divergence_amount: this.roundMoney(
                     tabsWithDivergence.reduce((sum, tab) => sum + Math.abs(Number(tab.financial?.reconciliationGap || 0)) + Number(tab.financial?.amountDue || 0), 0),
@@ -557,6 +585,141 @@ export class TablesService {
             tab_id: tabId,
             amount_due: amountDue,
             retry,
+        };
+    }
+
+    async preparePaymentRefund(tenantId: string, paymentId: string, actor: Pick<TabActorContext, 'userId' | 'userName' | 'reason' | 'requestedAmount'>) {
+        const rows = await this.dataSource.query(
+            `SELECT p.id,
+                    p.tab_id,
+                    p.payment_type,
+                    p.amount,
+                    p.status,
+                    p.metadata,
+                    tb.status AS tab_status,
+                    tb.total AS tab_total,
+                    tb.paid_amount AS tab_paid_amount,
+                    la.status AS latest_attempt_status,
+                    la.provider_payment_id AS latest_attempt_provider_payment_id
+               FROM payments p
+               LEFT JOIN tabs tb
+                 ON tb.id = p.tab_id
+               LEFT JOIN LATERAL (
+                    SELECT pa.status,
+                           pa.provider_payment_id
+                      FROM payment_attempts pa
+                     WHERE pa.payment_id = p.id
+                     ORDER BY pa.created_at DESC
+                     LIMIT 1
+               ) la ON TRUE
+              WHERE p.id = $1
+                AND p.tenant_id = $2
+              LIMIT 1`,
+            [paymentId, tenantId],
+        );
+
+        const payment = rows?.[0];
+        if (!payment) {
+            throw new NotFoundException('Pagamento não encontrado');
+        }
+
+        const tabId = String(payment.tab_id || '').trim();
+        if (!tabId) {
+            throw new BadRequestException('Este pagamento não está vinculado a uma comanda');
+        }
+
+        const detail = await this.getTabDetails(tabId, tenantId);
+        const reconciliationGap = Number(detail?.financial?.reconciliationGap || 0);
+        const amountDue = Number(detail?.financial?.amountDue || 0);
+        const overpaymentAmount = Number(detail?.financial?.overpaymentAmount || 0);
+        const refundPreparation = this.parseRefundPreparation(payment.metadata);
+        const eligibility = this.buildRefundEligibility({
+            paymentAmount: Number.parseFloat(String(payment.amount ?? '0')) || 0,
+            localStatus: String(payment.status || '').trim().toUpperCase(),
+            latestAttemptStatus: String(payment.latest_attempt_status || '').trim().toUpperCase(),
+            latestAttemptProviderPaymentId: String(payment.latest_attempt_provider_payment_id || '').trim() || null,
+            paymentType: String(payment.payment_type || 'FULL'),
+            tabStatus: String(payment.tab_status || '').trim().toUpperCase(),
+            reconciliationGap,
+            amountDue,
+            overpaymentAmount,
+            refundPreparation,
+        });
+
+        if (!eligibility.canPrepare) {
+            throw new BadRequestException(eligibility.reason || 'Pagamento não está elegível para preparação de estorno');
+        }
+
+        const requestedAmount = actor.requestedAmount === undefined || actor.requestedAmount === null
+            ? eligibility.recommendedAmount
+            : this.roundMoney(Number(actor.requestedAmount || 0));
+
+        if (requestedAmount <= 0 || requestedAmount > Number(payment.amount || 0)) {
+            throw new BadRequestException('O valor de estorno deve ser maior que zero e menor ou igual ao valor do pagamento');
+        }
+
+        const reason = String(actor.reason || '').trim();
+        if (!reason) {
+            throw new BadRequestException('Informe o motivo operacional do estorno');
+        }
+
+        const nextMetadata = this.parseJsonObject(payment.metadata);
+        const refundPreparedAt = new Date().toISOString();
+        const refundPreparationPayload = {
+            status: 'prepared',
+            preparedAt: refundPreparedAt,
+            prepared_by_user_id: this.normalizeUuidOrNull(actor.userId),
+            prepared_by_user_name: this.normalizeTextOrNull(actor.userName),
+            preparedByUserId: this.normalizeUuidOrNull(actor.userId),
+            preparedByUserName: this.normalizeTextOrNull(actor.userName),
+            reason,
+            requested_amount: requestedAmount,
+            requestedAmount,
+            provider_payment_id: eligibility.providerPaymentId,
+            providerPaymentId: eligibility.providerPaymentId,
+            local_status: eligibility.localStatus,
+            provider_status: eligibility.providerStatus,
+            payment_amount: this.roundMoney(Number(payment.amount || 0)),
+            risk_level: eligibility.riskLevel,
+            notes: eligibility.notes,
+        };
+
+        nextMetadata.refund_preparation = refundPreparationPayload;
+
+        await this.dataSource.query(
+            `UPDATE payments
+                SET metadata = $3::jsonb,
+                    updated_at = NOW()
+              WHERE id = $1
+                AND tenant_id = $2`,
+            [paymentId, tenantId, JSON.stringify(nextMetadata)],
+        );
+
+        await this.dataSource.query(
+            `INSERT INTO tab_events
+                (id, tenant_id, tab_id, event_type, actor_user_id, actor_name, details, created_at)
+             VALUES (gen_random_uuid(), $1, $2, $3, $4::uuid, $5, $6::jsonb, NOW())`,
+            [
+                tenantId,
+                tabId,
+                'PAYMENT_REFUND_PREPARED',
+                this.normalizeUuidOrNull(actor.userId),
+                this.normalizeTextOrNull(actor.userName),
+                JSON.stringify({
+                    payment_id: paymentId,
+                    requested_amount: requestedAmount,
+                    reason,
+                    risk_level: eligibility.riskLevel,
+                    provider_payment_id: eligibility.providerPaymentId,
+                }),
+            ],
+        );
+
+        return {
+            payment_id: paymentId,
+            tab_id: tabId,
+            refund_preparation: refundPreparationPayload,
+            refund_eligibility: eligibility,
         };
     }
 
@@ -784,8 +947,10 @@ export class TablesService {
                         p.paid_at,
                         p.expired_at,
                         p.updated_at,
+                        p.metadata,
                         la.status AS latest_attempt_status,
                         la.payment_method AS latest_attempt_method,
+                        la.provider_payment_id AS latest_attempt_provider_payment_id,
                         la.provider_status AS latest_attempt_provider_status,
                         la.provider_status_detail AS latest_attempt_provider_detail,
                         la.requested_amount AS latest_attempt_requested_amount,
@@ -795,6 +960,7 @@ export class TablesService {
                    LEFT JOIN LATERAL (
                         SELECT pa.status,
                                pa.payment_method,
+                               pa.provider_payment_id,
                                pa.provider_status,
                                pa.provider_status_detail,
                                pa.requested_amount,
@@ -894,11 +1060,13 @@ export class TablesService {
             updatedAt: row.updated_at,
             latestAttemptStatus: String(row.latest_attempt_status || '').trim() || null,
             latestAttemptMethod: String(row.latest_attempt_method || '').trim() || null,
+            latestAttemptProviderPaymentId: String(row.latest_attempt_provider_payment_id || '').trim() || null,
             latestAttemptProviderStatus: String(row.latest_attempt_provider_status || '').trim() || null,
             latestAttemptProviderDetail: String(row.latest_attempt_provider_detail || '').trim() || null,
             latestAttemptRequestedAmount: this.roundMoney(Number.parseFloat(String(row.latest_attempt_requested_amount ?? '0')) || 0),
             latestAttemptSettledAt: row.latest_attempt_settled_at || null,
             latestAttemptCreatedAt: row.latest_attempt_created_at || null,
+            refundPreparation: this.parseRefundPreparation(row.metadata),
         }));
 
         const closeRequests = (closeRequestRows || []).map((row: any) => ({
@@ -936,6 +1104,22 @@ export class TablesService {
             pendingPaymentsAmount,
             approvedAttemptAmount,
         });
+
+        const enrichedPayments = payments.map((payment) => ({
+            ...payment,
+            refundEligibility: this.buildRefundEligibility({
+                paymentAmount: Number(payment.amount || 0),
+                localStatus: String(payment.status || '').trim().toUpperCase(),
+                latestAttemptStatus: String(payment.latestAttemptStatus || '').trim().toUpperCase(),
+                latestAttemptProviderPaymentId: String(payment.latestAttemptProviderPaymentId || '').trim() || null,
+                paymentType: String(payment.paymentType || 'FULL'),
+                tabStatus: String(tab.status || '').trim().toUpperCase(),
+                reconciliationGap: Number(financial.reconciliationGap || 0),
+                amountDue: Number(financial.amountDue || 0),
+                overpaymentAmount: Number(financial.overpaymentAmount || 0),
+                refundPreparation: payment.refundPreparation,
+            }),
+        }));
 
         const allocationCount = Number(allocationRows?.[0]?.allocation_count || 0);
         const tenantSettings = this.parseTenantSettings(tab.tenant_settings);
@@ -978,14 +1162,14 @@ export class TablesService {
             reopenedByUserId: tab.reopened_by_user_id || null,
             reopenedByUserName: String(tab.reopened_by_user_name || '').trim() || null,
             financial,
-            split: this.buildTabSplitSummary(payments, allocationCount, tenantSettings),
+            split: this.buildTabSplitSummary(enrichedPayments, allocationCount, tenantSettings),
             items,
             closeRequests,
-            payments,
+            payments: enrichedPayments,
             history: this.buildTabHistory({
                 tab,
                 closeRequests,
-                payments,
+                payments: enrichedPayments,
                 eventRows: eventRows || [],
             }),
             permissions: {
@@ -1829,6 +2013,7 @@ export class TablesService {
         if (eventType === 'TAB_CLOSED') return 'Comanda fechada';
         if (eventType === 'TAB_REOPENED') return 'Comanda reaberta';
         if (eventType === 'PAYMENT_RETRY_CREATED') return 'Nova cobrança PIX gerada';
+        if (eventType === 'PAYMENT_REFUND_PREPARED') return 'Estorno preparado';
         return 'Evento da comanda';
     }
 
@@ -1851,7 +2036,112 @@ export class TablesService {
             const amountDue = this.roundMoney(Number(details?.amount_due || 0));
             return `Equipe gerou uma nova cobrança PIX de ${amountDue.toFixed(2)}`;
         }
+        if (eventType === 'PAYMENT_REFUND_PREPARED') {
+            const requestedAmount = this.roundMoney(Number(details?.requested_amount || 0));
+            const reason = String(details?.reason || '').trim();
+            return reason
+                ? `Preparação de estorno de ${requestedAmount.toFixed(2)} registrada: ${reason}`
+                : `Preparação de estorno de ${requestedAmount.toFixed(2)} registrada`;
+        }
         return 'Evento registrado na trilha de auditoria';
+    }
+
+    private parseRefundPreparation(metadata: unknown) {
+        const parsed = this.parseJsonObject(metadata);
+        const raw = this.parseJsonObject(parsed?.refund_preparation);
+        const status = String(raw?.status || '').trim().toLowerCase();
+        if (!status) {
+            return null;
+        }
+
+        return {
+            status,
+            preparedAt: raw?.preparedAt || raw?.prepared_at || null,
+            preparedByUserId: raw?.preparedByUserId || raw?.prepared_by_user_id || null,
+            preparedByUserName: raw?.preparedByUserName || raw?.prepared_by_user_name || null,
+            reason: String(raw?.reason || '').trim() || null,
+            requestedAmount: this.roundMoney(Number(raw?.requestedAmount ?? raw?.requested_amount ?? 0)),
+            providerPaymentId: String(raw?.providerPaymentId || raw?.provider_payment_id || '').trim() || null,
+            localStatus: String(raw?.localStatus || raw?.local_status || '').trim() || null,
+            providerStatus: String(raw?.providerStatus || raw?.provider_status || '').trim() || null,
+            riskLevel: String(raw?.riskLevel || raw?.risk_level || '').trim() || null,
+            notes: Array.isArray(raw?.notes) ? raw.notes.map((item) => String(item || '').trim()).filter(Boolean) : [],
+        };
+    }
+
+    private buildRefundEligibility(input: {
+        paymentAmount: number;
+        localStatus?: string;
+        latestAttemptStatus?: string;
+        latestAttemptProviderPaymentId?: string | null;
+        paymentType?: string;
+        tabStatus?: string;
+        reconciliationGap?: number;
+        amountDue?: number;
+        overpaymentAmount?: number;
+        refundPreparation?: any;
+    }) {
+        const paymentAmount = this.roundMoney(Number(input.paymentAmount || 0));
+        const localStatus = String(input.localStatus || '').trim().toUpperCase();
+        const providerStatus = String(input.latestAttemptStatus || '').trim().toUpperCase();
+        const paymentType = String(input.paymentType || 'FULL').trim().toUpperCase();
+        const tabStatus = String(input.tabStatus || '').trim().toUpperCase();
+        const reconciliationGap = this.roundMoney(Number(input.reconciliationGap || 0));
+        const amountDue = this.roundMoney(Number(input.amountDue || 0));
+        const overpaymentAmount = this.roundMoney(Number(input.overpaymentAmount || 0));
+        const providerPaymentId = String(input.latestAttemptProviderPaymentId || '').trim() || null;
+        const refundPrepared = String(input.refundPreparation?.status || '').trim().toLowerCase() === 'prepared';
+
+        const notes = [];
+
+        if (localStatus !== 'CONFIRMED' && providerStatus !== 'APPROVED') {
+            notes.push('O pagamento ainda não foi confirmado pelo sistema nem aprovado pelo provedor.');
+        }
+        if (!providerPaymentId) {
+            notes.push('Não existe provider_payment_id salvo; o estorno terá conferência manual no provedor.');
+        }
+        if (tabStatus === 'OPEN') {
+            notes.push('A comanda ainda está aberta; valide se o estorno não deve virar apenas ajuste interno.');
+        }
+        if (Math.abs(reconciliationGap) >= 0.01) {
+            notes.push(`Existe gap de conciliação de ${this.roundMoney(Math.abs(reconciliationGap)).toFixed(2)} nesta comanda.`);
+        }
+        if (amountDue > 0) {
+            notes.push(`A comanda ainda tem saldo pendente de ${amountDue.toFixed(2)}.`);
+        }
+        if (overpaymentAmount > 0) {
+            notes.push(`Existe sobrepagamento registrado de ${overpaymentAmount.toFixed(2)}.`);
+        }
+        if (paymentType !== 'FULL') {
+            notes.push('Pagamento rateado exige conferência da parcela correta antes de estornar.');
+        }
+        if (refundPrepared) {
+            notes.push('Já existe uma preparação de estorno registrada para este pagamento.');
+        }
+
+        const confirmedOrApproved = localStatus === 'CONFIRMED' || providerStatus === 'APPROVED';
+        const canPrepare = paymentAmount > 0 && confirmedOrApproved;
+
+        let riskLevel = 'low';
+        if (notes.length >= 3 || (!providerPaymentId && providerStatus === 'APPROVED') || paymentType !== 'FULL') {
+            riskLevel = 'high';
+        } else if (notes.length > 0 || tabStatus === 'OPEN') {
+            riskLevel = 'medium';
+        }
+
+        return {
+            canPrepare,
+            reason: canPrepare ? '' : 'Somente pagamentos confirmados ou aprovados no provedor podem entrar em preparação de estorno',
+            recommendedAmount: paymentAmount,
+            maxAmount: paymentAmount,
+            paymentAmount,
+            localStatus,
+            providerStatus: providerStatus || null,
+            providerPaymentId,
+            riskLevel,
+            notes,
+            alreadyPrepared: refundPrepared,
+        };
     }
 
     private mapPaymentTypeLabel(value?: string) {

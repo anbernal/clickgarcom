@@ -49,6 +49,21 @@ export class TablesController {
         });
     }
 
+    @Post('payments/:paymentId/prepare-refund')
+    @Roles(...TENANT_SETTLEMENT_ROLES)
+    preparePaymentRefund(
+        @Request() req,
+        @Param('paymentId') paymentId: string,
+        @Body() body: { reason?: string; requested_amount?: number },
+    ) {
+        return this.tablesService.preparePaymentRefund(req.user.tenantId, paymentId, {
+            userId: req.user?.id,
+            userName: req.user?.name,
+            reason: body?.reason,
+            requestedAmount: body?.requested_amount,
+        });
+    }
+
     @Post()
     @Roles(...TENANT_TABLE_WRITE_ROLES)
     create(@Request() req, @Body() body: CreateTableDto) {

@@ -831,6 +831,36 @@ export function buildTenantAdminOpenApiDocument() {
                     },
                 },
             },
+            [`${ADMIN_API_VERSIONED_BASE_PATH}/tables/payments/{paymentId}/prepare-refund`]: {
+                post: {
+                    tags: ['Tables'],
+                    summary: 'Registra a preparacao operacional de um estorno',
+                    security: [{ bearerAuth: [] }],
+                    parameters: [uuidPathParam('paymentId', 'ID do pagamento')],
+                    requestBody: {
+                        required: true,
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    type: 'object',
+                                    required: ['reason'],
+                                    properties: {
+                                        reason: { type: 'string' },
+                                        requested_amount: { type: 'number' },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    responses: {
+                        '200': versionedSuccessResponse('Preparacao de estorno registrada.', {
+                            type: 'object',
+                            additionalProperties: true,
+                        }),
+                        '400': versionedErrorResponse('Pagamento nao elegivel para preparacao de estorno.'),
+                    },
+                },
+            },
             [`${ADMIN_API_VERSIONED_BASE_PATH}/tables/{id}/status`]: {
                 patch: {
                     tags: ['Tables'],

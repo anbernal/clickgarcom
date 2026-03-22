@@ -113,6 +113,12 @@ function renderPagamentos() {
         <div class="stat-value">${formatCurrency(summary.divergence_amount || 0)}</div>
         <div class="stat-change" style="color:#b91c1c">${summary.divergence_tabs_count || 0} comandas exigem conferência</div>
       </div>
+      <div class="stat-card">
+        <div class="stat-icon">↩️</div>
+        <div class="stat-label">Estornos Preparados</div>
+        <div class="stat-value">${formatCurrency(summary.refund_prepared_amount || 0)}</div>
+        <div class="stat-change" style="color:#1d4ed8">${summary.refund_prepared_count || 0} pagamentos com trilha pronta</div>
+      </div>
     </div>
 
     <div class="section-grid" style="margin-bottom:20px">
@@ -228,6 +234,7 @@ function renderPagamentosTable(rows) {
                   <div style="font-size:12px;color:var(--muted)">
                     ${payment.latestAttemptProviderStatus ? `Provider ${escapeHTML(payment.latestAttemptProviderStatus)}` : 'Sem retorno do provedor'}
                   </div>
+                  ${payment.refundPreparation ? `<div style="font-size:11px;color:#1d4ed8;margin-top:6px">Estorno preparado · ${escapeHTML(formatDateTime(payment.refundPreparation.preparedAt))}</div>` : ''}
                 </td>
                 <td>
                   <span class="status-pill ${paymentMeta.cls}">${escapeHTML(paymentMeta.label)}</span>
@@ -284,6 +291,7 @@ function renderPagamentoTabDetailModal(detail) {
   const canFinalize = canFinalizePagamentoDetail(detail);
   const refreshablePayment = getRefreshablePayment(detail);
   const retryablePayment = getRetryablePayment(detail);
+  const refundablePayment = getRefundablePayment(detail);
 
   openModal(`
     <div class="modal-header">
@@ -315,6 +323,7 @@ function renderPagamentoTabDetailModal(detail) {
       <button class="btn-sm btn-outline" onclick="closeModal()">Fechar</button>
       ${refreshablePayment ? `<button class="btn-sm btn-outline" onclick="refreshPagamentoStatus('${refreshablePayment.id}', '${detail.id}')">Atualizar status</button>` : ''}
       ${retryablePayment ? `<button class="btn-sm btn-outline" onclick="retryPagamentoPix('${retryablePayment.id}')">Gerar novo PIX</button>` : ''}
+      ${refundablePayment ? `<button class="btn-sm btn-outline" onclick="openPrepareRefundModal('${detail.id}', '${refundablePayment.id}')">${refundablePayment.refundPreparation ? 'Revisar estorno' : 'Preparar estorno'}</button>` : ''}
       ${canFinalize ? `<button class="btn-sm btn-primary" onclick="finalizePagamentoTab('${detail.id}')">Registrar baixa / finalizar</button>` : ''}
     </div>
   `);
@@ -374,6 +383,11 @@ function getRetryablePayment(detail) {
   }) || null;
 }
 
+function getRefundablePayment(detail) {
+  const payments = Array.isArray(detail?.payments) ? detail.payments : [];
+  return payments.find((payment) => payment?.refundEligibility?.canPrepare) || null;
+}
+
 async function refreshPagamentoStatus(paymentId, tabId = '') {
   try {
     const response = await api.post(`/tables/payments/${paymentId}/refresh-status`, {});
@@ -403,6 +417,103 @@ async function retryPagamentoPix(paymentId) {
     await loadPagamentos();
   } catch (err) {
     showToast(`Erro ao gerar novo PIX: ${err.message}`, 'error');
+  }
+}
+
+async function openPrepareRefundModal(tabId, paymentId) {
+  try {
+    const detail = await api.get(`/tables/tabs/${tabId}/details`);
+    const payment = (detail?.payments || []).find((item) => item.id === paymentId);
+
+    if (!payment || !payment.refundEligibility?.canPrepare) {
+      showToast('Este pagamento não está elegível para preparação de estorno.', 'error');
+      return;
+    }
+
+    const refundPreparation = payment.refundPreparation || null;
+    const eligibility = payment.refundEligibility || {};
+    const notes = Array.isArray(eligibility.notes) ? eligibility.notes : [];
+
+    openModal(`
+      <div class="modal-header">
+        <h3>Preparar estorno</h3>
+        <button class="modal-close" onclick="closeModal()">✕</button>
+      </div>
+      <div class="modal-body" style="display:flex;flex-direction:column;gap:16px">
+        <div style="padding:12px 14px;border-radius:12px;background:rgba(29,78,216,0.08);border:1px solid rgba(29,78,216,0.16);font-size:13px;color:var(--text)">
+          Pagamento ${escapeHTML(payment.paymentType || 'FULL')} · ${escapeHTML(payment.method || 'Forma não informada')} · ${formatCurrency(payment.amount || 0)}
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px">
+          <div style="border:1px solid var(--border);border-radius:12px;padding:12px">
+            <div style="font-size:12px;color:var(--muted)">Valor sugerido</div>
+            <div class="mono" style="font-weight:700">${formatCurrency(eligibility.recommendedAmount || payment.amount || 0)}</div>
+          </div>
+          <div style="border:1px solid var(--border);border-radius:12px;padding:12px">
+            <div style="font-size:12px;color:var(--muted)">Risco operacional</div>
+            <div style="font-weight:700;color:${getRefundRiskColor(eligibility.riskLevel)}">${escapeHTML(getRefundRiskLabel(eligibility.riskLevel))}</div>
+          </div>
+          <div style="border:1px solid var(--border);border-radius:12px;padding:12px">
+            <div style="font-size:12px;color:var(--muted)">Provider payment</div>
+            <div style="font-size:12px;font-weight:700;word-break:break-all">${escapeHTML(eligibility.providerPaymentId || 'Não registrado')}</div>
+          </div>
+        </div>
+        <div class="form-group" style="margin:0">
+          <label>Valor a preparar para estorno</label>
+          <input type="number" step="0.01" id="refund-requested-amount" value="${escapeHTML(String(refundPreparation?.requestedAmount ?? eligibility.recommendedAmount ?? payment.amount ?? ''))}">
+        </div>
+        <div class="form-group" style="margin:0">
+          <label>Motivo operacional</label>
+          <textarea id="refund-reason" style="min-height:100px" placeholder="Ex: cobrança duplicada, cliente desistiu após aprovação, erro de fechamento">${escapeHTML(refundPreparation?.reason || '')}</textarea>
+        </div>
+        <div style="padding:12px 14px;border-radius:12px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.16)">
+          <div style="font-weight:700;margin-bottom:8px">Checklist antes do estorno</div>
+          <div style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--text)">
+            ${(notes.length ? notes : ['Sem risco adicional detectado; seguir conferência com financeiro e provedor.']).map((note) => `
+              <div>• ${escapeHTML(note)}</div>
+            `).join('')}
+          </div>
+        </div>
+        ${refundPreparation ? `
+          <div style="padding:12px 14px;border-radius:12px;background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.16);font-size:13px;color:var(--text)">
+            Preparação atual registrada em <strong>${escapeHTML(formatDateTime(refundPreparation.preparedAt))}</strong>
+            ${refundPreparation.preparedByUserName ? ` por <strong>${escapeHTML(refundPreparation.preparedByUserName)}</strong>` : ''}.
+          </div>
+        ` : ''}
+      </div>
+      <div class="modal-footer">
+        <button class="btn-sm btn-outline" onclick="closeModal()">Cancelar</button>
+        <button class="btn-sm btn-primary" onclick="submitPrepareRefund('${tabId}', '${paymentId}')">Salvar preparação</button>
+      </div>
+    `);
+  } catch (err) {
+    showToast(`Erro ao abrir preparação de estorno: ${err.message}`, 'error');
+  }
+}
+
+async function submitPrepareRefund(tabId, paymentId) {
+  const requestedAmount = parseFloat(document.getElementById('refund-requested-amount')?.value || '0');
+  const reason = document.getElementById('refund-reason')?.value || '';
+
+  if (!requestedAmount || requestedAmount <= 0) {
+    showToast('Informe um valor válido para o estorno.', 'error');
+    return;
+  }
+
+  if (!reason.trim()) {
+    showToast('Informe o motivo operacional do estorno.', 'error');
+    return;
+  }
+
+  try {
+    await api.post(`/tables/payments/${paymentId}/prepare-refund`, {
+      requested_amount: requestedAmount,
+      reason,
+    });
+    showToast('Preparação de estorno registrada.');
+    await loadPagamentos();
+    await openPagamentoTabDetail(tabId);
+  } catch (err) {
+    showToast(`Erro ao preparar estorno: ${err.message}`, 'error');
   }
 }
 
@@ -508,6 +619,20 @@ function getPagamentoStatusMeta(payment) {
     return { label: 'Confirmado local', cls: 'status-done' };
   }
   return { label: 'Pendente local', cls: 'status-prep' };
+}
+
+function getRefundRiskLabel(riskLevel) {
+  const normalized = String(riskLevel || '').toLowerCase();
+  if (normalized === 'high') return 'Alto';
+  if (normalized === 'medium') return 'Médio';
+  return 'Baixo';
+}
+
+function getRefundRiskColor(riskLevel) {
+  const normalized = String(riskLevel || '').toLowerCase();
+  if (normalized === 'high') return '#b91c1c';
+  if (normalized === 'medium') return '#b45309';
+  return '#0f766e';
 }
 
 function getPagamentoReconciliationMeta(status) {
