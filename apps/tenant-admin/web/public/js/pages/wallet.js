@@ -10,6 +10,15 @@ function formatWalletInteger(value) {
     return Number(value || 0).toLocaleString('pt-BR');
 }
 
+function formatWalletMonthReference(reference) {
+    const raw = String(reference || '').trim();
+    if (!/^\d{4}-\d{2}$/.test(raw)) return raw || '-';
+
+    const [year, month] = raw.split('-');
+    const labels = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+    return `${labels[Math.max(0, Number(month) - 1)]}/${year}`;
+}
+
 async function loadWallet() {
     const container = document.getElementById('page-wallet');
     container.innerHTML = `<div style="padding: 40px; text-align: center; color: var(--muted);">Carregando Carteira...</div>`;
@@ -28,6 +37,18 @@ async function loadWallet() {
         const messagesRemaining = res.messages_remaining === null || res.messages_remaining === undefined
             ? null
             : Number(res.messages_remaining);
+        const currentMonthSummary = res.current_month_summary || {};
+        const previousMonthSummary = res.previous_month_summary || {};
+        const forecast = res.forecast || {};
+        const lowBalanceAlert = res.low_balance_alert || null;
+        const averageDailyMessages = Number(forecast.averageDailyMessages || 0);
+        const expectedNext30DaysMessages = Number(forecast.expectedNext30DaysMessages || 0);
+        const expectedNext30DaysAmount = Number(forecast.expectedNext30DaysAmount || 0);
+        const projectedMonthMessages = Number(forecast.projectedMonthMessages || 0);
+        const projectedMonthAmount = Number(forecast.projectedMonthAmount || 0);
+        const estimatedDaysRemaining = forecast.estimatedDaysRemaining === null || forecast.estimatedDaysRemaining === undefined
+            ? null
+            : Number(forecast.estimatedDaysRemaining);
 
         const remainingLabel = isPrePaid
             ? formatWalletInteger(messagesRemaining)
@@ -37,9 +58,20 @@ async function loadWallet() {
         const planBadgeBg = isPrePaid ? 'rgba(59, 130, 246, 0.1)' : 'rgba(139, 92, 246, 0.1)';
         const planBadgeColor = isPrePaid ? '#3b82f6' : '#8b5cf6';
         const planIcon = isPrePaid ? '🔒' : '🔓';
+        const alertStyles = lowBalanceAlert?.level === 'critical'
+            ? {
+                border: '1px solid rgba(239,68,68,0.18)',
+                background: 'rgba(239,68,68,0.08)',
+                title: '#b91c1c',
+            }
+            : {
+                border: '1px solid rgba(245,158,11,0.18)',
+                background: 'rgba(245,158,11,0.10)',
+                title: '#b45309',
+            };
 
         container.innerHTML = `
-            <div style="max-width: 800px; margin: 0 auto;">
+            <div style="max-width: 980px; margin: 0 auto;">
 
                 <!-- Hero Balance Card -->
                 <div style="
@@ -75,6 +107,38 @@ async function loadWallet() {
                         </div>
                     </div>
                 </div>
+
+                ${lowBalanceAlert && isPrePaid ? `
+                    <div style="
+                        border-radius:18px;
+                        padding:20px 22px;
+                        margin-bottom:18px;
+                        ${alertStyles.border};
+                        background:${alertStyles.background};
+                        display:flex;
+                        align-items:flex-start;
+                        justify-content:space-between;
+                        gap:18px;
+                        flex-wrap:wrap;
+                    ">
+                        <div>
+                            <div style="font-size:15px; font-weight:800; color:${alertStyles.title}; margin-bottom:6px;">${escapeHTML(lowBalanceAlert.title || 'Saldo em atenção')}</div>
+                            <div style="font-size:13px; color:var(--text); margin-bottom:8px;">${escapeHTML(lowBalanceAlert.message || '')}</div>
+                            <div style="font-size:12px; color:var(--muted);">
+                                Recarga sugerida: <strong>R$ ${formatWalletCurrency(lowBalanceAlert.recommendedRechargeAmount || 0)}</strong>
+                                ${Number(lowBalanceAlert.recommendedRechargeMessages || 0) > 0 ? ` · ${formatWalletInteger(lowBalanceAlert.recommendedRechargeMessages)} mensagens estimadas` : ''}
+                            </div>
+                        </div>
+                        <button
+                            type="button"
+                            class="btn-sm btn-primary"
+                            style="padding:10px 16px; white-space:nowrap;"
+                            onclick="document.getElementById('wallet-amount').focus()"
+                        >
+                            Reforçar saldo
+                        </button>
+                    </div>
+                ` : ''}
 
                 <!-- Metrics Grid -->
                 <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:16px; margin-bottom:16px;">
@@ -115,6 +179,74 @@ async function loadWallet() {
                         </div>
                         <div style="font-size:28px; font-weight:800; font-family:'Sora',sans-serif; color:${isPrePaid && balance <= 0 ? 'var(--accent-red)' : 'var(--teal)'};">${remainingLabel}</div>
                         <div style="font-size:12px; color:var(--muted);">${isPrePaid ? 'Estimativa pelo saldo atual' : 'Sem limite no pós-pago'}</div>
+                    </div>
+                </div>
+
+                <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:16px; margin-bottom:16px;">
+                    <div style="
+                        background: var(--card-bg); border-radius:16px; padding:24px;
+                        border:1px solid var(--border); box-shadow: var(--shadow);
+                        display:flex; flex-direction:column; gap:8px;
+                    ">
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <span style="width:32px; height:32px; border-radius:10px; background:rgba(26,188,156,0.1); display:flex; align-items:center; justify-content:center; font-size:16px;">🗓️</span>
+                            <span style="font-size:12px; color:var(--muted); text-transform:uppercase; font-weight:700; letter-spacing:0.5px;">Fechamento Atual</span>
+                        </div>
+                        <div style="font-size:26px; font-weight:800; font-family:'Sora',sans-serif; color:var(--teal);">R$ ${formatWalletCurrency(currentMonthSummary.amount || 0)}</div>
+                        <div style="font-size:13px; color:var(--text);">${formatWalletMonthReference(currentMonthSummary.referenceMonth)}</div>
+                        <div style="font-size:12px; color:var(--muted);">${formatWalletInteger(currentMonthSummary.messagesUsed || 0)} mensagens · IN ${formatWalletInteger(currentMonthSummary.messagesIn || 0)} · OUT ${formatWalletInteger(currentMonthSummary.messagesOut || 0)}</div>
+                    </div>
+
+                    <div style="
+                        background: var(--card-bg); border-radius:16px; padding:24px;
+                        border:1px solid var(--border); box-shadow: var(--shadow);
+                        display:flex; flex-direction:column; gap:8px;
+                    ">
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <span style="width:32px; height:32px; border-radius:10px; background:rgba(59,130,246,0.1); display:flex; align-items:center; justify-content:center; font-size:16px;">📚</span>
+                            <span style="font-size:12px; color:var(--muted); text-transform:uppercase; font-weight:700; letter-spacing:0.5px;">Fechamento Anterior</span>
+                        </div>
+                        <div style="font-size:26px; font-weight:800; font-family:'Sora',sans-serif; color:var(--accent-blue);">R$ ${formatWalletCurrency(previousMonthSummary.amount || 0)}</div>
+                        <div style="font-size:13px; color:var(--text);">${formatWalletMonthReference(previousMonthSummary.referenceMonth)}</div>
+                        <div style="font-size:12px; color:var(--muted);">${formatWalletInteger(previousMonthSummary.messagesUsed || 0)} mensagens · IN ${formatWalletInteger(previousMonthSummary.messagesIn || 0)} · OUT ${formatWalletInteger(previousMonthSummary.messagesOut || 0)}</div>
+                    </div>
+                </div>
+
+                <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:16px; margin-bottom:28px;">
+                    <div style="
+                        background: var(--card-bg); border-radius:16px; padding:22px 24px;
+                        border:1px solid var(--border); box-shadow: var(--shadow);
+                    ">
+                        <div style="font-size:12px; color:var(--muted); text-transform:uppercase; font-weight:700; letter-spacing:0.5px; margin-bottom:10px;">Média diária</div>
+                        <div style="font-size:28px; font-weight:800; font-family:'Sora',sans-serif; color:var(--dark);">${averageDailyMessages.toLocaleString('pt-BR', { minimumFractionDigits: averageDailyMessages % 1 === 0 ? 0 : 1, maximumFractionDigits: 2 })}</div>
+                        <div style="font-size:12px; color:var(--muted);">mensagens por dia nos últimos 30 dias</div>
+                    </div>
+
+                    <div style="
+                        background: var(--card-bg); border-radius:16px; padding:22px 24px;
+                        border:1px solid var(--border); box-shadow: var(--shadow);
+                    ">
+                        <div style="font-size:12px; color:var(--muted); text-transform:uppercase; font-weight:700; letter-spacing:0.5px; margin-bottom:10px;">Projeção do mês</div>
+                        <div style="font-size:28px; font-weight:800; font-family:'Sora',sans-serif; color:var(--dark);">${formatWalletInteger(projectedMonthMessages)}</div>
+                        <div style="font-size:12px; color:var(--muted);">Estimado em R$ ${formatWalletCurrency(projectedMonthAmount)}</div>
+                    </div>
+
+                    <div style="
+                        background: var(--card-bg); border-radius:16px; padding:22px 24px;
+                        border:1px solid var(--border); box-shadow: var(--shadow);
+                    ">
+                        <div style="font-size:12px; color:var(--muted); text-transform:uppercase; font-weight:700; letter-spacing:0.5px; margin-bottom:10px;">Próximos 30 dias</div>
+                        <div style="font-size:28px; font-weight:800; font-family:'Sora',sans-serif; color:var(--dark);">${formatWalletInteger(expectedNext30DaysMessages)}</div>
+                        <div style="font-size:12px; color:var(--muted);">Estimado em R$ ${formatWalletCurrency(expectedNext30DaysAmount)}</div>
+                    </div>
+
+                    <div style="
+                        background: var(--card-bg); border-radius:16px; padding:22px 24px;
+                        border:1px solid var(--border); box-shadow: var(--shadow);
+                    ">
+                        <div style="font-size:12px; color:var(--muted); text-transform:uppercase; font-weight:700; letter-spacing:0.5px; margin-bottom:10px;">Autonomia do saldo</div>
+                        <div style="font-size:28px; font-weight:800; font-family:'Sora',sans-serif; color:var(--dark);">${estimatedDaysRemaining === null ? '—' : estimatedDaysRemaining.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}</div>
+                        <div style="font-size:12px; color:var(--muted);">${estimatedDaysRemaining === null ? 'Sem histórico suficiente para estimar' : 'dias estimados no ritmo atual'}</div>
                     </div>
                 </div>
 

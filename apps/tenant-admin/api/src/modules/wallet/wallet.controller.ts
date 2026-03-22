@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Post, Query, Request, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, Request, Res, UseGuards } from '@nestjs/common';
+import { Response } from 'express';
 
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { WalletService } from './wallet.service';
@@ -19,10 +20,21 @@ export class WalletController {
     @Get('wallet/messages/statement')
     getMessageStatement(
         @Request() req,
-        @Query('page') page?: string,
-        @Query('limit') limit?: string,
+        @Query() query?: Record<string, string>,
     ) {
-        return this.walletService.getMessageStatement(req.user.tenantId, { page, limit });
+        return this.walletService.getMessageStatement(req.user.tenantId, query || {});
+    }
+
+    @Get('wallet/messages/statement/export')
+    async exportMessageStatement(
+        @Request() req,
+        @Query() query: Record<string, string> | undefined,
+        @Res() res: Response,
+    ) {
+        const file = await this.walletService.exportMessageStatementCsv(req.user.tenantId, query || {});
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
+        return res.send(`\uFEFF${file.content}`);
     }
 
     @Post('payments/pix')

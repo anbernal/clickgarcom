@@ -1,6 +1,13 @@
 const messageStatementState = {
     page: 1,
     limit: 20,
+    filters: {
+        period: 'all',
+        actor: 'all',
+        phone: '',
+        dateFrom: '',
+        dateTo: '',
+    },
 };
 
 async function loadExtratoMensagens() {
@@ -15,10 +22,9 @@ async function loadExtratoMensagens() {
     `;
 
     try {
-        const response = await api.get('/wallet/messages/statement', {
-            page: messageStatementState.page,
-            limit: messageStatementState.limit,
-        });
+        const queryParams = buildMessageStatementQueryParams();
+        const activeFilters = resolveMessageStatementFilters(messageStatementState.filters);
+        const response = await api.get('/wallet/messages/statement', queryParams);
 
         const items = Array.isArray(response?.items) ? response.items : [];
         const total = Number(response?.total || 0);
@@ -26,10 +32,14 @@ async function loadExtratoMensagens() {
         const messagesIn = Number(summary.messagesIn || 0);
         const messagesOut = Number(summary.messagesOut || 0);
         const messagesUsed = Number(summary.messagesUsed || (messagesIn + messagesOut));
+        const unitPrice = Number(summary.unitPrice || 0.02);
+        const totalAmount = Number(summary.totalAmount || (messagesUsed * unitPrice));
+        const missingPhoneCount = Number(summary.missingPhoneCount || 0);
         const totalPages = Math.max(1, Math.ceil(total / messageStatementState.limit));
         const currentPage = Math.min(Math.max(Number(response?.page || messageStatementState.page), 1), totalPages);
         const canGoPrev = currentPage > 1;
         const canGoNext = currentPage < totalPages;
+        const filterSummary = buildMessageStatementFilterSummary(activeFilters);
 
         messageStatementState.page = currentPage;
 
@@ -70,6 +80,10 @@ async function loadExtratoMensagens() {
                     <td style="padding:16px 18px; border-bottom:1px solid var(--border);">
                         <span title="${escapeHTML(item.preview || 'Sem detalhes')}">${escapeHTML(item.previewShort || 'Sem dados')}</span>
                     </td>
+                    <td style="padding:16px 18px; border-bottom:1px solid var(--border);">
+                        <div style="font-weight:800; color:var(--dark);">R$ ${formatWalletCurrency(item.amount || unitPrice)}</div>
+                        <div style="font-size:12px; color:var(--muted); margin-top:6px;">Cobrança unitária</div>
+                    </td>
                 </tr>
             `;
         }).join('');
@@ -89,10 +103,13 @@ async function loadExtratoMensagens() {
                     <div style="position:relative; z-index:1; display:flex; align-items:flex-start; justify-content:space-between; gap:20px; flex-wrap:wrap;">
                         <div>
                             <div style="font-size:12px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:rgba(255,255,255,0.55); margin-bottom:10px;">Transparência de cobrança</div>
-                            <div style="font-size:30px; font-weight:800; font-family:'Sora',sans-serif; line-height:1.1; margin-bottom:10px;">Cada linha abaixo equivale a 1 mensagem contabilizada.</div>
-                            <div style="font-size:13px; color:rgba(255,255,255,0.65); max-width:640px;">
-                                O extrato mostra o telefone do cliente, quem originou a mensagem, data e hora do evento e um resumo curto do conteúdo.
+                            <div style="font-size:30px; font-weight:800; font-family:'Sora',sans-serif; line-height:1.1; margin-bottom:10px;">
+                                ${formatWalletInteger(messagesUsed)} mensagens x R$ ${formatWalletCurrency(unitPrice)} = R$ ${formatWalletCurrency(totalAmount)}
                             </div>
+                            <div style="font-size:13px; color:rgba(255,255,255,0.65); max-width:700px;">
+                                Regra atual: cada mensagem recebida e cada mensagem enviada entram no consumo. O resumo acima considera exatamente o recorte filtrado abaixo.
+                            </div>
+                            <div style="font-size:12px; color:rgba(255,255,255,0.5); margin-top:10px;">${escapeHTML(filterSummary)}</div>
                         </div>
                         <button type="button" class="btn-sm btn-outline" style="background:rgba(255,255,255,0.08); border-color:rgba(255,255,255,0.12); color:#fff;" onclick="navigate('wallet')">
                             Voltar para carteira
@@ -100,12 +117,88 @@ async function loadExtratoMensagens() {
                     </div>
                 </div>
 
-                <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:16px;">
+                <div class="card">
+                    <div class="card-header">
+                        <div>
+                            <div class="card-title">Filtros do Extrato</div>
+                            <div class="card-subtitle">Refine o período, a origem e o telefone para auditar o consumo.</div>
+                        </div>
+                    </div>
+                    <div style="padding:22px;">
+                        <form id="message-statement-filters" style="display:flex; flex-direction:column; gap:16px;">
+                            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:14px;">
+                                <div style="display:flex; flex-direction:column; gap:6px;">
+                                    <label style="font-size:12px; color:var(--muted); font-weight:700; text-transform:uppercase;">Período</label>
+                                    <select id="message-statement-period" style="height:42px; border:1px solid var(--border); border-radius:10px; padding:0 12px; font-family:inherit;">
+                                        ${renderMessageStatementPeriodOptions(messageStatementState.filters.period)}
+                                    </select>
+                                </div>
+                                <div style="display:flex; flex-direction:column; gap:6px;">
+                                    <label style="font-size:12px; color:var(--muted); font-weight:700; text-transform:uppercase;">Origem</label>
+                                    <select id="message-statement-actor" style="height:42px; border:1px solid var(--border); border-radius:10px; padding:0 12px; font-family:inherit;">
+                                        ${renderMessageStatementActorOptions(messageStatementState.filters.actor)}
+                                    </select>
+                                </div>
+                                <div style="display:flex; flex-direction:column; gap:6px;">
+                                    <label style="font-size:12px; color:var(--muted); font-weight:700; text-transform:uppercase;">Telefone</label>
+                                    <input
+                                        type="text"
+                                        id="message-statement-phone"
+                                        value="${escapeHTML(messageStatementState.filters.phone || '')}"
+                                        placeholder="Ex: 5511999999999"
+                                        style="height:42px; border:1px solid var(--border); border-radius:10px; padding:0 12px; font-family:'JetBrains Mono',monospace;"
+                                    >
+                                </div>
+                            </div>
+
+                            <div
+                                id="message-statement-custom-dates"
+                                style="display:${messageStatementState.filters.period === 'custom' ? 'grid' : 'none'}; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:14px;"
+                            >
+                                <div style="display:flex; flex-direction:column; gap:6px;">
+                                    <label style="font-size:12px; color:var(--muted); font-weight:700; text-transform:uppercase;">Data inicial</label>
+                                    <input
+                                        type="date"
+                                        id="message-statement-date-from"
+                                        value="${escapeHTML(messageStatementState.filters.dateFrom || '')}"
+                                        style="height:42px; border:1px solid var(--border); border-radius:10px; padding:0 12px; font-family:inherit;"
+                                    >
+                                </div>
+                                <div style="display:flex; flex-direction:column; gap:6px;">
+                                    <label style="font-size:12px; color:var(--muted); font-weight:700; text-transform:uppercase;">Data final</label>
+                                    <input
+                                        type="date"
+                                        id="message-statement-date-to"
+                                        value="${escapeHTML(messageStatementState.filters.dateTo || '')}"
+                                        style="height:42px; border:1px solid var(--border); border-radius:10px; padding:0 12px; font-family:inherit;"
+                                    >
+                                </div>
+                            </div>
+
+                            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                                <button type="submit" class="btn-sm btn-primary" style="padding:10px 16px;">Aplicar filtros</button>
+                                <button type="button" class="btn-sm btn-outline" style="padding:10px 16px;" id="message-statement-clear-filters">Limpar filtros</button>
+                                <button type="button" class="btn-sm btn-outline" style="padding:10px 16px;" id="message-statement-export">Exportar CSV</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                ${missingPhoneCount > 0 ? `
+                    <div style="padding:16px 18px; border-radius:14px; border:1px solid rgba(245,158,11,0.22); background:rgba(245,158,11,0.09); color:var(--text);">
+                        <div style="font-weight:700; margin-bottom:6px;">Alguns registros antigos ainda não têm telefone identificado</div>
+                        <div style="font-size:13px; color:var(--muted);">
+                            ${formatWalletInteger(missingPhoneCount)} lançamento(s) deste recorte não puderam ser associados a um telefone. Isso costuma acontecer em histórico anterior à bilhetagem detalhada.
+                        </div>
+                    </div>
+                ` : ''}
+
+                <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:16px;">
                     <div class="stat-card">
                         <div class="stat-icon">🧾</div>
-                        <div class="stat-label">Total contabilizado</div>
+                        <div class="stat-label">Mensagens cobradas</div>
                         <div class="stat-value">${formatWalletInteger(messagesUsed)}</div>
-                        <div class="stat-change" style="color:var(--muted);">${formatWalletInteger(total)} lançamentos no extrato</div>
+                        <div class="stat-change" style="color:var(--muted);">${formatWalletInteger(total)} lançamento(s) no recorte</div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-icon">📥</div>
@@ -113,11 +206,17 @@ async function loadExtratoMensagens() {
                         <div class="stat-value">${formatWalletInteger(messagesIn)}</div>
                         <div class="stat-change" style="color:var(--muted);">Entrada via WhatsApp</div>
                     </div>
-                    <div class="stat-card teal-card">
+                    <div class="stat-card">
                         <div class="stat-icon">📤</div>
                         <div class="stat-label">Respostas do robô</div>
                         <div class="stat-value">${formatWalletInteger(messagesOut)}</div>
-                        <div class="stat-change" style="color:rgba(255,255,255,0.72);">Saída para o cliente</div>
+                        <div class="stat-change" style="color:var(--muted);">Saída para o cliente</div>
+                    </div>
+                    <div class="stat-card teal-card">
+                        <div class="stat-icon">💰</div>
+                        <div class="stat-label">Total cobrado</div>
+                        <div class="stat-value">R$ ${formatWalletCurrency(totalAmount)}</div>
+                        <div class="stat-change" style="color:rgba(255,255,255,0.72);">Preço unitário R$ ${formatWalletCurrency(unitPrice)}</div>
                     </div>
                 </div>
 
@@ -125,7 +224,7 @@ async function loadExtratoMensagens() {
                     <div class="card-header">
                         <div>
                             <div class="card-title">Extrato de Mensagens</div>
-                            <div class="card-subtitle">Página ${formatWalletInteger(currentPage)} de ${formatWalletInteger(totalPages)} · ${formatWalletInteger(total)} registros</div>
+                            <div class="card-subtitle">Página ${formatWalletInteger(currentPage)} de ${formatWalletInteger(totalPages)} · ${formatWalletInteger(total)} registros filtrados</div>
                         </div>
                         <div style="display:flex; gap:8px;">
                             <button type="button" class="btn-sm btn-outline" ${canGoPrev ? '' : 'disabled'} onclick="changeMessageStatementPage(-1)" style="${canGoPrev ? '' : 'opacity:0.5; cursor:not-allowed;'}">
@@ -139,23 +238,24 @@ async function loadExtratoMensagens() {
 
                     <div style="padding:0 0 8px;">
                         <div style="overflow:auto;">
-                            <table style="width:100%; border-collapse:collapse; min-width:760px;">
+                            <table style="width:100%; border-collapse:collapse; min-width:920px;">
                                 <thead>
                                     <tr style="background:rgba(240,242,245,0.7);">
                                         <th style="text-align:left; padding:14px 18px; font-size:12px; text-transform:uppercase; letter-spacing:0.5px; color:var(--muted);">Telefone do usuário</th>
                                         <th style="text-align:left; padding:14px 18px; font-size:12px; text-transform:uppercase; letter-spacing:0.5px; color:var(--muted);">Origem</th>
                                         <th style="text-align:left; padding:14px 18px; font-size:12px; text-transform:uppercase; letter-spacing:0.5px; color:var(--muted);">Data e hora</th>
                                         <th style="text-align:left; padding:14px 18px; font-size:12px; text-transform:uppercase; letter-spacing:0.5px; color:var(--muted);">Descrição breve</th>
+                                        <th style="text-align:left; padding:14px 18px; font-size:12px; text-transform:uppercase; letter-spacing:0.5px; color:var(--muted);">Valor</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     ${rows || `
                                         <tr>
-                                            <td colspan="4">
+                                            <td colspan="5">
                                                 <div class="empty-state">
                                                     <div class="icon">🧾</div>
-                                                    <h3>Nenhuma mensagem contabilizada</h3>
-                                                    <p>Quando o restaurante começar a consumir mensagens, o extrato aparecerá aqui.</p>
+                                                    <h3>Nenhuma mensagem encontrada</h3>
+                                                    <p>Altere os filtros ou aguarde novos lançamentos para visualizar o extrato.</p>
                                                 </div>
                                             </td>
                                         </tr>
@@ -167,6 +267,8 @@ async function loadExtratoMensagens() {
                 </div>
             </div>
         `;
+
+        bindMessageStatementFilters();
     } catch (err) {
         container.innerHTML = `
             <div class="empty-state">
@@ -178,6 +280,269 @@ async function loadExtratoMensagens() {
     }
 }
 
+function bindMessageStatementFilters() {
+    const form = document.getElementById('message-statement-filters');
+    if (form) {
+        form.addEventListener('submit', handleMessageStatementFilterSubmit);
+    }
+
+    const periodSelect = document.getElementById('message-statement-period');
+    if (periodSelect) {
+        periodSelect.addEventListener('change', toggleMessageStatementCustomDates);
+    }
+
+    const clearButton = document.getElementById('message-statement-clear-filters');
+    if (clearButton) {
+        clearButton.addEventListener('click', clearMessageStatementFilters);
+    }
+
+    const exportButton = document.getElementById('message-statement-export');
+    if (exportButton) {
+        exportButton.addEventListener('click', downloadMessageStatementCsv);
+    }
+}
+
+function handleMessageStatementFilterSubmit(event) {
+    event.preventDefault();
+
+    messageStatementState.filters = normalizeMessageStatementUiFilters({
+        period: document.getElementById('message-statement-period')?.value || 'all',
+        actor: document.getElementById('message-statement-actor')?.value || 'all',
+        phone: document.getElementById('message-statement-phone')?.value.trim() || '',
+        dateFrom: document.getElementById('message-statement-date-from')?.value || '',
+        dateTo: document.getElementById('message-statement-date-to')?.value || '',
+    });
+
+    messageStatementState.page = 1;
+    loadExtratoMensagens();
+}
+
+function clearMessageStatementFilters() {
+    messageStatementState.filters = {
+        period: 'all',
+        actor: 'all',
+        phone: '',
+        dateFrom: '',
+        dateTo: '',
+    };
+    messageStatementState.page = 1;
+    loadExtratoMensagens();
+}
+
+function toggleMessageStatementCustomDates() {
+    const period = document.getElementById('message-statement-period')?.value || 'all';
+    const customDates = document.getElementById('message-statement-custom-dates');
+    if (!customDates) return;
+
+    customDates.style.display = period === 'custom' ? 'grid' : 'none';
+}
+
+function buildMessageStatementQueryParams() {
+    const params = {
+        page: messageStatementState.page,
+        limit: messageStatementState.limit,
+    };
+
+    const filters = resolveMessageStatementFilters(messageStatementState.filters);
+
+    if (filters.origin !== 'all') {
+        params.origin = filters.origin;
+    }
+
+    if (filters.userPhone) {
+        params.user_phone = filters.userPhone;
+    }
+
+    if (filters.dateFrom) {
+        params.date_from = filters.dateFrom;
+    }
+
+    if (filters.dateTo) {
+        params.date_to = filters.dateTo;
+    }
+
+    return params;
+}
+
+function buildMessageStatementExportParams() {
+    const filters = resolveMessageStatementFilters(messageStatementState.filters);
+    const params = {};
+
+    if (filters.origin !== 'all') {
+        params.origin = filters.origin;
+    }
+
+    if (filters.userPhone) {
+        params.user_phone = filters.userPhone;
+    }
+
+    if (filters.dateFrom) {
+        params.date_from = filters.dateFrom;
+    }
+
+    if (filters.dateTo) {
+        params.date_to = filters.dateTo;
+    }
+
+    return params;
+}
+
+async function downloadMessageStatementCsv() {
+    const button = document.getElementById('message-statement-export');
+    if (!button) return;
+
+    const originalLabel = button.textContent;
+    button.disabled = true;
+    button.textContent = 'Exportando...';
+
+    try {
+        const file = await api.download('/wallet/messages/statement/export', buildMessageStatementExportParams());
+        triggerMessageStatementFileDownload(file.blob, file.filename || 'extrato-mensagens.csv');
+        showToast('Extrato exportado com sucesso.', 'success');
+    } catch (err) {
+        showToast(err.message || 'Falha ao exportar CSV.', 'error');
+    } finally {
+        button.disabled = false;
+        button.textContent = originalLabel;
+    }
+}
+
+function triggerMessageStatementFileDownload(blob, filename) {
+    const url = window.URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.URL.revokeObjectURL(url);
+}
+
+function resolveMessageStatementFilters(filters) {
+    const current = filters || {};
+    const today = formatDateInputValue(new Date());
+
+    if (current.period === 'today') {
+        return {
+            ...current,
+            origin: current.actor || 'all',
+            userPhone: current.phone || '',
+            dateFrom: today,
+            dateTo: today,
+        };
+    }
+
+    if (current.period === '7d') {
+        return {
+            ...current,
+            origin: current.actor || 'all',
+            userPhone: current.phone || '',
+            dateFrom: formatDateInputValue(shiftDateByDays(new Date(), -6)),
+            dateTo: today,
+        };
+    }
+
+    if (current.period === '30d') {
+        return {
+            ...current,
+            origin: current.actor || 'all',
+            userPhone: current.phone || '',
+            dateFrom: formatDateInputValue(shiftDateByDays(new Date(), -29)),
+            dateTo: today,
+        };
+    }
+
+    const customFilters = {
+        ...current,
+        origin: current.actor || 'all',
+        userPhone: current.phone || '',
+        dateFrom: current.period === 'custom' ? (current.dateFrom || '') : '',
+        dateTo: current.period === 'custom' ? (current.dateTo || '') : '',
+    };
+
+    if (customFilters.dateFrom && customFilters.dateTo && customFilters.dateFrom > customFilters.dateTo) {
+        return {
+            ...customFilters,
+            dateFrom: customFilters.dateTo,
+            dateTo: customFilters.dateFrom,
+        };
+    }
+
+    return customFilters;
+}
+
+function buildMessageStatementFilterSummary(filters) {
+    const parts = [];
+
+    if (filters.dateFrom && filters.dateTo) {
+        parts.push(`Período: ${formatStatementDate(filters.dateFrom)} até ${formatStatementDate(filters.dateTo)}`);
+    } else if (filters.dateFrom) {
+        parts.push(`A partir de: ${formatStatementDate(filters.dateFrom)}`);
+    } else if (filters.dateTo) {
+        parts.push(`Até: ${formatStatementDate(filters.dateTo)}`);
+    } else {
+        parts.push('Período: todos os registros');
+    }
+
+    if (filters.origin === 'user') {
+        parts.push('Origem: mensagens do usuário');
+    } else if (filters.origin === 'robot') {
+        parts.push('Origem: respostas do robô');
+    } else {
+        parts.push('Origem: entradas e saídas');
+    }
+
+    if (filters.userPhone) {
+        parts.push(`Telefone: ${filters.userPhone}`);
+    }
+
+    return parts.join(' · ');
+}
+
+function renderMessageStatementPeriodOptions(selectedValue) {
+    const options = [
+        { value: 'all', label: 'Todo o histórico' },
+        { value: 'today', label: 'Hoje' },
+        { value: '7d', label: 'Últimos 7 dias' },
+        { value: '30d', label: 'Últimos 30 dias' },
+        { value: 'custom', label: 'Período customizado' },
+    ];
+
+    return options
+        .map(option => `<option value="${option.value}" ${selectedValue === option.value ? 'selected' : ''}>${option.label}</option>`)
+        .join('');
+}
+
+function renderMessageStatementActorOptions(selectedValue) {
+    const options = [
+        { value: 'all', label: 'Todos' },
+        { value: 'user', label: 'Usuário' },
+        { value: 'robot', label: 'Robô' },
+    ];
+
+    return options
+        .map(option => `<option value="${option.value}" ${selectedValue === option.value ? 'selected' : ''}>${option.label}</option>`)
+        .join('');
+}
+
+function normalizeMessageStatementUiFilters(filters) {
+    const current = filters || {};
+
+    if (current.period !== 'custom') {
+        return current;
+    }
+
+    if (current.dateFrom && current.dateTo && current.dateFrom > current.dateTo) {
+        return {
+            ...current,
+            dateFrom: current.dateTo,
+            dateTo: current.dateFrom,
+        };
+    }
+
+    return current;
+}
+
 function changeMessageStatementPage(delta) {
     const nextPage = Math.max(1, messageStatementState.page + Number(delta || 0));
     if (nextPage === messageStatementState.page) return;
@@ -187,8 +552,14 @@ function changeMessageStatementPage(delta) {
 
 function formatStatementDate(value) {
     if (!value) return '-';
+    if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+        const [year, month, day] = value.split('-');
+        return `${day}/${month}/${year}`;
+    }
     const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return '-';
+    if (Number.isNaN(date.getTime())) {
+        return typeof value === 'string' ? value.split('-').reverse().join('/') : '-';
+    }
 
     return date.toLocaleDateString('pt-BR', {
         day: '2-digit',
@@ -206,4 +577,17 @@ function formatStatementTime(value) {
         hour: '2-digit',
         minute: '2-digit',
     });
+}
+
+function shiftDateByDays(baseDate, delta) {
+    const date = new Date(baseDate);
+    date.setDate(date.getDate() + delta);
+    return date;
+}
+
+function formatDateInputValue(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
 }

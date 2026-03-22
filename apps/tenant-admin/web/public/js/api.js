@@ -49,6 +49,29 @@ async function handleResponse(res) {
     return res.json();
 }
 
+function extractFilenameFromDisposition(disposition) {
+    const match = String(disposition || '').match(/filename="([^"]+)"/i);
+    return match?.[1] || null;
+}
+
+async function handleDownloadResponse(res) {
+    if (res.status === 401 || res.status === 403) {
+        localStorage.removeItem('clickgarcom_auth');
+        sessionStorage.removeItem('clickgarcom_auth');
+        window.location.href = LOGIN_PAGE_PATH;
+        throw new Error('Sessão expirada. Faça login novamente.');
+    }
+
+    if (!res.ok) {
+        throw new Error(`API Error: ${res.status}`);
+    }
+
+    return {
+        blob: await res.blob(),
+        filename: extractFilenameFromDisposition(res.headers.get('content-disposition')),
+    };
+}
+
 const api = {
     async get(path, params = {}) {
         const url = new URL(API_BASE + path, window.location.origin);
@@ -96,6 +119,18 @@ const api = {
             headers: { 'Authorization': getAuthHeaders().Authorization }
         });
         return handleResponse(res);
+    },
+
+    async download(path, params = {}) {
+        const url = new URL(API_BASE + path, window.location.origin);
+        if (TENANT_ID) url.searchParams.set('tenant_id', TENANT_ID);
+        Object.entries(params).forEach(([k, v]) => {
+            if (v !== undefined && v !== null) url.searchParams.set(k, v);
+        });
+        const res = await fetch(url, {
+            headers: { 'Authorization': getAuthHeaders().Authorization }
+        });
+        return handleDownloadResponse(res);
     },
 };
 

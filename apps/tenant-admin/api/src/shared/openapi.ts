@@ -830,12 +830,82 @@ export function buildTenantAdminOpenApiDocument() {
                             in: 'query',
                             schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
                         },
+                        {
+                            name: 'origin',
+                            in: 'query',
+                            schema: { type: 'string', enum: ['all', 'user', 'robot'] },
+                            description: 'Filtra pela origem da mensagem.',
+                        },
+                        {
+                            name: 'user_phone',
+                            in: 'query',
+                            schema: { type: 'string' },
+                            description: 'Filtra pelo telefone do usuario, usando apenas numeros.',
+                        },
+                        {
+                            name: 'date_from',
+                            in: 'query',
+                            schema: { type: 'string', format: 'date' },
+                            description: 'Data inicial do filtro no formato YYYY-MM-DD.',
+                        },
+                        {
+                            name: 'date_to',
+                            in: 'query',
+                            schema: { type: 'string', format: 'date' },
+                            description: 'Data final do filtro no formato YYYY-MM-DD.',
+                        },
                     ],
                     responses: {
                         '200': versionedSuccessResponse('Extrato de mensagens.', {
                             type: 'object',
                             additionalProperties: true,
                         }),
+                    },
+                },
+            },
+            [`${ADMIN_API_VERSIONED_BASE_PATH}/wallet/messages/statement/export`]: {
+                get: {
+                    tags: ['Wallet'],
+                    summary: 'Exporta em CSV o extrato filtrado de mensagens contabilizadas',
+                    security: [{ bearerAuth: [] }],
+                    parameters: [
+                        {
+                            name: 'origin',
+                            in: 'query',
+                            schema: { type: 'string', enum: ['all', 'user', 'robot'] },
+                            description: 'Filtra pela origem da mensagem.',
+                        },
+                        {
+                            name: 'user_phone',
+                            in: 'query',
+                            schema: { type: 'string' },
+                            description: 'Filtra pelo telefone do usuario, usando apenas numeros.',
+                        },
+                        {
+                            name: 'date_from',
+                            in: 'query',
+                            schema: { type: 'string', format: 'date' },
+                            description: 'Data inicial do filtro no formato YYYY-MM-DD.',
+                        },
+                        {
+                            name: 'date_to',
+                            in: 'query',
+                            schema: { type: 'string', format: 'date' },
+                            description: 'Data final do filtro no formato YYYY-MM-DD.',
+                        },
+                    ],
+                    responses: {
+                        '200': {
+                            description: 'Arquivo CSV do extrato de mensagens.',
+                            content: {
+                                'text/csv': {
+                                    schema: {
+                                        type: 'string',
+                                        format: 'binary',
+                                    },
+                                },
+                            },
+                        },
                     },
                 },
             },
