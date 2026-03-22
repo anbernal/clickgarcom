@@ -41,16 +41,16 @@ Criterios de pronto:
 
 ## Epic 02 - Operacao e Pedidos com SLA
 
-Status: Planejado
+Status: Em execucao - lote 1 entregue
 
 Objetivo:
 Transformar o KDS de fila operacional em ferramenta de gestao com tempo, atraso e gargalo por etapa.
 
 Tasks:
-- [ ] Registrar e expor tempo por etapa do pedido: criado, aceito, pronto, entregue.
+- [x] Registrar e expor tempo por etapa do pedido: criado, aceito, pronto, entregue.
 - [ ] Configurar SLA por estacao: cozinha, bar e atendimento.
-- [ ] Destacar pedidos atrasados visualmente no KDS.
-- [ ] Criar cards de gargalo por estacao com quantidade e tempo medio.
+- [x] Destacar pedidos atrasados visualmente no KDS.
+- [x] Criar cards de gargalo por estacao com quantidade e tempo medio.
 - [ ] Adicionar relatorio de atraso por faixa de tempo.
 - [ ] Padronizar motivos de cancelamento no admin.
 - [ ] Separar cancelamento operacional, cancelamento de estoque e cancelamento por cliente.

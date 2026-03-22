@@ -15,6 +15,17 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
     CANCELED: [],
 };
 
+const ORDER_SLA_MINUTES = {
+    PENDING: { warning: 3, critical: 5, label: 'Aceite' },
+    ACCEPTED: { warning: 12, critical: 20, label: 'Preparo' },
+    READY: { warning: 4, critical: 8, label: 'Entrega' },
+} as const;
+
+const ORDER_DESTINATION_LABELS: Record<string, string> = {
+    KITCHEN: 'Cozinha',
+    BAR: 'Bar',
+};
+
 type BatchSyncResult = {
     batch: OrderBatch;
     orders: Order[];
@@ -22,6 +33,37 @@ type BatchSyncResult = {
     currentStatus: string;
     acceptedMilestoneReached: boolean;
     readyMilestoneReached: boolean;
+};
+
+type OrderOperationalStage = keyof typeof ORDER_SLA_MINUTES;
+
+type StationOperationsSummary = {
+    destination: string;
+    label: string;
+    activeCount: number;
+    pendingCount: number;
+    acceptedCount: number;
+    readyCount: number;
+    delayedCount: number;
+    warningCount: number;
+    avgActivePendingMinutes: number;
+    avgActivePreparationMinutes: number;
+    avgActiveReadyMinutes: number;
+    avgAcceptanceMinutes: number;
+    avgPreparationMinutes: number;
+    avgDeliveryWaitMinutes: number;
+    bottleneckStage: string;
+    bottleneckLabel: string;
+    bottleneckDelayedCount: number;
+    bottleneckQueueCount: number;
+    cancellationsLast7Days: number;
+    cancellationTopReason: string | null;
+    cancellationCategoryBreakdown: {
+        stock: number;
+        operational: number;
+        customer: number;
+        other: number;
+    };
 };
 
 @Injectable()
@@ -61,6 +103,44 @@ export class OrdersService {
 
     async findOne(id: string, tenantId: string) {
         return this.orderRepo.findOne({ where: { id, tenantId }, relations: ['items'] });
+    }
+
+    async getOperationsSummary(tenantId: string) {
+        const [activeOrders, recentRows] = await Promise.all([
+            this.orderRepo.find({
+                where: {
+                    tenantId,
+                    status: In(['PENDING', 'ACCEPTED', 'READY']),
+                },
+                order: { createdAt: 'ASC' },
+            }),
+            this.dataSource.query(
+                `SELECT
+                    destination,
+                    status,
+                    created_at,
+                    accepted_at,
+                    ready_at,
+                    delivered_at,
+                    canceled_at,
+                    cancel_reason
+                 FROM orders
+                 WHERE tenant_id = $1
+                   AND created_at >= NOW() - INTERVAL '7 days'`,
+                [tenantId],
+            ),
+        ]);
+
+        const stations = ['KITCHEN', 'BAR'].map((destination) =>
+            this.buildStationOperationsSummary(destination, activeOrders, recentRows || []),
+        );
+
+        return {
+            generatedAt: new Date().toISOString(),
+            sla: this.buildOrderSlaPayload(),
+            overall: this.buildOverallOperationsSummary(stations),
+            stations,
+        };
     }
 
     async updateStatus(
@@ -337,6 +417,285 @@ export class OrdersService {
 
     private roundMoney(value: number): number {
         return Math.round((value + Number.EPSILON) * 100) / 100;
+    }
+
+    private buildOrderSlaPayload() {
+        return {
+            pending: {
+                warningMinutes: ORDER_SLA_MINUTES.PENDING.warning,
+                criticalMinutes: ORDER_SLA_MINUTES.PENDING.critical,
+                label: ORDER_SLA_MINUTES.PENDING.label,
+            },
+            accepted: {
+                warningMinutes: ORDER_SLA_MINUTES.ACCEPTED.warning,
+                criticalMinutes: ORDER_SLA_MINUTES.ACCEPTED.critical,
+                label: ORDER_SLA_MINUTES.ACCEPTED.label,
+            },
+            ready: {
+                warningMinutes: ORDER_SLA_MINUTES.READY.warning,
+                criticalMinutes: ORDER_SLA_MINUTES.READY.critical,
+                label: ORDER_SLA_MINUTES.READY.label,
+            },
+        };
+    }
+
+    private buildOverallOperationsSummary(stations: StationOperationsSummary[]) {
+        return {
+            activeCount: stations.reduce((sum, station) => sum + station.activeCount, 0),
+            pendingCount: stations.reduce((sum, station) => sum + station.pendingCount, 0),
+            acceptedCount: stations.reduce((sum, station) => sum + station.acceptedCount, 0),
+            readyCount: stations.reduce((sum, station) => sum + station.readyCount, 0),
+            delayedCount: stations.reduce((sum, station) => sum + station.delayedCount, 0),
+            warningCount: stations.reduce((sum, station) => sum + station.warningCount, 0),
+            cancellationsLast7Days: stations.reduce((sum, station) => sum + station.cancellationsLast7Days, 0),
+        };
+    }
+
+    private buildStationOperationsSummary(
+        destination: string,
+        activeOrders: Order[],
+        recentRows: any[],
+    ): StationOperationsSummary {
+        const now = new Date();
+        const stationLabel = ORDER_DESTINATION_LABELS[destination] || destination;
+        const stationActiveOrders = activeOrders.filter((order) => order.destination === destination);
+        const stationRecentRows = (recentRows || []).filter((row) => String(row?.destination || '') === destination);
+        const pendingOrders = stationActiveOrders.filter((order) => order.status === 'PENDING');
+        const acceptedOrders = stationActiveOrders.filter((order) => order.status === 'ACCEPTED');
+        const readyOrders = stationActiveOrders.filter((order) => order.status === 'READY');
+        const pendingMetrics = this.buildActiveStageMetrics('PENDING', pendingOrders, now);
+        const acceptedMetrics = this.buildActiveStageMetrics('ACCEPTED', acceptedOrders, now);
+        const readyMetrics = this.buildActiveStageMetrics('READY', readyOrders, now);
+        const cancellationSummary = this.buildCancellationSummary(stationRecentRows);
+        const bottleneck = this.resolveStationBottleneck(
+            pendingOrders.length,
+            acceptedOrders.length,
+            readyOrders.length,
+            pendingMetrics.delayedCount,
+            acceptedMetrics.delayedCount,
+            readyMetrics.delayedCount,
+        );
+
+        return {
+            destination,
+            label: stationLabel,
+            activeCount: stationActiveOrders.length,
+            pendingCount: pendingOrders.length,
+            acceptedCount: acceptedOrders.length,
+            readyCount: readyOrders.length,
+            delayedCount: pendingMetrics.delayedCount + acceptedMetrics.delayedCount + readyMetrics.delayedCount,
+            warningCount: pendingMetrics.warningCount + acceptedMetrics.warningCount + readyMetrics.warningCount,
+            avgActivePendingMinutes: pendingMetrics.averageMinutes,
+            avgActivePreparationMinutes: acceptedMetrics.averageMinutes,
+            avgActiveReadyMinutes: readyMetrics.averageMinutes,
+            avgAcceptanceMinutes: this.buildHistoricalAverageMinutes(
+                stationRecentRows,
+                (row) => row.created_at,
+                (row) => row.accepted_at,
+            ),
+            avgPreparationMinutes: this.buildHistoricalAverageMinutes(
+                stationRecentRows,
+                (row) => row.accepted_at,
+                (row) => row.ready_at,
+            ),
+            avgDeliveryWaitMinutes: this.buildHistoricalAverageMinutes(
+                stationRecentRows,
+                (row) => row.ready_at,
+                (row) => row.delivered_at,
+            ),
+            bottleneckStage: bottleneck.stage,
+            bottleneckLabel: bottleneck.label,
+            bottleneckDelayedCount: bottleneck.delayedCount,
+            bottleneckQueueCount: bottleneck.queueCount,
+            cancellationsLast7Days: cancellationSummary.total,
+            cancellationTopReason: cancellationSummary.topReason,
+            cancellationCategoryBreakdown: cancellationSummary.categories,
+        };
+    }
+
+    private buildActiveStageMetrics(
+        stage: OrderOperationalStage,
+        orders: Order[],
+        now: Date,
+    ) {
+        const thresholds = ORDER_SLA_MINUTES[stage];
+        const elapsedMinutes = orders
+            .map((order) => this.resolveStageElapsedMinutes(stage, order, now))
+            .filter((value): value is number => value !== null);
+
+        const delayedCount = elapsedMinutes.filter((value) => value >= thresholds.critical).length;
+        const warningCount = elapsedMinutes.filter(
+            (value) => value >= thresholds.warning && value < thresholds.critical,
+        ).length;
+
+        return {
+            delayedCount,
+            warningCount,
+            averageMinutes: this.roundMinutes(this.calculateAverage(elapsedMinutes)),
+        };
+    }
+
+    private buildHistoricalAverageMinutes(
+        rows: any[],
+        startResolver: (row: any) => unknown,
+        endResolver: (row: any) => unknown,
+    ) {
+        const samples = (rows || [])
+            .map((row) => this.diffMinutes(startResolver(row), endResolver(row)))
+            .filter((value): value is number => value !== null);
+
+        return this.roundMinutes(this.calculateAverage(samples));
+    }
+
+    private buildCancellationSummary(rows: any[]) {
+        const canceledRows = (rows || []).filter(
+            (row) => String(row?.status || '').toUpperCase() === 'CANCELED' || row?.canceled_at,
+        );
+        const reasonCounts = new Map<string, number>();
+        const categories = {
+            stock: 0,
+            operational: 0,
+            customer: 0,
+            other: 0,
+        };
+
+        canceledRows.forEach((row) => {
+            const reason = String(row?.cancel_reason || '').trim();
+            if (reason) {
+                reasonCounts.set(reason, (reasonCounts.get(reason) || 0) + 1);
+            }
+            const category = this.classifyCancelReason(reason);
+            categories[category] += 1;
+        });
+
+        const topReason = [...reasonCounts.entries()]
+            .sort((left, right) => right[1] - left[1])[0]?.[0] || null;
+
+        return {
+            total: canceledRows.length,
+            topReason,
+            categories,
+        };
+    }
+
+    private resolveStationBottleneck(
+        pendingQueue: number,
+        acceptedQueue: number,
+        readyQueue: number,
+        pendingDelayed: number,
+        acceptedDelayed: number,
+        readyDelayed: number,
+    ) {
+        const candidates = [
+            {
+                stage: 'PENDING',
+                label: ORDER_SLA_MINUTES.PENDING.label,
+                delayedCount: pendingDelayed,
+                queueCount: pendingQueue,
+            },
+            {
+                stage: 'ACCEPTED',
+                label: ORDER_SLA_MINUTES.ACCEPTED.label,
+                delayedCount: acceptedDelayed,
+                queueCount: acceptedQueue,
+            },
+            {
+                stage: 'READY',
+                label: ORDER_SLA_MINUTES.READY.label,
+                delayedCount: readyDelayed,
+                queueCount: readyQueue,
+            },
+        ].sort((left, right) => {
+            if (right.delayedCount !== left.delayedCount) {
+                return right.delayedCount - left.delayedCount;
+            }
+            return right.queueCount - left.queueCount;
+        });
+
+        const top = candidates[0];
+        if (!top || (top.delayedCount <= 0 && top.queueCount <= 0)) {
+            return {
+                stage: 'FLOW_OK',
+                label: 'Fluxo sob controle',
+                delayedCount: 0,
+                queueCount: 0,
+            };
+        }
+
+        return top;
+    }
+
+    private resolveStageElapsedMinutes(stage: OrderOperationalStage, order: Order, now: Date) {
+        const startAt =
+            stage === 'PENDING'
+                ? order.createdAt
+                : stage === 'ACCEPTED'
+                    ? (order.acceptedAt || order.createdAt)
+                    : (order.readyAt || order.createdAt);
+
+        return this.diffMinutes(startAt, now);
+    }
+
+    private diffMinutes(startValue: unknown, endValue: unknown) {
+        const start = this.parseDate(startValue);
+        const end = this.parseDate(endValue);
+        if (!start || !end) return null;
+        if (end.getTime() <= start.getTime()) return 0;
+        return (end.getTime() - start.getTime()) / 60000;
+    }
+
+    private parseDate(value: unknown) {
+        if (!value) return null;
+        if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+        const parsed = new Date(String(value));
+        return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }
+
+    private calculateAverage(values: number[]) {
+        if (!values.length) return 0;
+        return values.reduce((sum, value) => sum + value, 0) / values.length;
+    }
+
+    private roundMinutes(value: number) {
+        return Math.round(value * 10) / 10;
+    }
+
+    private classifyCancelReason(reason: string): 'stock' | 'operational' | 'customer' | 'other' {
+        const normalized = String(reason || '').trim().toLowerCase();
+        if (!normalized) return 'other';
+
+        if (
+            normalized.includes('ingrediente')
+            || normalized.includes('estoque')
+            || normalized.includes('falta')
+            || normalized.includes('indispon')
+            || normalized.includes('fora do card')
+        ) {
+            return 'stock';
+        }
+
+        if (
+            normalized.includes('cliente')
+            || normalized.includes('desist')
+            || normalized.includes('duplic')
+            || normalized.includes('engano')
+            || normalized.includes('pagamento')
+        ) {
+            return 'customer';
+        }
+
+        if (
+            normalized.includes('equipamento')
+            || normalized.includes('cozinha')
+            || normalized.includes('bar')
+            || normalized.includes('sobrecarga')
+            || normalized.includes('operac')
+            || normalized.includes('equipe')
+        ) {
+            return 'operational';
+        }
+
+        return 'other';
     }
 
     private async buildAcceptedItemsSummary(order: Order, tenantId: string): Promise<string> {

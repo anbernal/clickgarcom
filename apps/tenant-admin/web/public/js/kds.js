@@ -12,6 +12,12 @@ const CONFIG = {
   WARNING_MINUTES: 5,
 };
 
+const DEFAULT_ORDER_SLA = {
+  pending: { warningMinutes: 3, criticalMinutes: 5, label: 'Aceite' },
+  accepted: { warningMinutes: 12, criticalMinutes: 20, label: 'Preparo' },
+  ready: { warningMinutes: 4, criticalMinutes: 8, label: 'Entrega' },
+};
+
 function resolveWebSocketUrl() {
   const configuredWs = String(runtimeConfig.kdsWsUrl || '').trim();
   if (configuredWs) return configuredWs;
@@ -87,6 +93,7 @@ let waiterChats = [];
 let waiterChatMessagesById = new Map();
 let activeWaiterChatId = null;
 let closeBillRequests = [];
+let operationsSummary = null;
 const PANEL_ORDER = ['kitchen', 'bar', 'salao'];
 
 function resolveInitialPanel() {
@@ -221,8 +228,12 @@ async function apiPost(path, body) {
 
 async function loadOrders() {
   try {
-    const data = await apiGet(`/orders?tenant_id=${CONFIG.TENANT_ID}&status=PENDING,ACCEPTED,READY`);
+    const [data, summary] = await Promise.all([
+      apiGet(`/orders?tenant_id=${CONFIG.TENANT_ID}&status=PENDING,ACCEPTED,READY`),
+      apiGet(`/orders/operations/summary?tenant_id=${CONFIG.TENANT_ID}`).catch(() => null),
+    ]);
     const orders = Array.isArray(data) ? data : (data.orders || []);
+    operationsSummary = summary;
     allOrders = {};
     orders.forEach((order) => {
       const normalized = normalizeOrder(order);
@@ -232,6 +243,18 @@ async function loadOrders() {
   } catch (e) {
     console.error('Failed to load orders:', e);
     toast('t-error', '❌ Erro', 'Falha ao carregar pedidos');
+  }
+}
+
+async function refreshOperationsSummary(shouldRender = true) {
+  try {
+    const summary = await apiGet(`/orders/operations/summary?tenant_id=${CONFIG.TENANT_ID}`);
+    operationsSummary = summary;
+    if (shouldRender) {
+      renderAll();
+    }
+  } catch (e) {
+    console.warn('Failed to refresh operations summary:', e);
   }
 }
 
@@ -305,6 +328,7 @@ function handleWSEvent(event) {
     const order = normalizeOrder(event.data);
     allOrders[order.id] = order;
     renderAll();
+    refreshOperationsSummary();
     playNotificationSound();
     toast('t-info', '🆕 Novo Pedido', `#${getOrderDisplayCode(order)} · ${order.destination}`);
   }
@@ -317,6 +341,7 @@ function handleWSEvent(event) {
       allOrders[order.id] = order;
     }
     renderAll();
+    refreshOperationsSummary();
   }
 }
 
@@ -333,6 +358,7 @@ function renderPanel(panel, destination) {
   const pending = orders.filter(o => o.status === 'PENDING');
   const accepted = orders.filter(o => o.status === 'ACCEPTED');
   const ready = orders.filter(o => o.status === 'READY');
+  const stationSummary = getStationOperations(destination);
 
   const prefix = panel === 'kitchen' ? 'k' : 'b';
   renderColumn(`col-${prefix}-pending`, pending, 'PENDING');
@@ -343,7 +369,7 @@ function renderPanel(panel, destination) {
   document.getElementById(`cc-${prefix}-accepted`).textContent = accepted.length;
   document.getElementById(`cc-${prefix}-ready`).textContent = ready.length;
 
-  renderStats(`stats-${panel}`, pending.length, accepted.length, ready.length, destination);
+  renderStats(`stats-${panel}`, pending.length, accepted.length, ready.length, destination, stationSummary);
 }
 
 function renderColumn(containerId, orders, status) {
@@ -394,16 +420,26 @@ function updateOrderCard(card, order) {
 }
 
 function getCardClass(order) {
-  if (order.status === 'PENDING') return 'urgent';
-  if (order.status === 'ACCEPTED') return 'accepted';
-  if (order.status === 'READY') return 'ready';
-  return '';
+  const classes = [];
+  const stage = getOrderStageSnapshot(order);
+
+  if (order.status === 'PENDING') classes.push('pending');
+  if (order.status === 'ACCEPTED') classes.push('accepted');
+  if (order.status === 'READY') classes.push('ready');
+
+  if (stage.elapsed.severity === 'critical') {
+    classes.push('sla-critical');
+  } else if (stage.elapsed.severity === 'warning') {
+    classes.push('sla-warning');
+  }
+
+  return classes.join(' ');
 }
 
 function buildCardHTML(order) {
   const badge = order.destination === 'KITCHEN' ? 'badge-kitchen' : 'badge-bar';
   const destLabel = order.destination === 'KITCHEN' ? 'Cozinha' : 'Bar';
-  const elapsed = getElapsed(order.created_at);
+  const stage = getOrderStageSnapshot(order);
 
   let itemsHtml = '';
   if (order.items && order.items.length) {
@@ -429,20 +465,42 @@ function buildCardHTML(order) {
     </div>
     <div class="order-items">${itemsHtml || '<div class="order-item"><span class="item-name" style="color:var(--text-3)">Sem itens</span></div>'}</div>
     <div class="order-card-footer">
-      <span class="order-timer ${elapsed.urgent ? 'urgent' : ''}" data-created="${order.created_at}">⏱ ${elapsed.text}</span>
+      <div style="display:flex; flex-direction:column; gap:6px;">
+        <span class="order-stage-badge ${stage.elapsed.severity === 'critical' ? 'critical' : stage.elapsed.severity === 'warning' ? 'warning' : ''}">
+          ${escapeHTML(stage.label)} · SLA ${escapeHTML(String(stage.criticalMinutes))} min
+        </span>
+        <span
+          class="order-timer ${stage.elapsed.warning ? 'warning' : ''} ${stage.elapsed.urgent ? 'urgent' : ''}"
+          data-start="${escapeHTML(stage.startedAt || '')}"
+          data-stage="${escapeHTML(stage.key)}"
+        >
+          ⏱ ${escapeHTML(stage.label)} ${escapeHTML(stage.elapsed.text)}
+        </span>
+      </div>
       <div class="order-actions">${actions}</div>
     </div>`;
 }
 
-function renderStats(containerId, pending, accepted, ready, destination) {
+function renderStats(containerId, pending, accepted, ready, destination, stationSummary) {
   const el = document.getElementById(containerId);
   if (!el) return;
   const icon = destination === 'KITCHEN' ? '🍳' : '🍹';
+  const delayedCount = Number(stationSummary?.delayedCount || 0);
+  const warningCount = Number(stationSummary?.warningCount || 0);
+  const avgAcceptanceMinutes = formatOperationalMinutes(stationSummary?.avgAcceptanceMinutes);
+  const avgPreparationMinutes = formatOperationalMinutes(stationSummary?.avgPreparationMinutes);
+  const bottleneckLabel = stationSummary?.bottleneckLabel || 'Fluxo sob controle';
+  const bottleneckDetail = Number(stationSummary?.bottleneckDelayedCount || 0) > 0
+    ? `${stationSummary.bottleneckDelayedCount} acima do SLA · fila ${stationSummary.bottleneckQueueCount || 0}`
+    : `${stationSummary?.bottleneckQueueCount || 0} pedido(s) no estágio mais carregado`;
   el.innerHTML = `
     <div class="stat-card"><div class="stat-icon" style="background:var(--red-bg)">🔴</div><div><div class="stat-value" style="color:var(--red)">${pending}</div><div class="stat-label">Aguardando aceite</div></div></div>
     <div class="stat-card"><div class="stat-icon" style="background:var(--yellow-bg)">⏱</div><div><div class="stat-value" style="color:#8a6e00">${accepted}</div><div class="stat-label">Em preparo</div></div></div>
     <div class="stat-card"><div class="stat-icon" style="background:var(--green-bg)">✅</div><div><div class="stat-value" style="color:var(--green)">${ready}</div><div class="stat-label">Prontos</div></div></div>
-    <div class="stat-card"><div class="stat-icon" style="background:var(--surface-2)">${icon}</div><div><div class="stat-value">${pending + accepted + ready}</div><div class="stat-label">Total ativos</div></div></div>`;
+    <div class="stat-card"><div class="stat-icon" style="background:var(--surface-2)">${icon}</div><div><div class="stat-value">${pending + accepted + ready}</div><div class="stat-label">Total ativos</div></div></div>
+    <div class="stat-card"><div class="stat-icon" style="background:${delayedCount > 0 ? 'var(--red-bg)' : 'var(--yellow-bg)'}">🚨</div><div><div class="stat-value" style="color:${delayedCount > 0 ? 'var(--red)' : '#8a6e00'}">${delayedCount}</div><div class="stat-label">${warningCount > 0 ? `${warningCount} em atenção` : 'Acima do SLA'}</div></div></div>
+    <div class="stat-card"><div class="stat-icon" style="background:var(--blue-bg)">🕒</div><div><div class="stat-value" style="color:var(--blue)">${avgPreparationMinutes}</div><div class="stat-label">Prep médio · Aceite ${avgAcceptanceMinutes}</div></div></div>
+    <div class="stat-card"><div class="stat-icon" style="background:var(--orange-bg)">🧱</div><div><div class="stat-value" style="font-size:13px; line-height:1.2;">${escapeHTML(bottleneckLabel)}</div><div class="stat-label">${escapeHTML(bottleneckDetail)}</div></div></div>`;
 }
 
 function renderSalao() {
@@ -604,6 +662,7 @@ async function updateStatus(orderId, newStatus, cancelReason, prepMinutes) {
     } else if (allOrders[orderId]) {
       allOrders[orderId].status = newStatus;
     }
+    await refreshOperationsSummary(false);
     renderAll();
 
     const labels = { ACCEPTED: 'aceito', READY: 'pronto', DELIVERED: 'entregue', CANCELED: 'cancelado' };
@@ -790,25 +849,80 @@ function getOrderDisplayCode(order) {
 }
 
 function getElapsed(dateStr) {
-  if (!dateStr) return { text: '—', minutes: 0, urgent: false };
+  return getElapsedWithSla(dateStr);
+}
+
+function getElapsedWithSla(dateStr, slaConfig) {
+  if (!dateStr) return { text: '—', minutes: 0, warning: false, urgent: false, severity: 'normal' };
   const diff = Date.now() - new Date(dateStr).getTime();
   const mins = Math.floor(diff / 60000);
   const secs = Math.floor((diff % 60000) / 1000);
+  const warningMinutes = Number(slaConfig?.warningMinutes || 0);
+  const criticalMinutes = Number(slaConfig?.criticalMinutes || warningMinutes || 0);
+  const severity = mins >= criticalMinutes
+    ? 'critical'
+    : mins >= warningMinutes && warningMinutes > 0
+      ? 'warning'
+      : 'normal';
   return {
     text: mins > 0 ? `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}` : `00:${String(secs).padStart(2, '0')}`,
     minutes: mins,
-    urgent: mins >= CONFIG.URGENT_MINUTES,
+    warning: severity === 'warning',
+    urgent: severity === 'critical',
+    severity,
   };
 }
 
 function startTimerUpdates() {
   timerInterval = setInterval(() => {
-    document.querySelectorAll('.order-timer[data-created]').forEach(el => {
-      const elapsed = getElapsed(el.dataset.created);
-      el.textContent = `⏱ ${elapsed.text}`;
+    document.querySelectorAll('.order-timer[data-start][data-stage]').forEach(el => {
+      const stage = getStageSlaConfig(el.dataset.stage);
+      const elapsed = getElapsedWithSla(el.dataset.start, stage);
+      el.textContent = `⏱ ${stage.label} ${elapsed.text}`;
+      el.classList.toggle('warning', elapsed.warning);
       el.classList.toggle('urgent', elapsed.urgent);
     });
   }, 1000);
+}
+
+function getStationOperations(destination) {
+  const stations = Array.isArray(operationsSummary?.stations) ? operationsSummary.stations : [];
+  return stations.find((station) => station.destination === destination) || null;
+}
+
+function getStageSlaConfig(stageKey) {
+  const current = operationsSummary?.sla || DEFAULT_ORDER_SLA;
+  if (stageKey === 'accepted') return current.accepted || DEFAULT_ORDER_SLA.accepted;
+  if (stageKey === 'ready') return current.ready || DEFAULT_ORDER_SLA.ready;
+  return current.pending || DEFAULT_ORDER_SLA.pending;
+}
+
+function getOrderStageSnapshot(order) {
+  if (order?.status === 'ACCEPTED') {
+    return buildOrderStageSnapshot('accepted', order.accepted_at || order.created_at);
+  }
+  if (order?.status === 'READY') {
+    return buildOrderStageSnapshot('ready', order.ready_at || order.created_at);
+  }
+  return buildOrderStageSnapshot('pending', order?.created_at || order?.createdAt);
+}
+
+function buildOrderStageSnapshot(stageKey, startedAt) {
+  const stage = getStageSlaConfig(stageKey);
+  return {
+    key: stageKey,
+    label: stage.label || 'Etapa',
+    warningMinutes: Number(stage.warningMinutes || 0),
+    criticalMinutes: Number(stage.criticalMinutes || 0),
+    startedAt: startedAt || '',
+    elapsed: getElapsedWithSla(startedAt, stage),
+  };
+}
+
+function formatOperationalMinutes(value) {
+  const parsed = Number(value || 0);
+  if (!Number.isFinite(parsed) || parsed <= 0) return '0,0 min';
+  return `${parsed.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} min`;
 }
 
 // ─── PANEL SWITCH ──────────────────────────────────────────────

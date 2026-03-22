@@ -19,6 +19,11 @@ export class OrdersController {
         return this.ordersService.findAll(req.user.tenantId, status);
     }
 
+    @Get('operations/summary')
+    getOperationsSummary(@Request() req) {
+        return this.ordersService.getOperationsSummary(req.user.tenantId);
+    }
+
     @Get(':id')
     findOne(@Request() req, @Param('id') id: string) {
         return this.ordersService.findOne(id, req.user.tenantId);

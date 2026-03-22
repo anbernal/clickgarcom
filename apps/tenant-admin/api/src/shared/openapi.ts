@@ -377,6 +377,19 @@ export function buildTenantAdminOpenApiDocument() {
                     },
                 },
             },
+            [`${ADMIN_API_VERSIONED_BASE_PATH}/orders/operations/summary`]: {
+                get: {
+                    tags: ['Orders'],
+                    summary: 'Resumo operacional de SLA, atraso e gargalo por estacao',
+                    security: [{ bearerAuth: [] }],
+                    responses: {
+                        '200': versionedSuccessResponse('Resumo operacional dos pedidos.', {
+                            type: 'object',
+                            additionalProperties: true,
+                        }),
+                    },
+                },
+            },
             [`${ADMIN_API_VERSIONED_BASE_PATH}/orders/{id}`]: {
                 get: {
                     tags: ['Orders'],
