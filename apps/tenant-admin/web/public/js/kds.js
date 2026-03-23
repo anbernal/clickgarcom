@@ -12,6 +12,26 @@ const CONFIG = {
   WARNING_MINUTES: 5,
 };
 
+// ─── SVG ICONS ─────────────────────────────────────────────────
+const KDS_ICONS = {
+  clock: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
+  fire: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg>',
+  check: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+  x: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+  package: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16.5 9.4 7.55 4.24"/><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.29 7 12 12 20.71 7"/><line x1="12" y1="22" x2="12" y2="12"/></svg>',
+  alert: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+  zap: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>',
+  wall: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>',
+  success: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>',
+  error: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
+  bell: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>',
+  chair: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 9V6a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v3"/><path d="M3 16h18v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-2z"/><path d="M5 16V9h14v7"/></svg>',
+  phone: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>',
+  chat: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>',
+  bill: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>',
+  timer: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
+};
+
 const DEFAULT_ORDER_SLA = {
   pending: { warningMinutes: 3, criticalMinutes: 5, label: 'Aceite' },
   accepted: { warningMinutes: 12, criticalMinutes: 20, label: 'Preparo' },
@@ -468,11 +488,11 @@ function buildCardHTML(order) {
 
   let actions = '';
   if (order.status === 'PENDING') {
-    actions = `<button class="action-btn reject-btn" onclick="openModal('${order.id}','reject')">✕ Recusar</button><button class="action-btn accept-btn" onclick="openModal('${order.id}','accept')">✓ Aceitar</button>`;
+    actions = `<button class="action-btn reject-btn" onclick="openModal('${order.id}','reject')">${KDS_ICONS.x} Recusar</button><button class="action-btn accept-btn" onclick="openModal('${order.id}','accept')">${KDS_ICONS.check} Aceitar</button>`;
   } else if (order.status === 'ACCEPTED') {
-    actions = `<button class="action-btn done-btn" onclick="updateStatus('${order.id}','READY')">✓ Pronto</button>`;
+    actions = `<button class="action-btn done-btn" onclick="updateStatus('${order.id}','READY')">${KDS_ICONS.check} Pronto</button>`;
   } else if (order.status === 'READY') {
-    actions = `<button class="action-btn deliver-btn" onclick="updateStatus('${order.id}','DELIVERED')">📦 Entregar</button>`;
+    actions = `<button class="action-btn deliver-btn" onclick="updateStatus('${order.id}','DELIVERED')">${KDS_ICONS.package} Entregar</button>`;
   }
 
   return `
@@ -514,13 +534,13 @@ function renderStats(containerId, pending, accepted, ready, destination, station
     ? `${stationSummary.bottleneckDelayedCount} acima do SLA · fila ${stationSummary.bottleneckQueueCount || 0}`
     : `${stationSummary?.bottleneckQueueCount || 0} pedido(s) no estágio mais carregado`;
   el.innerHTML = `
-    <div class="stat-card"><div class="stat-icon" style="background:var(--red-bg)">🔴</div><div><div class="stat-value" style="color:var(--red)">${pending}</div><div class="stat-label">Aguardando aceite</div></div></div>
-    <div class="stat-card"><div class="stat-icon" style="background:var(--yellow-bg)">⏱</div><div><div class="stat-value" style="color:#8a6e00">${accepted}</div><div class="stat-label">Em preparo · SLA ${escapeHTML(String(preparationSla.criticalMinutes || 0))} min</div></div></div>
-    <div class="stat-card"><div class="stat-icon" style="background:var(--green-bg)">✅</div><div><div class="stat-value" style="color:var(--green)">${ready}</div><div class="stat-label">Prontos</div></div></div>
+    <div class="stat-card"><div class="stat-icon" style="background:var(--red-bg);color:var(--red)">${KDS_ICONS.alert}</div><div><div class="stat-value" style="color:var(--red)">${pending}</div><div class="stat-label">Aguardando aceite</div></div></div>
+    <div class="stat-card"><div class="stat-icon" style="background:var(--yellow-bg);color:var(--yellow)">${KDS_ICONS.clock}</div><div><div class="stat-value" style="color:#8a6e00">${accepted}</div><div class="stat-label">Em preparo · SLA ${escapeHTML(String(preparationSla.criticalMinutes || 0))} min</div></div></div>
+    <div class="stat-card"><div class="stat-icon" style="background:var(--green-bg);color:var(--green)">${KDS_ICONS.check}</div><div><div class="stat-value" style="color:var(--green)">${ready}</div><div class="stat-label">Prontos</div></div></div>
     <div class="stat-card"><div class="stat-icon" style="background:var(--surface-2)">${icon}</div><div><div class="stat-value">${pending + accepted + ready}</div><div class="stat-label">Total ativos</div></div></div>
-    <div class="stat-card"><div class="stat-icon" style="background:${delayedCount > 0 ? 'var(--red-bg)' : 'var(--yellow-bg)'}">🚨</div><div><div class="stat-value" style="color:${delayedCount > 0 ? 'var(--red)' : '#8a6e00'}">${delayedCount}</div><div class="stat-label">${warningCount > 0 ? `${warningCount} em atenção` : 'Acima do SLA'}</div></div></div>
-    <div class="stat-card"><div class="stat-icon" style="background:var(--blue-bg)">🕒</div><div><div class="stat-value" style="color:var(--blue)">${avgPreparationMinutes}</div><div class="stat-label">Prep médio · Aceite ${avgAcceptanceMinutes}</div></div></div>
-    <div class="stat-card"><div class="stat-icon" style="background:var(--orange-bg)">🧱</div><div><div class="stat-value" style="font-size:13px; line-height:1.2;">${escapeHTML(bottleneckLabel)}</div><div class="stat-label">${escapeHTML(bottleneckDetail)}</div></div></div>`;
+    <div class="stat-card"><div class="stat-icon" style="background:${delayedCount > 0 ? 'var(--red-bg)' : 'var(--yellow-bg)'};color:${delayedCount > 0 ? 'var(--red)' : 'var(--yellow)'}">${KDS_ICONS.fire}</div><div><div class="stat-value" style="color:${delayedCount > 0 ? 'var(--red)' : '#8a6e00'}">${delayedCount}</div><div class="stat-label">${warningCount > 0 ? `${warningCount} em atenção` : 'Acima do SLA'}</div></div></div>
+    <div class="stat-card"><div class="stat-icon" style="background:var(--blue-bg);color:var(--blue)">${KDS_ICONS.clock}</div><div><div class="stat-value" style="color:var(--blue)">${avgPreparationMinutes}</div><div class="stat-label">Prep médio · Aceite ${avgAcceptanceMinutes}</div></div></div>
+    <div class="stat-card"><div class="stat-icon" style="background:var(--orange-bg);color:var(--orange)">${KDS_ICONS.wall}</div><div><div class="stat-value" style="font-size:13px; line-height:1.2;">${escapeHTML(bottleneckLabel)}</div><div class="stat-label">${escapeHTML(bottleneckDetail)}</div></div></div>`;
 }
 
 function renderSalao() {
@@ -531,11 +551,11 @@ function renderSalao() {
   const statsEl = document.getElementById('stats-salao');
   if (statsEl) {
     statsEl.innerHTML = `
-      <div class="stat-card"><div class="stat-icon" style="background:var(--green-bg)">🪑</div><div><div class="stat-value" style="color:var(--green)">${tableMetrics.available}</div><div class="stat-label">Mesas Livres</div></div></div>
-      <div class="stat-card"><div class="stat-icon" style="background:var(--green-bg)">✅</div><div><div class="stat-value" style="color:var(--green)">${readyOrders.length}</div><div class="stat-label">Prontos p/ Entrega</div></div></div>
-      <div class="stat-card"><div class="stat-icon" style="background:var(--yellow-bg)">👤</div><div><div class="stat-value" style="color:#8a6e00">${pendingRequests.length}</div><div class="stat-label">Aguardando</div></div></div>
-      <div class="stat-card"><div class="stat-icon" style="background:var(--blue-bg)">💬</div><div><div class="stat-value" style="color:var(--blue)">${openChats}</div><div class="stat-label">WhatsApp</div></div></div>
-      <div class="stat-card"><div class="stat-icon" style="background:var(--red-bg)">💰</div><div><div class="stat-value" style="color:var(--red)">${closeBillRequests.length}</div><div class="stat-label">Fechando Conta</div></div></div>`;
+      <div class="stat-card"><div class="stat-icon" style="background:var(--green-bg);color:var(--green)">${KDS_ICONS.chair}</div><div><div class="stat-value" style="color:var(--green)">${tableMetrics.available}</div><div class="stat-label">Mesas Livres</div></div></div>
+      <div class="stat-card"><div class="stat-icon" style="background:var(--green-bg);color:var(--green)">${KDS_ICONS.check}</div><div><div class="stat-value" style="color:var(--green)">${readyOrders.length}</div><div class="stat-label">Prontos p/ Entrega</div></div></div>
+      <div class="stat-card"><div class="stat-icon" style="background:var(--yellow-bg);color:var(--yellow)">${KDS_ICONS.phone}</div><div><div class="stat-value" style="color:#8a6e00">${pendingRequests.length}</div><div class="stat-label">Aguardando</div></div></div>
+      <div class="stat-card"><div class="stat-icon" style="background:var(--blue-bg);color:var(--blue)">${KDS_ICONS.chat}</div><div><div class="stat-value" style="color:var(--blue)">${openChats}</div><div class="stat-label">WhatsApp</div></div></div>
+      <div class="stat-card"><div class="stat-icon" style="background:var(--red-bg);color:var(--red)">${KDS_ICONS.bill}</div><div><div class="stat-value" style="color:var(--red)">${closeBillRequests.length}</div><div class="stat-label">Fechando Conta</div></div></div>`;
   }
 
   // --- Primeiro Contato ---
@@ -999,8 +1019,8 @@ function switchPanel(name) {
 function toast(type, title, sub) {
   const el = document.createElement('div');
   el.className = `toast ${escapeHTML(type)}`;
-  const icon = type === 't-success' ? '✅' : type === 't-error' ? '🚫' : '🔔';
-  el.innerHTML = `<div style="font-size:18px">${icon}</div><div class="toast-content"><div class="toast-title">${escapeHTML(title)}</div><div class="toast-sub">${escapeHTML(sub)}</div></div>`;
+  const icon = type === 't-success' ? KDS_ICONS.success : type === 't-error' ? KDS_ICONS.error : KDS_ICONS.bell;
+  el.innerHTML = `<div style="flex-shrink:0;display:flex;color:${type === 't-success' ? 'var(--green)' : type === 't-error' ? 'var(--red)' : 'var(--blue)'}">${icon}</div><div class="toast-content"><div class="toast-title">${escapeHTML(title)}</div><div class="toast-sub">${escapeHTML(sub)}</div></div>`;
   document.getElementById('toasts').appendChild(el);
   setTimeout(() => { el.classList.add('fadeout'); setTimeout(() => el.remove(), 350); }, 4200);
 }

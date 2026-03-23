@@ -578,8 +578,8 @@ tbody tr:last-child td {
 .tables-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-  padding: 20px;
+  gap: 14px;
+  padding: 22px;
 }
 
 .tables-grid-6 {
@@ -590,56 +590,81 @@ tbody tr:last-child td {
 }
 
 .table-item {
-  border-radius: var(--radius-sm);
+  border-radius: 16px;
   padding: 14px;
   text-align: center;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   border: 2px solid transparent;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 2px 8px rgba(0,0,0,0.02);
+  position: relative;
+  overflow: hidden;
+}
+
+.table-item::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  border-radius: 16px 16px 0 0;
+  opacity: 0.7;
+  transition: opacity 0.2s;
 }
 
 .table-item:hover {
-  transform: scale(1.04);
+  transform: translateY(-3px);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.08), 0 2px 6px rgba(0,0,0,0.04);
+}
+
+.table-item:hover::before {
+  opacity: 1;
 }
 
 .table-item.occupied {
-  background: #fff7ed;
-  border-color: #fdba74;
+  background: linear-gradient(135deg, #fff7ed 0%, #fff 100%);
+  border-color: #fed7aa;
 }
+.table-item.occupied::before { background: linear-gradient(90deg, #f97316, #fb923c); }
 
 .table-item.free {
-  background: var(--done-bg);
-  border-color: #86efac;
+  background: linear-gradient(135deg, #f0fdf4 0%, #fff 100%);
+  border-color: #bbf7d0;
 }
+.table-item.free::before { background: linear-gradient(90deg, #22c55e, #4ade80); }
 
 .table-item.reserved {
-  background: #eff6ff;
-  border-color: #93c5fd;
+  background: linear-gradient(135deg, #eff6ff 0%, #fff 100%);
+  border-color: #bfdbfe;
 }
+.table-item.reserved::before { background: linear-gradient(90deg, #3b82f6, #60a5fa); }
 
 .table-item.closed {
-  background: #fef2f2;
-  border-color: #fca5a5;
+  background: linear-gradient(135deg, #fef2f2 0%, #fff 100%);
+  border-color: #fecaca;
 }
+.table-item.closed::before { background: linear-gradient(90deg, #ef4444, #f87171); }
 
 .table-num {
   font-size: 18px;
   font-weight: 800;
   color: var(--dark);
+  letter-spacing: -0.3px;
 }
 
 .table-status {
   font-size: 10px;
-  font-weight: 600;
+  font-weight: 700;
   margin-top: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .table-item.occupied .table-status {
-  color: var(--pending-text);
+  color: #ea580c;
 }
 
 .table-item.free .table-status {
-  color: var(--done-text);
+  color: #16a34a;
 }
 
 .table-item.reserved .table-status {
@@ -647,16 +672,35 @@ tbody tr:last-child td {
 }
 
 .table-item.closed .table-status {
-  color: var(--accent-red);
+  color: #dc2626;
 }
 
 .table-value {
   font-family: 'JetBrains Mono', monospace;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--muted);
   margin-top: 4px;
 }
+
+/* Mesas icon wrapper */
+.mesas-table-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 6px;
+  transition: transform 0.2s;
+}
+.table-item:hover .mesas-table-icon {
+  transform: scale(1.1);
+}
+.table-item.free .mesas-table-icon { background: rgba(34, 197, 94, 0.12); color: #16a34a; }
+.table-item.occupied .mesas-table-icon { background: rgba(249, 115, 22, 0.12); color: #ea580c; }
+.table-item.reserved .mesas-table-icon { background: rgba(59, 130, 246, 0.12); color: #2563eb; }
+.table-item.closed .mesas-table-icon { background: rgba(239, 68, 68, 0.12); color: #dc2626; }
 
 /* ── MENU CARDS ── */
 .menu-grid {
@@ -1439,4 +1483,444 @@ tbody tr:last-child td {
 
 .page.active {
   display: block;
+}
+
+/* ══════════════════════════════════════════
+   VENDAS PAGE — Modernized Components
+   ══════════════════════════════════════════ */
+
+/* ── Stat Cards ── */
+.vendas-stat {
+  background: var(--card-bg);
+  border-radius: var(--radius);
+  padding: 24px;
+  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--teal);
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.2s, box-shadow 0.2s;
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.vendas-stat:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-lg);
+}
+
+.vendas-stat.accent-green  { border-left-color: #10b981; }
+.vendas-stat.accent-purple { border-left-color: var(--accent-purple); }
+.vendas-stat.accent-blue   { border-left-color: var(--accent-blue); }
+.vendas-stat.accent-red    { border-left-color: var(--accent-red); }
+
+.vendas-stat-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.vendas-stat-icon svg {
+  width: 24px;
+  height: 24px;
+  stroke-width: 2;
+}
+
+.vendas-stat-icon.icon-green {
+  background: linear-gradient(135deg, #d1fae5, #a7f3d0);
+  color: #059669;
+}
+
+.vendas-stat-icon.icon-purple {
+  background: linear-gradient(135deg, #ede9fe, #ddd6fe);
+  color: #7c3aed;
+}
+
+.vendas-stat-icon.icon-blue {
+  background: linear-gradient(135deg, #dbeafe, #bfdbfe);
+  color: #2563eb;
+}
+
+.vendas-stat-icon.icon-red {
+  background: linear-gradient(135deg, #fee2e2, #fecaca);
+  color: #dc2626;
+}
+
+.vendas-stat-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.vendas-stat-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.vendas-stat-value {
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--dark);
+  letter-spacing: -1px;
+  font-family: 'JetBrains Mono', monospace;
+  line-height: 1.1;
+}
+
+.vendas-stat-sub {
+  font-size: 12px;
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ── Chip / Pill Filters ── */
+.vendas-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.vendas-chip {
+  padding: 7px 16px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1.5px solid var(--border);
+  background: var(--card-bg);
+  color: var(--muted);
+  transition: all 0.2s;
+  font-family: 'Sora', sans-serif;
+}
+
+.vendas-chip:hover {
+  border-color: var(--teal);
+  color: var(--teal-dark);
+  background: var(--teal-light);
+}
+
+.vendas-chip.active {
+  background: linear-gradient(135deg, var(--teal), var(--teal-dark));
+  color: white;
+  border-color: transparent;
+  box-shadow: 0 2px 8px rgba(26, 188, 156, 0.3);
+}
+
+/* ── Insight Metrics ── */
+.vendas-insight {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+  border-left: 3px solid var(--teal);
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.vendas-insight:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+}
+
+.vendas-insight-label {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.vendas-insight-label svg {
+  width: 14px;
+  height: 14px;
+  opacity: 0.5;
+}
+
+.vendas-insight-value {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--dark);
+  line-height: 1.2;
+}
+
+/* ── Progress Bar ── */
+.vendas-progress {
+  height: 6px;
+  background: var(--bg);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+.vendas-progress-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.6s ease;
+  background: linear-gradient(90deg, var(--teal), var(--teal-dark));
+}
+
+.vendas-progress-fill.purple {
+  background: linear-gradient(90deg, #a78bfa, #7c3aed);
+}
+
+.vendas-progress-fill.orange {
+  background: linear-gradient(90deg, #fb923c, #ea580c);
+}
+
+.vendas-progress-fill.blue {
+  background: linear-gradient(90deg, #60a5fa, #2563eb);
+}
+
+/* ── Bar Chart Enhanced ── */
+.vendas-bar {
+  width: 100%;
+  border-radius: 5px 5px 0 0;
+  transition: all 0.3s;
+  cursor: pointer;
+  position: relative;
+}
+
+.vendas-bar.bar-teal {
+  background: linear-gradient(180deg, var(--teal) 0%, #0f9d7e 100%);
+}
+
+.vendas-bar.bar-orange {
+  background: linear-gradient(180deg, var(--accent-orange) 0%, #ea580c 100%);
+}
+
+.vendas-bar:hover {
+  filter: brightness(1.12);
+  transform: scaleY(1.04);
+  transform-origin: bottom;
+}
+
+/* ── Tables Enhanced ── */
+.vendas-table tbody tr:nth-child(even) {
+  background: #f9fafb;
+}
+
+.vendas-table tbody tr:hover {
+  background: var(--teal-light) !important;
+}
+
+.vendas-table thead th {
+  background: linear-gradient(180deg, #f8fafc 0%, var(--bg) 100%);
+  padding: 14px 16px;
+  font-size: 10px;
+  letter-spacing: 1px;
+}
+
+.vendas-table .rank-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.vendas-rank-badge {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 800;
+  flex-shrink: 0;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.vendas-rank-badge.rank-1 { background: linear-gradient(135deg, #fbbf24, #f59e0b); color: #fff; }
+.vendas-rank-badge.rank-2 { background: linear-gradient(135deg, #cbd5e1, #94a3b8); color: #fff; }
+.vendas-rank-badge.rank-3 { background: linear-gradient(135deg, #fdba74, #f97316); color: #fff; }
+.vendas-rank-badge.rank-other { background: var(--bg); color: var(--muted); }
+
+/* ── Low Sales Cards ── */
+.vendas-low-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+  background: linear-gradient(135deg, #ffffff 0%, #fffbf5 100%);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.vendas-low-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow);
+}
+
+.vendas-low-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+
+.vendas-low-name {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--dark);
+}
+
+.vendas-low-cat {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.vendas-low-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.vendas-low-metric-label {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.vendas-low-metric-value {
+  font-weight: 800;
+  font-size: 16px;
+  color: var(--dark);
+  margin-top: 2px;
+}
+
+/* ── Section Titles ── */
+.vendas-section-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.vendas-section-badge {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+/* ── Animations ── */
+@keyframes vendas-fadeSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.vendas-animate {
+  animation: vendas-fadeSlideUp 0.4s ease both;
+}
+
+.vendas-animate:nth-child(1) { animation-delay: 0.03s; }
+.vendas-animate:nth-child(2) { animation-delay: 0.06s; }
+.vendas-animate:nth-child(3) { animation-delay: 0.09s; }
+.vendas-animate:nth-child(4) { animation-delay: 0.12s; }
+.vendas-animate:nth-child(5) { animation-delay: 0.15s; }
+.vendas-animate:nth-child(6) { animation-delay: 0.18s; }
+
+/* ── Sales Report Header ── */
+.vendas-report-header {
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border-bottom: 1px solid var(--border);
+  padding: 20px 22px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.vendas-report-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--teal-light);
+  color: var(--teal-dark);
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 700;
+  margin-left: 8px;
+}
+
+/* ── Filter Area ── */
+.vendas-filter-area {
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border-radius: var(--radius);
+  padding: 22px;
+  border: 1px solid var(--border);
+  margin-bottom: 20px;
+}
+
+.vendas-filter-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.vendas-filter-dates {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+
+.vendas-comparison-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 12px;
+}
+
+.vendas-comparison-note svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+/* Responsive */
+@media (max-width: 1200px) {
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+  .section-grid {
+    grid-template-columns: 1fr;
+  }
 }

@@ -45,6 +45,25 @@ async function loadVendas(preset = null) {
   }
 }
 
+/* ─────────────────────────────────────────────
+   SVG Icon helpers (Feather-style inline SVGs)
+   ───────────────────────────────────────────── */
+const VENDAS_ICONS = {
+  revenue: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>',
+  margin: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>',
+  ticket: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>',
+  cancel: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
+  clock: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
+  zap: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>',
+  info: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>',
+  search: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+  download: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
+  bar: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>',
+  trophy: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>',
+  alert: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+  compare: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>',
+};
+
 function renderVendas() {
   const container = document.getElementById('page-vendas');
   const management = vendasState.management;
@@ -65,22 +84,23 @@ function renderVendas() {
   const peakHour = management.overview?.peak_hour;
 
   container.innerHTML = `
-    <div class="full-card" style="margin-bottom:20px">
-      <div class="card-header" style="align-items:flex-start;gap:16px">
+    <!-- ═══ FILTER AREA ═══ -->
+    <div class="vendas-filter-area vendas-animate">
+      <div class="vendas-filter-top">
         <div>
-          <div class="card-title">Relatórios Gerenciais</div>
-          <div class="card-subtitle">Leitura financeira e operacional do período ${escapeHTML(management.period?.label || '')}</div>
+          <div class="card-title" style="font-size:18px;margin-bottom:4px">Relatórios Gerenciais</div>
+          <div class="card-subtitle">Leitura financeira e operacional — ${escapeHTML(management.period?.label || '')}</div>
         </div>
-        <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end">
+        <div class="vendas-chips">
           ${Object.entries(VENDAS_PRESET_LABELS)
             .filter(([key]) => key !== 'custom')
             .map(([key, label]) => `
-              <button class="btn-sm ${filters.preset === key ? 'btn-primary' : 'btn-outline'}" onclick="selectVendasPreset('${key}')">${escapeHTML(label)}</button>
+              <button class="vendas-chip ${filters.preset === key ? 'active' : ''}" onclick="selectVendasPreset('${key}')">${escapeHTML(label)}</button>
             `).join('')}
         </div>
       </div>
 
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;align-items:end">
+      <div class="vendas-filter-dates">
         <div class="form-group" style="margin:0">
           <label>Data inicial</label>
           <input type="date" id="vendas-start-date" value="${escapeHTML(filters.startDate)}">
@@ -93,93 +113,118 @@ function renderVendas() {
           <button class="btn-sm btn-dark" onclick="applyVendasCustomRange()">Atualizar</button>
           <button class="btn-sm btn-outline" onclick="resetVendasRange()">Limpar</button>
         </div>
-        <div style="display:flex;justify-content:flex-end;align-items:end;color:var(--muted);font-size:12px">
-          Comparação automática contra ${escapeHTML(management.comparison_period?.label || '')}
-        </div>
+      </div>
+
+      <div class="vendas-comparison-note">
+        ${VENDAS_ICONS.compare}
+        Comparação automática contra ${escapeHTML(management.comparison_period?.label || '')}
       </div>
     </div>
 
+    <!-- ═══ STAT CARDS ═══ -->
     <div class="stats-grid" style="margin-bottom:20px">
-      <div class="stat-card">
-        <div class="stat-icon">💰</div>
-        <div class="stat-label">Receita do Período</div>
-        <div class="stat-value">${formatCurrency(management.overview?.revenue || 0)}</div>
-        <div class="stat-change ${comparisonClass(management.overview?.comparisons?.revenue)}">${formatComparison(management.overview?.comparisons?.revenue)}</div>
+      <div class="vendas-stat accent-green vendas-animate">
+        <div class="vendas-stat-icon icon-green">${VENDAS_ICONS.revenue}</div>
+        <div class="vendas-stat-body">
+          <div class="vendas-stat-label">Receita do Período</div>
+          <div class="vendas-stat-value">${formatCurrency(management.overview?.revenue || 0)}</div>
+          <div class="vendas-stat-sub ${comparisonClass(management.overview?.comparisons?.revenue)}">${formatComparison(management.overview?.comparisons?.revenue)}</div>
+        </div>
       </div>
-      <div class="stat-card">
-        <div class="stat-icon">📉</div>
-        <div class="stat-label">Margem Estimada</div>
-        <div class="stat-value">${formatCurrency(marginSummary.estimatedMargin)}</div>
-        <div class="stat-change" style="color:var(--muted)">Cobertura de custo em ${formatPercent(marginSummary.coverageRate)}</div>
+      <div class="vendas-stat accent-purple vendas-animate">
+        <div class="vendas-stat-icon icon-purple">${VENDAS_ICONS.margin}</div>
+        <div class="vendas-stat-body">
+          <div class="vendas-stat-label">Margem Estimada</div>
+          <div class="vendas-stat-value">${formatCurrency(marginSummary.estimatedMargin)}</div>
+          <div class="vendas-stat-sub" style="color:var(--muted)">Cobertura de custo em ${formatPercent(marginSummary.coverageRate)}</div>
+        </div>
       </div>
-      <div class="stat-card">
-        <div class="stat-icon">🧾</div>
-        <div class="stat-label">Ticket Médio</div>
-        <div class="stat-value">${formatCurrency(management.overview?.average_ticket || 0)}</div>
-        <div class="stat-change ${comparisonClass(management.overview?.comparisons?.average_ticket)}">${formatComparison(management.overview?.comparisons?.average_ticket)}</div>
+      <div class="vendas-stat accent-blue vendas-animate">
+        <div class="vendas-stat-icon icon-blue">${VENDAS_ICONS.ticket}</div>
+        <div class="vendas-stat-body">
+          <div class="vendas-stat-label">Ticket Médio</div>
+          <div class="vendas-stat-value">${formatCurrency(management.overview?.average_ticket || 0)}</div>
+          <div class="vendas-stat-sub ${comparisonClass(management.overview?.comparisons?.average_ticket)}">${formatComparison(management.overview?.comparisons?.average_ticket)}</div>
+        </div>
       </div>
-      <div class="stat-card">
-        <div class="stat-icon">⚠️</div>
-        <div class="stat-label">Cancelamento e Perda</div>
-        <div class="stat-value">${formatPercent(management.overview?.cancellation_rate || 0)}</div>
-        <div class="stat-change ${comparisonClass(management.overview?.comparisons?.cancellation_rate, true)}">
-          ${management.overview?.canceled_orders_count || 0} cancelados · ${formatCurrency(management.overview?.lost_revenue || 0)}
+      <div class="vendas-stat accent-red vendas-animate">
+        <div class="vendas-stat-icon icon-red">${VENDAS_ICONS.cancel}</div>
+        <div class="vendas-stat-body">
+          <div class="vendas-stat-label">Cancelamento e Perda</div>
+          <div class="vendas-stat-value">${formatPercent(management.overview?.cancellation_rate || 0)}</div>
+          <div class="vendas-stat-sub ${comparisonClass(management.overview?.comparisons?.cancellation_rate, true)}">
+            ${management.overview?.canceled_orders_count || 0} cancelados · ${formatCurrency(management.overview?.lost_revenue || 0)}
+          </div>
         </div>
       </div>
     </div>
 
+    <!-- ═══ VELOCIDADE + PICOS ═══ -->
     <div class="section-grid" style="margin-bottom:20px">
-      <div class="card">
+      <div class="card vendas-animate">
         <div class="card-header">
-          <div>
-            <div class="card-title">Velocidade Operacional</div>
-            <div class="card-subtitle">Tempo médio por etapa do pedido</div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <div class="vendas-section-badge" style="background:linear-gradient(135deg,#dbeafe,#bfdbfe);color:#2563eb">${VENDAS_ICONS.clock}</div>
+            <div>
+              <div class="card-title">Velocidade Operacional</div>
+              <div class="card-subtitle">Tempo médio por etapa do pedido</div>
+            </div>
           </div>
         </div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px">
-          ${renderInsightMetric('Aceite médio', formatMinutes(management.overview?.average_acceptance_minutes))}
-          ${renderInsightMetric('Preparo médio', formatMinutes(management.overview?.average_preparation_minutes))}
-          ${renderInsightMetric('Entrega média', formatMinutes(management.overview?.average_delivery_minutes))}
-          ${renderInsightMetric('Pedidos faturados', String(management.overview?.billed_orders_count || 0))}
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;padding:18px 22px">
+          ${renderInsightMetric('Aceite médio', formatMinutes(management.overview?.average_acceptance_minutes), VENDAS_ICONS.clock)}
+          ${renderInsightMetric('Preparo médio', formatMinutes(management.overview?.average_preparation_minutes), VENDAS_ICONS.clock)}
+          ${renderInsightMetric('Entrega média', formatMinutes(management.overview?.average_delivery_minutes), VENDAS_ICONS.clock)}
+          ${renderInsightMetric('Pedidos faturados', String(management.overview?.billed_orders_count || 0), VENDAS_ICONS.bar)}
         </div>
       </div>
 
-      <div class="card">
+      <div class="card vendas-animate">
         <div class="card-header">
-          <div>
-            <div class="card-title">Picos de Operação</div>
-            <div class="card-subtitle">Onde o caixa aperta mais</div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <div class="vendas-section-badge" style="background:linear-gradient(135deg,#fef3c7,#fde68a);color:#d97706">${VENDAS_ICONS.zap}</div>
+            <div>
+              <div class="card-title">Picos de Operação</div>
+              <div class="card-subtitle">Onde o caixa aperta mais</div>
+            </div>
           </div>
         </div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px">
-          ${renderInsightMetric('Pico por hora', peakHour ? `${escapeHTML(peakHour.label)} · ${formatCurrency(peakHour.revenue)}` : 'Sem pico')}
-          ${renderInsightMetric('Pedidos na hora pico', peakHour ? String(peakHour.orders_count || 0) : '0')}
-          ${renderInsightMetric('Melhor dia', peakDay ? `${escapeHTML(peakDay.label)} · ${formatCurrency(peakDay.revenue)}` : 'Sem pico')}
-          ${renderInsightMetric('Cobertura de custo', `${formatPercent(management.cost_coverage?.coverage_rate || 0)} do cardápio`)}
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;padding:18px 22px">
+          ${renderInsightMetric('Pico por hora', peakHour ? `${escapeHTML(peakHour.label)} · ${formatCurrency(peakHour.revenue)}` : 'Sem pico', VENDAS_ICONS.zap)}
+          ${renderInsightMetric('Pedidos na hora pico', peakHour ? String(peakHour.orders_count || 0) : '0', VENDAS_ICONS.bar)}
+          ${renderInsightMetric('Melhor dia', peakDay ? `${escapeHTML(peakDay.label)} · ${formatCurrency(peakDay.revenue)}` : 'Sem pico', VENDAS_ICONS.trophy)}
+          ${renderInsightMetric('Cobertura de custo', `${formatPercent(management.cost_coverage?.coverage_rate || 0)} do cardápio`, VENDAS_ICONS.info)}
         </div>
       </div>
     </div>
 
+    <!-- ═══ CHARTS ═══ -->
     <div class="section-grid" style="margin-bottom:20px">
-      <div class="card">
+      <div class="card vendas-animate">
         <div class="card-header">
-          <div>
-            <div class="card-title">Ticket Médio por Faixa Horária</div>
-            <div class="card-subtitle">Faixas com maior valor por pedido</div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <div class="vendas-section-badge" style="background:linear-gradient(135deg,#ffedd5,#fed7aa);color:#ea580c">${VENDAS_ICONS.bar}</div>
+            <div>
+              <div class="card-title">Ticket Médio por Faixa Horária</div>
+              <div class="card-subtitle">Faixas com maior valor por pedido</div>
+            </div>
           </div>
         </div>
         <div class="chart-bars" id="chart-bars-vendas-hourly"></div>
         <div class="chart-footer">
           <span style="font-size:12px;color:var(--muted)">Baseado nos pedidos faturados do período</span>
-          <span style="font-size:12px;color:var(--teal);font-weight:700">${hourlySeries.length} faixas com movimento</span>
+          <span style="font-size:12px;color:var(--accent-orange);font-weight:700">${hourlySeries.length} faixas com movimento</span>
         </div>
       </div>
 
-      <div class="card">
+      <div class="card vendas-animate">
         <div class="card-header">
-          <div>
-            <div class="card-title">Receita por Dia</div>
-            <div class="card-subtitle">Pico por dia e comparativo visual</div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <div class="vendas-section-badge" style="background:linear-gradient(135deg,#d1fae5,#a7f3d0);color:#059669">${VENDAS_ICONS.bar}</div>
+            <div>
+              <div class="card-title">Receita por Dia</div>
+              <div class="card-subtitle">Pico por dia e comparativo visual</div>
+            </div>
           </div>
         </div>
         <div class="chart-bars" id="chart-bars-vendas-daily"></div>
@@ -190,56 +235,76 @@ function renderVendas() {
       </div>
     </div>
 
+    <!-- ═══ RANKING + MARGEM ═══ -->
     <div class="section-grid" style="margin-bottom:20px">
-      <div class="card">
+      <div class="card vendas-animate">
         <div class="card-header">
-          <div>
-            <div class="card-title">Ranking de Categorias</div>
-            <div class="card-subtitle">Receita, margem estimada e cobertura de custo</div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <div class="vendas-section-badge" style="background:linear-gradient(135deg,#ede9fe,#ddd6fe);color:#7c3aed">${VENDAS_ICONS.trophy}</div>
+            <div>
+              <div class="card-title">Ranking de Categorias</div>
+              <div class="card-subtitle">Receita, margem estimada e cobertura de custo</div>
+            </div>
           </div>
         </div>
         ${renderRankingTable(management.category_ranking || [], 'categoria')}
       </div>
 
-      <div class="card">
+      <div class="card vendas-animate">
         <div class="card-header">
-          <div>
-            <div class="card-title">Itens com Margem Estimada</div>
-            <div class="card-subtitle">Itens mais relevantes financeiramente</div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <div class="vendas-section-badge" style="background:linear-gradient(135deg,#dbeafe,#bfdbfe);color:#2563eb">${VENDAS_ICONS.margin}</div>
+            <div>
+              <div class="card-title">Itens com Margem Estimada</div>
+              <div class="card-subtitle">Itens mais relevantes financeiramente</div>
+            </div>
           </div>
         </div>
         ${renderItemMarginTable(management.item_margins || [])}
       </div>
     </div>
 
+    <!-- ═══ LOW SALES ═══ -->
     <div class="section-grid" style="margin-bottom:20px">
-      <div class="card">
+      <div class="card vendas-animate" style="grid-column:1/-1">
         <div class="card-header">
-          <div>
-            <div class="card-title">Itens com Baixa Saída</div>
-            <div class="card-subtitle">Leitura de participação no mix do período, não de visualização do cardápio</div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <div class="vendas-section-badge" style="background:linear-gradient(135deg,#fee2e2,#fecaca);color:#dc2626">${VENDAS_ICONS.alert}</div>
+            <div>
+              <div class="card-title">Itens com Baixa Saída</div>
+              <div class="card-subtitle">Leitura de participação no mix do período, não de visualização do cardápio</div>
+            </div>
           </div>
         </div>
-        ${renderLowSalesGrid(management.low_sales_items || [])}
+        <div style="padding:18px 22px">
+          ${renderLowSalesGrid(management.low_sales_items || [])}
+        </div>
       </div>
     </div>
 
-    <div class="card" style="grid-column:1/-1">
-      <div class="card-header">
-        <div>
-          <div class="card-title">Relatório de Vendas</div>
-          <div class="card-subtitle">${sales.length} pedidos no período selecionado</div>
+    <!-- ═══ RELATÓRIO DE VENDAS ═══ -->
+    <div class="card vendas-animate" style="grid-column:1/-1">
+      <div class="vendas-report-header">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div class="vendas-section-badge" style="background:linear-gradient(135deg,#d1fae5,#a7f3d0);color:#059669">${VENDAS_ICONS.bar}</div>
+          <div>
+            <div class="card-title">Relatório de Vendas</div>
+            <div class="card-subtitle">${sales.length} pedidos no período selecionado</div>
+          </div>
+          <span class="vendas-report-count">${sales.length} pedidos</span>
         </div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
           <div class="search-box">
-            <span>🔍</span>
+            <span style="display:flex">${VENDAS_ICONS.search}</span>
             <input type="text" placeholder="Buscar por código, destino ou status..." id="vendas-search" value="${escapeHTML(filters.search || '')}">
           </div>
-          <button class="btn-sm btn-outline" onclick="exportVendasCsv()">📥 Exportar CSV</button>
+          <button class="btn-sm btn-outline" onclick="exportVendasCsv()" style="display:flex;align-items:center;gap:6px">
+            ${VENDAS_ICONS.download} Exportar CSV
+          </button>
         </div>
       </div>
       <div style="overflow:auto">
-        <table>
+        <table class="vendas-table">
           <thead>
             <tr><th>#</th><th>Destino</th><th>Status</th><th>Data</th><th>Itens</th><th>Total</th></tr>
           </thead>
@@ -252,7 +317,7 @@ function renderVendas() {
                 <td><span class="status-pill ${statusClass(entry.order.status)}">${statusLabel(entry.order.status)}</span></td>
                 <td>${formatDate(entry.order.createdAt)}</td>
                 <td>${entry.itemsCount} itens</td>
-                <td class="mono">${formatCurrency(entry.total)}</td>
+                <td class="mono" style="font-weight:700;color:var(--dark)">${formatCurrency(entry.total)}</td>
               </tr>
             `).join('')}
           </tbody>
@@ -289,7 +354,7 @@ function renderVendasCharts(hourlySeries, dailySeries) {
       'average_ticket',
       (point) => point.label,
       (point) => formatCurrency(point.average_ticket || 0),
-      'var(--accent-orange)',
+      'bar-orange',
     );
   }
 
@@ -299,7 +364,7 @@ function renderVendasCharts(hourlySeries, dailySeries) {
       'revenue',
       (point) => point.weekday_label || point.label,
       (point) => formatCurrency(point.revenue || 0),
-      'var(--teal)',
+      'bar-teal',
     );
   }
 }
@@ -309,9 +374,11 @@ function renderRankingTable(rows, label) {
     return '<div class="empty-state"><div class="icon">📭</div><p>Sem vendas no período para montar ranking.</p></div>';
   }
 
+  const maxRevenue = Math.max(...rows.map((r) => Number(r.revenue || 0)), 1);
+
   return `
     <div style="overflow:auto">
-      <table>
+      <table class="vendas-table">
         <thead>
           <tr>
             <th>${escapeHTML(capitalize(label))}</th>
@@ -322,18 +389,29 @@ function renderRankingTable(rows, label) {
           </tr>
         </thead>
         <tbody>
-          ${rows.map((row) => `
+          ${rows.map((row, index) => {
+            const revenuePercent = Math.round((Number(row.revenue || 0) / maxRevenue) * 100);
+            const rankClass = index < 3 ? `rank-${index + 1}` : 'rank-other';
+            return `
             <tr>
               <td>
-                <div style="font-weight:700">${escapeHTML(row.name || 'Sem nome')}</div>
-                <div style="font-size:12px;color:var(--muted)">${row.orders_count || 0} pedidos</div>
+                <div class="rank-cell">
+                  <span class="vendas-rank-badge ${rankClass}">${index + 1}</span>
+                  <div>
+                    <div style="font-weight:700">${escapeHTML(row.name || 'Sem nome')}</div>
+                    <div style="font-size:12px;color:var(--muted)">${row.orders_count || 0} pedidos</div>
+                  </div>
+                </div>
               </td>
               <td>${row.quantity_sold || 0}</td>
-              <td class="mono">${formatCurrency(row.revenue || 0)}</td>
+              <td>
+                <div class="mono" style="margin-bottom:4px">${formatCurrency(row.revenue || 0)}</div>
+                <div class="vendas-progress"><div class="vendas-progress-fill" style="width:${revenuePercent}%"></div></div>
+              </td>
               <td class="mono">${formatCurrency(row.estimated_margin || 0)}</td>
               <td>${formatPercent(row.coverage_rate || 0)}</td>
             </tr>
-          `).join('')}
+          `}).join('')}
         </tbody>
       </table>
     </div>
@@ -345,9 +423,11 @@ function renderItemMarginTable(rows) {
     return '<div class="empty-state"><div class="icon">📭</div><p>Sem itens vendidos no período.</p></div>';
   }
 
+  const maxRevenue = Math.max(...rows.map((r) => Number(r.revenue || 0)), 1);
+
   return `
     <div style="overflow:auto">
-      <table>
+      <table class="vendas-table">
         <thead>
           <tr>
             <th>Item</th>
@@ -358,21 +438,32 @@ function renderItemMarginTable(rows) {
           </tr>
         </thead>
         <tbody>
-          ${rows.map((row) => `
+          ${rows.map((row, index) => {
+            const revenuePercent = Math.round((Number(row.revenue || 0) / maxRevenue) * 100);
+            const rankClass = index < 3 ? `rank-${index + 1}` : 'rank-other';
+            return `
             <tr>
               <td>
-                <div style="font-weight:700">${escapeHTML(row.name || 'Sem nome')}</div>
-                <div style="font-size:12px;color:var(--muted)">
-                  ${escapeHTML(row.context || 'Sem categoria')}
-                  ${row.cost_price !== null ? ` · custo base ${escapeHTML(formatCurrency(row.cost_price))}` : ' · custo não configurado'}
+                <div class="rank-cell">
+                  <span class="vendas-rank-badge ${rankClass}">${index + 1}</span>
+                  <div>
+                    <div style="font-weight:700">${escapeHTML(row.name || 'Sem nome')}</div>
+                    <div style="font-size:12px;color:var(--muted)">
+                      ${escapeHTML(row.context || 'Sem categoria')}
+                      ${row.cost_price !== null ? ` · custo base ${escapeHTML(formatCurrency(row.cost_price))}` : ' · custo não configurado'}
+                    </div>
+                  </div>
                 </div>
               </td>
               <td>${row.quantity_sold || 0}</td>
-              <td class="mono">${formatCurrency(row.revenue || 0)}</td>
+              <td>
+                <div class="mono" style="margin-bottom:4px">${formatCurrency(row.revenue || 0)}</div>
+                <div class="vendas-progress"><div class="vendas-progress-fill purple" style="width:${revenuePercent}%"></div></div>
+              </td>
               <td class="mono">${formatCurrency(row.estimated_cost || 0)}</td>
-              <td class="mono">${formatCurrency(row.estimated_margin || 0)}</td>
+              <td class="mono" style="font-weight:700;color:${Number(row.estimated_margin || 0) >= 0 ? '#16a34a' : 'var(--accent-red)'}">${formatCurrency(row.estimated_margin || 0)}</td>
             </tr>
-          `).join('')}
+          `}).join('')}
         </tbody>
       </table>
     </div>
@@ -385,48 +476,51 @@ function renderLowSalesGrid(rows) {
   }
 
   return `
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">
-      ${rows.map((row) => `
-        <div style="border:1px solid var(--border);border-radius:16px;padding:16px;background:#fff7ed">
-          <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px">
+      ${rows.map((row) => {
+        const sharePercent = Math.min(Number(row.sales_share || 0), 100);
+        return `
+        <div class="vendas-low-card">
+          <div class="vendas-low-header">
             <div>
-              <div style="font-weight:700">${escapeHTML(row.name)}</div>
-              <div style="font-size:12px;color:var(--muted)">${escapeHTML(row.category_name || 'Sem categoria')}</div>
+              <div class="vendas-low-name">${escapeHTML(row.name)}</div>
+              <div class="vendas-low-cat">${escapeHTML(row.category_name || 'Sem categoria')}</div>
             </div>
             <span class="status-pill ${row.performance_band === 'NO_SALES' ? 'status-canceled' : 'status-pending'}">
               ${row.performance_band === 'NO_SALES' ? 'Sem venda' : 'Baixa saída'}
             </span>
           </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px">
+          <div class="vendas-low-grid">
             <div>
-              <div style="font-size:12px;color:var(--muted)">Quantidade</div>
-              <div style="font-weight:700">${row.quantity_sold || 0}</div>
+              <div class="vendas-low-metric-label">Quantidade</div>
+              <div class="vendas-low-metric-value">${row.quantity_sold || 0}</div>
             </div>
             <div>
-              <div style="font-size:12px;color:var(--muted)">Share</div>
-              <div style="font-weight:700">${formatPercent(row.sales_share || 0)}</div>
+              <div class="vendas-low-metric-label">Share</div>
+              <div class="vendas-low-metric-value">${formatPercent(row.sales_share || 0)}</div>
+              <div class="vendas-progress" style="margin-top:6px"><div class="vendas-progress-fill orange" style="width:${sharePercent}%"></div></div>
             </div>
             <div style="grid-column:1/-1">
-              <div style="font-size:12px;color:var(--muted)">Última venda</div>
-              <div style="font-weight:600">${row.last_sold_at ? `${formatDate(row.last_sold_at)} ${formatTime(row.last_sold_at)}` : 'Sem venda registrada no período'}</div>
+              <div class="vendas-low-metric-label">Última venda</div>
+              <div style="font-weight:600;margin-top:2px;font-size:13px">${row.last_sold_at ? `${formatDate(row.last_sold_at)} ${formatTime(row.last_sold_at)}` : 'Sem venda registrada no período'}</div>
             </div>
           </div>
         </div>
-      `).join('')}
+      `}).join('')}
     </div>
   `;
 }
 
-function renderInsightMetric(label, value) {
+function renderInsightMetric(label, value, icon) {
   return `
-    <div style="border:1px solid var(--border);border-radius:16px;padding:14px;background:#fff">
-      <div style="font-size:12px;color:var(--muted);margin-bottom:6px">${escapeHTML(label)}</div>
-      <div style="font-size:20px;font-weight:800;color:var(--text)">${escapeHTML(value)}</div>
+    <div class="vendas-insight">
+      <div class="vendas-insight-label">${icon || ''}${escapeHTML(label)}</div>
+      <div class="vendas-insight-value">${escapeHTML(value)}</div>
     </div>
   `;
 }
 
-function buildBarChart(series, valueKey, labelGetter, tooltipGetter, color) {
+function buildBarChart(series, valueKey, labelGetter, tooltipGetter, barClass) {
   if (!series.length) {
     return '<div class="empty-state" style="padding:16px 0"><div class="icon">📉</div><p>Sem dados para gerar o gráfico.</p></div>';
   }
@@ -439,7 +533,7 @@ function buildBarChart(series, valueKey, labelGetter, tooltipGetter, color) {
     return `
       <div class="bar-col">
         <div class="bar-val">${escapeHTML(shortCurrency(value))}</div>
-        <div class="bar" style="height:${height}px;background:${color}" title="${escapeHTML(tooltipGetter(point))}"></div>
+        <div class="vendas-bar ${barClass}" style="height:${height}px" title="${escapeHTML(tooltipGetter(point))}"></div>
         <div class="bar-label">${escapeHTML(labelGetter(point))}</div>
       </div>
     `;
@@ -680,7 +774,7 @@ function toInputDate(date) {
 }
 
 function escapeCsvValue(value) {
-  const normalized = String(value ?? '').replace(/"/g, '""');
+  const normalized = String(value ?? '').replace(/\"/g, '""');
   return `"${normalized}"`;
 }
 

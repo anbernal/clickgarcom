@@ -126,7 +126,7 @@ Criterios de pronto:
 
 ## Epic 06 - Bot e Fluxos Publicados
 
-Status: Planejado
+Status: Em andamento
 
 Objetivo:
 Transformar o versionamento de flow em funcionalidade usavel de produto.
@@ -152,11 +152,11 @@ Sair do cardapio flat e aumentar flexibilidade comercial.
 Tasks:
 - [ ] Adicionar opcionais/complementos por item.
 - [ ] Adicionar combos.
-- [ ] Adicionar imagens.
-- [ ] Adicionar disponibilidade por horario.
-- [ ] Adicionar estoque simples.
-- [ ] Bloquear venda de item indisponivel por regra de estoque/horario.
-- [ ] Exibir disponibilidade no bot e no admin.
+- [x] Adicionar imagens.
+- [x] Adicionar disponibilidade por horario.
+- [x] Adicionar estoque simples.
+- [x] Bloquear venda de item indisponivel por regra de estoque/horario.
+- [x] Exibir disponibilidade no bot e no admin.
 
 Criterios de pronto:
 - Gestor consegue modelar cardapio real de restaurante sem gambiarras.

@@ -1,5 +1,19 @@
 // Mesas Page
 let mesasTableCache = [];
+
+// ─── SVG ICONS ─────────────────────────────────────────────────
+const MESAS_ICONS = {
+  chair: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 9V6a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v3"/><path d="M3 16h18v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-2z"/><path d="M5 16V9h14v7"/></svg>',
+  utensils: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2v0a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"/></svg>',
+  calendar: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>',
+  broom: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m13 11 9-9"/><path d="M14.6 12.6c-1.2-1.2-3.1-1.2-4.2 0l-2.8 2.8c-1.2 1.2-1.2 3.1 0 4.2l2.8 2.8c1.2 1.2 3.1 1.2 4.2 0l2.8-2.8c1.2-1.2 1.2-3.1 0-4.2Z"/><path d="m2 22 4-4"/></svg>',
+  chairSm: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 9V6a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v3"/><path d="M3 16h18v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-2z"/><path d="M5 16V9h14v7"/></svg>',
+  occupied: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/></svg>',
+  available: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="16 10 11 15 8 12"/></svg>',
+  reserved: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/></svg>',
+  bell: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>',
+  users: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
+};
 let mesasComandaModalState = {
   tableId: null,
   tableNumber: '',
@@ -24,12 +38,12 @@ function getCapacityLabel(capacity) {
 
 function getTableStatusMeta(status) {
   const map = {
-    AVAILABLE: { cls: 'free', label: 'Livre', emoji: '🪑' },
-    OCCUPIED: { cls: 'occupied', label: 'Ocupada', emoji: '🍽' },
-    RESERVED: { cls: 'reserved', label: 'Reservada', emoji: '📅' },
-    CLEANING: { cls: 'closed', label: 'Limpeza', emoji: '🧹' },
+    AVAILABLE: { cls: 'free', label: 'Livre', icon: MESAS_ICONS.chair },
+    OCCUPIED: { cls: 'occupied', label: 'Ocupada', icon: MESAS_ICONS.utensils },
+    RESERVED: { cls: 'reserved', label: 'Reservada', icon: MESAS_ICONS.calendar },
+    CLEANING: { cls: 'closed', label: 'Limpeza', icon: MESAS_ICONS.broom },
   };
-  return map[status] || { cls: 'free', label: status || 'Livre', emoji: '🪑' };
+  return map[status] || { cls: 'free', label: status || 'Livre', icon: MESAS_ICONS.chair };
 }
 
 function renderTableActions(table) {
@@ -96,10 +110,10 @@ function renderTableCard(table) {
 
   return `
     <div class="table-item ${meta.cls}" style="padding:20px">
-      <div style="font-size:28px">${meta.emoji}</div>
+      <div class="mesas-table-icon">${meta.icon}</div>
       <div class="table-num" style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
         <span>Mesa ${escapeHTML(formatTableNumber(table.number))}</span>
-        <span style="font-size:12px; color:var(--text-light); font-weight:normal; background:var(--bg); padding:2px 6px; border-radius:4px;">${escapeHTML(getCapacityLabel(table.capacity))}</span>
+        <span style="font-size:11px; color:var(--text-light); font-weight:600; background:var(--bg); padding:3px 8px; border-radius:6px; display:inline-flex; align-items:center; gap:4px;">${MESAS_ICONS.users} ${escapeHTML(getCapacityLabel(table.capacity))}</span>
       </div>
       <div class="table-status">${meta.label}</div>
       <div class="table-value">${tabTotalDisplay}</div>
@@ -119,8 +133,8 @@ function renderManagementCard(tables) {
       <!-- Header Area -->
       <div style="display:flex; align-items:flex-start; margin-bottom: 24px;">
         <div style="display:flex; align-items:center; gap:16px;">
-          <div style="width:52px; height:52px; border-radius:14px; background:linear-gradient(135deg, rgba(59,130,246,0.1), rgba(124,58,237,0.1)); border:1px solid rgba(59,130,246,0.1); display:flex; align-items:center; justify-content:center; font-size:24px; flex-shrink:0;">
-            🪑
+          <div style="width:52px; height:52px; border-radius:14px; background:linear-gradient(135deg, rgba(59,130,246,0.1), rgba(124,58,237,0.1)); border:1px solid rgba(59,130,246,0.1); display:flex; align-items:center; justify-content:center; flex-shrink:0; color:#3b82f6;">
+            ${MESAS_ICONS.chair}
           </div>
           <div>
             <h2 style="margin:0 0 6px 0; font-size:18px; font-weight:700; color:var(--text); letter-spacing:-0.4px;">Cadastro de Mesas</h2>
@@ -154,7 +168,7 @@ function renderManagementCard(tables) {
               </label>
               <div style="position:relative;">
                 <input type="number" id="table-capacity-inline" value="4" min="1" max="20" class="input" style="width:100%; height:42px; border-radius:8px; padding:0 14px; padding-right:32px; font-size:14px; text-align:center;">
-                <span style="position:absolute; right:12px; top:12px; font-size:13px; color:var(--text-light); pointer-events:none;">👤</span>
+                <span style="position:absolute; right:12px; top:12px; display:flex; color:var(--text-light); pointer-events:none;">${MESAS_ICONS.users}</span>
               </div>
             </div>
 
@@ -181,7 +195,7 @@ function renderManagementCard(tables) {
           </p>
           
           <div style="display:inline-flex; align-items:center; background:#fffbf0; border:1px solid rgba(245,158,11,0.3); color:#92400e; font-size:12px; font-weight:600; padding:4px 12px; border-radius:20px;">
-            <span style="font-size:14px; margin-right:6px;">🔔</span>
+            <span style="font-size:14px; margin-right:6px; display:inline-flex; color:#92400e;">${MESAS_ICONS.bell}</span>
             ${reservedCount} mesa(s) separada(s) agora
           </div>
         </div>
@@ -206,10 +220,10 @@ async function loadMesas() {
 
     container.innerHTML = `
       <div class="stats-grid" style="margin-bottom:20px">
-        <div class="stat-card"><div class="stat-icon">🪑</div><div class="stat-label">Total de Mesas</div><div class="stat-value">${statsData.total || tables.length}</div></div>
-        <div class="stat-card"><div class="stat-icon">🔴</div><div class="stat-label">Ocupadas</div><div class="stat-value">${statsData.occupied || 0}</div><div class="stat-change" style="color:var(--pending-text)">${statsData.total > 0 ? Math.round((statsData.occupied / statsData.total) * 100) : 0}% de ocupacao</div></div>
-        <div class="stat-card"><div class="stat-icon">📅</div><div class="stat-label">Reservadas</div><div class="stat-value">${reservedCount}</div></div>
-        <div class="stat-card"><div class="stat-icon">🟢</div><div class="stat-label">Disponiveis</div><div class="stat-value">${statsData.available || 0}</div><div class="stat-change" style="color:var(--text-light)">Prontas para o Atendimento</div></div>
+        <div class="stat-card"><div class="stat-icon" style="color:#3b82f6">${MESAS_ICONS.chairSm}</div><div class="stat-label">Total de Mesas</div><div class="stat-value">${statsData.total || tables.length}</div></div>
+        <div class="stat-card"><div class="stat-icon" style="color:#ea580c">${MESAS_ICONS.occupied}</div><div class="stat-label">Ocupadas</div><div class="stat-value">${statsData.occupied || 0}</div><div class="stat-change" style="color:var(--pending-text)">${statsData.total > 0 ? Math.round((statsData.occupied / statsData.total) * 100) : 0}% de ocupacao</div></div>
+        <div class="stat-card"><div class="stat-icon" style="color:#2563eb">${MESAS_ICONS.reserved}</div><div class="stat-label">Reservadas</div><div class="stat-value">${reservedCount}</div></div>
+        <div class="stat-card"><div class="stat-icon" style="color:#16a34a">${MESAS_ICONS.available}</div><div class="stat-label">Disponiveis</div><div class="stat-value">${statsData.available || 0}</div><div class="stat-change" style="color:var(--text-light)">Prontas para o Atendimento</div></div>
       </div>
       ${renderManagementCard(tables)}
       <div class="full-card">
@@ -220,7 +234,7 @@ async function loadMesas() {
           </div>
         </div>
         <div class="tables-grid-6">
-          ${tables.length === 0 ? '<div class="empty-state" style="grid-column:1/-1"><div class="icon">🪑</div><h3>Nenhuma mesa</h3><p>Cadastre a primeira mesa e informe a quantidade de lugares.</p></div>' : ''}
+          ${tables.length === 0 ? '<div class="empty-state" style="grid-column:1/-1"><div class="icon">' + MESAS_ICONS.chair + '</div><h3>Nenhuma mesa</h3><p>Cadastre a primeira mesa e informe a quantidade de lugares.</p></div>' : ''}
           ${tables.map(renderTableCard).join('')}
         </div>
       </div>

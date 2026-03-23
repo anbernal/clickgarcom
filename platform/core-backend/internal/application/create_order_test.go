@@ -129,6 +129,61 @@ func TestCreateOrderExecuteCreatesOrderBatchAndSplitsByDestination(t *testing.T)
 	}
 }
 
+func TestCreateOrderExecuteRejectsItemWithoutStock(t *testing.T) {
+	ctx := context.Background()
+	tenantID := uuid.New()
+	tabID := uuid.New()
+	itemID := uuid.New()
+	zero := 0
+
+	orderRepo := &testCreateOrderRepo{}
+	orderBatchRepo := &testCreateOrderBatchRepo{}
+	tabRepo := &testCreateOrderTabRepo{
+		tabsByID: map[uuid.UUID]*tab.Tab{
+			tabID: {
+				ID:       tabID,
+				TenantID: tenantID,
+				Status:   tab.StatusOpen,
+			},
+		},
+	}
+	menuRepo := &testCreateOrderMenuRepo{
+		itemsByID: map[uuid.UUID]*menu.Item{
+			itemID: {
+				ID:            itemID,
+				TenantID:      tenantID,
+				Name:          "Suco de Laranja",
+				Price:         14,
+				Available:     true,
+				TrackStock:    true,
+				StockQuantity: &zero,
+				Destination:   "BAR",
+			},
+		},
+	}
+
+	uc := NewCreateOrderUseCase(
+		orderRepo,
+		orderBatchRepo,
+		tabRepo,
+		menuRepo,
+		nil,
+		&testKDSEventPublisher{},
+		zap.NewNop(),
+	)
+
+	_, err := uc.Execute(ctx, CreateOrderInput{
+		TenantID: tenantID,
+		TabID:    tabID,
+		Items: []OrderItemInput{
+			{MenuItemID: itemID, Quantity: 1},
+		},
+	})
+	if err != ErrItemNotAvailable {
+		t.Fatalf("expected ErrItemNotAvailable, got %v", err)
+	}
+}
+
 type testCreateOrderRepo struct {
 	created []*order.Order
 	byTab   map[uuid.UUID][]*order.Order

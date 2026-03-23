@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
-import { IsBoolean, IsInt, IsNumber, IsOptional, IsString, IsUUID, IsUrl, MaxLength, Min } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsBoolean, IsInt, IsNumber, IsOptional, IsString, IsUUID, IsUrl, MaxLength, Min, ValidateNested } from 'class-validator';
+import { MenuItemAvailabilityWindowDto } from './menu-item-availability-window.dto';
 
 export class UpdateMenuItemDto {
     @IsOptional()
@@ -56,6 +57,29 @@ export class UpdateMenuItemDto {
     @IsOptional()
     @IsBoolean()
     available?: boolean;
+
+    @IsOptional()
+    @IsBoolean()
+    track_stock?: boolean;
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsInt()
+    @Min(0)
+    stock_quantity?: number | null;
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsInt()
+    @Min(0)
+    low_stock_threshold?: number | null;
+
+    @IsOptional()
+    @IsArray()
+    @ArrayMaxSize(21)
+    @ValidateNested({ each: true })
+    @Type(() => MenuItemAvailabilityWindowDto)
+    availability_windows?: MenuItemAvailabilityWindowDto[];
 
     @IsOptional()
     @Type(() => Number)

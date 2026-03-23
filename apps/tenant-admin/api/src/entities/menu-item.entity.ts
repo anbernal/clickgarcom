@@ -50,6 +50,18 @@ export class MenuItem {
     @Column({ type: 'boolean', default: true })
     available!: boolean;
 
+    @Column({ type: 'boolean', name: 'track_stock', default: false })
+    trackStock!: boolean;
+
+    @Column({ type: 'int', name: 'stock_quantity', nullable: true })
+    stockQuantity!: number | null;
+
+    @Column({ type: 'int', name: 'low_stock_threshold', nullable: true })
+    lowStockThreshold!: number | null;
+
+    @Column({ type: 'jsonb', name: 'availability_windows', nullable: true })
+    availabilityWindows!: Array<{ dayOfWeek: number; startTime: string; endTime: string }> | null;
+
     @Column({ type: 'int', name: 'display_order', default: 0 })
     displayOrder!: number;
 

@@ -215,8 +215,12 @@ func (uc *HandleWhatsAppMessageUseCase) handleOrderingItemSelection(
 			session.StateMainMenu, nil
 	}
 
-	if !selectedItem.Available {
-		return fmt.Sprintf("⚠️ O item *%s* não está disponível agora.\n\nEscolha outro item ou digite *0* para voltar ao menu principal.", selectedItem.Name),
+	if !selectedItem.IsAvailableAt(time.Now()) {
+		detail := ""
+		if strings.TrimSpace(selectedItem.UnavailableReason) != "" {
+			detail = "\nMotivo: " + selectedItem.UnavailableReason + "."
+		}
+		return fmt.Sprintf("⚠️ O item *%s* não está disponível agora.%s\n\nEscolha outro item ou digite *0* para voltar ao menu principal.", selectedItem.Name, detail),
 			session.StateOrdering, nil
 	}
 

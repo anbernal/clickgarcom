@@ -142,10 +142,12 @@ func (uc *CreateOrderUseCase) Execute(ctx context.Context, input CreateOrderInpu
 		}
 
 		// Validar disponibilidade
-		if !menuItem.Available {
+		if !menuItem.IsAvailableAt(time.Now()) {
 			uc.logger.Warn("menu item not available",
 				zap.String("menu_item_id", inputItem.MenuItemID.String()),
 				zap.String("name", menuItem.Name),
+				zap.String("status", menuItem.CurrentAvailabilityStatus),
+				zap.String("reason", menuItem.UnavailableReason),
 			)
 			return nil, ErrItemNotAvailable
 		}
