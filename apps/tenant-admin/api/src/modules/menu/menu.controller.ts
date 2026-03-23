@@ -54,6 +54,7 @@ export class MenuController {
             whatsappShortName: body.whatsapp_short_name,
             whatsappShortDescription: body.whatsapp_short_description,
             available: body.available !== false,
+            itemType: body.item_type || 'STANDARD',
             trackStock: body.track_stock === true,
             stockQuantity: body.stock_quantity ?? null,
             lowStockThreshold: body.low_stock_threshold ?? null,
@@ -61,6 +62,26 @@ export class MenuController {
                 dayOfWeek: window.day_of_week,
                 startTime: window.start_time,
                 endTime: window.end_time,
+            })) ?? [],
+            optionGroups: body.option_groups?.map((group, groupIndex) => ({
+                name: group.name,
+                description: group.description ?? null,
+                required: group.required === true,
+                min_select: group.min_select ?? (group.required === true ? 1 : 0),
+                max_select: group.max_select ?? Math.max(group.required === true ? 1 : 0, group.options?.length || 1),
+                display_order: group.display_order ?? groupIndex,
+                options: (group.options || []).map((option, optionIndex) => ({
+                    name: option.name,
+                    description: option.description ?? null,
+                    price_delta: option.price_delta ?? 0,
+                    available: option.available !== false,
+                    display_order: option.display_order ?? optionIndex,
+                })),
+            })) ?? [],
+            comboComponents: body.combo_components?.map((component, componentIndex) => ({
+                menu_item_id: component.menu_item_id,
+                quantity: component.quantity ?? 1,
+                display_order: component.display_order ?? componentIndex,
             })) ?? [],
             displayOrder: body.display_order || 0,
         });
@@ -81,6 +102,7 @@ export class MenuController {
         if (body.whatsapp_short_name !== undefined) data.whatsappShortName = body.whatsapp_short_name;
         if (body.whatsapp_short_description !== undefined) data.whatsappShortDescription = body.whatsapp_short_description;
         if (body.available !== undefined) data.available = body.available;
+        if (body.item_type !== undefined) data.itemType = body.item_type;
         if (body.track_stock !== undefined) data.trackStock = body.track_stock;
         if (body.stock_quantity !== undefined) data.stockQuantity = body.stock_quantity;
         if (body.low_stock_threshold !== undefined) data.lowStockThreshold = body.low_stock_threshold;
@@ -89,6 +111,30 @@ export class MenuController {
                 dayOfWeek: window.day_of_week,
                 startTime: window.start_time,
                 endTime: window.end_time,
+            })) ?? [];
+        }
+        if (body.option_groups !== undefined) {
+            data.optionGroups = body.option_groups?.map((group, groupIndex) => ({
+                name: group.name,
+                description: group.description ?? null,
+                required: group.required === true,
+                min_select: group.min_select ?? (group.required === true ? 1 : 0),
+                max_select: group.max_select ?? Math.max(group.required === true ? 1 : 0, group.options?.length || 1),
+                display_order: group.display_order ?? groupIndex,
+                options: (group.options || []).map((option, optionIndex) => ({
+                    name: option.name,
+                    description: option.description ?? null,
+                    price_delta: option.price_delta ?? 0,
+                    available: option.available !== false,
+                    display_order: option.display_order ?? optionIndex,
+                })),
+            })) ?? [];
+        }
+        if (body.combo_components !== undefined) {
+            data.comboComponents = body.combo_components?.map((component, componentIndex) => ({
+                menu_item_id: component.menu_item_id,
+                quantity: component.quantity ?? 1,
+                display_order: component.display_order ?? componentIndex,
             })) ?? [];
         }
         if (body.display_order !== undefined) data.displayOrder = body.display_order;

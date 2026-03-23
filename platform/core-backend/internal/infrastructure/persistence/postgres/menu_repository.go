@@ -60,6 +60,10 @@ func (r *MenuRepository) FindItemsByTenant(ctx context.Context, tenantID uuid.UU
 		return nil, err
 	}
 
+	if err := r.hydrateMenuItemsCatalog(ctx, items, tenantID); err != nil {
+		return nil, err
+	}
+
 	return hydrateAndFilterMenuItems(items, availableOnly), nil
 }
 
@@ -81,6 +85,10 @@ func (r *MenuRepository) FindItemsByCategory(ctx context.Context, categoryID uui
 		return nil, err
 	}
 
+	if err := r.hydrateMenuItemsCatalog(ctx, items, tenantID); err != nil {
+		return nil, err
+	}
+
 	return hydrateAndFilterMenuItems(items, availableOnly), nil
 }
 
@@ -92,6 +100,10 @@ func (r *MenuRepository) FindItemByID(ctx context.Context, id uuid.UUID, tenantI
 		First(&item).Error
 
 	if err != nil {
+		return nil, err
+	}
+
+	if err := r.hydrateMenuItemsCatalog(ctx, []*menu.Item{&item}, tenantID); err != nil {
 		return nil, err
 	}
 
@@ -107,6 +119,10 @@ func (r *MenuRepository) FindItemsByIDs(ctx context.Context, ids []uuid.UUID, te
 		Find(&items).Error
 
 	if err != nil {
+		return nil, err
+	}
+
+	if err := r.hydrateMenuItemsCatalog(ctx, items, tenantID); err != nil {
 		return nil, err
 	}
 
@@ -181,4 +197,66 @@ func hydrateAndFilterMenuItems(items []*menu.Item, availableOnly bool) []*menu.I
 	}
 
 	return filtered
+}
+
+func (r *MenuRepository) hydrateMenuItemsCatalog(ctx context.Context, items []*menu.Item, tenantID uuid.UUID) error {
+	componentIDs := make([]uuid.UUID, 0)
+	seen := make(map[uuid.UUID]struct{})
+
+	for _, item := range items {
+		if item == nil {
+			continue
+		}
+
+		item.EnsureOptionGroups()
+		for _, component := range item.EnsureComboComponents() {
+			if component.MenuItemID == uuid.Nil {
+				continue
+			}
+			if _, exists := seen[component.MenuItemID]; exists {
+				continue
+			}
+			seen[component.MenuItemID] = struct{}{}
+			componentIDs = append(componentIDs, component.MenuItemID)
+		}
+	}
+
+	if len(componentIDs) == 0 {
+		return nil
+	}
+
+	var componentItems []*menu.Item
+	if err := r.db.WithContext(ctx).
+		Select("id, tenant_id, name, price").
+		Where("tenant_id = ? AND id IN ?", tenantID, componentIDs).
+		Find(&componentItems).Error; err != nil {
+		return err
+	}
+
+	componentMap := make(map[uuid.UUID]*menu.Item, len(componentItems))
+	for _, componentItem := range componentItems {
+		if componentItem == nil {
+			continue
+		}
+		componentMap[componentItem.ID] = componentItem
+	}
+
+	for _, item := range items {
+		if item == nil {
+			continue
+		}
+
+		components := item.EnsureComboComponents()
+		for index := range components {
+			componentItem := componentMap[components[index].MenuItemID]
+			if componentItem == nil {
+				continue
+			}
+			components[index].MenuItemName = componentItem.Name
+			components[index].MenuItemPrice = componentItem.Price
+		}
+		item.ComboComponents = components
+	}
+
+	return nil
 }

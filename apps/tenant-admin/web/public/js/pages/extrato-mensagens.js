@@ -1,3 +1,13 @@
+// ─── SVG ICONS ─────────────────────────────────────────────────
+const EXTRATO_ICONS = {
+  receipt: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 17.5v-11"/></svg>',
+  inbox: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>',
+  send: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>',
+  coin: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>',
+  alert: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+  search: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+};
+
 const messageStatementState = {
     page: 1,
     limit: 20,
@@ -196,25 +206,25 @@ async function loadExtratoMensagens() {
 
                 <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:16px;">
                     <div class="stat-card">
-                        <div class="stat-icon">🧾</div>
+                        <div class="stat-icon" style="color:#6366f1">${EXTRATO_ICONS.receipt}</div>
                         <div class="stat-label">Mensagens cobradas</div>
                         <div class="stat-value">${formatWalletInteger(messagesUsed)}</div>
                         <div class="stat-change" style="color:var(--muted);">${formatWalletInteger(total)} lançamento(s) no recorte</div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-icon">📥</div>
+                        <div class="stat-icon" style="color:#3b82f6">${EXTRATO_ICONS.inbox}</div>
                         <div class="stat-label">Recebidas do usuário</div>
                         <div class="stat-value">${formatWalletInteger(messagesIn)}</div>
                         <div class="stat-change" style="color:var(--muted);">Entrada via WhatsApp</div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-icon">📤</div>
+                        <div class="stat-icon" style="color:#10b981">${EXTRATO_ICONS.send}</div>
                         <div class="stat-label">Respostas do robô</div>
                         <div class="stat-value">${formatWalletInteger(messagesOut)}</div>
                         <div class="stat-change" style="color:var(--muted);">Saída para o cliente</div>
                     </div>
                     <div class="stat-card teal-card">
-                        <div class="stat-icon">💰</div>
+                        <div class="stat-icon">${EXTRATO_ICONS.coin}</div>
                         <div class="stat-label">Total cobrado</div>
                         <div class="stat-value">R$ ${formatWalletCurrency(totalAmount)}</div>
                         <div class="stat-change" style="color:rgba(255,255,255,0.72);">Preço unitário R$ ${formatWalletCurrency(unitPrice)}</div>
@@ -254,7 +264,7 @@ async function loadExtratoMensagens() {
                                         <tr>
                                             <td colspan="5">
                                                 <div class="empty-state">
-                                                    <div class="icon">🧾</div>
+                                                    <div class="icon">${EXTRATO_ICONS.search}</div>
                                                     <h3>Nenhuma mensagem encontrada</h3>
                                                     <p>Altere os filtros ou aguarde novos lançamentos para visualizar o extrato.</p>
                                                 </div>
@@ -273,7 +283,7 @@ async function loadExtratoMensagens() {
     } catch (err) {
         container.innerHTML = `
             <div class="empty-state">
-                <div class="icon">⚠️</div>
+                <div class="icon" style="color:#ef4444">${EXTRATO_ICONS.alert}</div>
                 <h3>Erro ao carregar extrato</h3>
                 <p>${escapeHTML(err.message || 'Tente novamente.')}</p>
             </div>

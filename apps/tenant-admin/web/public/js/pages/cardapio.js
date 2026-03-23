@@ -1,4 +1,22 @@
-// Cardápio Page
+// Cardapio Page
+
+// ─── SVG ICONS ─────────────────────────────────────────────────
+const CARDAPIO_ICONS = {
+  utensils: '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2v0a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"/></svg>',
+  pizza: '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 11h.01"/><path d="M11 15h.01"/><path d="M16 16h.01"/><path d="m2 16 20 6-6-20A20 20 0 0 0 2 16"/><path d="M5.71 17.11a17.04 17.04 0 0 1 11.4-11.4"/></svg>',
+  burger: '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0-4.4-3.6-8-8-8s-8 3.6-8 8"/><path d="M3 14h18"/><path d="M4 18h16a1 1 0 0 1 1 1v1a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-1a1 1 0 0 1 1-1z"/></svg>',
+  drink: '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 22 4-12"/><path d="m18 22-4-12"/><path d="M3 10h18"/><path d="M14 2a2 2 0 0 1 2 2v4H8V4a2 2 0 0 1 2-2"/></svg>',
+  cake: '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-8a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8"/><path d="M4 16s.5-1 2-1 2.5 2 4 2 2.5-2 4-2 2.5 2 4 2 2-1 2-1"/><path d="M2 21h20"/><path d="M7 8v2"/><path d="M12 8v2"/><path d="M17 8v2"/><path d="M7 4h0.01"/><path d="M12 4h0.01"/><path d="M17 4h0.01"/></svg>',
+  salad: '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 21h10"/><path d="M12 21a9 9 0 0 0 9-9H3a9 9 0 0 0 9 9Z"/><path d="M11.38 12a2.4 2.4 0 0 1-.4-4.77 2.4 2.4 0 0 1 3.2-2.77 2.4 2.4 0 0 1 3.47-.63 2.4 2.4 0 0 1 3.36 1.93 2.4 2.4 0 0 1-1.6 3.93"/></svg>',
+  box: '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>',
+  search: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+  plus: '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
+  edit: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>',
+  trash: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>',
+  kitchen: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2v0a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"/></svg>',
+  bar: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 22 4-12"/><path d="m18 22-4-12"/><path d="M3 10h18"/><path d="M14 2a2 2 0 0 1 2 2v4H8V4a2 2 0 0 1 2-2"/></svg>',
+  alert: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+};
 const CARDAPIO_WEEKDAYS = [
   { value: 0, short: 'Dom', label: 'Domingo' },
   { value: 1, short: 'Seg', label: 'Segunda' },
@@ -11,6 +29,9 @@ const CARDAPIO_WEEKDAYS = [
 
 let cardapioCategories = [];
 let cardapioItems = [];
+let cardapioOptionGroupCounter = 0;
+let cardapioOptionRowCounter = 0;
+let cardapioComboRowCounter = 0;
 
 async function loadCardapio() {
   const container = document.getElementById('page-cardapio');
@@ -27,7 +48,7 @@ async function loadCardapio() {
 
     renderCardapio();
   } catch (err) {
-    container.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><h3>Erro</h3><p>${escapeHTML(err.message)}</p></div>`;
+    container.innerHTML = `<div class="empty-state"><div class="icon" style="color:#ef4444">${CARDAPIO_ICONS.alert}</div><h3>Erro</h3><p>${escapeHTML(err.message)}</p></div>`;
   }
 }
 
@@ -45,32 +66,34 @@ function renderCardapio(filterCatId = null, search = '') {
       item.name.toLowerCase().includes(term)
       || (item.description || '').toLowerCase().includes(term)
       || (item.whatsappShortDescription || '').toLowerCase().includes(term)
+      || (item.configurationSummary || '').toLowerCase().includes(term)
     ));
   }
 
-  const categoryEmojis = {
-    Pizzas: '🍕',
-    'Hambúrgueres': '🍔',
-    Bebidas: '🍹',
-    Sobremesas: '🍰',
-    Entradas: '🥗',
+  const categorySvgs = {
+    Pizzas: CARDAPIO_ICONS.pizza,
+    'Hambúrgueres': CARDAPIO_ICONS.burger,
+    Bebidas: CARDAPIO_ICONS.drink,
+    Sobremesas: CARDAPIO_ICONS.cake,
+    Entradas: CARDAPIO_ICONS.salad,
   };
 
-  const getEmoji = (item) => {
-    if (item.category) return categoryEmojis[item.category.name] || '🍽';
-    return '🍽';
+  const getSvg = (item) => {
+    if (item.category) return categorySvgs[item.category.name] || CARDAPIO_ICONS.utensils;
+    return item.itemType === 'COMBO' ? CARDAPIO_ICONS.box : CARDAPIO_ICONS.utensils;
   };
 
   const getBg = (item) => {
-    const map = { '🍕': '#fff7ed', '🍔': '#fff7ed', '🍹': '#f0fdf4', '🍰': '#fef2f2', '🥗': '#eff6ff' };
-    return map[getEmoji(item)] || '#f0f2f5';
+    const name = item.category?.name;
+    const map = { Pizzas: '#fff7ed', 'Hambúrgueres': '#fff7ed', Bebidas: '#f0fdf4', Sobremesas: '#fef2f2', Entradas: '#eff6ff' };
+    return item.itemType === 'COMBO' ? '#eef2ff' : (map[name] || '#f0f2f5');
   };
 
   const renderItemThumb = (item) => {
     if (item.imageUrl) {
       return `<div class="menu-img" style="background-image:url('${escapeHTML(item.imageUrl)}');background-size:cover;background-position:center"></div>`;
     }
-    return `<div class="menu-img" style="background:${getBg(item)}">${getEmoji(item)}</div>`;
+    return `<div class="menu-img" style="background:${getBg(item)};display:flex;align-items:center;justify-content:center;color:var(--muted)">${getSvg(item)}</div>`;
   };
 
   container.innerHTML = `
@@ -78,11 +101,11 @@ function renderCardapio(filterCatId = null, search = '') {
       <div class="card-header">
         <div>
           <div class="card-title">Gestao de Cardapio</div>
-          <div class="card-subtitle">${canManageMenu ? 'Itens com estoque simples, janela de venda e leitura operacional em tempo real' : 'Visualizacao em modo leitura para seu perfil atual'}</div>
+          <div class="card-subtitle">${canManageMenu ? 'Itens com estoque, janela de venda, opcionais e estrutura de combos' : 'Visualizacao em modo leitura para seu perfil atual'}</div>
         </div>
         <div style="display:flex;gap:10px">
           <div class="search-box">
-            <span>🔍</span>
+            <span>${CARDAPIO_ICONS.search}</span>
             <input type="text" placeholder="Buscar item..." id="cardapio-search" value="${escapeHTML(search)}">
           </div>
           ${canManageMenu ? '<button class="btn-sm btn-dark" onclick="openMenuItemModal()">+ Novo Item</button>' : ''}
@@ -99,7 +122,7 @@ function renderCardapio(filterCatId = null, search = '') {
         ${canManageMenu ? `
           <div class="menu-card" style="border:2px dashed var(--border);display:flex;align-items:center;justify-content:center;cursor:pointer;min-height:160px" onclick="openMenuItemModal()">
             <div style="text-align:center;color:var(--muted)">
-              <div style="font-size:28px">➕</div>
+              <div style="display:flex;justify-content:center">${CARDAPIO_ICONS.plus}</div>
               <div style="font-size:13px;font-weight:600;margin-top:6px">Novo Item</div>
             </div>
           </div>
@@ -124,37 +147,37 @@ function renderCardapioItemCard(item, canManageMenu, renderItemThumb) {
   const availabilityMeta = getCardapioAvailabilityMeta(item);
   const stockSummary = buildCardapioStockSummary(item);
   const scheduleSummary = buildCardapioScheduleSummary(item);
+  const typeMeta = item.itemType === 'COMBO'
+    ? { label: 'Combo', cls: 'status-pending' }
+    : { label: 'Item simples', cls: 'status-done' };
 
   return `
     <div class="menu-card">
       ${renderItemThumb(item)}
+      ${canManageMenu ? `
+        <div class="menu-actions">
+          <button class="btn-sm" onclick="event.stopPropagation();openMenuItemModal('${item.id}')">${CARDAPIO_ICONS.edit}</button>
+          <button class="btn-sm" onclick="event.stopPropagation();deleteMenuItem('${item.id}')">${CARDAPIO_ICONS.trash}</button>
+        </div>
+      ` : ''}
       <div class="menu-body">
         <div class="menu-name">${escapeHTML(item.name)}</div>
-        <div class="menu-cat">${escapeHTML(item.category ? item.category.name : 'Sem categoria')}${item.whatsappShortName ? ' · WA: ' + escapeHTML(item.whatsappShortName) : ''}</div>
-        <div class="menu-price">${escapeHTML(formatCurrency(item.price))}</div>
-        <div style="font-size:12px;color:var(--muted);margin-top:4px">
-          ${item.costPrice !== null && item.costPrice !== undefined
-            ? `Custo: ${escapeHTML(formatCurrency(item.costPrice))} · Margem bruta: ${escapeHTML(formatCurrency(Number(item.price || 0) - Number(item.costPrice || 0)))}`
-            : 'Custo nao informado para margem'}
-        </div>
-        <div style="font-size:12px;color:var(--muted);margin-top:6px">${escapeHTML(item.whatsappShortDescription || item.description || 'Sem descricao curta configurada')}</div>
-        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px">
+        <div class="menu-cat">${escapeHTML(item.category ? item.category.name : 'Sem categoria')}${item.whatsappShortName ? ' · ' + escapeHTML(item.whatsappShortName) : ''}</div>
+        <div class="menu-price">${escapeHTML(formatCurrency(item.price))}${item.costPrice !== null && item.costPrice !== undefined ? `<span style="font-size:11px;font-weight:500;color:var(--muted);margin-left:8px">margem ${escapeHTML(formatCurrency(Number(item.price || 0) - Number(item.costPrice || 0)))}</span>` : ''}</div>
+        <div class="menu-pills">
           <span class="status-pill ${availabilityMeta.cls}">${escapeHTML(availabilityMeta.label)}</span>
-          <span class="status-pill ${item.available ? 'status-done' : 'status-canceled'}">${item.available ? 'Base ativa' : 'Base inativa'}</span>
+          <span class="status-pill ${typeMeta.cls}">${escapeHTML(typeMeta.label)}</span>
+          ${!item.available ? '<span class="status-pill status-canceled">Inativo</span>' : ''}
         </div>
-        <div style="font-size:12px;color:var(--text-secondary);margin-top:10px;line-height:1.5">
+        <div class="menu-details">
           <div>${escapeHTML(stockSummary)}</div>
           <div>${escapeHTML(scheduleSummary)}</div>
+          <div>${escapeHTML(item.configurationSummary || '')}</div>
           ${item.unavailableReason ? `<div style="color:#b45309">${escapeHTML(item.unavailableReason)}</div>` : ''}
         </div>
         <div class="menu-footer">
-          <div style="font-size:11px;color:var(--muted)">${escapeHTML(item.destination === 'BAR' ? 'Producao: Bar' : 'Producao: Cozinha')}</div>
-          ${canManageMenu ? `
-            <div style="display:flex;gap:6px">
-              <button class="btn-sm btn-outline" onclick="openMenuItemModal('${item.id}')">✏️</button>
-              <button class="btn-sm btn-outline" onclick="deleteMenuItem('${item.id}')">🗑</button>
-            </div>
-          ` : '<div style="font-size:11px;color:var(--muted)">Somente leitura</div>'}
+          <div style="font-size:11px;color:var(--muted)">${escapeHTML(item.destination === 'BAR' ? 'Bar' : 'Cozinha')}</div>
+          <div style="font-size:11px;color:var(--muted)">${escapeHTML(item.whatsappShortDescription || item.description || '').substring(0, 40)}${(item.whatsappShortDescription || item.description || '').length > 40 ? '...' : ''}</div>
         </div>
       </div>
     </div>
@@ -172,6 +195,9 @@ function openMenuItemModal(itemId) {
   const scheduleWindows = normalizeCardapioAvailabilityWindows(item?.availabilityWindows);
   const stockTracked = item?.trackStock === true;
   const scheduleEnabled = scheduleWindows.length > 0;
+  const itemType = normalizeCardapioItemType(item?.itemType);
+  const optionGroups = normalizeCardapioOptionGroups(item?.optionGroups);
+  const comboComponents = normalizeCardapioComboComponents(item?.comboComponents);
 
   openModal(`
     <div class="modal-header">
@@ -220,8 +246,8 @@ function openMenuItemModal(itemId) {
         <div class="form-group">
           <label>Destino</label>
           <select id="mi-destination">
-            <option value="KITCHEN" ${item && item.destination === 'KITCHEN' ? 'selected' : ''}>🍳 Cozinha</option>
-            <option value="BAR" ${item && item.destination === 'BAR' ? 'selected' : ''}>🍹 Bar</option>
+            <option value="KITCHEN" ${item && item.destination === 'KITCHEN' ? 'selected' : ''}>${CARDAPIO_ICONS.kitchen} Cozinha</option>
+            <option value="BAR" ${item && item.destination === 'BAR' ? 'selected' : ''}>${CARDAPIO_ICONS.bar} Bar</option>
           </select>
         </div>
         <div class="form-group">
@@ -231,14 +257,22 @@ function openMenuItemModal(itemId) {
       </div>
       <div class="form-row-2">
         <div class="form-group">
+          <label>Tipo do Item</label>
+          <select id="mi-item-type">
+            <option value="STANDARD" ${itemType === 'STANDARD' ? 'selected' : ''}>Item simples</option>
+            <option value="COMBO" ${itemType === 'COMBO' ? 'selected' : ''}>Combo</option>
+          </select>
+        </div>
+        <div class="form-group">
           <label>Nome Curto para WhatsApp</label>
           <input type="text" id="mi-whatsapp-short-name" value="${item ? escapeHTML(item.whatsappShortName || '') : ''}" placeholder="Ex: Burger Grande">
         </div>
-        <div class="form-group">
-          <label>Descricao Curta para WhatsApp</label>
-          <input type="text" id="mi-whatsapp-short-description" value="${item ? escapeHTML(item.whatsappShortDescription || '') : ''}" placeholder="Ex: R$ 35,00 · Pao brioche, carne 180g">
-        </div>
       </div>
+      <div class="form-group">
+        <label>Descricao Curta para WhatsApp</label>
+        <input type="text" id="mi-whatsapp-short-description" value="${item ? escapeHTML(item.whatsappShortDescription || '') : ''}" placeholder="Ex: R$ 35,00 · Pao brioche, carne 180g">
+      </div>
+
       <div style="margin-top:20px;padding:16px;border:1px solid var(--border);border-radius:16px;background:rgba(15,23,42,0.02)">
         <div style="font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:12px">Disponibilidade Operacional</div>
         <div class="form-group" style="margin-bottom:12px">
@@ -278,6 +312,32 @@ function openMenuItemModal(itemId) {
           ${renderCardapioScheduleRows(scheduleWindows)}
         </div>
       </div>
+
+      <div style="margin-top:18px;padding:16px;border:1px solid var(--border);border-radius:16px;background:#fff">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px">
+          <div>
+            <div style="font-size:14px;font-weight:700;color:var(--text-primary)">Opcionais e Complementos</div>
+            <div style="font-size:12px;color:var(--muted)">Monte grupos como tamanho, ponto da carne, molhos ou acompanhamentos.</div>
+          </div>
+          <button class="btn-sm btn-outline" type="button" onclick="addCardapioOptionGroup()">+ Grupo</button>
+        </div>
+        <div id="mi-option-groups-list">
+          ${renderCardapioOptionGroups(optionGroups)}
+        </div>
+      </div>
+
+      <div id="mi-combo-components-wrap" style="margin-top:18px;padding:16px;border:1px solid var(--border);border-radius:16px;background:#fff;${itemType === 'COMBO' ? '' : 'display:none;'}">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px">
+          <div>
+            <div style="font-size:14px;font-weight:700;color:var(--text-primary)">Componentes do Combo</div>
+            <div style="font-size:12px;color:var(--muted)">Defina quais itens compoem o combo e em que quantidade.</div>
+          </div>
+          <button class="btn-sm btn-outline" type="button" onclick="addCardapioComboComponent()">+ Componente</button>
+        </div>
+        <div id="mi-combo-components-list">
+          ${renderCardapioComboComponents(item?.id || '', comboComponents)}
+        </div>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn-sm btn-outline" onclick="closeModal()">Cancelar</button>
@@ -285,14 +345,16 @@ function openMenuItemModal(itemId) {
     </div>
   `);
 
-  bindCardapioModalInteractions();
+  bindCardapioModalInteractions(item?.id || '');
 }
 
-function bindCardapioModalInteractions() {
+function bindCardapioModalInteractions(currentItemId) {
   const stockCheckbox = document.getElementById('mi-track-stock');
   const stockFields = document.getElementById('mi-stock-fields');
   const scheduleMode = document.getElementById('mi-schedule-mode');
   const scheduleFields = document.getElementById('mi-schedule-fields');
+  const itemTypeSelect = document.getElementById('mi-item-type');
+  const comboWrap = document.getElementById('mi-combo-components-wrap');
 
   if (stockCheckbox && stockFields) {
     stockCheckbox.addEventListener('change', () => {
@@ -305,6 +367,192 @@ function bindCardapioModalInteractions() {
       scheduleFields.style.display = scheduleMode.value === 'CUSTOM' ? '' : 'none';
     });
   }
+
+  if (itemTypeSelect && comboWrap) {
+    itemTypeSelect.addEventListener('change', () => {
+      const isCombo = itemTypeSelect.value === 'COMBO';
+      comboWrap.style.display = isCombo ? '' : 'none';
+      if (isCombo && !document.querySelector('.mi-combo-component-row')) {
+        addCardapioComboComponent(currentItemId);
+      }
+    });
+  }
+}
+
+function renderCardapioScheduleRows(windows) {
+  const draftMap = new Map(windows.map((window) => [Number(window.dayOfWeek), window]));
+  return CARDAPIO_WEEKDAYS.map((day) => {
+    const current = draftMap.get(day.value);
+    return `
+      <div class="form-row-2 menu-availability-row" data-day="${day.value}" style="align-items:center;margin-bottom:8px">
+        <div class="form-group" style="margin-bottom:0">
+          <label style="display:flex;align-items:center;gap:10px;font-weight:600">
+            <input type="checkbox" class="mi-schedule-enabled" ${current ? 'checked' : ''}>
+            ${day.label}
+          </label>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <input type="time" class="mi-schedule-start" value="${current?.startTime || '18:00'}">
+          <input type="time" class="mi-schedule-end" value="${current?.endTime || '23:00'}">
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function addCardapioOptionGroup(group = null) {
+  const list = document.getElementById('mi-option-groups-list');
+  if (!list) return;
+  if (!list.querySelector('.mi-option-group')) {
+    list.innerHTML = '';
+  }
+  list.insertAdjacentHTML('beforeend', renderCardapioOptionGroup(group));
+}
+
+function removeCardapioOptionGroup(groupKey) {
+  document.querySelector(`.mi-option-group[data-group-key="${groupKey}"]`)?.remove();
+}
+
+function addCardapioOptionRow(groupKey, option = null) {
+  const list = document.getElementById(`mi-option-list-${groupKey}`);
+  if (!list) return;
+  list.insertAdjacentHTML('beforeend', renderCardapioOptionRow(groupKey, option));
+}
+
+function removeCardapioOptionRow(optionKey) {
+  document.querySelector(`.mi-option-row[data-option-key="${optionKey}"]`)?.remove();
+}
+
+function renderCardapioOptionGroups(groups) {
+  if (!groups.length) {
+    return '<div style="font-size:12px;color:var(--muted)">Nenhum grupo criado ainda.</div>';
+  }
+  return groups.map((group) => renderCardapioOptionGroup(group)).join('');
+}
+
+function renderCardapioOptionGroup(group = null) {
+  cardapioOptionGroupCounter += 1;
+  const groupKey = `g${cardapioOptionGroupCounter}`;
+  const options = group?.options?.length ? group.options : [null];
+
+  return `
+    <div class="mi-option-group" data-group-key="${groupKey}" style="border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:12px;background:rgba(248,250,252,0.9)">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px">
+        <div style="font-size:13px;font-weight:700;color:var(--text-primary)">Grupo de Opcionais</div>
+        <button class="btn-sm btn-outline" type="button" onclick="removeCardapioOptionGroup('${groupKey}')">Remover grupo</button>
+      </div>
+      <div class="form-row-2">
+        <div class="form-group">
+          <label>Nome do grupo</label>
+          <input type="text" class="mi-og-name" value="${escapeHTML(group?.name || '')}" placeholder="Ex: Escolha o molho">
+        </div>
+        <div class="form-group">
+          <label>Descricao do grupo</label>
+          <input type="text" class="mi-og-description" value="${escapeHTML(group?.description || '')}" placeholder="Opcional">
+        </div>
+      </div>
+      <div class="form-row-2">
+        <div class="form-group">
+          <label style="display:flex;align-items:center;gap:10px;font-weight:600">
+            <input type="checkbox" class="mi-og-required" ${group?.required ? 'checked' : ''}>
+            Grupo obrigatorio
+          </label>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div class="form-group">
+            <label>Minimo</label>
+            <input type="number" min="0" class="mi-og-min" value="${group?.minSelect ?? 0}">
+          </div>
+          <div class="form-group">
+            <label>Maximo</label>
+            <input type="number" min="1" class="mi-og-max" value="${group?.maxSelect ?? Math.max(options.length, 1)}">
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px">
+        <div style="font-size:12px;font-weight:600;color:var(--text-primary)">Opcoes do grupo</div>
+        <button class="btn-sm btn-outline" type="button" onclick="addCardapioOptionRow('${groupKey}')">+ Opcao</button>
+      </div>
+      <div id="mi-option-list-${groupKey}">
+        ${options.map((option) => renderCardapioOptionRow(groupKey, option)).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function renderCardapioOptionRow(groupKey, option = null) {
+  cardapioOptionRowCounter += 1;
+  const optionKey = `o${cardapioOptionRowCounter}`;
+
+  return `
+    <div class="mi-option-row" data-option-key="${optionKey}" style="border:1px dashed var(--border);border-radius:12px;padding:12px;margin-bottom:10px;background:#fff">
+      <div style="display:grid;grid-template-columns:minmax(0,1fr) 120px 120px auto;gap:10px;align-items:end">
+        <div class="form-group" style="margin-bottom:0">
+          <label>Nome</label>
+          <input type="text" class="mi-option-name" value="${escapeHTML(option?.name || '')}" placeholder="Ex: Queijo extra">
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label>Valor extra</label>
+          <input type="number" step="0.01" min="0" class="mi-option-price" value="${option?.priceDelta ?? 0}">
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label>Status</label>
+          <select class="mi-option-available">
+            <option value="true" ${option?.available !== false ? 'selected' : ''}>Ativo</option>
+            <option value="false" ${option?.available === false ? 'selected' : ''}>Inativo</option>
+          </select>
+        </div>
+        <button class="btn-sm btn-outline" type="button" onclick="removeCardapioOptionRow('${optionKey}')">Remover</button>
+      </div>
+      <div class="form-group" style="margin-top:10px;margin-bottom:0">
+        <label>Descricao curta</label>
+        <input type="text" class="mi-option-description" value="${escapeHTML(option?.description || '')}" placeholder="Opcional">
+      </div>
+    </div>
+  `;
+}
+
+function addCardapioComboComponent(currentItemId, component = null) {
+  const list = document.getElementById('mi-combo-components-list');
+  if (!list) return;
+  list.insertAdjacentHTML('beforeend', renderCardapioComboComponentRow(currentItemId, component));
+}
+
+function removeCardapioComboComponent(rowKey) {
+  document.querySelector(`.mi-combo-component-row[data-row-key="${rowKey}"]`)?.remove();
+}
+
+function renderCardapioComboComponents(currentItemId, components) {
+  if (!components.length) {
+    return renderCardapioComboComponentRow(currentItemId, null);
+  }
+  return components.map((component) => renderCardapioComboComponentRow(currentItemId, component)).join('');
+}
+
+function renderCardapioComboComponentRow(currentItemId, component = null) {
+  cardapioComboRowCounter += 1;
+  const rowKey = `c${cardapioComboRowCounter}`;
+  const options = cardapioItems
+    .filter((item) => item.id !== currentItemId)
+    .map((item) => `<option value="${item.id}" ${component?.menuItemId === item.id ? 'selected' : ''}>${escapeHTML(item.name)} · ${escapeHTML(formatCurrency(item.price))}</option>`)
+    .join('');
+
+  return `
+    <div class="mi-combo-component-row" data-row-key="${rowKey}" style="display:grid;grid-template-columns:minmax(0,1fr) 120px auto;gap:10px;align-items:end;padding:12px;border:1px dashed var(--border);border-radius:12px;margin-bottom:10px;background:rgba(248,250,252,0.9)">
+      <div class="form-group" style="margin-bottom:0">
+        <label>Item do combo</label>
+        <select class="mi-combo-item-id">
+          <option value="">Selecione um item</option>
+          ${options}
+        </select>
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label>Quantidade</label>
+        <input type="number" min="1" class="mi-combo-quantity" value="${component?.quantity ?? 1}">
+      </div>
+      <button class="btn-sm btn-outline" type="button" onclick="removeCardapioComboComponent('${rowKey}')">Remover</button>
+    </div>
+  `;
 }
 
 async function saveMenuItem(itemId) {
@@ -315,8 +563,19 @@ async function saveMenuItem(itemId) {
 
   const trackStock = document.getElementById('mi-track-stock').checked;
   const scheduleMode = document.getElementById('mi-schedule-mode').value;
+  const itemType = normalizeCardapioItemType(document.getElementById('mi-item-type').value);
   const availabilityWindows = scheduleMode === 'CUSTOM' ? collectCardapioAvailabilityWindows() : [];
   if (availabilityWindows === null) {
+    return;
+  }
+
+  const optionGroups = collectCardapioOptionGroups();
+  if (optionGroups === null) {
+    return;
+  }
+
+  const comboComponents = itemType === 'COMBO' ? collectCardapioComboComponents() : [];
+  if (comboComponents === null) {
     return;
   }
 
@@ -334,10 +593,13 @@ async function saveMenuItem(itemId) {
     whatsapp_short_name: document.getElementById('mi-whatsapp-short-name').value.trim() || null,
     whatsapp_short_description: document.getElementById('mi-whatsapp-short-description').value.trim() || null,
     available: document.getElementById('mi-available').checked,
+    item_type: itemType,
     track_stock: trackStock,
     stock_quantity: trackStock ? parseInt(stockQuantityRaw || '0', 10) : null,
     low_stock_threshold: trackStock ? (lowStockThresholdRaw === '' ? null : parseInt(lowStockThresholdRaw, 10)) : null,
     availability_windows: availabilityWindows,
+    option_groups: optionGroups,
+    combo_components: comboComponents,
     display_order: parseInt(document.getElementById('mi-display-order').value, 10) || 0,
   };
 
@@ -374,27 +636,6 @@ async function saveMenuItem(itemId) {
   } catch (err) {
     showToast('Erro: ' + err.message, 'error');
   }
-}
-
-function renderCardapioScheduleRows(windows) {
-  const draftMap = new Map(windows.map((window) => [Number(window.dayOfWeek), window]));
-  return CARDAPIO_WEEKDAYS.map((day) => {
-    const current = draftMap.get(day.value);
-    return `
-      <div class="form-row-2 menu-availability-row" data-day="${day.value}" style="align-items:center;margin-bottom:8px">
-        <div class="form-group" style="margin-bottom:0">
-          <label style="display:flex;align-items:center;gap:10px;font-weight:600">
-            <input type="checkbox" class="mi-schedule-enabled" ${current ? 'checked' : ''}>
-            ${day.label}
-          </label>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-          <input type="time" class="mi-schedule-start" value="${current?.startTime || '18:00'}">
-          <input type="time" class="mi-schedule-end" value="${current?.endTime || '23:00'}">
-        </div>
-      </div>
-    `;
-  }).join('');
 }
 
 function collectCardapioAvailabilityWindows() {
@@ -434,6 +675,117 @@ function collectCardapioAvailabilityWindows() {
   return windows;
 }
 
+function collectCardapioOptionGroups() {
+  const groups = [];
+  const groupNodes = Array.from(document.querySelectorAll('.mi-option-group'));
+
+  for (const groupNode of groupNodes) {
+    const name = groupNode.querySelector('.mi-og-name')?.value.trim() || '';
+    const description = groupNode.querySelector('.mi-og-description')?.value.trim() || '';
+    const required = groupNode.querySelector('.mi-og-required')?.checked === true;
+    const minSelect = parseInt(groupNode.querySelector('.mi-og-min')?.value || '0', 10);
+    const maxSelect = parseInt(groupNode.querySelector('.mi-og-max')?.value || '1', 10);
+    const options = [];
+    const optionNodes = Array.from(groupNode.querySelectorAll('.mi-option-row'));
+
+    for (const optionNode of optionNodes) {
+      const optionName = optionNode.querySelector('.mi-option-name')?.value.trim() || '';
+      const optionDescription = optionNode.querySelector('.mi-option-description')?.value.trim() || '';
+      const optionPrice = parseFloat(optionNode.querySelector('.mi-option-price')?.value || '0');
+      const optionAvailable = optionNode.querySelector('.mi-option-available')?.value !== 'false';
+
+      if (!optionName && !optionDescription && Number(optionPrice || 0) === 0) {
+        continue;
+      }
+
+      if (!optionName) {
+        showToast('Toda opcao precisa ter um nome.', 'error');
+        return null;
+      }
+
+      if (Number.isNaN(optionPrice) || optionPrice < 0) {
+        showToast('Valor adicional invalido em um dos opcionais.', 'error');
+        return null;
+      }
+
+      options.push({
+        name: optionName,
+        description: optionDescription || null,
+        price_delta: optionPrice,
+        available: optionAvailable,
+        display_order: options.length,
+      });
+    }
+
+    if (!name && options.length === 0 && !description) {
+      continue;
+    }
+
+    if (!name) {
+      showToast('Todo grupo de opcionais precisa ter um nome.', 'error');
+      return null;
+    }
+
+    if (options.length === 0) {
+      showToast(`O grupo "${name}" precisa ter pelo menos uma opcao.`, 'error');
+      return null;
+    }
+
+    if (Number.isNaN(minSelect) || minSelect < 0 || Number.isNaN(maxSelect) || maxSelect < 1 || maxSelect < minSelect) {
+      showToast(`Limites invalidos no grupo "${name}".`, 'error');
+      return null;
+    }
+
+    groups.push({
+      name,
+      description: description || null,
+      required,
+      min_select: required && minSelect === 0 ? 1 : minSelect,
+      max_select: maxSelect,
+      display_order: groups.length,
+      options,
+    });
+  }
+
+  return groups;
+}
+
+function collectCardapioComboComponents() {
+  const rows = Array.from(document.querySelectorAll('.mi-combo-component-row'));
+  const components = [];
+
+  for (const row of rows) {
+    const menuItemId = row.querySelector('.mi-combo-item-id')?.value || '';
+    const quantity = parseInt(row.querySelector('.mi-combo-quantity')?.value || '1', 10);
+
+    if (!menuItemId) {
+      continue;
+    }
+
+    if (Number.isNaN(quantity) || quantity < 1) {
+      showToast('Quantidade invalida em um dos componentes do combo.', 'error');
+      return null;
+    }
+
+    components.push({
+      menu_item_id: menuItemId,
+      quantity,
+      display_order: components.length,
+    });
+  }
+
+  if (components.length === 0) {
+    showToast('Todo combo precisa ter pelo menos um componente.', 'error');
+    return null;
+  }
+
+  return components;
+}
+
+function normalizeCardapioItemType(value) {
+  return String(value || 'STANDARD').trim().toUpperCase() === 'COMBO' ? 'COMBO' : 'STANDARD';
+}
+
 function normalizeCardapioAvailabilityWindows(windows) {
   if (!Array.isArray(windows)) {
     return [];
@@ -452,6 +804,44 @@ function normalizeCardapioAvailabilityWindows(windows) {
       }
       return left.dayOfWeek - right.dayOfWeek;
     });
+}
+
+function normalizeCardapioOptionGroups(groups) {
+  if (!Array.isArray(groups)) {
+    return [];
+  }
+
+  return groups
+    .map((group) => ({
+      name: String(group.name || '').trim(),
+      description: String(group.description || '').trim(),
+      required: group.required === true,
+      minSelect: Number(group.minSelect ?? group.min_select ?? 0),
+      maxSelect: Number(group.maxSelect ?? group.max_select ?? 1),
+      options: Array.isArray(group.options)
+        ? group.options.map((option) => ({
+          name: String(option.name || '').trim(),
+          description: String(option.description || '').trim(),
+          priceDelta: Number(option.priceDelta ?? option.price_delta ?? 0),
+          available: option.available !== false,
+        }))
+        : [],
+    }))
+    .filter((group) => group.name);
+}
+
+function normalizeCardapioComboComponents(components) {
+  if (!Array.isArray(components)) {
+    return [];
+  }
+
+  return components
+    .map((component) => ({
+      menuItemId: String(component.menuItemId ?? component.menu_item_id ?? '').trim(),
+      menuItemName: String(component.menuItemName ?? component.menu_item_name ?? '').trim(),
+      quantity: Number(component.quantity || 1),
+    }))
+    .filter((component) => component.menuItemId);
 }
 
 function getCardapioAvailabilityMeta(item) {

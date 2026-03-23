@@ -51,14 +51,19 @@ type Item struct {
 	PrepTimeMinutes int `json:"prep_time_minutes" gorm:"default:15"`
 
 	// Status
-	Available         bool `json:"available" gorm:"default:true"`
-	TrackStock        bool `json:"track_stock" gorm:"column:track_stock;default:false"`
-	StockQuantity     *int `json:"stock_quantity,omitempty" gorm:"column:stock_quantity"`
-	LowStockThreshold *int `json:"low_stock_threshold,omitempty" gorm:"column:low_stock_threshold"`
-	DisplayOrder      int  `json:"display_order" gorm:"default:0"`
+	Available         bool   `json:"available" gorm:"default:true"`
+	ItemType          string `json:"item_type" gorm:"column:item_type;type:varchar(20);default:'STANDARD'"`
+	TrackStock        bool   `json:"track_stock" gorm:"column:track_stock;default:false"`
+	StockQuantity     *int   `json:"stock_quantity,omitempty" gorm:"column:stock_quantity"`
+	LowStockThreshold *int   `json:"low_stock_threshold,omitempty" gorm:"column:low_stock_threshold"`
+	DisplayOrder      int    `json:"display_order" gorm:"default:0"`
 
 	AvailabilityWindowsRaw string               `json:"-" gorm:"column:availability_windows;type:jsonb"`
 	AvailabilityWindows    []AvailabilityWindow `json:"availability_windows,omitempty" gorm:"-"`
+	OptionGroupsRaw        string               `json:"-" gorm:"column:option_groups;type:jsonb"`
+	OptionGroups           []OptionGroup        `json:"option_groups,omitempty" gorm:"-"`
+	ComboComponentsRaw     string               `json:"-" gorm:"column:combo_components;type:jsonb"`
+	ComboComponents        []ComboComponent     `json:"combo_components,omitempty" gorm:"-"`
 
 	IsCurrentlyAvailable      bool   `json:"is_currently_available" gorm:"-"`
 	CurrentAvailabilityStatus string `json:"current_availability_status,omitempty" gorm:"-"`
@@ -102,7 +107,35 @@ const (
 	AvailabilityStatusManualInactive       = "manual_inactive"
 	AvailabilityStatusOutOfStock           = "out_of_stock"
 	AvailabilityStatusScheduledUnavailable = "scheduled_unavailable"
+	ItemTypeStandard                       = "STANDARD"
+	ItemTypeCombo                          = "COMBO"
 )
+
+type OptionGroup struct {
+	Name         string   `json:"name"`
+	Description  string   `json:"description,omitempty"`
+	Required     bool     `json:"required"`
+	MinSelect    int      `json:"min_select"`
+	MaxSelect    int      `json:"max_select"`
+	DisplayOrder int      `json:"display_order"`
+	Options      []Option `json:"options,omitempty"`
+}
+
+type Option struct {
+	Name         string  `json:"name"`
+	Description  string  `json:"description,omitempty"`
+	PriceDelta   float64 `json:"price_delta"`
+	Available    bool    `json:"available"`
+	DisplayOrder int     `json:"display_order"`
+}
+
+type ComboComponent struct {
+	MenuItemID    uuid.UUID `json:"menu_item_id"`
+	MenuItemName  string    `json:"menu_item_name,omitempty" gorm:"-"`
+	MenuItemPrice float64   `json:"menu_item_price,omitempty" gorm:"-"`
+	Quantity      int       `json:"quantity"`
+	DisplayOrder  int       `json:"display_order"`
+}
 
 func (i *Item) EnsureAvailabilityWindows() []AvailabilityWindow {
 	if len(i.AvailabilityWindows) > 0 {
@@ -145,6 +178,120 @@ func (i *Item) EnsureAvailabilityWindows() []AvailabilityWindow {
 	return i.AvailabilityWindows
 }
 
+func (i *Item) EnsureOptionGroups() []OptionGroup {
+	if len(i.OptionGroups) > 0 {
+		return i.OptionGroups
+	}
+
+	raw := strings.TrimSpace(i.OptionGroupsRaw)
+	if raw == "" || raw == "null" {
+		return nil
+	}
+
+	var groups []OptionGroup
+	if err := json.Unmarshal([]byte(raw), &groups); err != nil {
+		return nil
+	}
+
+	sanitized := make([]OptionGroup, 0, len(groups))
+	for groupIndex, group := range groups {
+		name := strings.TrimSpace(group.Name)
+		if name == "" {
+			continue
+		}
+
+		options := make([]Option, 0, len(group.Options))
+		for optionIndex, option := range group.Options {
+			optionName := strings.TrimSpace(option.Name)
+			if optionName == "" || option.PriceDelta < 0 {
+				continue
+			}
+			options = append(options, Option{
+				Name:         optionName,
+				Description:  strings.TrimSpace(option.Description),
+				PriceDelta:   option.PriceDelta,
+				Available:    option.Available,
+				DisplayOrder: maxInt(option.DisplayOrder, optionIndex),
+			})
+		}
+		if len(options) == 0 {
+			continue
+		}
+
+		sort.Slice(options, func(left, right int) bool {
+			return options[left].DisplayOrder < options[right].DisplayOrder
+		})
+
+		required := group.Required
+		minSelect := maxInt(group.MinSelect, 0)
+		if required && minSelect == 0 {
+			minSelect = 1
+		}
+
+		maxSelect := group.MaxSelect
+		if maxSelect <= 0 {
+			maxSelect = len(options)
+		}
+		if maxSelect < minSelect {
+			maxSelect = minSelect
+		}
+
+		sanitized = append(sanitized, OptionGroup{
+			Name:         name,
+			Description:  strings.TrimSpace(group.Description),
+			Required:     required,
+			MinSelect:    minSelect,
+			MaxSelect:    maxSelect,
+			DisplayOrder: maxInt(group.DisplayOrder, groupIndex),
+			Options:      options,
+		})
+	}
+
+	sort.Slice(sanitized, func(left, right int) bool {
+		return sanitized[left].DisplayOrder < sanitized[right].DisplayOrder
+	})
+
+	i.OptionGroups = sanitized
+	return i.OptionGroups
+}
+
+func (i *Item) EnsureComboComponents() []ComboComponent {
+	if len(i.ComboComponents) > 0 {
+		return i.ComboComponents
+	}
+
+	raw := strings.TrimSpace(i.ComboComponentsRaw)
+	if raw == "" || raw == "null" {
+		return nil
+	}
+
+	var components []ComboComponent
+	if err := json.Unmarshal([]byte(raw), &components); err != nil {
+		return nil
+	}
+
+	sanitized := make([]ComboComponent, 0, len(components))
+	for index, component := range components {
+		if component.MenuItemID == uuid.Nil {
+			continue
+		}
+		sanitized = append(sanitized, ComboComponent{
+			MenuItemID:    component.MenuItemID,
+			MenuItemName:  strings.TrimSpace(component.MenuItemName),
+			MenuItemPrice: component.MenuItemPrice,
+			Quantity:      maxInt(component.Quantity, 1),
+			DisplayOrder:  maxInt(component.DisplayOrder, index),
+		})
+	}
+
+	sort.Slice(sanitized, func(left, right int) bool {
+		return sanitized[left].DisplayOrder < sanitized[right].DisplayOrder
+	})
+
+	i.ComboComponents = sanitized
+	return i.ComboComponents
+}
+
 func (i *Item) EvaluateAvailabilityAt(now time.Time) (bool, string, string) {
 	if !i.Available {
 		return false, AvailabilityStatusManualInactive, "Item desativado manualmente"
@@ -182,6 +329,13 @@ func (i *Item) CurrentStockQuantity() int {
 		return 0
 	}
 	return *i.StockQuantity
+}
+
+func (i *Item) NormalizedItemType() string {
+	if strings.EqualFold(strings.TrimSpace(i.ItemType), ItemTypeCombo) {
+		return ItemTypeCombo
+	}
+	return ItemTypeStandard
 }
 
 func isWithinAvailabilityWindows(windows []AvailabilityWindow, now time.Time) bool {
@@ -252,4 +406,11 @@ func isClockValue(value string) bool {
 
 	hours := int(value[0]-'0')*10 + int(value[1]-'0')
 	return hours >= 0 && hours <= 23
+}
+
+func maxInt(value int, fallback int) int {
+	if value < fallback {
+		return fallback
+	}
+	return value
 }

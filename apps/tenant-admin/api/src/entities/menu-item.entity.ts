@@ -50,6 +50,9 @@ export class MenuItem {
     @Column({ type: 'boolean', default: true })
     available!: boolean;
 
+    @Column({ type: 'varchar', length: 20, name: 'item_type', default: 'STANDARD' })
+    itemType!: string;
+
     @Column({ type: 'boolean', name: 'track_stock', default: false })
     trackStock!: boolean;
 
@@ -61,6 +64,12 @@ export class MenuItem {
 
     @Column({ type: 'jsonb', name: 'availability_windows', nullable: true })
     availabilityWindows!: Array<{ dayOfWeek: number; startTime: string; endTime: string }> | null;
+
+    @Column({ type: 'jsonb', name: 'option_groups', nullable: true })
+    optionGroups!: Array<Record<string, unknown>> | null;
+
+    @Column({ type: 'jsonb', name: 'combo_components', nullable: true })
+    comboComponents!: Array<Record<string, unknown>> | null;
 
     @Column({ type: 'int', name: 'display_order', default: 0 })
     displayOrder!: number;

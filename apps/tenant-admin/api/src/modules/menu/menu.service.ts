@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { MenuItem } from '../../entities/menu-item.entity';
 import { MenuCategory } from '../../entities/menu-category.entity';
 import { v4 as uuidv4 } from 'uuid';
@@ -9,6 +9,32 @@ type MenuAvailabilityWindow = {
     dayOfWeek: number;
     startTime: string;
     endTime: string;
+};
+
+type MenuItemOption = {
+    name: string;
+    description: string | null;
+    priceDelta: number;
+    available: boolean;
+    displayOrder: number;
+};
+
+type MenuItemOptionGroup = {
+    name: string;
+    description: string | null;
+    required: boolean;
+    minSelect: number;
+    maxSelect: number;
+    displayOrder: number;
+    options: MenuItemOption[];
+};
+
+type MenuItemComboComponent = {
+    menuItemId: string;
+    quantity: number;
+    displayOrder: number;
+    menuItemName?: string | null;
+    menuItemPrice?: number | null;
 };
 
 @Injectable()
@@ -23,12 +49,14 @@ export class MenuService {
     async findAll(tenantId: string, categoryId?: string) {
         const where: any = { tenantId };
         if (categoryId) where.categoryId = categoryId;
+
         const items = await this.menuItemRepo.find({
             where,
             relations: ['category'],
             order: { displayOrder: 'ASC', name: 'ASC' },
         });
-        return items.map((item) => this.serializeMenuItem(item));
+
+        return this.serializeMenuItems(tenantId, items);
     }
 
     async findOne(id: string, tenantId: string) {
@@ -36,7 +64,13 @@ export class MenuService {
             where: { id, tenantId },
             relations: ['category'],
         });
-        return this.serializeMenuItem(item);
+
+        if (!item) {
+            return null;
+        }
+
+        const [serialized] = await this.serializeMenuItems(tenantId, [item]);
+        return serialized || null;
     }
 
     async create(tenantId: string, data: Partial<MenuItem>) {
@@ -66,8 +100,33 @@ export class MenuService {
         return this.menuItemRepo.delete({ id, tenantId });
     }
 
+    private async serializeMenuItems(tenantId: string, items: MenuItem[]) {
+        const comboComponentIds = new Set<string>();
+        for (const item of items) {
+            for (const component of normalizeComboComponents(item.comboComponents)) {
+                comboComponentIds.add(component.menuItemId);
+            }
+        }
+
+        const comboItems = comboComponentIds.size > 0
+            ? await this.menuItemRepo.find({
+                where: {
+                    tenantId,
+                    id: In(Array.from(comboComponentIds)),
+                },
+            })
+            : [];
+
+        const comboItemMap = new Map(comboItems.map((item) => [item.id, item]));
+        return items.map((item) => this.serializeMenuItem(item, comboItemMap));
+    }
+
     private normalizeWriteData(data: Partial<MenuItem>): Partial<MenuItem> {
         const normalized: Partial<MenuItem> = { ...data };
+
+        if (Object.prototype.hasOwnProperty.call(data, 'itemType')) {
+            normalized.itemType = normalizeItemType(data.itemType);
+        }
 
         if (Object.prototype.hasOwnProperty.call(data, 'trackStock')) {
             normalized.trackStock = data.trackStock === true;
@@ -93,15 +152,35 @@ export class MenuService {
             normalized.availabilityWindows = normalizeAvailabilityWindows(data.availabilityWindows) ?? null;
         }
 
+        if (Object.prototype.hasOwnProperty.call(data, 'optionGroups')) {
+            normalized.optionGroups = normalizeOptionGroups(data.optionGroups) ?? null;
+        }
+
+        if (Object.prototype.hasOwnProperty.call(data, 'comboComponents')) {
+            normalized.comboComponents = normalizeComboComponents(data.comboComponents) ?? null;
+        }
+
+        if (normalized.itemType === 'STANDARD') {
+            normalized.comboComponents = null;
+        }
+
         return normalized;
     }
 
-    private serializeMenuItem(item: MenuItem | null) {
+    private serializeMenuItem(item: MenuItem | null, comboItemMap: Map<string, MenuItem>) {
         if (!item) {
             return null;
         }
 
         const availabilityWindows = normalizeAvailabilityWindows(item.availabilityWindows);
+        const optionGroups = normalizeOptionGroups(item.optionGroups);
+        const comboComponents = normalizeComboComponents(item.comboComponents)
+            .map((component) => ({
+                ...component,
+                menuItemName: comboItemMap.get(component.menuItemId)?.name || null,
+                menuItemPrice: comboItemMap.get(component.menuItemId)?.price ?? null,
+            }));
+
         const currentState = evaluateMenuItemAvailability({
             available: item.available,
             trackStock: item.trackStock,
@@ -112,15 +191,25 @@ export class MenuService {
 
         return {
             ...item,
+            itemType: normalizeItemType(item.itemType),
             availabilityWindows,
+            optionGroups,
+            comboComponents,
             isCurrentlyAvailable: currentState.isCurrentlyAvailable,
             currentAvailabilityStatus: currentState.status,
             currentAvailabilityLabel: currentState.label,
             unavailableReason: currentState.unavailableReason,
             availabilitySummary: buildAvailabilitySummary(availabilityWindows),
             stockLabel: buildStockLabel(item.trackStock, item.stockQuantity, item.lowStockThreshold),
+            optionGroupCount: optionGroups?.length || 0,
+            comboComponentCount: comboComponents.length,
+            configurationSummary: buildConfigurationSummary(normalizeItemType(item.itemType), optionGroups, comboComponents),
         };
     }
+}
+
+function normalizeItemType(value: unknown) {
+    return String(value || 'STANDARD').trim().toUpperCase() === 'COMBO' ? 'COMBO' : 'STANDARD';
 }
 
 function normalizeAvailabilityWindows(
@@ -151,6 +240,66 @@ function normalizeAvailabilityWindows(
         });
 
     return normalized.length > 0 ? normalized : null;
+}
+
+function normalizeOptionGroups(input?: Array<Record<string, unknown>> | null): MenuItemOptionGroup[] | null {
+    if (!Array.isArray(input) || input.length === 0) {
+        return null;
+    }
+
+    const groups = input
+        .map((rawGroup, groupIndex) => {
+            const options = Array.isArray(rawGroup?.options)
+                ? rawGroup.options
+                    .map((rawOption: Record<string, unknown>, optionIndex) => ({
+                        name: String(rawOption?.name || '').trim(),
+                        description: normalizeText(rawOption?.description),
+                        priceDelta: Number(rawOption?.priceDelta ?? rawOption?.price_delta ?? 0),
+                        available: rawOption?.available !== false,
+                        displayOrder: normalizeInt(rawOption?.displayOrder ?? rawOption?.display_order, optionIndex, 0),
+                    }))
+                    .filter((option) => option.name !== '' && option.priceDelta >= 0)
+                    .sort((left, right) => left.displayOrder - right.displayOrder)
+                : [];
+
+            const name = String(rawGroup?.name || '').trim();
+            const required = rawGroup?.required === true;
+            const minSelect = normalizeInt(rawGroup?.minSelect ?? rawGroup?.min_select, required ? 1 : 0, 0);
+            const maxSelect = normalizeInt(rawGroup?.maxSelect ?? rawGroup?.max_select, Math.max(minSelect || 1, options.length || 1), 1);
+
+            if (!name || options.length === 0) {
+                return null;
+            }
+
+            return {
+                name,
+                description: normalizeText(rawGroup?.description),
+                required,
+                minSelect,
+                maxSelect: Math.max(maxSelect, minSelect),
+                displayOrder: normalizeInt(rawGroup?.displayOrder ?? rawGroup?.display_order, groupIndex, 0),
+                options,
+            };
+        })
+        .filter(Boolean)
+        .sort((left, right) => left.displayOrder - right.displayOrder) as MenuItemOptionGroup[];
+
+    return groups.length > 0 ? groups : null;
+}
+
+function normalizeComboComponents(input?: Array<Record<string, unknown>> | null): MenuItemComboComponent[] {
+    if (!Array.isArray(input) || input.length === 0) {
+        return [];
+    }
+
+    return input
+        .map((rawComponent, index) => ({
+            menuItemId: String(rawComponent?.menuItemId ?? rawComponent?.menu_item_id ?? '').trim(),
+            quantity: normalizeInt(rawComponent?.quantity, 1, 1),
+            displayOrder: normalizeInt(rawComponent?.displayOrder ?? rawComponent?.display_order, index, 0),
+        }))
+        .filter((component) => component.menuItemId !== '')
+        .sort((left, right) => left.displayOrder - right.displayOrder);
 }
 
 function evaluateMenuItemAvailability(input: {
@@ -268,6 +417,34 @@ function buildStockLabel(trackStock: boolean, stockQuantity: number | null, lowS
     }
 
     return `Estoque atual: ${quantity}`;
+}
+
+function buildConfigurationSummary(
+    itemType: string,
+    optionGroups: MenuItemOptionGroup[] | null,
+    comboComponents: MenuItemComboComponent[],
+) {
+    const parts = [];
+    if (itemType === 'COMBO') {
+        parts.push(`${comboComponents.length} item(ns) no combo`);
+    }
+    if (optionGroups?.length) {
+        parts.push(`${optionGroups.length} grupo(s) de opcionais`);
+    }
+    return parts.length > 0 ? parts.join(' · ') : 'Sem estruturas adicionais';
+}
+
+function normalizeText(value: unknown) {
+    const normalized = String(value || '').trim();
+    return normalized === '' ? null : normalized;
+}
+
+function normalizeInt(value: unknown, fallback: number, min: number) {
+    const normalized = Number.parseInt(String(value ?? fallback), 10);
+    if (Number.isNaN(normalized)) {
+        return fallback;
+    }
+    return Math.max(normalized, min);
 }
 
 function isClockValue(value: string) {

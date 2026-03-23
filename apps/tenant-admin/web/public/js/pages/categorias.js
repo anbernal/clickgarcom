@@ -1,4 +1,13 @@
 // Categorias Page
+
+// ─── SVG ICONS ─────────────────────────────────────────────────
+const CATEGORIAS_ICONS = {
+  tag: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94.94-2.48 0-3.42L12 2Z"/><path d="M7 7h.01"/></svg>',
+  edit: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>',
+  trash: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>',
+  alert: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+};
+
 let categoriasData = [];
 
 async function loadCategorias() {
@@ -27,7 +36,7 @@ async function loadCategorias() {
           <div style="flex:1">Ações</div>
         </div>
         <div id="categorias-list">
-          ${categories.length === 0 ? '<div class="empty-state"><div class="icon">🏷</div><h3>Nenhuma categoria</h3><p>Crie sua primeira categoria para organizar o cardápio</p></div>' : ''}
+          ${categories.length === 0 ? '<div class="empty-state"><div class="icon">' + CATEGORIAS_ICONS.tag + '</div><h3>Nenhuma categoria</h3><p>Crie sua primeira categoria para organizar o cardápio</p></div>' : ''}
           ${categories.map(cat => `
             <div class="form-row">
               <div style="flex:2">
@@ -43,8 +52,8 @@ async function loadCategorias() {
               </div>
               <div style="flex:1;display:flex;gap:6px">
                 ${canManageMenu ? `
-                  <button class="btn-sm btn-outline" onclick="openCategoryModal('${cat.id}')">✏️ Editar</button>
-                  <button class="btn-sm btn-outline" onclick="deleteCategory('${cat.id}')">🗑</button>
+                  <button class="btn-sm btn-outline" onclick="openCategoryModal('${cat.id}')">${CATEGORIAS_ICONS.edit} Editar</button>
+                  <button class="btn-sm btn-outline" onclick="deleteCategory('${cat.id}')">${CATEGORIAS_ICONS.trash}</button>
                 ` : '<span style="font-size:11px;color:var(--muted)">Somente leitura</span>'}
               </div>
             </div>
@@ -53,7 +62,7 @@ async function loadCategorias() {
       </div>
     `;
     } catch (err) {
-        container.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><h3>Erro</h3><p>${err.message}</p></div>`;
+        container.innerHTML = `<div class="empty-state"><div class="icon" style="color:#ef4444">${CATEGORIAS_ICONS.alert}</div><h3>Erro</h3><p>${err.message}</p></div>`;
     }
 }
 

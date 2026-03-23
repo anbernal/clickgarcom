@@ -791,6 +791,19 @@ func orderingItemDescription(item *menu.Item) string {
 	if description == "" {
 		description = "Escolher item"
 	}
+
+	hints := make([]string, 0, 2)
+	if item.NormalizedItemType() == menu.ItemTypeCombo && len(item.EnsureComboComponents()) > 0 {
+		hints = append(hints, "combo")
+	}
+	if len(item.EnsureOptionGroups()) > 0 {
+		hints = append(hints, "extras")
+	}
+
+	if len(hints) > 0 {
+		description = description + " · " + strings.Join(hints, " + ")
+	}
+
 	return fmt.Sprintf("R$ %s · %s", formatBRLCurrency(item.Price), description)
 }
 
@@ -800,9 +813,49 @@ func orderingItemDetail(item *menu.Item) string {
 	}
 	description := strings.TrimSpace(item.Description)
 	if description == "" {
-		return "Escolha quantas unidades deseja pedir."
+		description = "Escolha quantas unidades deseja pedir."
+	}
+
+	if item.NormalizedItemType() == menu.ItemTypeCombo {
+		if summary := orderingComboSummary(item); summary != "" {
+			description += "\n\n🎁 " + summary
+		}
+	}
+
+	if len(item.EnsureOptionGroups()) > 0 {
+		description += "\n\n➕ Possui adicionais cadastrados no cardápio."
 	}
 	return description
+}
+
+func orderingComboSummary(item *menu.Item) string {
+	if item == nil {
+		return ""
+	}
+
+	components := item.EnsureComboComponents()
+	if len(components) == 0 {
+		return ""
+	}
+
+	parts := make([]string, 0, len(components))
+	for _, component := range components {
+		name := strings.TrimSpace(component.MenuItemName)
+		if name == "" {
+			continue
+		}
+		if component.Quantity > 1 {
+			parts = append(parts, fmt.Sprintf("%dx %s", component.Quantity, name))
+			continue
+		}
+		parts = append(parts, name)
+	}
+
+	if len(parts) == 0 {
+		return ""
+	}
+
+	return "Inclui " + strings.Join(parts, ", ")
 }
 
 func menuCategoryIDs(categories []*menu.Category) []string {

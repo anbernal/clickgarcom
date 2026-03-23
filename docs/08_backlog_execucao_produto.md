@@ -150,8 +150,8 @@ Objetivo:
 Sair do cardapio flat e aumentar flexibilidade comercial.
 
 Tasks:
-- [ ] Adicionar opcionais/complementos por item.
-- [ ] Adicionar combos.
+- [x] Adicionar opcionais/complementos por item.
+- [x] Adicionar combos.
 - [x] Adicionar imagens.
 - [x] Adicionar disponibilidade por horario.
 - [x] Adicionar estoque simples.
@@ -160,6 +160,9 @@ Tasks:
 
 Criterios de pronto:
 - Gestor consegue modelar cardapio real de restaurante sem gambiarras.
+
+Observacao:
+- A selecao estruturada de opcionais dentro do fluxo de pedido fica como proximo lote operacional do cardapio.
 
 ## Epic 08 - Usuarios e Permissoes
 

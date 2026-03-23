@@ -1,4 +1,21 @@
 // public/js/pages/wallet.js
+
+// ─── SVG ICONS ─────────────────────────────────────────────────
+const WALLET_ICONS = {
+  coin: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>',
+  chart: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>',
+  hourglass: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/></svg>',
+  infinity: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.178 8c5.096 0 5.096 8 0 8-5.095 0-7.133-8-12.739-8-4.585 0-4.585 8 0 8 5.606 0 7.644-8 12.74-8Z"/></svg>',
+  calendar: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>',
+  book: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>',
+  inbox: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>',
+  send: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>',
+  zap: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>',
+  smartphone: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>',
+  lock: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>',
+  unlock: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>',
+};
+
 function formatWalletCurrency(value) {
     return Number(value || 0).toLocaleString('pt-BR', {
         minimumFractionDigits: 2,
@@ -71,7 +88,7 @@ async function loadWallet() {
         const balanceColor = balance <= 0 ? '#ef4444' : balance < 5 ? '#f59e0b' : '#1abc9c';
         const planBadgeBg = isPrePaid ? 'rgba(59, 130, 246, 0.1)' : 'rgba(139, 92, 246, 0.1)';
         const planBadgeColor = isPrePaid ? '#3b82f6' : '#8b5cf6';
-        const planIcon = isPrePaid ? '🔒' : '🔓';
+        const planIcon = isPrePaid ? WALLET_ICONS.lock : WALLET_ICONS.unlock;
         const alertStyles = lowBalanceAlert?.level === 'critical'
             ? {
                 border: '1px solid rgba(239,68,68,0.18)',
@@ -162,7 +179,7 @@ async function loadWallet() {
                         display:flex; flex-direction:column; gap:8px;
                     ">
                         <div style="display:flex; align-items:center; gap:8px;">
-                            <span style="width:32px; height:32px; border-radius:10px; background:rgba(249,115,22,0.1); display:flex; align-items:center; justify-content:center; font-size:16px;">💰</span>
+                            <span style="width:32px; height:32px; border-radius:10px; background:rgba(249,115,22,0.1); display:flex; align-items:center; justify-content:center; color:#f97316;">${WALLET_ICONS.coin}</span>
                             <span style="font-size:12px; color:var(--muted); text-transform:uppercase; font-weight:700; letter-spacing:0.5px;">Custo / Msg</span>
                         </div>
                         <div style="font-size:28px; font-weight:800; font-family:'Sora',sans-serif; color:var(--accent-orange);">R$ ${formatWalletCurrency(messagePrice)}</div>
@@ -175,7 +192,7 @@ async function loadWallet() {
                         display:flex; flex-direction:column; gap:8px;
                     ">
                         <div style="display:flex; align-items:center; gap:8px;">
-                            <span style="width:32px; height:32px; border-radius:10px; background:rgba(59,130,246,0.1); display:flex; align-items:center; justify-content:center; font-size:16px;">📊</span>
+                            <span style="width:32px; height:32px; border-radius:10px; background:rgba(59,130,246,0.1); display:flex; align-items:center; justify-content:center; color:#3b82f6;">${WALLET_ICONS.chart}</span>
                             <span style="font-size:12px; color:var(--muted); text-transform:uppercase; font-weight:700; letter-spacing:0.5px;">Consumidas</span>
                         </div>
                         <div style="font-size:28px; font-weight:800; font-family:'Sora',sans-serif; color:var(--accent-blue);">${formatWalletInteger(messagesUsed)}</div>
@@ -188,7 +205,7 @@ async function loadWallet() {
                         display:flex; flex-direction:column; gap:8px;
                     ">
                         <div style="display:flex; align-items:center; gap:8px;">
-                            <span style="width:32px; height:32px; border-radius:10px; background:${isPrePaid && balance <= 0 ? 'rgba(239,68,68,0.1)' : 'rgba(26,188,156,0.1)'}; display:flex; align-items:center; justify-content:center; font-size:16px;">${isPrePaid ? '⏳' : '♾️'}</span>
+                            <span style="width:32px; height:32px; border-radius:10px; background:${isPrePaid && balance <= 0 ? 'rgba(239,68,68,0.1)' : 'rgba(26,188,156,0.1)'}; display:flex; align-items:center; justify-content:center; color:${isPrePaid && balance <= 0 ? '#ef4444' : '#1abc9c'};">${isPrePaid ? WALLET_ICONS.hourglass : WALLET_ICONS.infinity}</span>
                             <span style="font-size:12px; color:var(--muted); text-transform:uppercase; font-weight:700; letter-spacing:0.5px;">Restantes</span>
                         </div>
                         <div style="font-size:28px; font-weight:800; font-family:'Sora',sans-serif; color:${isPrePaid && balance <= 0 ? 'var(--accent-red)' : 'var(--teal)'};">${remainingLabel}</div>
@@ -203,7 +220,7 @@ async function loadWallet() {
                         display:flex; flex-direction:column; gap:8px;
                     ">
                         <div style="display:flex; align-items:center; gap:8px;">
-                            <span style="width:32px; height:32px; border-radius:10px; background:rgba(26,188,156,0.1); display:flex; align-items:center; justify-content:center; font-size:16px;">🗓️</span>
+                            <span style="width:32px; height:32px; border-radius:10px; background:rgba(26,188,156,0.1); display:flex; align-items:center; justify-content:center; color:#1abc9c;">${WALLET_ICONS.calendar}</span>
                             <span style="font-size:12px; color:var(--muted); text-transform:uppercase; font-weight:700; letter-spacing:0.5px;">Fechamento Atual</span>
                         </div>
                         <div style="font-size:26px; font-weight:800; font-family:'Sora',sans-serif; color:var(--teal);">R$ ${formatWalletCurrency(currentMonthSummary.amount || 0)}</div>
@@ -217,7 +234,7 @@ async function loadWallet() {
                         display:flex; flex-direction:column; gap:8px;
                     ">
                         <div style="display:flex; align-items:center; gap:8px;">
-                            <span style="width:32px; height:32px; border-radius:10px; background:rgba(59,130,246,0.1); display:flex; align-items:center; justify-content:center; font-size:16px;">📚</span>
+                            <span style="width:32px; height:32px; border-radius:10px; background:rgba(59,130,246,0.1); display:flex; align-items:center; justify-content:center; color:#3b82f6;">${WALLET_ICONS.book}</span>
                             <span style="font-size:12px; color:var(--muted); text-transform:uppercase; font-weight:700; letter-spacing:0.5px;">Fechamento Anterior</span>
                         </div>
                         <div style="font-size:26px; font-weight:800; font-family:'Sora',sans-serif; color:var(--accent-blue);">R$ ${formatWalletCurrency(previousMonthSummary.amount || 0)}</div>
@@ -391,7 +408,7 @@ async function loadWallet() {
                             width:44px; height:44px; border-radius:12px;
                             background: linear-gradient(135deg, #e0f2fe, #bae6fd);
                             display:flex; align-items:center; justify-content:center; font-size:20px;
-                        ">📥</span>
+                        ">${WALLET_ICONS.inbox}</span>
                         <div>
                             <div style="font-size:12px; color:var(--muted); text-transform:uppercase; font-weight:700; letter-spacing:0.5px;">Recebidas (IN)</div>
                             <div style="font-size:24px; font-weight:800; font-family:'Sora',sans-serif; color:var(--text);">${formatWalletInteger(messagesIn)}</div>
@@ -406,7 +423,7 @@ async function loadWallet() {
                             width:44px; height:44px; border-radius:12px;
                             background: linear-gradient(135deg, #e8faf6, #a7f3d0);
                             display:flex; align-items:center; justify-content:center; font-size:20px;
-                        ">📤</span>
+                        ">${WALLET_ICONS.send}</span>
                         <div>
                             <div style="font-size:12px; color:var(--muted); text-transform:uppercase; font-weight:700; letter-spacing:0.5px;">Enviadas (OUT)</div>
                             <div style="font-size:24px; font-weight:800; font-family:'Sora',sans-serif; color:var(--text);">${formatWalletInteger(messagesOut)}</div>
@@ -451,7 +468,7 @@ async function loadWallet() {
                             width:40px; height:40px; border-radius:12px;
                             background: linear-gradient(135deg, #1abc9c, #16a085);
                             display:flex; align-items:center; justify-content:center; font-size:18px; color:#fff;
-                        ">⚡</span>
+                        ">${WALLET_ICONS.zap}</span>
                         <div>
                             <h3 style="font-family:'Sora',sans-serif; font-weight:700; font-size:18px; color:var(--dark); margin:0;">Recarregar Saldo</h3>
                             <div style="font-size:13px; color:var(--muted);">PIX Instantâneo via Mercado Pago</div>
@@ -504,7 +521,7 @@ async function loadWallet() {
                             transition: transform 0.15s, box-shadow 0.15s;
                         " onmouseover="this.style.transform='translateY(-1px)'; this.style.boxShadow='0 6px 20px rgba(26,188,156,0.4)';"
                            onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 16px rgba(26,188,156,0.3)';">
-                            ⚡ Gerar Pagamento PIX
+                            ${WALLET_ICONS.zap} Gerar Pagamento PIX
                         </button>
                         <div style="font-size: 12px; text-align: center; color: var(--muted);">
                             Powered by Mercado Pago · O valor entra na hora em sua carteira
@@ -512,7 +529,7 @@ async function loadWallet() {
                     </form>
 
                     <div id="wallet-qr-container" style="display: none; text-align: center; margin-top: 30px; background: #fafbfc; padding: 30px; border-radius: 16px; border: 2px dashed var(--border);">
-                        <div style="width:56px; height:56px; border-radius:16px; background:linear-gradient(135deg, #1abc9c, #16a085); display:flex; align-items:center; justify-content:center; font-size:24px; margin:0 auto 16px; color:#fff;">📱</div>
+                        <div style="width:56px; height:56px; border-radius:16px; background:linear-gradient(135deg, #1abc9c, #16a085); display:flex; align-items:center; justify-content:center; margin:0 auto 16px; color:#fff;">${WALLET_ICONS.smartphone}</div>
                         <h4 style="margin-bottom: 20px; color: var(--dark); font-family:'Sora',sans-serif; font-weight:700;">Escaneie o QR Code</h4>
                         <img id="wallet-qr-image" src="" alt="QR Code" style="width: 200px; height: 200px; border-radius: 12px; margin-bottom: 20px; border: 2px solid var(--border); background:#fff; padding:12px;">
                         <div style="margin-bottom: 10px;">

@@ -1,6 +1,8 @@
 import { Type } from 'class-transformer';
 import { ArrayMaxSize, IsArray, IsBoolean, IsInt, IsNumber, IsOptional, IsString, IsUUID, IsUrl, MaxLength, Min, ValidateNested } from 'class-validator';
 import { MenuItemAvailabilityWindowDto } from './menu-item-availability-window.dto';
+import { MenuItemOptionGroupDto } from './menu-item-option-group.dto';
+import { MenuItemComboComponentDto } from './menu-item-combo-component.dto';
 
 export class CreateMenuItemDto {
     @IsString()
@@ -57,6 +59,11 @@ export class CreateMenuItemDto {
     available?: boolean;
 
     @IsOptional()
+    @IsString()
+    @MaxLength(20)
+    item_type?: string;
+
+    @IsOptional()
     @IsBoolean()
     track_stock?: boolean;
 
@@ -78,6 +85,20 @@ export class CreateMenuItemDto {
     @ValidateNested({ each: true })
     @Type(() => MenuItemAvailabilityWindowDto)
     availability_windows?: MenuItemAvailabilityWindowDto[];
+
+    @IsOptional()
+    @IsArray()
+    @ArrayMaxSize(15)
+    @ValidateNested({ each: true })
+    @Type(() => MenuItemOptionGroupDto)
+    option_groups?: MenuItemOptionGroupDto[];
+
+    @IsOptional()
+    @IsArray()
+    @ArrayMaxSize(20)
+    @ValidateNested({ each: true })
+    @Type(() => MenuItemComboComponentDto)
+    combo_components?: MenuItemComboComponentDto[];
 
     @IsOptional()
     @Type(() => Number)
