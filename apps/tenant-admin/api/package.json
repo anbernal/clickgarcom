@@ -10,7 +10,8 @@
     "start:prod": "node dist/main",
     "start:api": "ADMIN_WEB_ENABLED=false node dist/main",
     "start:api:dev": "ADMIN_WEB_ENABLED=false nest start --watch",
-    "seed:visual-menu-demo": "node seed-visual-menu-demo.js"
+    "seed:visual-menu-demo": "node seed-visual-menu-demo.js",
+    "benchmark:critical": "node scripts/benchmark-critical-queries.js"
   },
   "dependencies": {
     "@nestjs/axios": "^4.0.1",

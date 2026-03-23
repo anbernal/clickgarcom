@@ -221,18 +221,18 @@ Criterios de pronto:
 
 ## Epic 11 - Performance
 
-Status: Planejado
+Status: Concluido
 
 Objetivo:
 Reduzir N+1 e preparar o sistema para crescimento de tenants e eventos.
 
 Tasks:
-- [ ] Revisar N+1 de categorias.
-- [ ] Revisar N+1 de mesas/comandas.
-- [ ] Revisar agregacoes em memoria de relatorios.
-- [ ] Consolidar consultas analiticas em SQL.
-- [ ] Mapear necessidade de materialized views.
-- [ ] Criar benchmark simples para relatorios e telas criticas.
+- [x] Revisar N+1 de categorias.
+- [x] Revisar N+1 de mesas/comandas.
+- [x] Revisar agregacoes em memoria de relatorios.
+- [x] Consolidar consultas analiticas em SQL.
+- [x] Mapear necessidade de materialized views.
+- [x] Criar benchmark simples para relatorios e telas criticas.
 
 Criterios de pronto:
 - Relatorios e telas operacionais mantem tempo de resposta previsivel sob carga maior.

@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between } from 'typeorm';
+import { Repository } from 'typeorm';
 import { Order } from '../../entities/order.entity';
 import { OrderItem } from '../../entities/order-item.entity';
 import { MenuItem } from '../../entities/menu-item.entity';
@@ -28,39 +28,51 @@ export class ReportsService {
         const tomorrow = new Date(today);
         tomorrow.setDate(tomorrow.getDate() + 1);
 
-        // Today's orders
-        const todayOrders = await this.orderRepo.find({
-            where: {
-                tenantId,
-                createdAt: Between(today, tomorrow),
-            },
-            relations: ['items'],
-        });
+        const [orderStats, tableStats] = await Promise.all([
+            this.orderRepo.query(
+                `
+                    WITH order_totals AS (
+                        SELECT
+                            o.id,
+                            COALESCE(SUM(oi.quantity * oi.unit_price), 0) AS order_total
+                        FROM orders o
+                        LEFT JOIN order_items oi
+                          ON oi.order_id = o.id
+                        WHERE o.tenant_id = $1
+                          AND o.created_at >= $2
+                          AND o.created_at < $3
+                          AND o.status <> 'CANCELED'
+                        GROUP BY o.id
+                    )
+                    SELECT
+                        COUNT(*)::int AS orders_count,
+                        COALESCE(SUM(order_total), 0) AS revenue,
+                        COALESCE(AVG(order_total), 0) AS avg_ticket
+                    FROM order_totals
+                `,
+                [tenantId, today.toISOString(), tomorrow.toISOString()],
+            ),
+            this.tableRepo.query(
+                `
+                    SELECT
+                        COUNT(*)::int AS total_tables,
+                        COUNT(*) FILTER (WHERE status = 'OCCUPIED')::int AS occupied_tables
+                    FROM tables
+                    WHERE tenant_id = $1
+                `,
+                [tenantId],
+            ),
+        ]);
 
-        // Calculate revenue
-        const revenue = todayOrders.reduce((sum, order) => {
-            const orderTotal = order.items.reduce(
-                (s, item) => s + Number(item.unitPrice) * item.quantity,
-                0,
-            );
-            return sum + orderTotal;
-        }, 0);
-
-        // Tables
-        const tables = await this.tableRepo.find({ where: { tenantId } });
-        const totalTables = tables.length;
-        const occupiedTables = tables.filter((t) => t.status === 'OCCUPIED').length;
-
-        // Ticket médio
-        const avgTicket =
-            todayOrders.length > 0 ? revenue / todayOrders.length : 0;
+        const ordersRow = orderStats?.[0] || {};
+        const tablesRow = tableStats?.[0] || {};
 
         return {
-            revenue: Math.round(revenue * 100) / 100,
-            ordersCount: todayOrders.length,
-            totalTables,
-            occupiedTables,
-            avgTicket: Math.round(avgTicket * 100) / 100,
+            revenue: this.roundMoney(ordersRow.revenue),
+            ordersCount: this.parseInteger(ordersRow.orders_count),
+            totalTables: this.parseInteger(tablesRow.total_tables),
+            occupiedTables: this.parseInteger(tablesRow.occupied_tables),
+            avgTicket: this.roundMoney(ordersRow.avg_ticket),
         };
     }
 
@@ -144,40 +156,57 @@ export class ReportsService {
     }
 
     async getWeeklySales(tenantId: string) {
-        const days = [];
-        for (let i = 6; i >= 0; i--) {
-            const date = new Date();
-            date.setDate(date.getDate() - i);
-            date.setHours(0, 0, 0, 0);
-            const nextDay = new Date(date);
-            nextDay.setDate(nextDay.getDate() + 1);
+        const startDate = new Date();
+        startDate.setHours(0, 0, 0, 0);
+        startDate.setDate(startDate.getDate() - 6);
+        const endDate = new Date(startDate);
+        endDate.setDate(endDate.getDate() + 7);
 
-            const orders = await this.orderRepo.find({
-                where: {
-                    tenantId,
-                    createdAt: Between(date, nextDay),
-                },
-                relations: ['items'],
+        const rows = await this.orderRepo.query(
+            `
+                WITH order_totals AS (
+                    SELECT
+                        o.id,
+                        DATE(o.created_at) AS report_date,
+                        COALESCE(SUM(oi.quantity * oi.unit_price), 0) AS order_total
+                    FROM orders o
+                    LEFT JOIN order_items oi
+                      ON oi.order_id = o.id
+                    WHERE o.tenant_id = $1
+                      AND o.created_at >= $2
+                      AND o.created_at < $3
+                      AND o.status <> 'CANCELED'
+                    GROUP BY o.id, DATE(o.created_at)
+                )
+                SELECT
+                    report_date::text AS report_date,
+                    COUNT(*)::int AS orders_count,
+                    COALESCE(SUM(order_total), 0) AS revenue
+                FROM order_totals
+                GROUP BY report_date
+                ORDER BY report_date ASC
+            `,
+            [tenantId, startDate.toISOString(), endDate.toISOString()],
+        );
+
+        const rowMap = new Map<string, any>((rows || []).map((row: any) => [String(row.report_date), row]));
+        const dayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+        const series = [];
+        const cursor = new Date(startDate);
+
+        while (cursor < endDate) {
+            const key = this.toDateString(cursor);
+            const row = rowMap.get(key);
+            series.push({
+                day: dayNames[cursor.getDay()],
+                date: key,
+                revenue: this.roundMoney(row?.revenue),
+                orders: this.parseInteger(row?.orders_count),
             });
-
-            const revenue = orders.reduce((sum, order) => {
-                const orderTotal = order.items.reduce(
-                    (s, item) => s + Number(item.unitPrice) * item.quantity,
-                    0,
-                );
-                return sum + orderTotal;
-            }, 0);
-
-            const dayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
-            days.push({
-                day: dayNames[date.getDay()],
-                date: date.toISOString().split('T')[0],
-                revenue: Math.round(revenue * 100) / 100,
-                orders: orders.length,
-            });
+            cursor.setDate(cursor.getDate() + 1);
         }
 
-        return days;
+        return series;
     }
 
     private async getOverviewMetrics(tenantId: string, startDate: Date, endDate: Date) {

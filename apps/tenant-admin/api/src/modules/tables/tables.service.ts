@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, In, Repository } from 'typeorm';
 import { Table } from '../../entities/table.entity';
 import { Tab } from '../../entities/tab.entity';
 import { TableRequest, RequestStatus } from '../../entities/table-request.entity';
@@ -41,15 +41,32 @@ export class TablesService {
             order: { number: 'ASC' },
         });
 
-        // Attach open tabs for each table (Fase 14 - Split Checks)
-        const result = await Promise.all(
-            tables.map(async (table) => {
-                const tabs = await this.tabRepo.find({
-                    where: { tableId: table.id, status: 'OPEN' },
-                });
-                return { ...table, activeTabs: tabs || [] };
-            }),
-        );
+        if (!tables.length) {
+            return [];
+        }
+
+        const openTabs = await this.tabRepo.find({
+            where: {
+                tableId: In(tables.map((table) => table.id)),
+                tenantId,
+                status: 'OPEN',
+            },
+            order: { openedAt: 'ASC' },
+        });
+
+        const tabsByTableId = new Map<string, Tab[]>();
+        for (const tab of openTabs) {
+            const tableId = String(tab.tableId || '');
+            if (!tableId) continue;
+            const current = tabsByTableId.get(tableId) || [];
+            current.push(tab);
+            tabsByTableId.set(tableId, current);
+        }
+
+        const result = tables.map((table) => ({
+            ...table,
+            activeTabs: tabsByTableId.get(table.id) || [],
+        }));
 
         return result;
     }
@@ -108,23 +125,26 @@ export class TablesService {
     }
 
     async getTabStats(tenantId: string) {
-        const tables = await this.tableRepo.find({ where: { tenantId } });
-        const total = tables.length;
-        const occupied = tables.filter((t) => t.status === 'OCCUPIED').length;
-        const available = tables.filter((t) => t.status === 'AVAILABLE').length;
-
-        // Sum open tabs
-        const openTabs = await this.tabRepo
-            .createQueryBuilder('tab')
-            .select('SUM(tab.total)', 'totalOpen')
-            .where('tab.tenant_id = :tenantId', { tenantId })
-            .andWhere('tab.status = :status', { status: 'OPEN' })
-            .getRawOne();
+        const [tableStats, openTabs] = await Promise.all([
+            this.tableRepo
+                .createQueryBuilder('tb')
+                .select('COUNT(*)', 'total')
+                .addSelect(`COUNT(*) FILTER (WHERE tb.status = 'OCCUPIED')`, 'occupied')
+                .addSelect(`COUNT(*) FILTER (WHERE tb.status = 'AVAILABLE')`, 'available')
+                .where('tb.tenant_id = :tenantId', { tenantId })
+                .getRawOne(),
+            this.tabRepo
+                .createQueryBuilder('tab')
+                .select('SUM(tab.total)', 'totalOpen')
+                .where('tab.tenant_id = :tenantId', { tenantId })
+                .andWhere('tab.status = :status', { status: 'OPEN' })
+                .getRawOne(),
+        ]);
 
         return {
-            total,
-            occupied,
-            available,
+            total: Number.parseInt(String(tableStats?.total || '0'), 10) || 0,
+            occupied: Number.parseInt(String(tableStats?.occupied || '0'), 10) || 0,
+            available: Number.parseInt(String(tableStats?.available || '0'), 10) || 0,
             openTabsTotal: parseFloat(openTabs?.totalOpen || '0'),
         };
     }

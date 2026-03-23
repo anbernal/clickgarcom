@@ -20,15 +20,32 @@ export class CategoriesService {
             order: { displayOrder: 'ASC', name: 'ASC' },
         });
 
-        // Count items per category
-        const result = await Promise.all(
-            categories.map(async (cat) => {
-                const itemCount = await this.menuItemRepo.count({
-                    where: { categoryId: cat.id, tenantId },
-                });
-                return { ...cat, itemCount };
-            }),
+        if (!categories.length) {
+            return [];
+        }
+
+        const countRows = await this.menuItemRepo
+            .createQueryBuilder('item')
+            .select('item.category_id', 'categoryId')
+            .addSelect('COUNT(*)', 'itemCount')
+            .where('item.tenant_id = :tenantId', { tenantId })
+            .andWhere('item.category_id IN (:...categoryIds)', {
+                categoryIds: categories.map((category) => category.id),
+            })
+            .groupBy('item.category_id')
+            .getRawMany();
+
+        const countByCategoryId = new Map(
+            countRows.map((row: { categoryId: string; itemCount: string }) => [
+                String(row.categoryId),
+                Number.parseInt(String(row.itemCount || '0'), 10) || 0,
+            ]),
         );
+
+        const result = categories.map((category) => ({
+            ...category,
+            itemCount: countByCategoryId.get(category.id) || 0,
+        }));
 
         return result;
     }
