@@ -1020,6 +1020,7 @@ export class TablesService {
                         oi.quantity,
                         oi.unit_price,
                         oi.observations,
+                        oi.selected_options,
                         oi.created_at,
                         o.created_at AS order_created_at,
                         o.status AS order_status,
@@ -1035,7 +1036,7 @@ export class TablesService {
                   WHERE o.tenant_id = $1
                     AND o.tab_id = $2
                     AND o.status <> 'CANCELED'
-                  GROUP BY oi.id, oi.order_id, oi.menu_item_id, oi.quantity, oi.unit_price, oi.observations, oi.created_at, o.created_at, o.status, mi.name
+                  GROUP BY oi.id, oi.order_id, oi.menu_item_id, oi.quantity, oi.unit_price, oi.observations, oi.selected_options, oi.created_at, o.created_at, o.status, mi.name
                   ORDER BY o.created_at ASC, oi.created_at ASC`,
                 [tenantId, tabId],
             ).catch(() => []),
@@ -1138,6 +1139,7 @@ export class TablesService {
                 allocatedQuantity,
                 remainingQuantity: Math.max(0, quantity - allocatedQuantity),
                 observations: String(row.observations || '').trim() || null,
+                selectedOptions: Array.isArray(row.selected_options) ? row.selected_options : [],
                 createdAt: row.created_at,
                 orderCreatedAt: row.order_created_at,
                 orderStatus: String(row.order_status || 'PENDING'),

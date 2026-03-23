@@ -430,6 +430,22 @@ function renderComandaHistory(detail) {
   `).join('');
 }
 
+function formatComandaSelectedOptions(options) {
+  const list = Array.isArray(options) ? options : [];
+  return list
+    .map((option) => {
+      const groupName = String(option?.groupName || option?.group_name || '').trim();
+      const optionName = String(option?.optionName || option?.option_name || '').trim();
+      const priceDelta = Number(option?.priceDelta ?? option?.price_delta ?? 0);
+      if (!groupName || !optionName) return '';
+      return priceDelta > 0
+        ? `${groupName}: ${optionName} (+${formatCurrency(priceDelta)})`
+        : `${groupName}: ${optionName}`;
+    })
+    .filter(Boolean)
+    .join(', ');
+}
+
 function ensureComandaSplitState(detail) {
   const tabId = String(detail?.id || '');
   if (!tabId) {
@@ -563,6 +579,11 @@ function renderSplitItemsSection(detail, splitState) {
                 ${escapeHTML(`${item.quantity}x · ${formatCurrency(item.unitPrice || 0)} · restante ${item.remainingQuantity}`)}
                 ${Number(item.allocatedQuantity || 0) > 0 ? ` · ${escapeHTML(String(item.allocatedQuantity))} já alocado(s)` : ''}
               </div>
+              ${formatComandaSelectedOptions(item.selectedOptions) ? `
+                <div style="font-size:12px; color:var(--text-light); margin-top:4px;">
+                  + ${escapeHTML(formatComandaSelectedOptions(item.selectedOptions))}
+                </div>
+              ` : ''}
             </div>
             <div class="mono" style="font-size:13px; text-align:right;">${escapeHTML(formatCurrency(Number(item.unitPrice || 0) * Number(item.quantity || 0)))}</div>
             <input

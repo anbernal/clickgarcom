@@ -1917,6 +1917,19 @@ export function buildTenantAdminOpenApiDocument() {
                         quantity: { type: 'integer' },
                         unit_price: { type: 'number' },
                         observations: { type: 'string' },
+                        selected_options: {
+                            type: 'array',
+                            items: { $ref: '#/components/schemas/OrderItemSelectedOption' },
+                            nullable: true,
+                        },
+                    },
+                },
+                OrderItemSelectedOption: {
+                    type: 'object',
+                    properties: {
+                        group_name: { type: 'string' },
+                        option_name: { type: 'string' },
+                        price_delta: { type: 'number' },
                     },
                 },
                 OrderStatusUpdateRequest: {

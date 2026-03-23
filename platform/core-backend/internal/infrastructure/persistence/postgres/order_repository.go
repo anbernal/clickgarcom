@@ -39,6 +39,7 @@ func (r *OrderRepository) FindByIDWithItems(ctx context.Context, id uuid.UUID, t
 	if err != nil {
 		return nil, err
 	}
+	hydrateOrderItems(o.Items)
 	return &o, nil
 }
 
@@ -50,6 +51,11 @@ func (r *OrderRepository) FindByBatchID(ctx context.Context, batchID uuid.UUID, 
 		Order("created_at ASC").
 		Find(&orders).Error
 
+	for _, current := range orders {
+		if current != nil {
+			hydrateOrderItems(current.Items)
+		}
+	}
 	return orders, err
 }
 
@@ -61,6 +67,11 @@ func (r *OrderRepository) FindByTab(ctx context.Context, tabID uuid.UUID, tenant
 		Order("created_at DESC").
 		Find(&orders).Error
 
+	for _, current := range orders {
+		if current != nil {
+			hydrateOrderItems(current.Items)
+		}
+	}
 	return orders, err
 }
 
@@ -77,6 +88,11 @@ func (r *OrderRepository) FindByDestinationAndStatus(
 		Order("created_at ASC").
 		Find(&orders).Error
 
+	for _, current := range orders {
+		if current != nil {
+			hydrateOrderItems(current.Items)
+		}
+	}
 	return orders, err
 }
 
@@ -91,6 +107,7 @@ func (r *OrderRepository) Create(ctx context.Context, o *order.Order) error {
 			o.Items[i].ID = uuid.New()
 		}
 		o.Items[i].OrderID = o.ID
+		o.Items[i].SetSelectedOptions(o.Items[i].SelectedOptions)
 	}
 
 	return r.db.WithContext(ctx).Create(o).Error
@@ -115,5 +132,16 @@ func (r *OrderRepository) ListByFilters(ctx context.Context, tenantID uuid.UUID,
 	}
 
 	err := q.Order("created_at ASC").Find(&orders).Error
+	for _, current := range orders {
+		if current != nil {
+			hydrateOrderItems(current.Items)
+		}
+	}
 	return orders, err
+}
+
+func hydrateOrderItems(items []order.OrderItem) {
+	for index := range items {
+		items[index].EnsureSelectedOptions()
+	}
 }

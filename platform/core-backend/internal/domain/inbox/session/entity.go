@@ -13,6 +13,7 @@ const (
 	StateMainMenu                 ConversationState = "MAIN_MENU"
 	StateOrdering                 ConversationState = "ORDERING"
 	StateSelectingQty             ConversationState = "SELECTING_QTY"
+	StateSelectingOptions         ConversationState = "SELECTING_OPTIONS"
 	StateAddingNotes              ConversationState = "ADDING_NOTES"
 	StateConfirmingOrder          ConversationState = "CONFIRMING_ORDER"
 	StateRemovingOrderItem        ConversationState = "REMOVING_ORDER_ITEM"

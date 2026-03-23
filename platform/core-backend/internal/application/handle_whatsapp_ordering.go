@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -36,11 +37,14 @@ const (
 	orderingSelectedItemIDKey     = "ordering_selected_item_id"
 	orderingSelectedCartItemIDKey = "ordering_selected_cart_item_id"
 	orderingSelectedQuantityKey   = "ordering_selected_quantity"
+	orderingOptionGroupIndexKey   = "ordering_option_group_index"
+	orderingOptionSelectionsKey   = "ordering_option_selections"
 	orderingCartKey               = "ordering_cart"
 
 	orderingCategoryPrefix    = "menu:category:"
 	orderingItemPrefix        = "menu:item:"
 	orderingQuantityPrefix    = "qty:"
+	orderingOptionPrefix      = "opt:"
 	orderingConfirmOrderID    = "order:confirm"
 	orderingChangeItemID      = "order:change_item"
 	orderingRemoveItemID      = "order:remove_item"
@@ -52,6 +56,8 @@ const (
 	orderingRemoveAllUnitsID  = "order:remove_all"
 	orderingBackToCartID      = "order:back_cart"
 	orderingBackToMenuID      = "order:menu"
+	orderingOptionContinueID  = "opt:continue"
+	orderingOptionSkipID      = "opt:skip"
 	checkoutAccessScope       = "checkout_public"
 )
 
@@ -65,12 +71,20 @@ type checkoutAccessClaims struct {
 }
 
 type orderingCartItem struct {
-	MenuItemID    string `json:"menu_item_id"`
-	Quantity      int    `json:"quantity"`
-	Observations  string `json:"observations,omitempty"`
-	MenuItemName  string `json:"menu_item_name,omitempty"`
-	UnitPrice     string `json:"unit_price,omitempty"`
-	CategoryLabel string `json:"category_label,omitempty"`
+	LineID          string                   `json:"line_id"`
+	MenuItemID      string                   `json:"menu_item_id"`
+	Quantity        int                      `json:"quantity"`
+	Observations    string                   `json:"observations,omitempty"`
+	MenuItemName    string                   `json:"menu_item_name,omitempty"`
+	UnitPrice       string                   `json:"unit_price,omitempty"`
+	CategoryLabel   string                   `json:"category_label,omitempty"`
+	SelectedOptions []orderingSelectedOption `json:"selected_options,omitempty"`
+}
+
+type orderingSelectedOption struct {
+	GroupName  string  `json:"group_name"`
+	OptionName string  `json:"option_name"`
+	PriceDelta float64 `json:"price_delta"`
 }
 
 type orderingItemPreview struct {
@@ -448,6 +462,118 @@ func (uc *HandleWhatsAppMessageUseCase) sendQuantityMenu(
 	return err
 }
 
+func (uc *HandleWhatsAppMessageUseCase) sendOrderingOptionGroupMenu(
+	ctx context.Context,
+	to string,
+	tenantID uuid.UUID,
+	item *menu.Item,
+	group menu.OptionGroup,
+	currentSelections []orderingSelectedOption,
+	notice string,
+) error {
+	if len(group.Options) == 0 || len(group.Options) > 10 {
+		return fmt.Errorf("interactive option menu unavailable for %d options", len(group.Options))
+	}
+
+	rows := make([]whatsapp.InteractiveListRow, 0, len(group.Options))
+	for index, option := range group.Options {
+		description := strings.TrimSpace(option.Description)
+		if description == "" {
+			description = "Selecionar opcao"
+		}
+		if option.PriceDelta > 0 {
+			description += fmt.Sprintf(" · +R$ %s", formatBRLCurrency(option.PriceDelta))
+		}
+		rows = append(rows, whatsapp.InteractiveListRow{
+			ID:          orderingOptionPrefix + strconv.Itoa(index+1),
+			Title:       truncateInteractiveTitle(option.Name),
+			Description: truncateInteractiveDescription(description),
+		})
+	}
+
+	body := whatsapp.WithRestaurantHeader(
+		uc.resolveTenantName(ctx, tenantID),
+		buildOrderingOptionGroupHeader(item, group, currentSelections, notice),
+	)
+
+	_, err := uc.sender.SendInteractiveList(
+		whatsapp.WithTenantID(ctx, tenantID),
+		to,
+		body,
+		"Ver opcoes",
+		[]whatsapp.InteractiveListSection{{Title: truncateInteractiveTitle(group.Name), Rows: rows}},
+	)
+	return err
+}
+
+func (uc *HandleWhatsAppMessageUseCase) buildOrderingOptionGroupFallback(
+	item *menu.Item,
+	group menu.OptionGroup,
+	currentSelections []orderingSelectedOption,
+	notice string,
+) string {
+	lines := []string{buildOrderingOptionGroupHeader(item, group, currentSelections, notice), ""}
+	for index, option := range group.Options {
+		label := fmt.Sprintf("*%d* - %s", index+1, option.Name)
+		if option.PriceDelta > 0 {
+			label += fmt.Sprintf(" (+R$ %s)", formatBRLCurrency(option.PriceDelta))
+		}
+		if description := strings.TrimSpace(option.Description); description != "" {
+			label += " · " + description
+		}
+		lines = append(lines, label)
+	}
+
+	lines = append(lines, "")
+	lines = append(lines, orderingOptionActionHint(group, len(currentSelections)))
+	return strings.Join(lines, "\n")
+}
+
+func buildOrderingOptionGroupHeader(
+	item *menu.Item,
+	group menu.OptionGroup,
+	currentSelections []orderingSelectedOption,
+	notice string,
+) string {
+	sections := make([]string, 0, 5)
+	if trimmedNotice := strings.TrimSpace(notice); trimmedNotice != "" {
+		sections = append(sections, trimmedNotice)
+	}
+	sections = append(sections, fmt.Sprintf("➕ *%s*", item.Name))
+	sections = append(sections, fmt.Sprintf("Grupo: *%s*", group.Name))
+	if description := strings.TrimSpace(group.Description); description != "" {
+		sections = append(sections, description)
+	}
+	if len(currentSelections) > 0 {
+		sections = append(sections, "Ja escolhidos: "+buildOrderingSelectedOptionsSummary(currentSelections))
+	}
+	sections = append(sections, orderingOptionSelectionRule(group, len(currentSelections)))
+	return strings.Join(sections, "\n\n")
+}
+
+func orderingOptionSelectionRule(group menu.OptionGroup, currentCount int) string {
+	parts := make([]string, 0, 2)
+	if group.MinSelect > 0 {
+		parts = append(parts, fmt.Sprintf("Escolha no minimo %d opcao(oes).", group.MinSelect))
+	} else {
+		parts = append(parts, "Esse grupo e opcional.")
+	}
+	parts = append(parts, fmt.Sprintf("Limite: %d opcao(oes). Ja escolhidas: %d.", group.MaxSelect, currentCount))
+	return strings.Join(parts, " ")
+}
+
+func orderingOptionActionHint(group menu.OptionGroup, currentCount int) string {
+	parts := []string{"Escolha uma opcao pelo numero ou pela lista."}
+	if currentCount >= group.MinSelect {
+		parts = append(parts, "Digite *ok* para continuar.")
+	}
+	if group.MinSelect == 0 {
+		parts = append(parts, "Digite *pular* para seguir sem selecionar.")
+	}
+	parts = append(parts, "_Digite 0 para voltar ao menu principal_")
+	return strings.Join(parts, " ")
+}
+
 func (uc *HandleWhatsAppMessageUseCase) sendCartConfirmationMenu(
 	ctx context.Context,
 	to string,
@@ -511,6 +637,30 @@ func (uc *HandleWhatsAppMessageUseCase) buildQuantityFallback(item *menu.Item) s
 	)
 }
 
+func (uc *HandleWhatsAppMessageUseCase) presentOrderingOptionGroup(
+	ctx context.Context,
+	sess *session.Session,
+	item *menu.Item,
+	group menu.OptionGroup,
+	allSelections []orderingSelectedOption,
+	notice string,
+) (string, session.ConversationState, error) {
+	groupSelections := filterOrderingSelectedOptionsByGroup(allSelections, group.Name)
+	decoratedNotice := strings.TrimSpace(notice)
+	if summary := buildOrderingSelectedOptionsSummary(allSelections); summary != "" && len(allSelections) > len(groupSelections) {
+		if decoratedNotice != "" {
+			decoratedNotice += "\n\n"
+		}
+		decoratedNotice += "Resumo atual: " + summary
+	}
+
+	if err := uc.sendOrderingOptionGroupMenu(ctx, sess.UserPhone, sess.TenantID, item, group, groupSelections, decoratedNotice); err == nil {
+		return "", session.StateSelectingOptions, nil
+	}
+
+	return uc.buildOrderingOptionGroupFallback(item, group, groupSelections, decoratedNotice), session.StateSelectingOptions, nil
+}
+
 func (uc *HandleWhatsAppMessageUseCase) buildCartConfirmationFallback(cartBody string) string {
 	return strings.TrimSpace(cartBody) + "\n\n*1* - ✅ Enviar pedido\n*2* - ➕ Adicionar mais itens\n*3* - 🛠 Ajustar um item\n*0* - ◂ Menu principal"
 }
@@ -569,6 +719,8 @@ func (uc *HandleWhatsAppMessageUseCase) clearOrderingContext(sess *session.Sessi
 		orderingSelectedItemIDKey,
 		orderingSelectedCartItemIDKey,
 		orderingSelectedQuantityKey,
+		orderingOptionGroupIndexKey,
+		orderingOptionSelectionsKey,
 		orderingCartKey,
 	} {
 		delete(sess.Context, key)
@@ -589,9 +741,68 @@ func (uc *HandleWhatsAppMessageUseCase) clearOrderingSelectionContext(sess *sess
 		orderingSelectedItemIDKey,
 		orderingSelectedCartItemIDKey,
 		orderingSelectedQuantityKey,
+		orderingOptionGroupIndexKey,
+		orderingOptionSelectionsKey,
 	} {
 		delete(sess.Context, key)
 	}
+}
+
+func (uc *HandleWhatsAppMessageUseCase) getOrderingOptionGroupIndex(sess *session.Session) int {
+	if sess == nil {
+		return 0
+	}
+	value, ok := sess.GetContext(orderingOptionGroupIndexKey)
+	if !ok || value == nil {
+		return 0
+	}
+
+	index := parseOrderingIntValue(value)
+	if index < 0 {
+		return 0
+	}
+	return index
+}
+
+func (uc *HandleWhatsAppMessageUseCase) setOrderingOptionGroupIndex(sess *session.Session, index int) {
+	if sess == nil {
+		return
+	}
+	if index < 0 {
+		index = 0
+	}
+	sess.SetContext(orderingOptionGroupIndexKey, index)
+}
+
+func (uc *HandleWhatsAppMessageUseCase) getOrderingOptionSelections(sess *session.Session) []orderingSelectedOption {
+	if sess == nil {
+		return nil
+	}
+	value, ok := sess.GetContext(orderingOptionSelectionsKey)
+	if !ok || value == nil {
+		return nil
+	}
+
+	switch typed := value.(type) {
+	case []orderingSelectedOption:
+		return append([]orderingSelectedOption(nil), typed...)
+	case []interface{}:
+		return parseOrderingSelectedOptions(typed)
+	default:
+		return nil
+	}
+}
+
+func (uc *HandleWhatsAppMessageUseCase) setOrderingOptionSelections(sess *session.Session, options []orderingSelectedOption) {
+	if sess == nil || sess.Context == nil {
+		return
+	}
+	if len(options) == 0 {
+		delete(sess.Context, orderingOptionSelectionsKey)
+		sess.UpdatedAt = time.Now()
+		return
+	}
+	sess.SetContext(orderingOptionSelectionsKey, options)
 }
 
 func (uc *HandleWhatsAppMessageUseCase) getContextString(sess *session.Session, key string) string {
@@ -723,6 +934,275 @@ func parseOrderingOptionalString(raw interface{}) string {
 	}
 
 	return value
+}
+
+func parseOrderingSelectedOptions(raw interface{}) []orderingSelectedOption {
+	switch typed := raw.(type) {
+	case []orderingSelectedOption:
+		return append([]orderingSelectedOption(nil), typed...)
+	case []interface{}:
+		options := make([]orderingSelectedOption, 0, len(typed))
+		for _, entry := range typed {
+			row, ok := entry.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			groupName := parseOrderingOptionalString(row["group_name"])
+			optionName := parseOrderingOptionalString(row["option_name"])
+			priceDelta := parseOrderingFloatValue(row["price_delta"])
+			if groupName == "" || optionName == "" || priceDelta < 0 {
+				continue
+			}
+			options = append(options, orderingSelectedOption{
+				GroupName:  groupName,
+				OptionName: optionName,
+				PriceDelta: priceDelta,
+			})
+		}
+		return options
+	default:
+		return nil
+	}
+}
+
+func filterOrderingSelectedOptionsByGroup(options []orderingSelectedOption, groupName string) []orderingSelectedOption {
+	if len(options) == 0 {
+		return nil
+	}
+
+	lookup := strings.TrimSpace(strings.ToLower(groupName))
+	if lookup == "" {
+		return nil
+	}
+
+	filtered := make([]orderingSelectedOption, 0, len(options))
+	for _, option := range options {
+		if strings.TrimSpace(strings.ToLower(option.GroupName)) != lookup {
+			continue
+		}
+		filtered = append(filtered, option)
+	}
+	return filtered
+}
+
+func orderingSelectedOptionSignature(options []orderingSelectedOption) string {
+	if len(options) == 0 {
+		return ""
+	}
+
+	parts := make([]string, 0, len(options))
+	for _, option := range options {
+		groupName := strings.TrimSpace(strings.ToLower(option.GroupName))
+		optionName := strings.TrimSpace(strings.ToLower(option.OptionName))
+		if groupName == "" || optionName == "" {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s:%s:%.2f", groupName, optionName, option.PriceDelta))
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, "|")
+}
+
+func buildOrderingSelectedOptionsSummary(options []orderingSelectedOption) string {
+	if len(options) == 0 {
+		return ""
+	}
+
+	parts := make([]string, 0, len(options))
+	for _, option := range options {
+		label := strings.TrimSpace(option.GroupName) + ": " + strings.TrimSpace(option.OptionName)
+		if option.PriceDelta > 0 {
+			label += fmt.Sprintf(" (+R$ %s)", formatBRLCurrency(option.PriceDelta))
+		}
+		parts = append(parts, label)
+	}
+	return strings.Join(parts, ", ")
+}
+
+func orderingSelectedOptionsTotal(options []orderingSelectedOption) float64 {
+	total := 0.0
+	for _, option := range options {
+		if option.PriceDelta > 0 {
+			total += option.PriceDelta
+		}
+	}
+	return total
+}
+
+func resolveOrderingOptionSelections(group menu.OptionGroup, text string) ([]orderingSelectedOption, error) {
+	tokens := splitOrderingOptionSelectionTokens(text)
+	if len(tokens) == 0 {
+		return nil, fmt.Errorf("nenhuma opção foi informada")
+	}
+
+	resolved := make([]orderingSelectedOption, 0, len(tokens))
+	seen := make(map[string]struct{}, len(tokens))
+	for _, token := range tokens {
+		option, err := resolveOrderingOptionToken(group, token)
+		if err != nil {
+			return nil, err
+		}
+		if !option.Available {
+			return nil, fmt.Errorf("a opção %s não está disponível agora", option.Name)
+		}
+
+		key := strings.TrimSpace(strings.ToLower(option.Name))
+		if _, exists := seen[key]; exists {
+			return nil, fmt.Errorf("a opção %s foi informada mais de uma vez", option.Name)
+		}
+		seen[key] = struct{}{}
+
+		resolved = append(resolved, orderingSelectedOption{
+			GroupName:  group.Name,
+			OptionName: option.Name,
+			PriceDelta: option.PriceDelta,
+		})
+	}
+
+	return resolved, nil
+}
+
+func splitOrderingOptionSelectionTokens(text string) []string {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return nil
+	}
+
+	parts := strings.FieldsFunc(trimmed, func(r rune) bool {
+		switch r {
+		case ',', ';', '\n':
+			return true
+		default:
+			return false
+		}
+	})
+
+	if len(parts) == 0 {
+		return nil
+	}
+
+	tokens := make([]string, 0, len(parts))
+	for _, part := range parts {
+		token := strings.TrimSpace(part)
+		if token == "" {
+			continue
+		}
+		tokens = append(tokens, token)
+	}
+	return tokens
+}
+
+func resolveOrderingOptionToken(group menu.OptionGroup, token string) (menu.Option, error) {
+	value := strings.TrimSpace(token)
+	if value == "" {
+		return menu.Option{}, fmt.Errorf("opção vazia")
+	}
+
+	if strings.HasPrefix(strings.ToLower(value), orderingOptionPrefix) {
+		value = strings.TrimSpace(strings.TrimPrefix(strings.ToLower(value), orderingOptionPrefix))
+	}
+
+	if index, err := strconv.Atoi(value); err == nil {
+		if index < 1 || index > len(group.Options) {
+			return menu.Option{}, fmt.Errorf("a opção %d não existe no grupo %s", index, group.Name)
+		}
+		return group.Options[index-1], nil
+	}
+
+	lookup := strings.TrimSpace(strings.ToLower(value))
+	for _, option := range group.Options {
+		if strings.TrimSpace(strings.ToLower(option.Name)) == lookup {
+			return option, nil
+		}
+	}
+
+	return menu.Option{}, fmt.Errorf("não encontrei a opção %s no grupo %s", value, group.Name)
+}
+
+func toOrderSelectedOptions(options []orderingSelectedOption) []order.SelectedOption {
+	if len(options) == 0 {
+		return nil
+	}
+
+	converted := make([]order.SelectedOption, 0, len(options))
+	for _, option := range options {
+		groupName := strings.TrimSpace(option.GroupName)
+		optionName := strings.TrimSpace(option.OptionName)
+		if groupName == "" || optionName == "" || option.PriceDelta < 0 {
+			continue
+		}
+		converted = append(converted, order.SelectedOption{
+			GroupName:  groupName,
+			OptionName: optionName,
+			PriceDelta: option.PriceDelta,
+		})
+	}
+	return converted
+}
+
+func toOrderingSelectedOptions(options []order.SelectedOption) []orderingSelectedOption {
+	if len(options) == 0 {
+		return nil
+	}
+
+	converted := make([]orderingSelectedOption, 0, len(options))
+	for _, option := range options {
+		groupName := strings.TrimSpace(option.GroupName)
+		optionName := strings.TrimSpace(option.OptionName)
+		if groupName == "" || optionName == "" || option.PriceDelta < 0 {
+			continue
+		}
+		converted = append(converted, orderingSelectedOption{
+			GroupName:  groupName,
+			OptionName: optionName,
+			PriceDelta: option.PriceDelta,
+		})
+	}
+	return converted
+}
+
+func (uc *HandleWhatsAppMessageUseCase) advanceOrderingOptionSelection(
+	ctx context.Context,
+	sess *session.Session,
+	item *menu.Item,
+	groups []menu.OptionGroup,
+	currentIndex int,
+	allSelections []orderingSelectedOption,
+	notice string,
+) (string, session.ConversationState, error) {
+	if currentIndex+1 < len(groups) {
+		uc.setOrderingOptionGroupIndex(sess, currentIndex+1)
+		uc.setOrderingOptionSelections(sess, allSelections)
+		return uc.presentOrderingOptionGroup(ctx, sess, item, groups[currentIndex+1], allSelections, notice)
+	}
+
+	quantityRaw, ok := sess.GetContext(orderingSelectedQuantityKey)
+	if !ok || quantityRaw == nil {
+		uc.clearOrderingSelectionContext(sess)
+		return uc.startOrderingFlow(ctx, sess)
+	}
+
+	quantity, err := orderingQuantityFromContext(quantityRaw)
+	if err != nil || quantity < 1 {
+		uc.clearOrderingSelectionContext(sess)
+		return uc.startOrderingFlow(ctx, sess)
+	}
+
+	unitPrice := item.Price + orderingSelectedOptionsTotal(allSelections)
+	cart := uc.addItemToOrderingCart(sess, item, quantity, allSelections, unitPrice)
+
+	finalNotice := strings.TrimSpace(notice)
+	if finalNotice == "" {
+		finalNotice = fmt.Sprintf(
+			"✅ Adicionei *%d unidade%s* de *%s* ao carrinho.",
+			quantity,
+			pluralSuffix(quantity),
+			item.Name,
+		)
+	}
+	cartMessage := uc.buildOrderingCartMessageWithNotice(ctx, sess, cart, finalNotice)
+	uc.clearOrderingSelectionContext(sess)
+	return uc.presentCartConfirmation(ctx, sess, cartMessage)
 }
 
 func (uc *HandleWhatsAppMessageUseCase) mergeOrderingItemWithPreviewCache(
@@ -898,13 +1378,20 @@ func (uc *HandleWhatsAppMessageUseCase) getOrderingCart(sess *session.Session) [
 				continue
 			}
 			cart = append(cart, orderingCartItem{
-				MenuItemID:    strings.TrimSpace(fmt.Sprintf("%v", entry["menu_item_id"])),
-				Quantity:      parseOrderingIntValue(entry["quantity"]),
-				Observations:  strings.TrimSpace(fmt.Sprintf("%v", entry["observations"])),
-				MenuItemName:  strings.TrimSpace(fmt.Sprintf("%v", entry["menu_item_name"])),
-				UnitPrice:     strings.TrimSpace(fmt.Sprintf("%v", entry["unit_price"])),
-				CategoryLabel: strings.TrimSpace(fmt.Sprintf("%v", entry["category_label"])),
+				LineID:          parseOrderingOptionalString(entry["line_id"]),
+				MenuItemID:      strings.TrimSpace(fmt.Sprintf("%v", entry["menu_item_id"])),
+				Quantity:        parseOrderingIntValue(entry["quantity"]),
+				Observations:    strings.TrimSpace(fmt.Sprintf("%v", entry["observations"])),
+				MenuItemName:    strings.TrimSpace(fmt.Sprintf("%v", entry["menu_item_name"])),
+				UnitPrice:       strings.TrimSpace(fmt.Sprintf("%v", entry["unit_price"])),
+				CategoryLabel:   strings.TrimSpace(fmt.Sprintf("%v", entry["category_label"])),
+				SelectedOptions: parseOrderingSelectedOptions(entry["selected_options"]),
 			})
+		}
+		for index := range cart {
+			if strings.TrimSpace(cart[index].LineID) == "" {
+				cart[index].LineID = fmt.Sprintf("legacy-%d-%s", index+1, strings.TrimSpace(cart[index].MenuItemID))
+			}
 		}
 		return cart
 	default:
@@ -926,14 +1413,24 @@ func (uc *HandleWhatsAppMessageUseCase) setOrderingCart(sess *session.Session, c
 	sess.SetContext(orderingCartKey, cart)
 }
 
-func (uc *HandleWhatsAppMessageUseCase) addItemToOrderingCart(sess *session.Session, item *menu.Item, quantity int) []orderingCartItem {
+func (uc *HandleWhatsAppMessageUseCase) addItemToOrderingCart(
+	sess *session.Session,
+	item *menu.Item,
+	quantity int,
+	selectedOptions []orderingSelectedOption,
+	unitPrice float64,
+) []orderingCartItem {
 	cart := uc.getOrderingCart(sess)
 	if item == nil || quantity <= 0 {
 		return cart
 	}
 
+	signature := orderingSelectedOptionSignature(selectedOptions)
 	for index := range cart {
 		if cart[index].MenuItemID != item.ID.String() {
+			continue
+		}
+		if orderingSelectedOptionSignature(cart[index].SelectedOptions) != signature {
 			continue
 		}
 		cart[index].Quantity += quantity
@@ -941,28 +1438,34 @@ func (uc *HandleWhatsAppMessageUseCase) addItemToOrderingCart(sess *session.Sess
 			cart[index].MenuItemName = item.Name
 		}
 		if strings.TrimSpace(cart[index].UnitPrice) == "" {
-			cart[index].UnitPrice = fmt.Sprintf("%.2f", item.Price)
+			cart[index].UnitPrice = fmt.Sprintf("%.2f", unitPrice)
 		}
+		cart[index].SelectedOptions = append([]orderingSelectedOption(nil), selectedOptions...)
 		uc.setOrderingCart(sess, cart)
 		return cart
 	}
 
 	cart = append(cart, orderingCartItem{
-		MenuItemID:    item.ID.String(),
-		Quantity:      quantity,
-		MenuItemName:  item.Name,
-		UnitPrice:     fmt.Sprintf("%.2f", item.Price),
-		CategoryLabel: uc.getContextString(sess, orderingSelectedCategoryIDKey),
+		LineID:          uuid.NewString(),
+		MenuItemID:      item.ID.String(),
+		Quantity:        quantity,
+		MenuItemName:    item.Name,
+		UnitPrice:       fmt.Sprintf("%.2f", unitPrice),
+		CategoryLabel:   uc.getContextString(sess, orderingSelectedCategoryIDKey),
+		SelectedOptions: append([]orderingSelectedOption(nil), selectedOptions...),
 	})
 	uc.setOrderingCart(sess, cart)
 	return cart
 }
 
 type orderingCartDisplayEntry struct {
-	MenuItemID string
-	Quantity   int
-	ItemName   string
-	LineTotal  float64
+	LineID          string
+	MenuItemID      string
+	Quantity        int
+	ItemName        string
+	LineTotal       float64
+	UnitPrice       float64
+	SelectedOptions []orderingSelectedOption
 }
 
 func (uc *HandleWhatsAppMessageUseCase) resolveOrderingCartDisplayEntries(
@@ -1003,11 +1506,13 @@ func (uc *HandleWhatsAppMessageUseCase) resolveOrderingCartDisplayEntries(
 		}
 
 		itemName := strings.TrimSpace(entry.MenuItemName)
-		unitPrice := 0.0
+		unitPrice := parseOrderingFloatValue(entry.UnitPrice)
 
 		if item := menuItemsByID[entry.MenuItemID]; item != nil {
 			itemName = item.Name
-			unitPrice = item.Price
+			if unitPrice <= 0 {
+				unitPrice = item.Price
+			}
 		} else {
 			unitPrice = parseOrderingFloatValue(entry.UnitPrice)
 		}
@@ -1019,10 +1524,13 @@ func (uc *HandleWhatsAppMessageUseCase) resolveOrderingCartDisplayEntries(
 		lineTotal := unitPrice * float64(quantity)
 		subtotal += lineTotal
 		entries = append(entries, orderingCartDisplayEntry{
-			MenuItemID: entry.MenuItemID,
-			Quantity:   quantity,
-			ItemName:   itemName,
-			LineTotal:  lineTotal,
+			LineID:          entry.LineID,
+			MenuItemID:      entry.MenuItemID,
+			Quantity:        quantity,
+			ItemName:        itemName,
+			LineTotal:       lineTotal,
+			UnitPrice:       unitPrice,
+			SelectedOptions: append([]orderingSelectedOption(nil), entry.SelectedOptions...),
 		})
 	}
 
@@ -1054,7 +1562,11 @@ func (uc *HandleWhatsAppMessageUseCase) buildOrderingCartMessageWithNotice(
 
 	lines := make([]string, 0, len(entries))
 	for index, entry := range entries {
-		lines = append(lines, fmt.Sprintf("*%d.* %dx %s — R$ %s", index+1, entry.Quantity, entry.ItemName, formatBRLCurrency(entry.LineTotal)))
+		line := fmt.Sprintf("*%d.* %dx %s — R$ %s", index+1, entry.Quantity, entry.ItemName, formatBRLCurrency(entry.LineTotal))
+		if optionsSummary := buildOrderingSelectedOptionsSummary(entry.SelectedOptions); optionsSummary != "" {
+			line += "\n   + " + optionsSummary
+		}
+		lines = append(lines, line)
 	}
 
 	sections := make([]string, 0, 5)
@@ -1086,7 +1598,7 @@ func (uc *HandleWhatsAppMessageUseCase) sendCartRemovalMenu(
 	rows := make([]whatsapp.InteractiveListRow, 0, len(entries))
 	for index, entry := range entries {
 		rows = append(rows, whatsapp.InteractiveListRow{
-			ID:          orderingRemoveItemKey + entry.MenuItemID,
+			ID:          orderingRemoveItemKey + entry.LineID,
 			Title:       truncateInteractiveTitle(fmt.Sprintf("%d. %s", index+1, entry.ItemName)),
 			Description: truncateInteractiveDescription(fmt.Sprintf("%dx · R$ %s", entry.Quantity, formatBRLCurrency(entry.LineTotal))),
 		})
@@ -1119,7 +1631,11 @@ func (uc *HandleWhatsAppMessageUseCase) buildOrderingCartRemovalFallback(
 
 	lines := make([]string, 0, len(entries))
 	for index, entry := range entries {
-		lines = append(lines, fmt.Sprintf("*%d* - %dx %s — R$ %s", index+1, entry.Quantity, entry.ItemName, formatBRLCurrency(entry.LineTotal)))
+		line := fmt.Sprintf("*%d* - %dx %s — R$ %s", index+1, entry.Quantity, entry.ItemName, formatBRLCurrency(entry.LineTotal))
+		if optionsSummary := buildOrderingSelectedOptionsSummary(entry.SelectedOptions); optionsSummary != "" {
+			line += "\n   + " + optionsSummary
+		}
+		lines = append(lines, line)
 	}
 
 	return fmt.Sprintf(
@@ -1247,8 +1763,14 @@ func (uc *HandleWhatsAppMessageUseCase) resolveOrderingCartRemovalSelection(
 			return "", false
 		}
 		for _, entry := range uc.getOrderingCart(sess) {
-			if strings.TrimSpace(entry.MenuItemID) == selectedID && entry.Quantity > 0 {
+			if entry.Quantity <= 0 {
+				continue
+			}
+			if strings.TrimSpace(entry.LineID) == selectedID {
 				return selectedID, true
+			}
+			if strings.TrimSpace(entry.MenuItemID) == selectedID && strings.TrimSpace(entry.LineID) != "" {
+				return strings.TrimSpace(entry.LineID), true
 			}
 		}
 		return "", false
@@ -1265,24 +1787,24 @@ func (uc *HandleWhatsAppMessageUseCase) resolveOrderingCartRemovalSelection(
 	}
 
 	selected := cart[index-1]
-	if selected.Quantity <= 0 || strings.TrimSpace(selected.MenuItemID) == "" {
+	if selected.Quantity <= 0 || strings.TrimSpace(selected.LineID) == "" {
 		return "", false
 	}
 
-	return strings.TrimSpace(selected.MenuItemID), true
+	return strings.TrimSpace(selected.LineID), true
 }
 
 func (uc *HandleWhatsAppMessageUseCase) findOrderingCartItem(
 	sess *session.Session,
-	menuItemID string,
+	lineID string,
 ) (orderingCartItem, bool) {
-	selectedID := strings.TrimSpace(menuItemID)
+	selectedID := strings.TrimSpace(lineID)
 	if selectedID == "" {
 		return orderingCartItem{}, false
 	}
 
 	for _, entry := range uc.getOrderingCart(sess) {
-		if strings.TrimSpace(entry.MenuItemID) == selectedID && entry.Quantity > 0 {
+		if strings.TrimSpace(entry.LineID) == selectedID && entry.Quantity > 0 {
 			return entry, true
 		}
 	}
@@ -1292,10 +1814,10 @@ func (uc *HandleWhatsAppMessageUseCase) findOrderingCartItem(
 
 func (uc *HandleWhatsAppMessageUseCase) removeItemFromOrderingCart(
 	sess *session.Session,
-	menuItemID string,
+	lineID string,
 ) (orderingCartItem, []orderingCartItem, bool) {
 	cart := uc.getOrderingCart(sess)
-	selectedID := strings.TrimSpace(menuItemID)
+	selectedID := strings.TrimSpace(lineID)
 	if selectedID == "" {
 		return orderingCartItem{}, cart, false
 	}
@@ -1305,7 +1827,7 @@ func (uc *HandleWhatsAppMessageUseCase) removeItemFromOrderingCart(
 	found := false
 
 	for _, entry := range cart {
-		if !found && strings.TrimSpace(entry.MenuItemID) == selectedID {
+		if !found && strings.TrimSpace(entry.LineID) == selectedID {
 			removed = entry
 			found = true
 			continue
@@ -1323,7 +1845,7 @@ func (uc *HandleWhatsAppMessageUseCase) removeItemFromOrderingCart(
 
 func (uc *HandleWhatsAppMessageUseCase) updateOrderingCartItemQuantity(
 	sess *session.Session,
-	menuItemID string,
+	lineID string,
 	newQuantity int,
 ) (orderingCartItem, []orderingCartItem, bool) {
 	if newQuantity <= 0 {
@@ -1331,7 +1853,7 @@ func (uc *HandleWhatsAppMessageUseCase) updateOrderingCartItemQuantity(
 	}
 
 	cart := uc.getOrderingCart(sess)
-	selectedID := strings.TrimSpace(menuItemID)
+	selectedID := strings.TrimSpace(lineID)
 	if selectedID == "" {
 		return orderingCartItem{}, cart, false
 	}
@@ -1341,7 +1863,7 @@ func (uc *HandleWhatsAppMessageUseCase) updateOrderingCartItemQuantity(
 	found := false
 
 	for _, entry := range cart {
-		if !found && strings.TrimSpace(entry.MenuItemID) == selectedID {
+		if !found && strings.TrimSpace(entry.LineID) == selectedID {
 			entry.Quantity = newQuantity
 			updated = entry
 			found = true
@@ -1360,16 +1882,16 @@ func (uc *HandleWhatsAppMessageUseCase) updateOrderingCartItemQuantity(
 func (uc *HandleWhatsAppMessageUseCase) resolveOrderingCartDisplayEntry(
 	ctx context.Context,
 	sess *session.Session,
-	menuItemID string,
+	lineID string,
 ) (orderingCartDisplayEntry, bool) {
 	entries, _ := uc.resolveOrderingCartDisplayEntries(ctx, sess, uc.getOrderingCart(sess))
-	selectedID := strings.TrimSpace(menuItemID)
+	selectedID := strings.TrimSpace(lineID)
 	if selectedID == "" {
 		return orderingCartDisplayEntry{}, false
 	}
 
 	for _, entry := range entries {
-		if strings.TrimSpace(entry.MenuItemID) == selectedID {
+		if strings.TrimSpace(entry.LineID) == selectedID {
 			return entry, true
 		}
 	}
@@ -1402,9 +1924,10 @@ func (uc *HandleWhatsAppMessageUseCase) buildOrderingCartOrderInput(
 		}
 
 		inputs = append(inputs, OrderItemInput{
-			MenuItemID:   menuItem.ID,
-			Quantity:     entry.Quantity,
-			Observations: strings.TrimSpace(entry.Observations),
+			MenuItemID:      menuItem.ID,
+			Quantity:        entry.Quantity,
+			Observations:    strings.TrimSpace(entry.Observations),
+			SelectedOptions: toOrderSelectedOptions(entry.SelectedOptions),
 		})
 	}
 
@@ -1452,7 +1975,11 @@ func (uc *HandleWhatsAppMessageUseCase) buildOrderingCartItemsSummary(
 		if itemName == "" {
 			itemName = "Item"
 		}
-		lines = append(lines, fmt.Sprintf("• %dx %s", entry.Quantity, itemName))
+		line := fmt.Sprintf("• %dx %s", entry.Quantity, itemName)
+		if optionsSummary := buildOrderingSelectedOptionsSummary(entry.SelectedOptions); optionsSummary != "" {
+			line += " (" + optionsSummary + ")"
+		}
+		lines = append(lines, line)
 	}
 	return strings.Join(lines, "\n")
 }
@@ -1621,8 +2148,8 @@ func parseOrderingIntValue(value interface{}) int {
 	}
 }
 
-func parseOrderingFloatValue(raw string) float64 {
-	value, _ := strconv.ParseFloat(strings.TrimSpace(raw), 64)
+func parseOrderingFloatValue(raw interface{}) float64 {
+	value, _ := strconv.ParseFloat(strings.TrimSpace(fmt.Sprintf("%v", raw)), 64)
 	return value
 }
 
@@ -2075,9 +2602,10 @@ func (uc *HandleWhatsAppMessageUseCase) handleRepeatLastRound(
 			continue
 		}
 		repeatItems = append(repeatItems, OrderItemInput{
-			MenuItemID:   item.MenuItemID,
-			Quantity:     item.Quantity,
-			Observations: item.Observations,
+			MenuItemID:      item.MenuItemID,
+			Quantity:        item.Quantity,
+			Observations:    item.Observations,
+			SelectedOptions: append([]order.SelectedOption(nil), item.EnsureSelectedOptions()...),
 		})
 	}
 
@@ -2156,7 +2684,11 @@ func (uc *HandleWhatsAppMessageUseCase) buildRepeatRoundItemsSummary(
 		if name == "" {
 			name = fmt.Sprintf("Item %s", item.MenuItemID.String()[:8])
 		}
-		lines = append(lines, fmt.Sprintf("• %dx %s", item.Quantity, name))
+		line := fmt.Sprintf("• %dx %s", item.Quantity, name)
+		if optionsSummary := buildOrderingSelectedOptionsSummary(toOrderingSelectedOptions(item.SelectedOptions)); optionsSummary != "" {
+			line += " (" + optionsSummary + ")"
+		}
+		lines = append(lines, line)
 	}
 
 	return strings.Join(lines, "\n")

@@ -309,6 +309,9 @@ func (uc *HandleWhatsAppMessageUseCase) processMessage(
 	case session.StateSelectingQty:
 		return uc.handleQuantitySelection(ctx, sess, text)
 
+	case session.StateSelectingOptions:
+		return uc.handleOptionSelection(ctx, sess, text)
+
 	case session.StateConfirmingOrder:
 		return uc.handleOrderConfirmation(ctx, sess, text)
 
@@ -894,12 +897,198 @@ func (uc *HandleWhatsAppMessageUseCase) handleQuantitySelection(
 	}
 
 	sess.SetContext(orderingSelectedQuantityKey, quantity)
-	cart := uc.addItemToOrderingCart(sess, selectedItem, quantity)
-	sess.SetContext(orderingSelectedQuantityKey, quantity)
-	cartMessage := uc.buildOrderingCartMessage(ctx, sess, cart)
+	selectedItem = uc.mergeOrderingItemWithPreviewCache(sess, selectedItem)
+	optionGroups := selectedItem.EnsureOptionGroups()
+	if len(optionGroups) > 0 {
+		uc.setOrderingOptionGroupIndex(sess, 0)
+		uc.setOrderingOptionSelections(sess, nil)
+		return uc.presentOrderingOptionGroup(
+			ctx,
+			sess,
+			selectedItem,
+			optionGroups[0],
+			nil,
+			"➕ Escolha os complementos deste item antes de ir para o carrinho.",
+		)
+	}
+
+	cart := uc.addItemToOrderingCart(sess, selectedItem, quantity, nil, selectedItem.Price)
+	cartMessage := uc.buildOrderingCartMessageWithNotice(
+		ctx,
+		sess,
+		cart,
+		fmt.Sprintf("✅ Adicionei *%d unidade%s* de *%s* ao carrinho.", quantity, pluralSuffix(quantity), selectedItem.Name),
+	)
 	uc.clearOrderingSelectionContext(sess)
 
 	return uc.presentCartConfirmation(ctx, sess, cartMessage)
+}
+
+func (uc *HandleWhatsAppMessageUseCase) handleOptionSelection(
+	ctx context.Context,
+	sess *session.Session,
+	text string,
+) (string, session.ConversationState, error) {
+	text = strings.TrimSpace(text)
+
+	if text == "0" {
+		uc.clearOrderingContext(sess)
+		return whatsapp.MainMenuMessage(), session.StateMainMenu, nil
+	}
+
+	selectedItemID := uc.getContextString(sess, orderingSelectedItemIDKey)
+	if selectedItemID == "" {
+		return uc.startOrderingFlow(ctx, sess)
+	}
+
+	itemID, err := uuid.Parse(selectedItemID)
+	if err != nil {
+		uc.clearOrderingSelectionContext(sess)
+		return uc.startOrderingFlow(ctx, sess)
+	}
+
+	selectedItem, err := uc.menuRepo.FindItemByID(ctx, itemID, sess.TenantID)
+	if err != nil || selectedItem == nil {
+		uc.logger.Error("failed to reload selected item for option selection",
+			zap.Error(err),
+			zap.String("tenant_id", sess.TenantID.String()),
+			zap.String("item_id", itemID.String()),
+		)
+		uc.clearOrderingSelectionContext(sess)
+		return "❌ Não consegui continuar esse pedido agora. Vamos reabrir o cardápio para você.",
+			session.StateMainMenu, nil
+	}
+
+	selectedItem = uc.mergeOrderingItemWithPreviewCache(sess, selectedItem)
+	groups := selectedItem.EnsureOptionGroups()
+	if len(groups) == 0 {
+		quantityRaw, ok := sess.GetContext(orderingSelectedQuantityKey)
+		if !ok || quantityRaw == nil {
+			return uc.startOrderingFlow(ctx, sess)
+		}
+
+		quantity, quantityErr := orderingQuantityFromContext(quantityRaw)
+		if quantityErr != nil || quantity < 1 {
+			return uc.startOrderingFlow(ctx, sess)
+		}
+
+		cart := uc.addItemToOrderingCart(sess, selectedItem, quantity, nil, selectedItem.Price)
+		cartMessage := uc.buildOrderingCartMessage(ctx, sess, cart)
+		uc.clearOrderingSelectionContext(sess)
+		return uc.presentCartConfirmation(ctx, sess, cartMessage)
+	}
+
+	currentIndex := uc.getOrderingOptionGroupIndex(sess)
+	if currentIndex < 0 || currentIndex >= len(groups) {
+		currentIndex = 0
+		uc.setOrderingOptionGroupIndex(sess, currentIndex)
+	}
+
+	group := groups[currentIndex]
+	allSelections := uc.getOrderingOptionSelections(sess)
+	groupSelections := filterOrderingSelectedOptionsByGroup(allSelections, group.Name)
+	textLower := strings.ToLower(text)
+
+	switch textLower {
+	case orderingOptionContinueID, "ok", "continuar":
+		if len(groupSelections) < group.MinSelect {
+			return uc.presentOrderingOptionGroup(
+				ctx,
+				sess,
+				selectedItem,
+				group,
+				allSelections,
+				fmt.Sprintf("⚠️ O grupo *%s* exige pelo menos %d opção(ões) antes de continuar.", group.Name, group.MinSelect),
+			)
+		}
+		return uc.advanceOrderingOptionSelection(
+			ctx,
+			sess,
+			selectedItem,
+			groups,
+			currentIndex,
+			allSelections,
+			fmt.Sprintf("✅ Fechei o grupo *%s*.", group.Name),
+		)
+	case orderingOptionSkipID, "pular":
+		if len(groupSelections) < group.MinSelect {
+			return uc.presentOrderingOptionGroup(
+				ctx,
+				sess,
+				selectedItem,
+				group,
+				allSelections,
+				fmt.Sprintf("⚠️ O grupo *%s* não pode ser pulado. Selecione pelo menos %d opção(ões).", group.Name, group.MinSelect),
+			)
+		}
+		return uc.advanceOrderingOptionSelection(
+			ctx,
+			sess,
+			selectedItem,
+			groups,
+			currentIndex,
+			allSelections,
+			fmt.Sprintf("⏭️ Segui após o grupo *%s*.", group.Name),
+		)
+	}
+
+	newSelections, selectionErr := resolveOrderingOptionSelections(group, text)
+	if selectionErr != nil {
+		return uc.presentOrderingOptionGroup(
+			ctx,
+			sess,
+			selectedItem,
+			group,
+			allSelections,
+			fmt.Sprintf("❌ %s", selectionErr.Error()),
+		)
+	}
+
+	existingByOption := make(map[string]struct{}, len(groupSelections))
+	for _, selection := range groupSelections {
+		existingByOption[strings.TrimSpace(strings.ToLower(selection.OptionName))] = struct{}{}
+	}
+
+	for _, selection := range newSelections {
+		key := strings.TrimSpace(strings.ToLower(selection.OptionName))
+		if _, exists := existingByOption[key]; exists {
+			return uc.presentOrderingOptionGroup(
+				ctx,
+				sess,
+				selectedItem,
+				group,
+				allSelections,
+				fmt.Sprintf("⚠️ A opção *%s* já foi escolhida nesse grupo.", selection.OptionName),
+			)
+		}
+		existingByOption[key] = struct{}{}
+	}
+
+	if len(groupSelections)+len(newSelections) > group.MaxSelect {
+		return uc.presentOrderingOptionGroup(
+			ctx,
+			sess,
+			selectedItem,
+			group,
+			allSelections,
+			fmt.Sprintf("⚠️ O grupo *%s* permite no máximo %d opção(ões).", group.Name, group.MaxSelect),
+		)
+	}
+
+	allSelections = append(allSelections, newSelections...)
+	uc.setOrderingOptionSelections(sess, allSelections)
+	groupSelections = filterOrderingSelectedOptionsByGroup(allSelections, group.Name)
+
+	selectionNotice := fmt.Sprintf("✅ Adicionei %s.", buildOrderingSelectedOptionsSummary(newSelections))
+	if len(groupSelections) >= group.MaxSelect {
+		return uc.advanceOrderingOptionSelection(ctx, sess, selectedItem, groups, currentIndex, allSelections, selectionNotice)
+	}
+
+	if len(groupSelections) >= group.MinSelect {
+		selectionNotice += " Digite *ok* para continuar ou escolha mais."
+	}
+
+	return uc.presentOrderingOptionGroup(ctx, sess, selectedItem, group, allSelections, selectionNotice)
 }
 
 func (uc *HandleWhatsAppMessageUseCase) handleOrderConfirmation(

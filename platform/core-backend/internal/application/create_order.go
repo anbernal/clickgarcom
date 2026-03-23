@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -30,6 +31,7 @@ var (
 	ErrInvalidItems     = errors.New("invalid items")
 	ErrItemNotAvailable = errors.New("item not available")
 	ErrInvalidQuantity  = errors.New("quantity must be greater than 0")
+	ErrInvalidOptions   = errors.New("invalid selected options")
 )
 
 // CreateOrderInput representa os dados de entrada para criar um pedido
@@ -42,9 +44,10 @@ type CreateOrderInput struct {
 
 // OrderItemInput representa um item do pedido
 type OrderItemInput struct {
-	MenuItemID   uuid.UUID
-	Quantity     int
-	Observations string
+	MenuItemID      uuid.UUID
+	Quantity        int
+	Observations    string
+	SelectedOptions []order.SelectedOption
 }
 
 // CreateOrderUseCase implementa a lógica de criação de pedidos
@@ -157,14 +160,25 @@ func (uc *CreateOrderUseCase) Execute(ctx context.Context, input CreateOrderInpu
 			destinationOrder = append(destinationOrder, dest)
 		}
 
+		selectedOptions, extrasPerUnit, err := validateSelectedOptions(menuItem, inputItem.SelectedOptions)
+		if err != nil {
+			uc.logger.Warn("invalid selected options for order item",
+				zap.String("menu_item_id", inputItem.MenuItemID.String()),
+				zap.String("name", menuItem.Name),
+				zap.Error(err),
+			)
+			return nil, ErrInvalidOptions
+		}
+
 		orderItem := order.OrderItem{
 			ID:           uuid.New(),
 			MenuItemID:   menuItem.ID,
 			Quantity:     inputItem.Quantity,
-			UnitPrice:    menuItem.Price,
+			UnitPrice:    menuItem.Price + extrasPerUnit,
 			Observations: inputItem.Observations,
 			CreatedAt:    time.Now(),
 		}
+		orderItem.SetSelectedOptions(selectedOptions)
 		groupedItems[dest] = append(groupedItems[dest], orderItem)
 		destinationCounts[dest]++
 	}
@@ -322,4 +336,91 @@ func uuidPointerString(value *uuid.UUID) string {
 		return ""
 	}
 	return value.String()
+}
+
+func validateSelectedOptions(menuItem *menu.Item, selected []order.SelectedOption) ([]order.SelectedOption, float64, error) {
+	groups := menuItem.EnsureOptionGroups()
+	if len(groups) == 0 {
+		if len(selected) == 0 {
+			return nil, 0, nil
+		}
+		return nil, 0, fmt.Errorf("item does not accept selected options")
+	}
+
+	if len(selected) == 0 {
+		for _, group := range groups {
+			if group.MinSelect > 0 {
+				return nil, 0, fmt.Errorf("required option group %s is missing", group.Name)
+			}
+		}
+		return nil, 0, nil
+	}
+
+	groupCounts := make(map[string]int, len(groups))
+	seenOptions := make(map[string]struct{}, len(selected))
+	normalized := make([]order.SelectedOption, 0, len(selected))
+	totalExtras := 0.0
+
+	for _, selection := range selected {
+		groupName := strings.TrimSpace(selection.GroupName)
+		optionName := strings.TrimSpace(selection.OptionName)
+		if groupName == "" || optionName == "" {
+			return nil, 0, fmt.Errorf("option group and option name are required")
+		}
+
+		group, option, found := findMenuItemSelectedOption(groups, groupName, optionName)
+		if !found {
+			return nil, 0, fmt.Errorf("selected option %s/%s not found", groupName, optionName)
+		}
+		if !option.Available {
+			return nil, 0, fmt.Errorf("selected option %s/%s is unavailable", group.Name, option.Name)
+		}
+
+		signature := strings.ToLower(strings.TrimSpace(group.Name)) + "::" + strings.ToLower(strings.TrimSpace(option.Name))
+		if _, exists := seenOptions[signature]; exists {
+			return nil, 0, fmt.Errorf("duplicate selected option %s/%s", group.Name, option.Name)
+		}
+		seenOptions[signature] = struct{}{}
+
+		groupCounts[group.Name]++
+		totalExtras += option.PriceDelta
+		normalized = append(normalized, order.SelectedOption{
+			GroupName:  group.Name,
+			OptionName: option.Name,
+			PriceDelta: option.PriceDelta,
+		})
+	}
+
+	for _, group := range groups {
+		count := groupCounts[group.Name]
+		if count < group.MinSelect {
+			return nil, 0, fmt.Errorf("group %s requires at least %d option(s)", group.Name, group.MinSelect)
+		}
+		if count > group.MaxSelect {
+			return nil, 0, fmt.Errorf("group %s allows at most %d option(s)", group.Name, group.MaxSelect)
+		}
+	}
+
+	return normalized, totalExtras, nil
+}
+
+func findMenuItemSelectedOption(
+	groups []menu.OptionGroup,
+	groupName string,
+	optionName string,
+) (menu.OptionGroup, menu.Option, bool) {
+	groupLookup := strings.TrimSpace(strings.ToLower(groupName))
+	optionLookup := strings.TrimSpace(strings.ToLower(optionName))
+	for _, group := range groups {
+		if strings.TrimSpace(strings.ToLower(group.Name)) != groupLookup {
+			continue
+		}
+		for _, option := range group.Options {
+			if strings.TrimSpace(strings.ToLower(option.Name)) == optionLookup {
+				return group, option, true
+			}
+		}
+	}
+
+	return menu.OptionGroup{}, menu.Option{}, false
 }

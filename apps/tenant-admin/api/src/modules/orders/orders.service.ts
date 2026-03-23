@@ -1168,6 +1168,7 @@ export class OrdersService {
                             quantity: item.quantity,
                             unit_price: item.unitPrice,
                             observations: item.observations,
+                            selected_options: item.selectedOptions,
                             created_at: item.createdAt,
                         })),
                     },

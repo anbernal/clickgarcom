@@ -28,6 +28,9 @@ export class OrderItem {
     @Column({ type: 'text', nullable: true })
     observations!: string | null;
 
+    @Column({ type: 'jsonb', name: 'selected_options', nullable: true })
+    selectedOptions!: Array<{ groupName: string; optionName: string; priceDelta: number }> | null;
+
     @CreateDateColumn({ name: 'created_at' })
     createdAt!: Date;
 

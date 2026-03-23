@@ -482,7 +482,7 @@ function buildCardHTML(order) {
   let itemsHtml = '';
   if (order.items && order.items.length) {
     itemsHtml = order.items.map(i =>
-      `<div class="order-item"><span class="item-qty">${escapeHTML(i.quantity)}x</span><span class="item-name">${escapeHTML(resolveItemName(i))}</span>${i.observations ? `<span class="item-note">${escapeHTML(i.observations)}</span>` : ''}</div>`
+      `<div class="order-item"><span class="item-qty">${escapeHTML(i.quantity)}x</span><span class="item-name">${escapeHTML(resolveItemName(i))}</span>${formatSelectedOptionsSummary(i.selected_options || i.selectedOptions) ? `<span class="item-note">+ ${escapeHTML(formatSelectedOptionsSummary(i.selected_options || i.selectedOptions))}</span>` : ''}${i.observations ? `<span class="item-note">${escapeHTML(i.observations)}</span>` : ''}</div>`
     ).join('');
   }
 
@@ -840,8 +840,30 @@ function normalizeOrder(order) {
       menu_item_id: item.menu_item_id || item.menuItemId || null,
       menu_item_name: item.menu_item_name || item.menuItemName || item.name || item.menuItem?.name || '',
       unit_price: item.unit_price || item.unitPrice || item.price || null,
+      selected_options: Array.isArray(item.selected_options)
+        ? item.selected_options
+        : Array.isArray(item.selectedOptions)
+          ? item.selectedOptions
+          : [],
     })),
   };
+}
+
+function formatSelectedOptionsSummary(options) {
+  const list = Array.isArray(options) ? options : [];
+  const parts = list
+    .map((option) => {
+      const groupName = String(option?.group_name || option?.groupName || '').trim();
+      const optionName = String(option?.option_name || option?.optionName || '').trim();
+      const priceDelta = Number(option?.price_delta ?? option?.priceDelta ?? 0);
+      if (!groupName || !optionName) return '';
+      return priceDelta > 0
+        ? `${groupName}: ${optionName} (+${formatMoney(priceDelta)})`
+        : `${groupName}: ${optionName}`;
+    })
+    .filter(Boolean);
+
+  return parts.join(', ');
 }
 
 function formatTableNumber(value) {

@@ -1,7 +1,9 @@
 package order
 
 import (
+	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -51,13 +53,21 @@ type Order struct {
 }
 
 type OrderItem struct {
-	ID           uuid.UUID `json:"id" gorm:"type:uuid;primary_key"`
-	OrderID      uuid.UUID `json:"order_id" gorm:"type:uuid;not null"`
-	MenuItemID   uuid.UUID `json:"menu_item_id" gorm:"type:uuid;not null"`
-	Quantity     int       `json:"quantity" gorm:"not null"`
-	UnitPrice    float64   `json:"unit_price" gorm:"type:decimal(10,2);not null"`
-	Observations string    `json:"observations,omitempty" gorm:"type:text"`
-	CreatedAt    time.Time `json:"created_at"`
+	ID                 uuid.UUID        `json:"id" gorm:"type:uuid;primary_key"`
+	OrderID            uuid.UUID        `json:"order_id" gorm:"type:uuid;not null"`
+	MenuItemID         uuid.UUID        `json:"menu_item_id" gorm:"type:uuid;not null"`
+	Quantity           int              `json:"quantity" gorm:"not null"`
+	UnitPrice          float64          `json:"unit_price" gorm:"type:decimal(10,2);not null"`
+	Observations       string           `json:"observations,omitempty" gorm:"type:text"`
+	SelectedOptionsRaw string           `json:"-" gorm:"column:selected_options;type:jsonb"`
+	SelectedOptions    []SelectedOption `json:"selected_options,omitempty" gorm:"-"`
+	CreatedAt          time.Time        `json:"created_at"`
+}
+
+type SelectedOption struct {
+	GroupName  string  `json:"group_name"`
+	OptionName string  `json:"option_name"`
+	PriceDelta float64 `json:"price_delta"`
 }
 
 func (Order) TableName() string {
@@ -123,4 +133,73 @@ func (o *Order) CalculateTotal() float64 {
 		total += item.UnitPrice * float64(item.Quantity)
 	}
 	return total
+}
+
+func (i *OrderItem) EnsureSelectedOptions() []SelectedOption {
+	if len(i.SelectedOptions) > 0 {
+		return i.SelectedOptions
+	}
+
+	raw := strings.TrimSpace(i.SelectedOptionsRaw)
+	if raw == "" || raw == "null" {
+		return nil
+	}
+
+	var options []SelectedOption
+	if err := json.Unmarshal([]byte(raw), &options); err != nil {
+		return nil
+	}
+
+	sanitized := make([]SelectedOption, 0, len(options))
+	for _, option := range options {
+		groupName := strings.TrimSpace(option.GroupName)
+		optionName := strings.TrimSpace(option.OptionName)
+		if groupName == "" || optionName == "" || option.PriceDelta < 0 {
+			continue
+		}
+		sanitized = append(sanitized, SelectedOption{
+			GroupName:  groupName,
+			OptionName: optionName,
+			PriceDelta: option.PriceDelta,
+		})
+	}
+
+	i.SelectedOptions = sanitized
+	return i.SelectedOptions
+}
+
+func (i *OrderItem) SetSelectedOptions(options []SelectedOption) {
+	if len(options) == 0 {
+		i.SelectedOptions = nil
+		i.SelectedOptionsRaw = ""
+		return
+	}
+
+	sanitized := make([]SelectedOption, 0, len(options))
+	for _, option := range options {
+		groupName := strings.TrimSpace(option.GroupName)
+		optionName := strings.TrimSpace(option.OptionName)
+		if groupName == "" || optionName == "" || option.PriceDelta < 0 {
+			continue
+		}
+		sanitized = append(sanitized, SelectedOption{
+			GroupName:  groupName,
+			OptionName: optionName,
+			PriceDelta: option.PriceDelta,
+		})
+	}
+
+	if len(sanitized) == 0 {
+		i.SelectedOptions = nil
+		i.SelectedOptionsRaw = ""
+		return
+	}
+
+	i.SelectedOptions = sanitized
+	payload, err := json.Marshal(sanitized)
+	if err != nil {
+		i.SelectedOptionsRaw = ""
+		return
+	}
+	i.SelectedOptionsRaw = string(payload)
 }
