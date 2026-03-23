@@ -28,6 +28,8 @@ function getRequestHeaders() {
     const headers = { 'Content-Type': 'application/json' };
     const key = (localStorage.getItem('clickgarcom_super_admin_key') || '').trim();
     if (key) headers['x-super-admin-key'] = key;
+    const operator = (sessionStorage.getItem('super_admin_operator_name') || 'admin').trim();
+    if (operator) headers['x-super-admin-operator'] = operator;
     return headers;
 }
 
@@ -62,6 +64,9 @@ const api = {
     },
     getOperationsOverview() {
         return request('/operations/overview');
+    },
+    getAuditLogs(limit = 20) {
+        return request(`/audit-logs?limit=${encodeURIComponent(String(limit))}`);
     },
     createTenant(payload) {
         return request('/tenants', {
@@ -132,6 +137,26 @@ function getHealthBadgeClass(status) {
     if (status === 'WARNING') return 'warning';
     if (status === 'PAUSED') return 'paused';
     return 'active';
+}
+
+function formatAuditAction(action) {
+    const key = String(action || '').trim().toUpperCase();
+    if (key === 'TENANT_CREATED') return 'Tenant criado';
+    if (key === 'TENANT_UPDATED') return 'Tenant atualizado';
+    if (key === 'TENANT_STATUS_CHANGED') return 'Status alterado';
+    if (key === 'TENANT_WALLET_UPDATED') return 'Carteira alterada';
+    return key || 'Ação';
+}
+
+function summarizeAuditDetails(details) {
+    const summary = String(details?.summary || '').trim();
+    if (summary) return summary.length > 180 ? `${summary.slice(0, 177)}...` : summary;
+    try {
+        const raw = JSON.stringify(details || {});
+        return raw.length > 180 ? `${raw.slice(0, 177)}...` : raw;
+    } catch (_error) {
+        return '-';
+    }
 }
 
 function setTableLoading(selector, colspan, text) {
@@ -304,9 +329,10 @@ function renderOperationsRisks(riskFlags) {
 function renderOperationsSignals(tenant) {
     const operations = tenant?.operations || {};
     const signalTags = [
-        `24h: ${formatNumber(operations.messages24h)}`,
-        `7d: ${formatNumber(operations.messages7d)}`,
-        `Outbox: ${formatNumber(operations.pendingOutbox)}`,
+        `Webhook 24h: ${formatNumber(operations.inboxEvents24h)}`,
+        `Inbox pend.: ${formatNumber(operations.pendingInbox)}`,
+        `Outbox pend.: ${formatNumber(operations.pendingOutbox)}`,
+        `Outbox falha: ${formatNumber(operations.failedOutbox)}`,
         `Pagamentos: ${formatNumber(operations.pendingPayments)}`,
     ];
 
@@ -320,7 +346,7 @@ function renderOperationsSignals(tenant) {
                 ${signalTags.map((item) => `<span class="sub-metric">${escapeHtml(item)}</span>`).join('')}
             </div>
             <div class="muted-xs">
-                Última msg: ${escapeHtml(formatDateTime(operations.lastMessageAt))} · Última tentativa de pagamento: ${escapeHtml(formatDateTime(operations.lastPaymentAttemptAt))}
+                Últ. inbox: ${escapeHtml(formatDateTime(operations.lastInboxReceivedAt))} · Últ. outbox: ${escapeHtml(formatDateTime(operations.lastOutboxSentAt))} · Últ. pagamento: ${escapeHtml(formatDateTime(operations.lastPaymentAttemptAt))}
             </div>
         </div>
     `;
@@ -329,7 +355,11 @@ function renderOperationsSignals(tenant) {
 async function loadOperations() {
     try {
         setTableLoading('#operations-table tbody', 5, 'Carregando visão operacional...');
-        const overview = await api.getOperationsOverview();
+        setTableLoading('#operations-audit-table tbody', 5, 'Carregando trilha de ações...');
+        const [overview, auditPayload] = await Promise.all([
+            api.getOperationsOverview(),
+            api.getAuditLogs(20),
+        ]);
         state.operationsOverview = overview;
 
         const summary = overview?.summary || {};
@@ -337,8 +367,12 @@ async function loadOperations() {
         document.getElementById('ops-warning').textContent = formatNumber(summary.warningTenants || 0);
         document.getElementById('ops-onboarding').textContent = formatNumber(summary.onboardingPendingTenants || 0);
         document.getElementById('ops-balance').textContent = formatNumber(summary.lowBalanceTenants || 0);
-        document.getElementById('ops-outbox').textContent = formatNumber(summary.outboxAlertTenants || 0);
+        document.getElementById('ops-queue').textContent = formatNumber(summary.webhookQueueTenants || 0);
+        document.getElementById('ops-webhook').textContent = formatNumber(summary.webhookSilentTenants || 0);
         document.getElementById('ops-generated-at').textContent = formatDateTime(overview?.generatedAt);
+        document.getElementById('ops-audit-status').textContent = auditPayload?.available === false
+            ? 'Auditoria aguardando migration'
+            : `Últimas ${formatNumber((auditPayload?.logs || []).length)} ações`;
 
         const tenants = Array.isArray(overview?.tenants) ? overview.tenants : [];
         const tbody = document.querySelector('#operations-table tbody');
@@ -381,9 +415,32 @@ async function loadOperations() {
                 </td>
             </tr>
         `).join('');
+
+        const auditLogs = Array.isArray(auditPayload?.logs) ? auditPayload.logs : [];
+        const auditTbody = document.querySelector('#operations-audit-table tbody');
+        if (!auditLogs.length) {
+            auditTbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--text-muted)">${escapeHtml(auditPayload?.available === false ? 'Tabela de auditoria ainda não existe no banco local.' : 'Nenhuma ação registrada ainda.')}</td></tr>`;
+            return;
+        }
+
+        auditTbody.innerHTML = auditLogs.map((log) => `
+            <tr>
+                <td>${escapeHtml(formatDateTime(log.createdAt))}</td>
+                <td>
+                    <div class="cell-stack">
+                        <strong>${escapeHtml(log.operatorName || 'Operador não identificado')}</strong>
+                        <div class="muted-xs">${escapeHtml(log.sourceIp || '-')} · chave ${escapeHtml(log.operatorKeyFingerprint || '-')}</div>
+                    </div>
+                </td>
+                <td><span class="badge info">${escapeHtml(formatAuditAction(log.action))}</span></td>
+                <td>${escapeHtml(log.tenantName || log.tenantId || '-')}</td>
+                <td>${escapeHtml(summarizeAuditDetails(log.details))}</td>
+            </tr>
+        `).join('');
     } catch (error) {
         console.error(error);
         setTableLoading('#operations-table tbody', 5, `Falha ao carregar visão operacional: ${error.message}`);
+        setTableLoading('#operations-audit-table tbody', 5, `Falha ao carregar auditoria: ${error.message}`);
     }
 }
 
@@ -530,6 +587,7 @@ async function saveWallet(event) {
 
 function logout() {
     sessionStorage.removeItem('super_admin_authenticated');
+    sessionStorage.removeItem('super_admin_operator_name');
     window.location.href = '/login';
 }
 

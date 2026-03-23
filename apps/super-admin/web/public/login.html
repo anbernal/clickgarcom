@@ -219,8 +219,8 @@
 
             <form id="login-form" class="login-form">
                 <div class="form-group">
-                    <label>Usuário</label>
-                    <input type="text" id="username" class="input" placeholder="Digite seu usuário" required
+                    <label>Operador</label>
+                    <input type="text" id="username" class="input" placeholder="Digite seu nome ou identificador" required
                         autocomplete="username">
                 </div>
                 <div class="form-group">
@@ -248,8 +248,9 @@
             const pass = document.getElementById('password').value;
             const errorAlert = document.getElementById('error-alert');
 
-            if (user === 'admin' && pass === 'admin123@@##') {
+            if (user && pass === 'admin123@@##') {
                 sessionStorage.setItem('super_admin_authenticated', 'true');
+                sessionStorage.setItem('super_admin_operator_name', user);
                 window.location.href = '/';
             } else {
                 errorAlert.classList.add('visible');

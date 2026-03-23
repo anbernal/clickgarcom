@@ -9,6 +9,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import axios from 'axios';
+import { createHash } from 'crypto';
 import { Tenant, TenantSettings } from '../../entities/tenant.entity';
 import { User } from '../../entities/user.entity';
 
@@ -21,6 +22,20 @@ type TenantPayload = {
     message_price?: number;
     admin_email?: string;
     admin_password?: string;
+};
+
+type SuperAdminActorPayload = {
+    receivedKey?: string;
+    operatorName?: string;
+    sourceIp?: string;
+    userAgent?: string;
+};
+
+type SuperAdminActorContext = {
+    operatorName: string | null;
+    keyFingerprint: string | null;
+    sourceIp: string | null;
+    userAgent: string | null;
 };
 
 @Injectable()
@@ -197,10 +212,11 @@ export class SuperAdminService {
     }
 
     async getOperationsOverview() {
-        const [hasMessageLogs, hasOutboxMessages, hasPaymentAttempts] = await Promise.all([
+        const [hasMessageLogs, hasOutboxMessages, hasPaymentAttempts, hasInboxEvents] = await Promise.all([
             this.hasMessageLogsTable(),
             this.hasOutboxMessagesTable(),
             this.hasPaymentAttemptsTable(),
+            this.hasInboxEventsTable(),
         ]);
 
         const messageSelect = hasMessageLogs
@@ -217,16 +233,38 @@ export class SuperAdminService {
                     NULL::timestamp AS last_message_at,
             `;
 
-        const outboxSelect = hasOutboxMessages
+        const inboxSelect = hasInboxEvents
             ? `
-                    COALESCE(ob.pending_outbox, 0)::int AS pending_outbox,
-                    COALESCE(ob.stale_outbox, 0)::int AS stale_outbox,
-                    ob.oldest_pending_outbox_at AS oldest_pending_outbox_at,
+                    COALESCE(ib.inbox_events_24h, 0)::int AS inbox_events_24h,
+                    COALESCE(ib.pending_inbox, 0)::int AS pending_inbox,
+                    COALESCE(ib.stale_inbox, 0)::int AS stale_inbox,
+                    ib.last_inbox_received_at AS last_inbox_received_at,
+                    ib.last_inbox_processed_at AS last_inbox_processed_at,
             `
             : `
+                    0::int AS inbox_events_24h,
+                    0::int AS pending_inbox,
+                    0::int AS stale_inbox,
+                    NULL::timestamp AS last_inbox_received_at,
+                    NULL::timestamp AS last_inbox_processed_at,
+            `;
+
+        const outboxSelect = hasOutboxMessages
+            ? `
+                    COALESCE(ob.outbox_sent_24h, 0)::int AS outbox_sent_24h,
+                    COALESCE(ob.pending_outbox, 0)::int AS pending_outbox,
+                    COALESCE(ob.stale_outbox, 0)::int AS stale_outbox,
+                    COALESCE(ob.failed_outbox, 0)::int AS failed_outbox,
+                    ob.oldest_pending_outbox_at AS oldest_pending_outbox_at,
+                    ob.last_outbox_sent_at AS last_outbox_sent_at,
+            `
+            : `
+                    0::int AS outbox_sent_24h,
                     0::int AS pending_outbox,
                     0::int AS stale_outbox,
+                    0::int AS failed_outbox,
                     NULL::timestamp AS oldest_pending_outbox_at,
+                    NULL::timestamp AS last_outbox_sent_at,
             `;
 
         const paymentSelect = hasPaymentAttempts
@@ -260,16 +298,43 @@ export class SuperAdminService {
             `
             : '';
 
+        const inboxJoin = hasInboxEvents
+            ? `
+                LEFT JOIN LATERAL (
+                    SELECT
+                        COUNT(*) FILTER (WHERE ie.received_at >= NOW() - INTERVAL '24 hours') AS inbox_events_24h,
+                        COUNT(*) FILTER (WHERE ie.processed = FALSE) AS pending_inbox,
+                        COUNT(*) FILTER (
+                            WHERE ie.processed = FALSE
+                              AND ie.received_at <= NOW() - INTERVAL '15 minutes'
+                        ) AS stale_inbox,
+                        MAX(ie.received_at) AS last_inbox_received_at,
+                        MAX(ie.processed_at) AS last_inbox_processed_at
+                    FROM inbox_events ie
+                    WHERE ie.tenant_id = t.id
+                ) ib ON true
+            `
+            : '';
+
         const outboxJoin = hasOutboxMessages
             ? `
                 LEFT JOIN LATERAL (
                     SELECT
+                        COUNT(*) FILTER (
+                            WHERE om.sent = TRUE
+                              AND COALESCE(om.sent_at, om.created_at) >= NOW() - INTERVAL '24 hours'
+                        ) AS outbox_sent_24h,
                         COUNT(*) FILTER (WHERE om.sent = FALSE) AS pending_outbox,
                         COUNT(*) FILTER (
                             WHERE om.sent = FALSE
                               AND COALESCE(om.next_retry_at, om.created_at) <= NOW() - INTERVAL '30 minutes'
                         ) AS stale_outbox,
-                        MIN(COALESCE(om.next_retry_at, om.created_at)) FILTER (WHERE om.sent = FALSE) AS oldest_pending_outbox_at
+                        COUNT(*) FILTER (
+                            WHERE om.sent = FALSE
+                              AND om.attempts >= om.max_attempts
+                        ) AS failed_outbox,
+                        MIN(COALESCE(om.next_retry_at, om.created_at)) FILTER (WHERE om.sent = FALSE) AS oldest_pending_outbox_at,
+                        MAX(COALESCE(om.sent_at, om.created_at)) FILTER (WHERE om.sent = TRUE) AS last_outbox_sent_at
                     FROM outbox_messages om
                     WHERE om.tenant_id = t.id
                 ) ob ON true
@@ -314,6 +379,7 @@ export class SuperAdminService {
                 t.settings,
                 admin_user.email AS admin_email,
                 ${messageSelect}
+                ${inboxSelect}
                 ${outboxSelect}
                 ${paymentSelect}
              FROM tenants t
@@ -325,6 +391,7 @@ export class SuperAdminService {
                 LIMIT 1
              ) admin_user ON true
              ${messageJoin}
+             ${inboxJoin}
              ${outboxJoin}
              ${paymentJoin}
              ORDER BY t.active DESC, t.created_at DESC, t.name ASC`,
@@ -359,9 +426,17 @@ export class SuperAdminService {
                     acc.abnormalConsumptionTenants += 1;
                 }
                 if (tenant.riskFlags.some((flag: any) =>
-                    ['OUTBOX_STALE', 'OUTBOX_BACKLOG'].includes(String(flag.code || '')),
+                    ['OUTBOX_STALE', 'OUTBOX_BACKLOG', 'OUTBOX_RETRIES_EXHAUSTED'].includes(String(flag.code || '')),
                 )) {
                     acc.outboxAlertTenants += 1;
+                }
+                if (tenant.riskFlags.some((flag: any) =>
+                    ['INBOX_STALE', 'INBOX_BACKLOG', 'WEBHOOK_SILENCE'].includes(String(flag.code || '')),
+                )) {
+                    acc.webhookQueueTenants += 1;
+                }
+                if (tenant.riskFlags.some((flag: any) => String(flag.code || '') === 'WEBHOOK_SILENCE')) {
+                    acc.webhookSilentTenants += 1;
                 }
                 if (tenant.operations.pendingPayments > 0) {
                     acc.pendingPaymentsTenants += 1;
@@ -379,6 +454,8 @@ export class SuperAdminService {
                 lowBalanceTenants: 0,
                 abnormalConsumptionTenants: 0,
                 outboxAlertTenants: 0,
+                webhookQueueTenants: 0,
+                webhookSilentTenants: 0,
                 pendingPaymentsTenants: 0,
             },
         );
@@ -390,7 +467,57 @@ export class SuperAdminService {
         };
     }
 
-    async createTenant(payload: TenantPayload) {
+    async listAuditLogs(limitRaw?: number) {
+        const limit = Math.max(1, Math.min(100, Number(limitRaw || 20) || 20));
+        const available = await this.hasSuperAdminAuditLogsTable();
+        if (!available) {
+            return {
+                available: false,
+                logs: [],
+            };
+        }
+
+        const rows = await this.dataSource.query(
+            `SELECT
+                l.id,
+                l.action,
+                l.entity_type,
+                l.entity_id,
+                l.tenant_id,
+                l.operator_name,
+                l.operator_key_fingerprint,
+                l.source_ip,
+                l.user_agent,
+                l.details,
+                l.created_at,
+                t.name AS tenant_name
+             FROM super_admin_audit_logs l
+             LEFT JOIN tenants t ON t.id = l.tenant_id
+             ORDER BY l.created_at DESC
+             LIMIT $1`,
+            [limit],
+        );
+
+        return {
+            available: true,
+            logs: (rows || []).map((row: any) => ({
+                id: row.id,
+                action: row.action,
+                entityType: row.entity_type,
+                entityId: row.entity_id || null,
+                tenantId: row.tenant_id || null,
+                tenantName: row.tenant_name || null,
+                operatorName: row.operator_name || null,
+                operatorKeyFingerprint: row.operator_key_fingerprint || null,
+                sourceIp: row.source_ip || null,
+                userAgent: row.user_agent || null,
+                details: this.parseJsonRecord(row.details),
+                createdAt: row.created_at,
+            })),
+        };
+    }
+
+    async createTenant(payload: TenantPayload, actorPayload?: SuperAdminActorPayload) {
         const name = String(payload.name || '').trim();
         const slug = String(payload.slug || '').trim().toLowerCase();
         const whatsappNumber = this.normalizeDigits(payload.whatsapp_number);
@@ -440,6 +567,23 @@ export class SuperAdminService {
         });
         await this.userRepo.save(adminUser);
 
+        await this.recordAuditLog({
+            action: 'TENANT_CREATED',
+            entityType: 'TENANT',
+            entityId: savedTenant.id,
+            tenantId: savedTenant.id,
+            actor: this.resolveActorContext(actorPayload),
+            details: {
+                summary: `Tenant ${savedTenant.name} criado com slug ${savedTenant.slug}.`,
+                slug: savedTenant.slug,
+                admin_email: adminEmail,
+                whatsapp_number: savedTenant.whatsappNumber,
+                waba_id: savedTenant.wabaId || null,
+                billing_plan: savedTenant.billingPlan,
+                message_price: Number(savedTenant.messagePrice || 0),
+            },
+        });
+
         return {
             id: savedTenant.id,
             name: savedTenant.name,
@@ -451,9 +595,11 @@ export class SuperAdminService {
         };
     }
 
-    async updateTenant(id: string, payload: TenantPayload) {
+    async updateTenant(id: string, payload: TenantPayload, actorPayload?: SuperAdminActorPayload) {
         const tenant = await this.tenantRepo.findOne({ where: { id } });
         if (!tenant) throw new NotFoundException('Tenant nao encontrado.');
+        const actor = this.resolveActorContext(actorPayload);
+        const changedFields: string[] = [];
 
         const name = String(payload.name || '').trim();
         const slug = String(payload.slug || '').trim().toLowerCase();
@@ -465,15 +611,34 @@ export class SuperAdminService {
 
         await this.ensureTenantUniqueness(id, slug || tenant.slug, whatsappNumber || tenant.whatsappNumber, wabaId || tenant.wabaId || '');
 
-        if (name) tenant.name = name;
-        if (slug) tenant.slug = slug;
-        if (whatsappNumber) tenant.whatsappNumber = whatsappNumber;
-        if (wabaId) tenant.wabaId = wabaId;
-        if (metaToken) tenant.metaToken = metaToken;
-        if (payload.message_price !== undefined) tenant.messagePrice = payload.message_price;
+        if (name && tenant.name !== name) {
+            tenant.name = name;
+            changedFields.push('name');
+        }
+        if (slug && tenant.slug !== slug) {
+            tenant.slug = slug;
+            changedFields.push('slug');
+        }
+        if (whatsappNumber && tenant.whatsappNumber !== whatsappNumber) {
+            tenant.whatsappNumber = whatsappNumber;
+            changedFields.push('whatsapp_number');
+        }
+        if (wabaId && tenant.wabaId !== wabaId) {
+            tenant.wabaId = wabaId;
+            changedFields.push('waba_id');
+        }
+        if (metaToken && tenant.metaToken !== metaToken) {
+            tenant.metaToken = metaToken;
+            changedFields.push('meta_token');
+        }
+        if (payload.message_price !== undefined && tenant.messagePrice !== payload.message_price) {
+            tenant.messagePrice = payload.message_price;
+            changedFields.push('message_price');
+        }
 
         await this.tenantRepo.save(tenant);
 
+        let passwordChanged = false;
         if (adminEmail || adminPassword) {
             let adminUser = await this.userRepo.findOne({
                 where: { tenantId: tenant.id, role: 'ADMIN' },
@@ -492,18 +657,38 @@ export class SuperAdminService {
                 });
             }
 
-            if (adminEmail) adminUser.email = adminEmail;
+            if (adminEmail && adminUser.email !== adminEmail) {
+                adminUser.email = adminEmail;
+                changedFields.push('admin_email');
+            }
             if (adminPassword) {
                 const salt = await bcrypt.genSalt(10);
                 adminUser.passwordHash = await bcrypt.hash(adminPassword, salt);
+                passwordChanged = true;
             }
             if (!adminUser.passwordHash) {
                 const salt = await bcrypt.genSalt(10);
                 adminUser.passwordHash = await bcrypt.hash('123456', salt);
+                passwordChanged = true;
             }
 
             await this.userRepo.save(adminUser);
         }
+
+        await this.recordAuditLog({
+            action: 'TENANT_UPDATED',
+            entityType: 'TENANT',
+            entityId: tenant.id,
+            tenantId: tenant.id,
+            actor,
+            details: {
+                summary: changedFields.length
+                    ? `Tenant ${tenant.name} atualizado: ${changedFields.join(', ')}${passwordChanged ? ', admin_password' : ''}.`
+                    : `Tenant ${tenant.name} revisado sem mudanças materiais.`,
+                changed_fields: changedFields,
+                admin_password_changed: passwordChanged,
+            },
+        });
 
         return {
             id: tenant.id,
@@ -516,20 +701,39 @@ export class SuperAdminService {
         };
     }
 
-    async setTenantActive(id: string, active: boolean) {
+    async setTenantActive(id: string, active: boolean, actorPayload?: SuperAdminActorPayload) {
         const tenant = await this.tenantRepo.findOne({ where: { id } });
         if (!tenant) throw new NotFoundException('Tenant nao encontrado.');
         tenant.active = !!active;
         await this.tenantRepo.save(tenant);
+
+        await this.recordAuditLog({
+            action: 'TENANT_STATUS_CHANGED',
+            entityType: 'TENANT',
+            entityId: tenant.id,
+            tenantId: tenant.id,
+            actor: this.resolveActorContext(actorPayload),
+            details: {
+                summary: `Tenant ${tenant.name} foi ${tenant.active ? 'ativado' : 'pausado'}.`,
+                active: tenant.active,
+            },
+        });
+
         return {
             id: tenant.id,
             active: tenant.active,
         };
     }
 
-    async updateWallet(id: string, payload: { amount?: number; billing_plan?: string }) {
+    async updateWallet(
+        id: string,
+        payload: { amount?: number; billing_plan?: string },
+        actorPayload?: SuperAdminActorPayload,
+    ) {
         const tenant = await this.tenantRepo.findOne({ where: { id } });
         if (!tenant) throw new NotFoundException('Tenant nao encontrado.');
+        const previousBillingPlan = tenant.billingPlan;
+        const previousBalance = Number(tenant.walletBalance || 0);
 
         if (payload.billing_plan) {
             const plan = String(payload.billing_plan).trim();
@@ -549,6 +753,22 @@ export class SuperAdminService {
         }
 
         await this.tenantRepo.save(tenant);
+
+        await this.recordAuditLog({
+            action: 'TENANT_WALLET_UPDATED',
+            entityType: 'TENANT',
+            entityId: tenant.id,
+            tenantId: tenant.id,
+            actor: this.resolveActorContext(actorPayload),
+            details: {
+                summary: `Carteira de ${tenant.name} ajustada para saldo ${Number(tenant.walletBalance || 0).toFixed(2)} e plano ${tenant.billingPlan}.`,
+                previous_billing_plan: previousBillingPlan,
+                current_billing_plan: tenant.billingPlan,
+                previous_balance: previousBalance,
+                current_balance: Number(tenant.walletBalance || 0),
+                delta_amount: payload.amount !== undefined && payload.amount !== null ? Number(payload.amount) : 0,
+            },
+        });
 
         return {
             id: tenant.id,
@@ -591,8 +811,13 @@ export class SuperAdminService {
         const messages24h = Number(row.messages_24h || 0);
         const messages7d = Number(row.messages_7d || 0);
         const messagesPrevious7d = Number(row.messages_previous_7d || 0);
+        const inboxEvents24h = Number(row.inbox_events_24h || 0);
+        const pendingInbox = Number(row.pending_inbox || 0);
+        const staleInbox = Number(row.stale_inbox || 0);
+        const outboxSent24h = Number(row.outbox_sent_24h || 0);
         const pendingOutbox = Number(row.pending_outbox || 0);
         const staleOutbox = Number(row.stale_outbox || 0);
+        const failedOutbox = Number(row.failed_outbox || 0);
         const pendingPayments = Number(row.pending_payments || 0);
         const stalePendingPayments = Number(row.stale_pending_payments || 0);
         const failedPayments7d = Number(row.failed_payments_7d || 0);
@@ -623,8 +848,14 @@ export class SuperAdminService {
             messages24h,
             messages7d,
             previousDailyAverage,
+            inboxEvents24h,
+            pendingInbox,
+            staleInbox,
+            lastInboxReceivedAt: row.last_inbox_received_at,
+            outboxSent24h,
             pendingOutbox,
             staleOutbox,
+            failedOutbox,
             oldestPendingOutboxAt: row.oldest_pending_outbox_at,
             pendingPayments,
             stalePendingPayments,
@@ -652,13 +883,21 @@ export class SuperAdminService {
                 messages24h,
                 messages7d,
                 messagesPrevious7d,
+                inboxEvents24h,
+                pendingInbox,
+                staleInbox,
+                lastInboxReceivedAt: row.last_inbox_received_at || null,
+                lastInboxProcessedAt: row.last_inbox_processed_at || null,
+                outboxSent24h,
                 averageDailyMessages,
                 previousDailyAverage,
                 estimatedDailyBurn,
                 daysOfBalance,
                 pendingOutbox,
                 staleOutbox,
+                failedOutbox,
                 oldestPendingOutboxAt: row.oldest_pending_outbox_at || null,
+                lastOutboxSentAt: row.last_outbox_sent_at || null,
                 pendingPayments,
                 stalePendingPayments,
                 failedPayments7d,
@@ -747,8 +986,14 @@ export class SuperAdminService {
         messages24h: number;
         messages7d: number;
         previousDailyAverage: number;
+        inboxEvents24h: number;
+        pendingInbox: number;
+        staleInbox: number;
+        lastInboxReceivedAt?: string | Date | null;
+        outboxSent24h: number;
         pendingOutbox: number;
         staleOutbox: number;
+        failedOutbox: number;
         oldestPendingOutboxAt?: string | Date | null;
         pendingPayments: number;
         stalePendingPayments: number;
@@ -766,6 +1011,11 @@ export class SuperAdminService {
             !!createdAt && Number.isFinite(createdAt.getTime())
                 ? Date.now() - createdAt.getTime() >= 7 * 24 * 60 * 60 * 1000
                 : false;
+        const lastInboxReceivedAt = input.lastInboxReceivedAt ? new Date(input.lastInboxReceivedAt) : null;
+        const hoursSinceLastInbox =
+            !!lastInboxReceivedAt && Number.isFinite(lastInboxReceivedAt.getTime())
+                ? (Date.now() - lastInboxReceivedAt.getTime()) / (60 * 60 * 1000)
+                : null;
 
         if (input.active && input.onboarding.missingRequiredKeys.includes('meta_token')) {
             this.pushRisk(flags, {
@@ -851,6 +1101,39 @@ export class SuperAdminService {
             });
         }
 
+        if (input.active && input.staleInbox > 0) {
+            this.pushRisk(flags, {
+                code: 'INBOX_STALE',
+                severity: 'CRITICAL',
+                title: 'Webhook parado na inbox',
+                description: 'Existem eventos recebidos e não processados há mais de 15 minutos.',
+            });
+        } else if (input.active && input.pendingInbox >= 10) {
+            this.pushRisk(flags, {
+                code: 'INBOX_BACKLOG',
+                severity: 'WARNING',
+                title: 'Inbox acumulada',
+                description: 'O volume de eventos aguardando processamento já saiu do normal.',
+            });
+        }
+
+        if (
+            input.active &&
+            olderThanSevenDays &&
+            input.onboarding.missingRequiredKeys.length === 0 &&
+            input.outboxSent24h > 0 &&
+            input.inboxEvents24h === 0 &&
+            hoursSinceLastInbox !== null &&
+            hoursSinceLastInbox >= 36
+        ) {
+            this.pushRisk(flags, {
+                code: 'WEBHOOK_SILENCE',
+                severity: 'WARNING',
+                title: 'Webhook sem eventos recentes',
+                description: 'O tenant segue emitindo saída, mas ficou sem eventos de inbox nas últimas 24h.',
+            });
+        }
+
         if (input.active && input.staleOutbox > 0) {
             this.pushRisk(flags, {
                 code: 'OUTBOX_STALE',
@@ -864,6 +1147,15 @@ export class SuperAdminService {
                 severity: 'WARNING',
                 title: 'Outbox acumulada',
                 description: 'O volume de mensagens pendentes já merece intervenção operacional.',
+            });
+        }
+
+        if (input.active && input.failedOutbox > 0) {
+            this.pushRisk(flags, {
+                code: 'OUTBOX_RETRIES_EXHAUSTED',
+                severity: 'CRITICAL',
+                title: 'Outbox esgotou retentativas',
+                description: 'Já existem mensagens que falharam em todas as tentativas de envio.',
             });
         }
 
@@ -963,6 +1255,78 @@ export class SuperAdminService {
         return {};
     }
 
+    private parseJsonRecord(raw: unknown): Record<string, unknown> {
+        if (!raw) return {};
+        if (typeof raw === 'string') {
+            try {
+                const parsed = JSON.parse(raw);
+                return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+                    ? parsed as Record<string, unknown>
+                    : {};
+            } catch {
+                return {};
+            }
+        }
+        if (typeof raw === 'object' && !Array.isArray(raw)) {
+            return raw as Record<string, unknown>;
+        }
+        return {};
+    }
+
+    private resolveActorContext(actorPayload?: SuperAdminActorPayload): SuperAdminActorContext {
+        const operatorName = this.normalizeOptionalText(actorPayload?.operatorName, 120) || 'Operador não identificado';
+        const receivedKey = String(actorPayload?.receivedKey || '').trim();
+        return {
+            operatorName,
+            keyFingerprint: receivedKey
+                ? createHash('sha256').update(receivedKey).digest('hex').slice(0, 12)
+                : null,
+            sourceIp: this.normalizeOptionalText(actorPayload?.sourceIp, 80),
+            userAgent: this.normalizeOptionalText(actorPayload?.userAgent, 1000),
+        };
+    }
+
+    private async recordAuditLog(input: {
+        action: string;
+        entityType: string;
+        entityId?: string | null;
+        tenantId?: string | null;
+        actor: SuperAdminActorContext;
+        details?: Record<string, unknown>;
+    }) {
+        if (!await this.hasSuperAdminAuditLogsTable()) {
+            return;
+        }
+
+        try {
+            await this.dataSource.query(
+                `INSERT INTO super_admin_audit_logs
+                    (action, entity_type, entity_id, tenant_id, operator_name, operator_key_fingerprint, source_ip, user_agent, details, created_at)
+                 VALUES
+                    ($1, $2, NULLIF($3, '')::uuid, NULLIF($4, '')::uuid, $5, $6, $7, $8, $9::jsonb, NOW())`,
+                [
+                    String(input.action || '').trim(),
+                    String(input.entityType || '').trim(),
+                    String(input.entityId || '').trim(),
+                    String(input.tenantId || '').trim(),
+                    input.actor.operatorName,
+                    input.actor.keyFingerprint,
+                    input.actor.sourceIp,
+                    input.actor.userAgent,
+                    JSON.stringify(input.details || {}),
+                ],
+            );
+        } catch (error) {
+            this.logger.warn(`Falha ao gravar auditoria do super-admin: ${(error as Error).message}`);
+        }
+    }
+
+    private normalizeOptionalText(value: unknown, maxLength: number) {
+        const normalized = String(value || '').trim();
+        if (!normalized) return null;
+        return normalized.slice(0, maxLength);
+    }
+
     private async getWebhookUrl(): Promise<string> {
         const configuredBase =
             process.env.PUBLIC_WEBHOOK_BASE_URL ||
@@ -1005,12 +1369,20 @@ export class SuperAdminService {
         return this.hasTable('message_logs');
     }
 
+    private async hasInboxEventsTable(): Promise<boolean> {
+        return this.hasTable('inbox_events');
+    }
+
     private async hasOutboxMessagesTable(): Promise<boolean> {
         return this.hasTable('outbox_messages');
     }
 
     private async hasPaymentAttemptsTable(): Promise<boolean> {
         return this.hasTable('payment_attempts');
+    }
+
+    private async hasSuperAdminAuditLogsTable(): Promise<boolean> {
+        return this.hasTable('super_admin_audit_logs');
     }
 
     private async hasTable(tableName: string): Promise<boolean> {

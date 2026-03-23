@@ -163,9 +163,14 @@
                     <div class="stat-trend">Pré-pago com baixa cobertura</div>
                 </div>
                 <div class="card">
-                    <div class="stat-title">Fila / Outbox</div>
-                    <div class="stat-value" id="ops-outbox">0</div>
-                    <div class="stat-trend">Represamento ou acúmulo</div>
+                    <div class="stat-title">Fila / Webhook</div>
+                    <div class="stat-value" id="ops-queue">0</div>
+                    <div class="stat-trend">Inbox ou outbox exigindo ação</div>
+                </div>
+                <div class="card">
+                    <div class="stat-title">Webhook em Silêncio</div>
+                    <div class="stat-value" id="ops-webhook">0</div>
+                    <div class="stat-trend">Sem eventos recentes na inbox</div>
                 </div>
             </div>
 
@@ -189,6 +194,31 @@
                     <tbody>
                         <tr>
                             <td colspan="5" style="text-align:center; color:var(--text-muted)">Carregando visão operacional...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="card">
+                <div class="flex-between" style="margin-bottom:20px; gap:16px; flex-wrap:wrap;">
+                    <div>
+                        <h3 style="margin-bottom:6px">Trilha do Operador</h3>
+                        <p class="page-sub" style="margin-bottom:0"><span id="ops-audit-status">Carregando auditoria...</span></p>
+                    </div>
+                </div>
+                <table id="operations-audit-table">
+                    <thead>
+                        <tr>
+                            <th>Quando</th>
+                            <th>Operador</th>
+                            <th>Ação</th>
+                            <th>Tenant</th>
+                            <th>Detalhes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td colspan="5" style="text-align:center; color:var(--text-muted)">Carregando trilha de ações...</td>
                         </tr>
                     </tbody>
                 </table>

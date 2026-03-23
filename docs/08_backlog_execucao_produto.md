@@ -183,7 +183,7 @@ Criterios de pronto:
 
 ## Epic 09 - Super Admin Operacional
 
-Status: Em andamento
+Status: Concluido
 
 Objetivo:
 Tirar o super-admin do papel apenas cadastral e levar para monitoramento ativo da base.
@@ -194,8 +194,8 @@ Tasks:
 - [x] Detectar tenant sem token Meta ou configuracao essencial.
 - [x] Detectar saldo em risco.
 - [x] Detectar consumo anormal.
-- [ ] Detectar fila travada, webhook falhando e outbox acumulado.
-- [ ] Registrar trilha de acao do operador do super-admin.
+- [x] Detectar fila travada, webhook falhando e outbox acumulado.
+- [x] Registrar trilha de acao do operador do super-admin.
 
 Criterios de pronto:
 - Operacao central identifica risco de tenant antes do cliente reclamar.
