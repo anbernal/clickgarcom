@@ -60,6 +60,33 @@ export class BotConfigService {
         return flow;
     }
 
+    async listFlowVersions(tenantId: string, key: string, channel?: string) {
+        const normalizedChannel = this.normalizeChannel(channel);
+        const normalizedKey = this.normalizeKey(key);
+
+        const versions = await this.botFlowRepository.find({
+            where: {
+                tenantId,
+                key: normalizedKey,
+                channel: normalizedChannel,
+            },
+            order: {
+                version: 'DESC',
+            },
+        });
+
+        if (!versions.length) {
+            throw new HttpException('Nenhuma versão encontrada para este flow.', HttpStatus.NOT_FOUND);
+        }
+
+        return {
+            tenant_id: tenantId,
+            channel: normalizedChannel,
+            key: normalizedKey,
+            versions,
+        };
+    }
+
     async getDefaultFlow(key: string) {
         const normalizedKey = this.normalizeKey(key);
         const definition = getDefaultBotFlowDefinition(normalizedKey);

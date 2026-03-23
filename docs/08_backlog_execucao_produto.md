@@ -132,9 +132,9 @@ Objetivo:
 Transformar o versionamento de flow em funcionalidade usavel de produto.
 
 Tasks:
-- [ ] Criar listagem de versoes publicadas por `key`.
+- [x] Criar listagem de versoes publicadas por `key`.
 - [ ] Criar diff entre versao atual e versao anterior.
-- [ ] Criar preview do JSON/definicao formatada.
+- [x] Criar preview do JSON/definicao formatada.
 - [ ] Criar botao de rollback com 1 clique.
 - [ ] Criar ambiente de teste/sandbox para fluxo antes de publicar.
 - [ ] Registrar ator da publicacao e motivo da alteracao.

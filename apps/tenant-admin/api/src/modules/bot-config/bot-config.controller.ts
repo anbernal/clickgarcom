@@ -24,6 +24,15 @@ export class BotConfigController {
         return this.botConfigService.getPublishedFlow(req.user.tenantId, key, channel);
     }
 
+    @Get('flows/:key/versions')
+    async listFlowVersions(
+        @Request() req,
+        @Param('key') key: string,
+        @Query('channel') channel?: string,
+    ) {
+        return this.botConfigService.listFlowVersions(req.user.tenantId, key, channel);
+    }
+
     @Get('flows/:key/default')
     async getDefaultFlow(@Param('key') key: string) {
         return this.botConfigService.getDefaultFlow(key);

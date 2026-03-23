@@ -1350,6 +1350,32 @@ export function buildTenantAdminOpenApiDocument() {
                     },
                 },
             },
+            [`${ADMIN_API_VERSIONED_BASE_PATH}/bot-config/flows/{key}/versions`]: {
+                get: {
+                    tags: ['Bot Config'],
+                    summary: 'Lista versoes publicadas e arquivadas de um flow do tenant',
+                    security: [{ bearerAuth: [] }],
+                    parameters: [
+                        {
+                            name: 'key',
+                            in: 'path',
+                            required: true,
+                            schema: { type: 'string' },
+                        },
+                        {
+                            name: 'channel',
+                            in: 'query',
+                            schema: { type: 'string' },
+                        },
+                    ],
+                    responses: {
+                        '200': versionedSuccessResponse('Versoes do flow.', {
+                            type: 'object',
+                            additionalProperties: true,
+                        }),
+                    },
+                },
+            },
             [`${ADMIN_API_VERSIONED_BASE_PATH}/bot-config/flows/{key}/default`]: {
                 get: {
                     tags: ['Bot Config'],
