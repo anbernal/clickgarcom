@@ -126,18 +126,18 @@ Criterios de pronto:
 
 ## Epic 06 - Bot e Fluxos Publicados
 
-Status: Em andamento
+Status: Concluido
 
 Objetivo:
 Transformar o versionamento de flow em funcionalidade usavel de produto.
 
 Tasks:
 - [x] Criar listagem de versoes publicadas por `key`.
-- [ ] Criar diff entre versao atual e versao anterior.
+- [x] Criar diff entre versao atual e versao anterior.
 - [x] Criar preview do JSON/definicao formatada.
-- [ ] Criar botao de rollback com 1 clique.
-- [ ] Criar ambiente de teste/sandbox para fluxo antes de publicar.
-- [ ] Registrar ator da publicacao e motivo da alteracao.
+- [x] Criar botao de rollback com 1 clique.
+- [x] Criar ambiente de teste/sandbox para fluxo antes de publicar.
+- [x] Registrar ator da publicacao e motivo da alteracao.
 
 Criterios de pronto:
 - Tenant consegue publicar com seguranca e desfazer publicacoes ruins rapidamente.
@@ -183,17 +183,17 @@ Criterios de pronto:
 
 ## Epic 09 - Super Admin Operacional
 
-Status: Planejado
+Status: Em andamento
 
 Objetivo:
 Tirar o super-admin do papel apenas cadastral e levar para monitoramento ativo da base.
 
 Tasks:
-- [ ] Criar health score por tenant.
-- [ ] Criar checklist de onboarding.
-- [ ] Detectar tenant sem token Meta ou configuracao essencial.
-- [ ] Detectar saldo em risco.
-- [ ] Detectar consumo anormal.
+- [x] Criar health score por tenant.
+- [x] Criar checklist de onboarding.
+- [x] Detectar tenant sem token Meta ou configuracao essencial.
+- [x] Detectar saldo em risco.
+- [x] Detectar consumo anormal.
 - [ ] Detectar fila travada, webhook falhando e outbox acumulado.
 - [ ] Registrar trilha de acao do operador do super-admin.
 

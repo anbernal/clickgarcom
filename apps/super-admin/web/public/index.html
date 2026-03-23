@@ -19,7 +19,7 @@
             <a class="nav-link" data-page="dashboard" onclick="navigate('dashboard')">📊 Métricas Globais</a>
             <a class="nav-link" data-page="tenants" onclick="navigate('tenants')">🏢 Restaurantes (Tenants)</a>
             <a class="nav-link" data-page="wallet" onclick="navigate('wallet')">💳 Carteira & Assinatura</a>
-            <a class="nav-link" data-page="settings" onclick="navigate('settings')">⚙️ Configurações</a>
+            <a class="nav-link" data-page="operations" onclick="navigate('operations')">🩺 Operação</a>
         </nav>
 
         <div style="margin-top:auto">
@@ -129,6 +129,65 @@
                     <tbody>
                         <tr>
                             <td colspan="5" style="text-align:center">Carregando carteiras...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- OPERATIONS -->
+        <div id="page-operations" class="page" style="display:none">
+            <h1 class="page-title">Monitoramento Operacional</h1>
+            <p class="page-sub">Health score, checklist de onboarding e sinais de risco por tenant</p>
+
+            <div class="dashboard-grid">
+                <div class="card" style="border-top:4px solid var(--danger)">
+                    <div class="stat-title">Tenants Críticos</div>
+                    <div class="stat-value" id="ops-critical">0</div>
+                    <div class="stat-trend" style="color:var(--danger)">Exigem ação imediata</div>
+                </div>
+                <div class="card" style="border-top:4px solid var(--warning)">
+                    <div class="stat-title">Tenants em Atenção</div>
+                    <div class="stat-value" id="ops-warning">0</div>
+                    <div class="stat-trend" style="color:var(--warning)">Com alertas operacionais</div>
+                </div>
+                <div class="card">
+                    <div class="stat-title">Onboarding Pendente</div>
+                    <div class="stat-value" id="ops-onboarding">0</div>
+                    <div class="stat-trend">Sem checklist completo</div>
+                </div>
+                <div class="card">
+                    <div class="stat-title">Saldo em Risco</div>
+                    <div class="stat-value" id="ops-balance">0</div>
+                    <div class="stat-trend">Pré-pago com baixa cobertura</div>
+                </div>
+                <div class="card">
+                    <div class="stat-title">Fila / Outbox</div>
+                    <div class="stat-value" id="ops-outbox">0</div>
+                    <div class="stat-trend">Represamento ou acúmulo</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="flex-between" style="margin-bottom:20px; gap:16px; flex-wrap:wrap;">
+                    <div>
+                        <h3 style="margin-bottom:6px">Radar por Tenant</h3>
+                        <p class="page-sub" style="margin-bottom:0">Atualizado em <span id="ops-generated-at">-</span></p>
+                    </div>
+                </div>
+                <table id="operations-table">
+                    <thead>
+                        <tr>
+                            <th>Tenant</th>
+                            <th>Health</th>
+                            <th>Checklist</th>
+                            <th>Alertas</th>
+                            <th>Atividade & Financeiro</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td colspan="5" style="text-align:center; color:var(--text-muted)">Carregando visão operacional...</td>
                         </tr>
                     </tbody>
                 </table>

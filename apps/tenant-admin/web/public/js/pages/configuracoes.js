@@ -67,6 +67,10 @@ let botFlowPublishedList = [];
 let botFlowVersionsByKey = {};
 let botFlowActiveKey = '';
 let botFlowActiveVersionByKey = {};
+let botFlowCompareVersionByKey = {};
+let botFlowDiffByPairKey = {};
+let botFlowSandboxDraftByKey = {};
+let botFlowSandboxErrorByKey = {};
 let botFlowLoadError = '';
 
 async function loadConfiguracoesPage() {
@@ -97,10 +101,15 @@ async function loadConfiguracoesPage() {
                 botFlowActiveKey = String(botFlowPublishedList[0]?.key || '');
             }
             await ensureBotFlowVersionsLoaded(botFlowActiveKey);
+            await ensureBotFlowDiffLoaded(botFlowActiveKey);
         } else {
             botFlowActiveKey = '';
             botFlowVersionsByKey = {};
             botFlowActiveVersionByKey = {};
+            botFlowCompareVersionByKey = {};
+            botFlowDiffByPairKey = {};
+            botFlowSandboxDraftByKey = {};
+            botFlowSandboxErrorByKey = {};
         }
 
         renderConfiguracoesUI(container);
@@ -121,6 +130,7 @@ async function ensureBotFlowVersionsLoaded(flowKey) {
     if (!botFlowActiveVersionByKey[key] && versions.length > 0) {
         botFlowActiveVersionByKey[key] = versions[0].id;
     }
+    ensureBotFlowCompareVersionSelected(key);
 }
 
 function getBotFlowVersions(flowKey) {
@@ -134,6 +144,104 @@ function getBotFlowActiveVersion(flowKey) {
     const selectedId = String(botFlowActiveVersionByKey[flowKey] || '').trim();
     const active = versions.find((version) => String(version.id) === selectedId);
     return active || versions[0];
+}
+
+function getBotFlowPublishedVersion(flowKey) {
+    return getBotFlowVersions(flowKey).find((version) => String(version.status || '').toUpperCase() === 'PUBLISHED') || null;
+}
+
+function ensureBotFlowCompareVersionSelected(flowKey) {
+    const key = String(flowKey || '').trim();
+    const versions = getBotFlowVersions(key);
+    const activeVersion = getBotFlowActiveVersion(key);
+
+    if (!activeVersion || versions.length < 2) {
+        delete botFlowCompareVersionByKey[key];
+        return;
+    }
+
+    const currentCompareId = String(botFlowCompareVersionByKey[key] || '').trim();
+    const hasCurrentCompare = versions.some((version) => String(version.id) === currentCompareId && String(version.id) !== String(activeVersion.id));
+    if (hasCurrentCompare) {
+        return;
+    }
+
+    const fallback = versions.find((version) => String(version.id) !== String(activeVersion.id));
+    if (fallback) {
+        botFlowCompareVersionByKey[key] = fallback.id;
+    }
+}
+
+function getBotFlowCompareVersion(flowKey) {
+    ensureBotFlowCompareVersionSelected(flowKey);
+    const compareId = String(botFlowCompareVersionByKey[flowKey] || '').trim();
+    return getBotFlowVersions(flowKey).find((version) => String(version.id) === compareId) || null;
+}
+
+function ensureBotFlowSandboxDraft(flowKey) {
+    const key = String(flowKey || '').trim();
+    if (botFlowSandboxDraftByKey[key]) return;
+    const activeVersion = getBotFlowActiveVersion(key);
+    botFlowSandboxDraftByKey[key] = activeVersion?.definition
+        ? JSON.stringify(activeVersion.definition, null, 2)
+        : '{}';
+}
+
+function parseBotFlowSandboxDefinition(flowKey) {
+    const key = String(flowKey || '').trim();
+    ensureBotFlowSandboxDraft(key);
+    const raw = String(botFlowSandboxDraftByKey[key] || '{}').trim() || '{}';
+
+    try {
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            return { definition: null, error: 'O sandbox aceita apenas um objeto JSON válido.' };
+        }
+        return { definition: parsed, error: '' };
+    } catch (err) {
+        return { definition: null, error: err.message || 'JSON inválido.' };
+    }
+}
+
+function buildBotFlowDiffCacheKey(flowKey, fromFlowId, toFlowId) {
+    return `${String(flowKey || '').trim()}:${String(fromFlowId || '').trim()}:${String(toFlowId || '').trim()}`;
+}
+
+function getCurrentBotFlowDiff(flowKey) {
+    const activeVersion = getBotFlowActiveVersion(flowKey);
+    const compareVersion = getBotFlowCompareVersion(flowKey);
+    if (!activeVersion || !compareVersion) return null;
+    return botFlowDiffByPairKey[buildBotFlowDiffCacheKey(flowKey, compareVersion.id, activeVersion.id)] || null;
+}
+
+async function ensureBotFlowDiffLoaded(flowKey) {
+    const key = String(flowKey || '').trim();
+    ensureBotFlowCompareVersionSelected(key);
+    const activeVersion = getBotFlowActiveVersion(key);
+    const compareVersion = getBotFlowCompareVersion(key);
+    if (!activeVersion || !compareVersion || String(activeVersion.id) === String(compareVersion.id)) {
+        return;
+    }
+
+    const cacheKey = buildBotFlowDiffCacheKey(key, compareVersion.id, activeVersion.id);
+    if (botFlowDiffByPairKey[cacheKey]) {
+        return;
+    }
+
+    const diff = await api.get(`/bot-config/flows/${encodeURIComponent(key)}/diff`, {
+        from_flow_id: compareVersion.id,
+        to_flow_id: activeVersion.id,
+    });
+    botFlowDiffByPairKey[cacheKey] = diff;
+}
+
+function clearBotFlowDiffCache(flowKey) {
+    const prefix = `${String(flowKey || '').trim()}:`;
+    Object.keys(botFlowDiffByPairKey).forEach((cacheKey) => {
+        if (cacheKey.startsWith(prefix)) {
+            delete botFlowDiffByPairKey[cacheKey];
+        }
+    });
 }
 
 function extractBotFlowDefinitionSummary(definition) {
@@ -162,6 +270,100 @@ function getBotFlowStatusMeta(status) {
 function formatBotFlowDate(value) {
     if (!value) return 'Sem data';
     return formatDateTime(value);
+}
+
+function getBotFlowActorLabel(version) {
+    return String(version?.createdByName || version?.updatedByName || version?.createdBy || version?.updatedBy || 'Sistema').trim() || 'Sistema';
+}
+
+function getBotFlowVersionLabel(version) {
+    if (!version) return 'Sem versão';
+    return `v${String(version.version || '-')}`;
+}
+
+function formatBotFlowDiffValue(value) {
+    if (value === null || value === undefined) return '—';
+    const text = typeof value === 'string' ? value : JSON.stringify(value);
+    return String(text || '').length > 140 ? `${String(text).slice(0, 137)}...` : String(text);
+}
+
+function getBotFlowDiffChangeMeta(changeType) {
+    const map = {
+        ADDED: { label: 'Adicionado', cls: 'status-done' },
+        REMOVED: { label: 'Removido', cls: 'status-canceled' },
+        UPDATED: { label: 'Alterado', cls: 'status-prep' },
+    };
+    return map[String(changeType || '').toUpperCase()] || { label: String(changeType || 'Mudança'), cls: 'status-pending' };
+}
+
+function renderBotFlowSandbox(flowKey) {
+    const key = String(flowKey || '').trim();
+    ensureBotFlowSandboxDraft(key);
+    const draft = String(botFlowSandboxDraftByKey[key] || '{}');
+    const parsed = parseBotFlowSandboxDefinition(key);
+    const sandboxSummary = extractBotFlowDefinitionSummary(parsed.definition);
+    const sandboxActions = Array.isArray(parsed.definition?.actions) ? parsed.definition.actions : [];
+
+    return `
+        <div style="border:1px solid var(--border); border-radius:12px; padding:14px; background:var(--bg);">
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px; flex-wrap:wrap;">
+                <div>
+                    <div style="font-size:12px; text-transform:uppercase; font-weight:700; color:var(--text-light);">Sandbox do fluxo</div>
+                    <div style="font-size:13px; color:var(--text); margin-top:4px;">Edite o JSON abaixo para simular a definição antes de publicar.</div>
+                </div>
+                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                    <button class="btn-sm btn-outline" type="button" onclick="loadActiveFlowIntoSandbox('${escapeHTML(key)}')">Usar versão selecionada</button>
+                    <button class="btn-sm btn-outline" type="button" onclick="loadDefaultFlowIntoSandbox('${escapeHTML(key)}')">Carregar default</button>
+                </div>
+            </div>
+
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; align-items:start;">
+                <div style="min-width:0;">
+                    <textarea
+                        id="bot-flow-sandbox-json"
+                        class="config-textarea"
+                        rows="16"
+                        oninput="updateBotFlowSandboxDraft('${escapeHTML(key)}', this.value)"
+                    >${escapeHTML(draft)}</textarea>
+                    ${parsed.error ? `<div style="margin-top:8px; font-size:12px; color:#b91c1c;">${escapeHTML(parsed.error)}</div>` : ''}
+                </div>
+
+                <div style="display:flex; flex-direction:column; gap:12px; min-width:0;">
+                    <div style="border:1px solid var(--border); border-radius:12px; padding:14px; background:var(--card-bg);">
+                        <div style="font-size:11px; text-transform:uppercase; font-weight:700; color:var(--text-light); margin-bottom:6px;">Preview resumido</div>
+                        <div style="font-size:14px; font-weight:700; color:var(--text);">${escapeHTML(sandboxSummary.presentation || 'Sem presentation')}</div>
+                        <div style="font-size:13px; color:var(--text); margin-top:8px; line-height:1.6;">${escapeHTML(sandboxSummary.body || 'Sem body configurado')}</div>
+                    </div>
+
+                    <div style="display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:10px;">
+                        ${renderBotFlowMetric('Ações', String(sandboxSummary.actionCount))}
+                        ${renderBotFlowMetric('Template', sandboxSummary.useWelcomeTemplate ? 'Sim' : 'Não')}
+                        ${renderBotFlowMetric('Entradas', String(sandboxActions.reduce((sum, action) => sum + (Array.isArray(action?.accepted_inputs) ? action.accepted_inputs.length : 0), 0)))}
+                    </div>
+
+                    <div style="border:1px solid var(--border); border-radius:12px; padding:14px; background:var(--card-bg);">
+                        <div style="font-size:11px; text-transform:uppercase; font-weight:700; color:var(--text-light); margin-bottom:8px;">Ações simuladas</div>
+                        <div style="display:flex; flex-direction:column; gap:10px; max-height:230px; overflow:auto; padding-right:4px;">
+                            ${sandboxActions.length ? sandboxActions.map((action, index) => `
+                                <div style="border:1px solid var(--border); border-radius:10px; padding:12px; background:var(--bg);">
+                                    <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:6px;">
+                                        <strong style="color:var(--text);">${escapeHTML(action?.label || `Ação ${index + 1}`)}</strong>
+                                        <span class="config-var-tag">${escapeHTML(String(action?.id || 'sem-id'))}</span>
+                                    </div>
+                                    <div style="font-size:12px; color:var(--text-light); line-height:1.5;">
+                                        Entradas aceitas:
+                                        ${Array.isArray(action?.accepted_inputs) && action.accepted_inputs.length
+                                            ? action.accepted_inputs.map((input) => `<span class="config-var-tag" style="margin-left:6px;">${escapeHTML(String(input))}</span>`).join('')
+                                            : '<span style="color:var(--text-light);"> nenhuma</span>'}
+                                    </div>
+                                </div>
+                            `).join('') : '<div style="font-size:12px; color:var(--text-light);">Nenhuma ação simulada no JSON atual.</div>'}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
 }
 
 function renderBotFlowVersionsCard() {
@@ -199,22 +401,26 @@ function renderBotFlowVersionsCard() {
 
     const activeVersions = getBotFlowVersions(botFlowActiveKey);
     const activeVersion = getBotFlowActiveVersion(botFlowActiveKey);
+    const publishedVersion = getBotFlowPublishedVersion(botFlowActiveKey);
+    const compareVersion = getBotFlowCompareVersion(botFlowActiveKey);
+    const diff = getCurrentBotFlowDiff(botFlowActiveKey);
     const summary = extractBotFlowDefinitionSummary(activeVersion?.definition);
     const jsonPreview = activeVersion?.definition
         ? JSON.stringify(activeVersion.definition, null, 2)
         : '{}';
+    const canRollback = !!activeVersion && String(activeVersion.status || '').toUpperCase() !== 'PUBLISHED';
 
     return `
         <div class="full-card" style="margin-bottom: 20px;">
             <div class="card-header">
                 <div>
                     <div class="card-title">🧭 Fluxos Publicados</div>
-                    <div class="card-subtitle">Consulte versões, estado atual e pré-visualização da definição publicada do bot</div>
+                    <div class="card-subtitle">Compare versões, revise a definição e reverta publicações com histórico rastreável</div>
                 </div>
             </div>
             <div style="padding:20px 22px;">
                 <div style="margin-bottom:16px; padding:14px 16px; border-radius:12px; background:rgba(75,123,229,0.08); border:1px solid rgba(75,123,229,0.18); color:var(--text-primary, #1f2937);">
-                    Este lote entrega visibilidade de versões e preview seguro da definição. Diff, sandbox e rollback entram na próxima etapa.
+                    Compare a versão selecionada com outra publicação do mesmo flow. Se precisar voltar atrás, o rollback gera uma nova versão publicada e preserva o histórico anterior.
                 </div>
 
                 <div style="display:grid; grid-template-columns:280px minmax(0, 1fr); gap:18px; align-items:start;">
@@ -243,9 +449,11 @@ function renderBotFlowVersionsCard() {
                                         </div>
                                         <div style="font-size:12px; color:var(--text-light); line-height:1.5;">
                                             Canal: ${escapeHTML(String(version.channel || 'whatsapp'))}<br>
+                                            Ator: ${escapeHTML(getBotFlowActorLabel(version))}<br>
                                             Publicado: ${escapeHTML(formatBotFlowDate(version.publishedAt || version.published_at))}<br>
                                             Atualizado: ${escapeHTML(formatBotFlowDate(version.updatedAt || version.updated_at))}
                                         </div>
+                                        ${version.changeReason ? `<div style="margin-top:8px; font-size:12px; color:var(--text); line-height:1.5;">Motivo: ${escapeHTML(version.changeReason)}</div>` : ''}
                                     </button>
                                 `;
                             }).join('')}
@@ -271,6 +479,38 @@ function renderBotFlowVersionsCard() {
 
                             <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
                                 <div style="border:1px solid var(--border); border-radius:12px; padding:14px; background:var(--bg);">
+                                    <div style="font-size:12px; text-transform:uppercase; font-weight:700; color:var(--text-light); margin-bottom:8px;">Ator da versão</div>
+                                    <div style="font-size:13px; color:var(--text); line-height:1.6;">${escapeHTML(getBotFlowActorLabel(activeVersion))}</div>
+                                </div>
+                                <div style="border:1px solid var(--border); border-radius:12px; padding:14px; background:var(--bg);">
+                                    <div style="font-size:12px; text-transform:uppercase; font-weight:700; color:var(--text-light); margin-bottom:8px;">Motivo registrado</div>
+                                    <div style="font-size:13px; color:var(--text); line-height:1.6;">${escapeHTML(activeVersion.changeReason || 'Sem motivo registrado')}</div>
+                                </div>
+                            </div>
+
+                            <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:end;">
+                                <div style="min-width:240px; flex:1;">
+                                    <label for="bot-flow-compare-select" style="display:block; font-size:12px; font-weight:700; color:var(--text-light); margin-bottom:6px;">Comparar com</label>
+                                    <select id="bot-flow-compare-select" onchange="selectBotFlowCompareVersion('${escapeHTML(botFlowActiveKey)}', this.value)">
+                                        ${activeVersions
+                                            .filter((version) => String(version.id) !== String(activeVersion.id))
+                                            .map((version) => `<option value="${escapeHTML(String(version.id))}" ${String(compareVersion?.id || '') === String(version.id) ? 'selected' : ''}>${escapeHTML(getBotFlowVersionLabel(version))} · ${escapeHTML(getBotFlowStatusMeta(version.status).label)}</option>`)
+                                            .join('')}
+                                    </select>
+                                </div>
+                                ${canRollback ? `
+                                    <button class="btn-sm btn-primary" type="button" onclick="rollbackBotFlow('${escapeHTML(botFlowActiveKey)}', '${escapeHTML(String(activeVersion.id || ''))}')">
+                                        Rollback para ${escapeHTML(getBotFlowVersionLabel(activeVersion))}
+                                    </button>
+                                ` : `
+                                    <div style="font-size:12px; color:var(--text-light);">
+                                        ${publishedVersion ? `Versão ativa no momento: <strong>${escapeHTML(getBotFlowVersionLabel(publishedVersion))}</strong>.` : 'Nenhuma versão publicada ativa no momento.'}
+                                    </div>
+                                `}
+                            </div>
+
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
+                                <div style="border:1px solid var(--border); border-radius:12px; padding:14px; background:var(--bg);">
                                     <div style="font-size:12px; text-transform:uppercase; font-weight:700; color:var(--text-light); margin-bottom:8px;">Presentation</div>
                                     <div style="font-size:13px; color:var(--text); line-height:1.6;">${escapeHTML(summary.presentation || 'Sem bloco de apresentação')}</div>
                                 </div>
@@ -289,10 +529,63 @@ function renderBotFlowVersionsCard() {
                                 </div>
                             </div>
 
+                            <div style="border:1px solid var(--border); border-radius:12px; padding:14px; background:var(--bg);">
+                                <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px; flex-wrap:wrap;">
+                                    <div>
+                                        <div style="font-size:12px; text-transform:uppercase; font-weight:700; color:var(--text-light);">Diff entre versões</div>
+                                        <div style="font-size:13px; color:var(--text); margin-top:4px;">
+                                            ${compareVersion ? `${escapeHTML(getBotFlowVersionLabel(compareVersion))} → ${escapeHTML(getBotFlowVersionLabel(activeVersion))}` : 'Sem versão para comparar'}
+                                        </div>
+                                    </div>
+                                    ${diff ? `
+                                        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                                            <span class="config-var-tag">Total ${escapeHTML(String(diff.summary?.total_changes || 0))}</span>
+                                            <span class="config-var-tag">+ ${escapeHTML(String(diff.summary?.added || 0))}</span>
+                                            <span class="config-var-tag">- ${escapeHTML(String(diff.summary?.removed || 0))}</span>
+                                            <span class="config-var-tag">~ ${escapeHTML(String(diff.summary?.updated || 0))}</span>
+                                        </div>
+                                    ` : ''}
+                                </div>
+
+                                ${compareVersion && diff ? `
+                                    <div style="display:flex; flex-direction:column; gap:10px; max-height:280px; overflow:auto; padding-right:4px;">
+                                        ${(diff.changes || []).length
+                                            ? diff.changes.map((change) => {
+                                                const changeMeta = getBotFlowDiffChangeMeta(change.change_type);
+                                                return `
+                                                    <div style="border:1px solid var(--border); border-radius:10px; padding:12px; background:var(--card-bg);">
+                                                        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px;">
+                                                            <div class="mono" style="font-size:12px; color:var(--text);">${escapeHTML(change.path || 'root')}</div>
+                                                            <span class="status-pill ${changeMeta.cls}">${escapeHTML(changeMeta.label)}</span>
+                                                        </div>
+                                                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+                                                            <div>
+                                                                <div style="font-size:11px; text-transform:uppercase; font-weight:700; color:var(--text-light); margin-bottom:4px;">Antes</div>
+                                                                <div class="mono" style="font-size:12px; color:var(--text); white-space:pre-wrap; word-break:break-word;">${escapeHTML(formatBotFlowDiffValue(change.from_value))}</div>
+                                                            </div>
+                                                            <div>
+                                                                <div style="font-size:11px; text-transform:uppercase; font-weight:700; color:var(--text-light); margin-bottom:4px;">Depois</div>
+                                                                <div class="mono" style="font-size:12px; color:var(--text); white-space:pre-wrap; word-break:break-word;">${escapeHTML(formatBotFlowDiffValue(change.to_value))}</div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                `;
+                                            }).join('')
+                                            : '<div style="font-size:12px; color:var(--text-light);">As duas versões são equivalentes.</div>'}
+                                    </div>
+                                ` : `
+                                    <div style="font-size:12px; color:var(--text-light);">
+                                        É preciso ter pelo menos duas versões para calcular diff.
+                                    </div>
+                                `}
+                            </div>
+
                             <div style="border:1px solid var(--border); border-radius:12px; padding:0; background:#0f172a; overflow:hidden;">
                                 <div style="padding:10px 14px; border-bottom:1px solid rgba(255,255,255,0.08); font-size:12px; font-weight:700; color:#cbd5e1;">Definição JSON</div>
                                 <pre style="margin:0; padding:14px; max-height:340px; overflow:auto; font-size:12px; line-height:1.6; color:#e2e8f0; font-family:'DM Mono', monospace; white-space:pre-wrap;">${escapeHTML(jsonPreview)}</pre>
                             </div>
+
+                            ${renderBotFlowSandbox(botFlowActiveKey)}
                         ` : `
                             <div style="padding:16px; border-radius:12px; background:rgba(59,130,246,0.06); border:1px solid rgba(59,130,246,0.15); color:var(--text-light);">
                                 Nenhuma versão carregada para o flow selecionado.
@@ -321,6 +614,7 @@ async function selectBotFlowKey(flowKey) {
 
     try {
         await ensureBotFlowVersionsLoaded(key);
+        await ensureBotFlowDiffLoaded(key);
         const container = document.getElementById('page-configuracoes');
         if (container) renderConfiguracoesUI(container);
     } catch (err) {
@@ -332,11 +626,102 @@ async function selectBotFlowKey(flowKey) {
     }
 }
 
-function selectBotFlowVersion(flowKey, versionId) {
+async function selectBotFlowVersion(flowKey, versionId) {
     const key = String(flowKey || '').trim();
     botFlowActiveVersionByKey[key] = String(versionId || '').trim();
+    ensureBotFlowCompareVersionSelected(key);
+
+    try {
+        await ensureBotFlowDiffLoaded(key);
+        const container = document.getElementById('page-configuracoes');
+        if (container) renderConfiguracoesUI(container);
+    } catch (err) {
+        console.error(err);
+        botFlowLoadError = err.message || 'Erro ao calcular o diff entre versões.';
+        showToast(botFlowLoadError, 'error');
+        const container = document.getElementById('page-configuracoes');
+        if (container) renderConfiguracoesUI(container);
+    }
+}
+
+async function selectBotFlowCompareVersion(flowKey, versionId) {
+    const key = String(flowKey || '').trim();
+    botFlowCompareVersionByKey[key] = String(versionId || '').trim();
+
+    try {
+        await ensureBotFlowDiffLoaded(key);
+        const container = document.getElementById('page-configuracoes');
+        if (container) renderConfiguracoesUI(container);
+    } catch (err) {
+        console.error(err);
+        botFlowLoadError = err.message || 'Erro ao calcular o diff entre versões.';
+        showToast(botFlowLoadError, 'error');
+        const container = document.getElementById('page-configuracoes');
+        if (container) renderConfiguracoesUI(container);
+    }
+}
+
+async function rollbackBotFlow(flowKey, sourceFlowId) {
+    const key = String(flowKey || '').trim();
+    const versionId = String(sourceFlowId || '').trim();
+    if (!key || !versionId) return;
+
+    const selectedVersion = getBotFlowVersions(key).find((version) => String(version.id) === versionId);
+    if (!selectedVersion) {
+        showToast('Versão selecionada não encontrada para rollback.', 'error');
+        return;
+    }
+
+    const reason = window.prompt(`Motivo do rollback para ${getBotFlowVersionLabel(selectedVersion)}:`) || '';
+    if (!reason.trim()) {
+        showToast('Informe um motivo para registrar o rollback.', 'error');
+        return;
+    }
+
+    const confirmed = window.confirm(`Confirmar rollback do flow ${key} para ${getBotFlowVersionLabel(selectedVersion)}?`);
+    if (!confirmed) return;
+
+    try {
+        await api.post(`/bot-config/flows/${encodeURIComponent(key)}/rollback`, {
+            source_flow_id: versionId,
+            reason,
+        });
+        delete botFlowVersionsByKey[key];
+        clearBotFlowDiffCache(key);
+        showToast('Rollback publicado com sucesso.', 'success');
+        await loadConfiguracoesPage();
+    } catch (err) {
+        console.error(err);
+        showToast(err.message || 'Erro ao executar rollback do flow.', 'error');
+    }
+}
+
+function updateBotFlowSandboxDraft(flowKey, value) {
+    const key = String(flowKey || '').trim();
+    botFlowSandboxDraftByKey[key] = String(value || '');
+}
+
+function loadActiveFlowIntoSandbox(flowKey) {
+    const key = String(flowKey || '').trim();
+    const activeVersion = getBotFlowActiveVersion(key);
+    botFlowSandboxDraftByKey[key] = activeVersion?.definition
+        ? JSON.stringify(activeVersion.definition, null, 2)
+        : '{}';
     const container = document.getElementById('page-configuracoes');
     if (container) renderConfiguracoesUI(container);
+}
+
+async function loadDefaultFlowIntoSandbox(flowKey) {
+    const key = String(flowKey || '').trim();
+    try {
+        const response = await api.get(`/bot-config/flows/${encodeURIComponent(key)}/default`);
+        botFlowSandboxDraftByKey[key] = JSON.stringify(response?.definition || {}, null, 2);
+        const container = document.getElementById('page-configuracoes');
+        if (container) renderConfiguracoesUI(container);
+    } catch (err) {
+        console.error(err);
+        showToast(err.message || 'Erro ao carregar o flow default para o sandbox.', 'error');
+    }
 }
 
 function renderConfiguracoesUI(container) {

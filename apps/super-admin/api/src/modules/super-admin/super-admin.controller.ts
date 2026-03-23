@@ -17,6 +17,12 @@ export class SuperAdminController {
         return this.superAdminService.listTenants();
     }
 
+    @Get('operations/overview')
+    operationsOverview(@Headers('x-super-admin-key') key?: string) {
+        this.superAdminService.assertAccess(key);
+        return this.superAdminService.getOperationsOverview();
+    }
+
     @Post('tenants')
     createTenant(
         @Headers('x-super-admin-key') key: string | undefined,

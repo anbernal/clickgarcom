@@ -33,6 +33,12 @@ export class BotFlowDefinition {
     @Column({ type: 'jsonb', default: () => "'{}'::jsonb" })
     definition!: Record<string, any>;
 
+    @Column({ name: 'change_reason', type: 'text', nullable: true })
+    changeReason!: string | null;
+
+    @Column('uuid', { name: 'source_flow_id', nullable: true })
+    sourceFlowId!: string | null;
+
     @Column('uuid', { name: 'created_by', nullable: true })
     createdBy!: string | null;
 

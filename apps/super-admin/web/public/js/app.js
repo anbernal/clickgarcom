@@ -7,6 +7,7 @@ if (sessionStorage.getItem('super_admin_authenticated') !== 'true') {
 const state = {
     activePage: 'dashboard',
     tenants: [],
+    operationsOverview: null,
 };
 
 function resolveApiBase() {
@@ -59,6 +60,9 @@ const api = {
     getTenants() {
         return request('/tenants');
     },
+    getOperationsOverview() {
+        return request('/operations/overview');
+    },
     createTenant(payload) {
         return request('/tenants', {
             method: 'POST',
@@ -102,6 +106,34 @@ function formatNumber(value) {
     return Number(value || 0).toLocaleString('pt-BR');
 }
 
+function formatCurrency(value) {
+    return Number(value || 0).toLocaleString('pt-BR', {
+        style: 'currency',
+        currency: 'BRL',
+    });
+}
+
+function formatDateTime(value) {
+    if (!value) return '-';
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) return '-';
+    return date.toLocaleString('pt-BR');
+}
+
+function getHealthStatusLabel(status) {
+    if (status === 'CRITICAL') return 'Crítico';
+    if (status === 'WARNING') return 'Atenção';
+    if (status === 'PAUSED') return 'Pausado';
+    return 'Saudável';
+}
+
+function getHealthBadgeClass(status) {
+    if (status === 'CRITICAL') return 'critical';
+    if (status === 'WARNING') return 'warning';
+    if (status === 'PAUSED') return 'paused';
+    return 'active';
+}
+
 function setTableLoading(selector, colspan, text) {
     const tbody = document.querySelector(selector);
     if (!tbody) return;
@@ -124,6 +156,7 @@ function navigate(pageId) {
     if (targetPage === 'dashboard') loadDashboard();
     if (targetPage === 'tenants') loadTenants();
     if (targetPage === 'wallet') loadWallet();
+    if (targetPage === 'operations') loadOperations();
 }
 
 async function loadDashboard() {
@@ -229,6 +262,131 @@ async function loadWallet() {
     }
 }
 
+function renderOperationsChecklist(onboarding) {
+    const completion = Number(onboarding?.completionPercent || 0);
+    const missing = Array.isArray(onboarding?.missingRequiredLabels) ? onboarding.missingRequiredLabels : [];
+    return `
+        <div class="cell-stack">
+            <div style="display:flex; justify-content:space-between; gap:12px; align-items:center;">
+                <strong>${escapeHtml(String(completion))}%</strong>
+                <span class="muted-xs">${escapeHtml(String(onboarding?.completedRequired || 0))}/${escapeHtml(String(onboarding?.requiredTotal || 0))} itens</span>
+            </div>
+            <div class="progress-track"><div class="progress-bar" style="width:${Math.max(0, Math.min(100, completion))}%"></div></div>
+            <div class="stack-list">
+                ${missing.length
+                    ? missing.map((label) => `<span class="badge inactive">${escapeHtml(label)}</span>`).join('')
+                    : '<span class="badge active">Checklist concluído</span>'}
+            </div>
+        </div>
+    `;
+}
+
+function renderOperationsRisks(riskFlags) {
+    const flags = Array.isArray(riskFlags) ? riskFlags : [];
+    if (!flags.length) {
+        return '<span class="badge active">Sem alertas</span>';
+    }
+
+    return `
+        <div class="cell-stack">
+            <div class="stack-list">
+                ${flags.map((flag) => `
+                    <span class="badge ${flag.severity === 'CRITICAL' ? 'critical' : 'warning'}">${escapeHtml(flag.title)}</span>
+                `).join('')}
+            </div>
+            <div class="muted-xs">
+                ${flags.slice(0, 2).map((flag) => escapeHtml(flag.description || '')).join(' ')}
+            </div>
+        </div>
+    `;
+}
+
+function renderOperationsSignals(tenant) {
+    const operations = tenant?.operations || {};
+    const signalTags = [
+        `24h: ${formatNumber(operations.messages24h)}`,
+        `7d: ${formatNumber(operations.messages7d)}`,
+        `Outbox: ${formatNumber(operations.pendingOutbox)}`,
+        `Pagamentos: ${formatNumber(operations.pendingPayments)}`,
+    ];
+
+    if (operations.daysOfBalance !== null && operations.daysOfBalance !== undefined && Number.isFinite(Number(operations.daysOfBalance))) {
+        signalTags.push(`Saldo: ${Number(operations.daysOfBalance).toFixed(1)} dias`);
+    }
+
+    return `
+        <div class="cell-stack">
+            <div class="stack-list">
+                ${signalTags.map((item) => `<span class="sub-metric">${escapeHtml(item)}</span>`).join('')}
+            </div>
+            <div class="muted-xs">
+                Última msg: ${escapeHtml(formatDateTime(operations.lastMessageAt))} · Última tentativa de pagamento: ${escapeHtml(formatDateTime(operations.lastPaymentAttemptAt))}
+            </div>
+        </div>
+    `;
+}
+
+async function loadOperations() {
+    try {
+        setTableLoading('#operations-table tbody', 5, 'Carregando visão operacional...');
+        const overview = await api.getOperationsOverview();
+        state.operationsOverview = overview;
+
+        const summary = overview?.summary || {};
+        document.getElementById('ops-critical').textContent = formatNumber(summary.criticalTenants || 0);
+        document.getElementById('ops-warning').textContent = formatNumber(summary.warningTenants || 0);
+        document.getElementById('ops-onboarding').textContent = formatNumber(summary.onboardingPendingTenants || 0);
+        document.getElementById('ops-balance').textContent = formatNumber(summary.lowBalanceTenants || 0);
+        document.getElementById('ops-outbox').textContent = formatNumber(summary.outboxAlertTenants || 0);
+        document.getElementById('ops-generated-at').textContent = formatDateTime(overview?.generatedAt);
+
+        const tenants = Array.isArray(overview?.tenants) ? overview.tenants : [];
+        const tbody = document.querySelector('#operations-table tbody');
+        if (!tenants.length) {
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted)">Nenhum tenant encontrado.</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = tenants.map((tenant) => `
+            <tr>
+                <td>
+                    <div class="cell-stack">
+                        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                            <strong>${escapeHtml(tenant.name)}</strong>
+                            <span class="badge ${tenant.active ? 'active' : 'paused'}">${tenant.active ? 'Ativo' : 'Pausado'}</span>
+                            <span class="badge info">${escapeHtml(tenant.billingPlan === 'pre_paid' ? 'Pré-pago' : 'Pós-pago')}</span>
+                        </div>
+                        <div class="muted-xs">
+                            ${escapeHtml(tenant.adminEmail || 'Sem admin principal')} · ${escapeHtml(tenant.whatsappNumber || 'Sem WhatsApp')} · Criado em ${escapeHtml(formatDateTime(tenant.createdAt))}
+                        </div>
+                    </div>
+                </td>
+                <td>
+                    <div class="cell-stack">
+                        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                            <span class="badge ${getHealthBadgeClass(tenant.healthStatus)}">${escapeHtml(getHealthStatusLabel(tenant.healthStatus))}</span>
+                            <strong>${escapeHtml(String(tenant.healthScore || 0))}/100</strong>
+                        </div>
+                        <div class="progress-track"><div class="progress-bar" style="width:${Math.max(0, Math.min(100, Number(tenant.healthScore || 0)))}%"></div></div>
+                    </div>
+                </td>
+                <td>${renderOperationsChecklist(tenant.onboarding)}</td>
+                <td>${renderOperationsRisks(tenant.riskFlags)}</td>
+                <td>
+                    <div class="cell-stack">
+                        <div><strong>${escapeHtml(formatCurrency(tenant.walletBalance))}</strong></div>
+                        <div class="muted-xs">Preço msg: ${escapeHtml(formatCurrency(tenant.messagePrice))}</div>
+                        ${renderOperationsSignals(tenant)}
+                    </div>
+                </td>
+            </tr>
+        `).join('');
+    } catch (error) {
+        console.error(error);
+        setTableLoading('#operations-table tbody', 5, `Falha ao carregar visão operacional: ${error.message}`);
+    }
+}
+
 function openTenantModal(tenantId = '') {
     const form = document.getElementById('tenant-form');
     form.reset();
@@ -295,6 +453,9 @@ async function saveTenant(event) {
         if (state.activePage === 'dashboard') {
             await loadDashboard();
         }
+        if (state.activePage === 'operations') {
+            await loadOperations();
+        }
     } catch (error) {
         console.error(error);
         alert(`Falha ao salvar restaurante: ${error.message}`);
@@ -310,6 +471,9 @@ async function toggleTenantActive(tenantId, active) {
         await loadTenants();
         if (state.activePage === 'dashboard') {
             await loadDashboard();
+        }
+        if (state.activePage === 'operations') {
+            await loadOperations();
         }
     } catch (error) {
         console.error(error);
@@ -354,6 +518,9 @@ async function saveWallet(event) {
         await api.updateWallet(tenantId, payload);
         closeWalletModal();
         await loadWallet();
+        if (state.activePage === 'operations') {
+            await loadOperations();
+        }
         alert('Carteira atualizada com sucesso!');
     } catch (error) {
         console.error(error);

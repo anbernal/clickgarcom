@@ -1376,6 +1376,44 @@ export function buildTenantAdminOpenApiDocument() {
                     },
                 },
             },
+            [`${ADMIN_API_VERSIONED_BASE_PATH}/bot-config/flows/{key}/diff`]: {
+                get: {
+                    tags: ['Bot Config'],
+                    summary: 'Calcula diff entre duas versoes de um flow',
+                    security: [{ bearerAuth: [] }],
+                    parameters: [
+                        {
+                            name: 'key',
+                            in: 'path',
+                            required: true,
+                            schema: { type: 'string' },
+                        },
+                        {
+                            name: 'from_flow_id',
+                            in: 'query',
+                            required: true,
+                            schema: { type: 'string', format: 'uuid' },
+                        },
+                        {
+                            name: 'to_flow_id',
+                            in: 'query',
+                            required: true,
+                            schema: { type: 'string', format: 'uuid' },
+                        },
+                        {
+                            name: 'channel',
+                            in: 'query',
+                            schema: { type: 'string' },
+                        },
+                    ],
+                    responses: {
+                        '200': versionedSuccessResponse('Diff do flow.', {
+                            type: 'object',
+                            additionalProperties: true,
+                        }),
+                    },
+                },
+            },
             [`${ADMIN_API_VERSIONED_BASE_PATH}/bot-config/flows/{key}/default`]: {
                 get: {
                     tags: ['Bot Config'],
@@ -1428,6 +1466,47 @@ export function buildTenantAdminOpenApiDocument() {
                     },
                     responses: {
                         '200': versionedSuccessResponse('Flow publicado.', {
+                            type: 'object',
+                            additionalProperties: true,
+                        }),
+                    },
+                },
+            },
+            [`${ADMIN_API_VERSIONED_BASE_PATH}/bot-config/flows/{key}/rollback`]: {
+                post: {
+                    tags: ['Bot Config'],
+                    summary: 'Publica rollback de uma versao anterior do flow',
+                    security: [{ bearerAuth: [] }],
+                    parameters: [
+                        {
+                            name: 'key',
+                            in: 'path',
+                            required: true,
+                            schema: { type: 'string' },
+                        },
+                        {
+                            name: 'channel',
+                            in: 'query',
+                            schema: { type: 'string' },
+                        },
+                    ],
+                    requestBody: {
+                        required: true,
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    type: 'object',
+                                    properties: {
+                                        source_flow_id: { type: 'string', format: 'uuid' },
+                                        reason: { type: 'string' },
+                                    },
+                                    required: ['source_flow_id', 'reason'],
+                                },
+                            },
+                        },
+                    },
+                    responses: {
+                        '200': versionedSuccessResponse('Rollback publicado.', {
                             type: 'object',
                             additionalProperties: true,
                         }),

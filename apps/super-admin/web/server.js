@@ -15,6 +15,9 @@ const BROWSER_API_BASE_URL = normalizeBaseUrl(
   process.env.SUPER_ADMIN_BROWSER_API_BASE_URL,
   '/admin/api/super-admin',
 );
+const DISABLE_TEXT_ASSET_CACHE = String(
+  process.env.SUPER_ADMIN_WEB_DISABLE_TEXT_ASSET_CACHE || 'true',
+).trim().toLowerCase() !== 'false';
 const API_PROXY_PREFIX = '/admin/api/super-admin';
 const CONTENT_TYPES = {
   '.css': 'text/css; charset=UTF-8',
@@ -152,9 +155,7 @@ function sendFile(res, filename, headOnly) {
     const ext = path.extname(filename).toLowerCase();
     res.writeHead(200, {
       'Content-Type': CONTENT_TYPES[ext] || 'application/octet-stream',
-      'Cache-Control': ext === '.html'
-        ? 'no-store, no-cache, must-revalidate, proxy-revalidate'
-        : 'public, max-age=300',
+      'Cache-Control': resolveCacheControl(ext),
     });
 
     if (headOnly) {
@@ -164,6 +165,18 @@ function sendFile(res, filename, headOnly) {
 
     res.end(data);
   });
+}
+
+function resolveCacheControl(ext) {
+  if (ext === '.html') {
+    return 'no-store, no-cache, must-revalidate, proxy-revalidate';
+  }
+
+  if (DISABLE_TEXT_ASSET_CACHE && ['.js', '.css', '.json', '.svg'].includes(ext)) {
+    return 'no-store, no-cache, must-revalidate, proxy-revalidate';
+  }
+
+  return 'public, max-age=300';
 }
 
 function sendJson(res, statusCode, payload) {

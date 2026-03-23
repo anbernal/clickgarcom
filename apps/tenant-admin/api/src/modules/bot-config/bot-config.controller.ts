@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Put, Body, Query, Request, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Put, Post, Body, Query, Request, UseGuards } from '@nestjs/common';
 import { BotConfigService } from './bot-config.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Roles } from '../auth/roles.decorator';
@@ -33,6 +33,17 @@ export class BotConfigController {
         return this.botConfigService.listFlowVersions(req.user.tenantId, key, channel);
     }
 
+    @Get('flows/:key/diff')
+    async getFlowDiff(
+        @Request() req,
+        @Param('key') key: string,
+        @Query('from_flow_id') fromFlowId?: string,
+        @Query('to_flow_id') toFlowId?: string,
+        @Query('channel') channel?: string,
+    ) {
+        return this.botConfigService.getFlowDiff(req.user.tenantId, key, fromFlowId, toFlowId, channel);
+    }
+
     @Get('flows/:key/default')
     async getDefaultFlow(@Param('key') key: string) {
         return this.botConfigService.getDefaultFlow(key);
@@ -46,6 +57,22 @@ export class BotConfigController {
         @Query('channel') channel?: string,
     ) {
         return this.botConfigService.publishFlow(
+            req.user.tenantId,
+            key,
+            channel,
+            payload || {},
+            req.user.id,
+        );
+    }
+
+    @Post('flows/:key/rollback')
+    async rollbackFlow(
+        @Request() req,
+        @Param('key') key: string,
+        @Body() payload: any,
+        @Query('channel') channel?: string,
+    ) {
+        return this.botConfigService.rollbackFlow(
             req.user.tenantId,
             key,
             channel,
