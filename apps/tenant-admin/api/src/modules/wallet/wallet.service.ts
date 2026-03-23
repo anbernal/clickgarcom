@@ -4,6 +4,7 @@ import axios, { AxiosError, Method } from 'axios';
 import { DataSource, Repository } from 'typeorm';
 
 import { Tenant } from '../../entities/tenant.entity';
+import { UserAccessAuditLog } from '../../entities/user-access-audit-log.entity';
 
 type MessageStatementQuery = {
     page?: string | number;
@@ -76,11 +77,19 @@ type WalletUsageAnalytics = {
     financialOverview: WalletFinancialOverview;
 };
 
+type WalletActorContext = {
+    userId?: string | null;
+    userName?: string | null;
+    userRole?: string | null;
+};
+
 @Injectable()
 export class WalletService {
     constructor(
         @InjectRepository(Tenant)
         private readonly tenantRepo: Repository<Tenant>,
+        @InjectRepository(UserAccessAuditLog)
+        private readonly userAccessAuditLogRepository: Repository<UserAccessAuditLog>,
         private readonly dataSource: DataSource,
     ) { }
 
@@ -120,8 +129,20 @@ export class WalletService {
         };
     }
 
-    async createPixPayment(tenantId: string, payload: Record<string, unknown>) {
-        return this.requestWithFallback('post', '/payments/pix', tenantId, payload);
+    async createPixPayment(tenantId: string, payload: Record<string, unknown>, actor?: WalletActorContext) {
+        const response = await this.requestWithFallback('post', '/payments/pix', tenantId, payload);
+        await this.recordWalletAuditEvent(tenantId, actor, {
+            eventType: 'WALLET_PIX_CREATED',
+            description: this.buildPixRechargeAuditDescription(payload),
+            metadata: {
+                amount: this.normalizeCurrencyValue(payload?.amount ?? 0),
+                paymentId: String(response?.payment_id || '').trim() || null,
+                payerEmail: this.normalizeOptionalText(payload?.payer_email, 255),
+                payerName: this.normalizeOptionalText(payload?.payer_name, 255),
+                description: this.normalizeOptionalText(payload?.description, 255),
+            },
+        });
+        return response;
     }
 
     async createCardPayment(tenantId: string, payload: Record<string, unknown>) {
@@ -912,5 +933,51 @@ export class WalletService {
         const now = new Date();
         now.setMonth(now.getMonth() - 1);
         return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    }
+
+    private buildPixRechargeAuditDescription(payload: Record<string, unknown>) {
+        const amount = this.normalizeCurrencyValue(payload?.amount ?? 0);
+        if (amount > 0) {
+            return `Recarga PIX gerada para a carteira do tenant no valor de R$ ${amount.toFixed(2)}.`;
+        }
+
+        return 'Recarga PIX gerada para a carteira do tenant.';
+    }
+
+    private async recordWalletAuditEvent(
+        tenantId: string,
+        actor: WalletActorContext | undefined,
+        payload: {
+            eventType: string;
+            description: string;
+            metadata?: Record<string, unknown> | null;
+        },
+    ) {
+        const log = this.userAccessAuditLogRepository.create({
+            tenantId,
+            actorUserId: this.normalizeUuidOrNull(actor?.userId),
+            actorName: this.normalizeOptionalText(actor?.userName, 255),
+            actorRole: this.normalizeOptionalText(actor?.userRole, 20),
+            targetUserId: null,
+            targetUserName: null,
+            eventType: payload.eventType,
+            description: payload.description,
+            metadata: payload.metadata || null,
+        });
+        await this.userAccessAuditLogRepository.save(log);
+    }
+
+    private normalizeUuidOrNull(value: unknown) {
+        const normalized = String(value || '').trim();
+        return normalized || null;
+    }
+
+    private normalizeOptionalText(value: unknown, maxLength = 255) {
+        const normalized = String(value || '').trim();
+        if (!normalized) {
+            return null;
+        }
+
+        return normalized.slice(0, maxLength);
     }
 }

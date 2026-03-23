@@ -39,6 +39,10 @@ export class WalletController {
 
     @Post('payments/pix')
     createPixPayment(@Request() req, @Body() body: Record<string, unknown>) {
-        return this.walletService.createPixPayment(req.user.tenantId, body);
+        return this.walletService.createPixPayment(req.user.tenantId, body, {
+            userId: req.user?.id,
+            userName: req.user?.name,
+            userRole: req.user?.role,
+        });
     }
 }

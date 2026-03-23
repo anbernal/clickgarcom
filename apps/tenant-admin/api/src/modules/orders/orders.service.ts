@@ -4,6 +4,7 @@ import { DataSource, In, Repository } from 'typeorm';
 import { Order } from '../../entities/order.entity';
 import { OrderBatch } from '../../entities/order-batch.entity';
 import { Tenant } from '../../entities/tenant.entity';
+import { UserAccessAuditLog } from '../../entities/user-access-audit-log.entity';
 import { DEFAULT_MESSAGE_TEMPLATES, resolveMessageTemplate } from '../../shared/message-templates';
 import { AmqpService } from '../amqp/amqp.service';
 import { TENANT_ORDER_CANCEL_ROLES, normalizeTenantRole } from '../auth/roles';
@@ -135,6 +136,8 @@ export class OrdersService {
         private readonly orderBatchRepo: Repository<OrderBatch>,
         @InjectRepository(Tenant)
         private readonly tenantRepository: Repository<Tenant>,
+        @InjectRepository(UserAccessAuditLog)
+        private readonly userAccessAuditLogRepository: Repository<UserAccessAuditLog>,
         private readonly dataSource: DataSource,
         private readonly amqpService: AmqpService,
     ) { }
@@ -219,6 +222,7 @@ export class OrdersService {
     ) {
         const order = await this.findOne(id, tenantId);
         if (!order) throw new BadRequestException('Order not found');
+        const previousStatus = order.status;
 
         const allowed = VALID_TRANSITIONS[order.status] || [];
         if (!allowed.includes(newStatus)) {
@@ -277,6 +281,17 @@ export class OrdersService {
         }
 
         await this.publishOrderStatusChanged(saved);
+        await this.recordOrderStatusAuditEvent({
+            tenantId,
+            order: saved,
+            previousStatus,
+            currentStatus: newStatus,
+            prepMinutes,
+            actorUserId: canceledByUserId,
+            actorName: canceledByUserName,
+            actorRole,
+            batchSync,
+        });
 
         return saved;
     }
@@ -1178,5 +1193,86 @@ export class OrdersService {
         } catch (error) {
             this.logger.warn(`Failed to publish order.status_changed for ${order.id}: ${(error as Error).message}`);
         }
+    }
+
+    private async recordOrderStatusAuditEvent(input: {
+        tenantId: string;
+        order: Order;
+        previousStatus: string;
+        currentStatus: string;
+        prepMinutes?: number;
+        actorUserId?: string | null;
+        actorName?: string | null;
+        actorRole?: string | null;
+        batchSync?: BatchSyncResult | null;
+    }) {
+        const eventType = input.currentStatus === 'CANCELED' ? 'ORDER_CANCELED' : 'ORDER_STATUS_UPDATED';
+        const log = this.userAccessAuditLogRepository.create({
+            tenantId: input.tenantId,
+            actorUserId: this.normalizeUuidOrNull(input.actorUserId),
+            actorName: this.normalizeTextOrNull(input.actorName),
+            actorRole: this.normalizeTextOrNull(input.actorRole, 20),
+            targetUserId: null,
+            targetUserName: null,
+            eventType,
+            description: this.buildOrderAuditDescription(input),
+            metadata: this.buildOrderAuditMetadata(input),
+        });
+
+        await this.userAccessAuditLogRepository.save(log);
+    }
+
+    private buildOrderAuditDescription(input: {
+        order: Order;
+        previousStatus: string;
+        currentStatus: string;
+    }) {
+        const orderCode = this.resolveOrderMessageCode(input.order);
+        const destinationLabel = ORDER_DESTINATION_LABELS[input.order.destination] || input.order.destination || 'Operacao';
+
+        if (input.currentStatus === 'CANCELED') {
+            const reason = this.normalizeTextOrNull(input.order.cancelReason);
+            return reason
+                ? `Pedido ${orderCode} (${destinationLabel}) cancelado: ${reason}.`
+                : `Pedido ${orderCode} (${destinationLabel}) cancelado.`;
+        }
+
+        return `Pedido ${orderCode} (${destinationLabel}) movido de ${input.previousStatus} para ${input.currentStatus}.`;
+    }
+
+    private buildOrderAuditMetadata(input: {
+        order: Order;
+        previousStatus: string;
+        currentStatus: string;
+        prepMinutes?: number;
+        batchSync?: BatchSyncResult | null;
+    }) {
+        const metadata: Record<string, unknown> = {
+            orderId: input.order.id,
+            orderCode: this.resolveOrderMessageCode(input.order),
+            batchId: input.order.batchId || null,
+            tabId: input.order.tabId,
+            destination: input.order.destination,
+            previousStatus: input.previousStatus,
+            currentStatus: input.currentStatus,
+            itemCount: Array.isArray(input.order.items) ? input.order.items.length : 0,
+        };
+
+        if (typeof input.prepMinutes === 'number' && Number.isFinite(input.prepMinutes) && input.prepMinutes > 0) {
+            metadata.prepMinutes = input.prepMinutes;
+        }
+
+        if (input.batchSync && input.batchSync.previousStatus !== input.batchSync.currentStatus) {
+            metadata.batchStatusBefore = input.batchSync.previousStatus;
+            metadata.batchStatusAfter = input.batchSync.currentStatus;
+        }
+
+        if (input.currentStatus === 'CANCELED') {
+            metadata.cancelReason = input.order.cancelReason || null;
+            metadata.cancelReasonCode = input.order.cancelReasonCode || null;
+            metadata.cancelCategory = input.order.cancelCategory || null;
+        }
+
+        return metadata;
     }
 }

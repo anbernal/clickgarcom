@@ -239,18 +239,18 @@ Criterios de pronto:
 
 ## Epic 12 - Auditoria
 
-Status: Planejado
+Status: Concluido
 
 Objetivo:
 Registrar trilha clara de alteracoes criticas do sistema.
 
 Tasks:
-- [ ] Auditar cancelamento de pedido.
-- [ ] Auditar fechamento/reabertura de comanda.
-- [ ] Auditar mudanca de status de pedido.
-- [ ] Auditar ajuste de carteira.
-- [ ] Auditar edicao de configuracao sensivel.
-- [ ] Auditar mudancas no super-admin.
+- [x] Auditar cancelamento de pedido.
+- [x] Auditar fechamento/reabertura de comanda.
+- [x] Auditar mudanca de status de pedido.
+- [x] Auditar ajuste de carteira.
+- [x] Auditar edicao de configuracao sensivel.
+- [x] Auditar mudancas no super-admin.
 
 Criterios de pronto:
 - Toda acao financeira ou operacional critica fica rastreavel por usuario, data e contexto.

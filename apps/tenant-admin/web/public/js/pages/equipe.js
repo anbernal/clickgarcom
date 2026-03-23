@@ -206,8 +206,8 @@ function renderEquipePage() {
             <div class="card">
                 <div class="card-header">
                     <div>
-                        <div class="card-title">Auditoria de gestão</div>
-                        <div class="card-subtitle">Criação, edição, bloqueio e reset assistido de senha</div>
+                        <div class="card-title">Auditoria operacional e financeira</div>
+                        <div class="card-subtitle">Usuários, configurações, pedidos, recargas e outras ações críticas do tenant</div>
                     </div>
                 </div>
                 <div style="padding:18px 22px;">
@@ -329,6 +329,13 @@ function formatEquipeDateTime(dateStr) {
     return `${formatDate(dateStr)} às ${formatTime(dateStr)}`;
 }
 
+function formatEquipeCurrency(value) {
+    return Number(value || 0).toLocaleString('pt-BR', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    });
+}
+
 function renderEquipeAuditList(items) {
     if (!items.length) {
         return '<div style="font-size:12px; color:var(--muted);">Nenhum evento auditável registrado ainda.</div>';
@@ -351,6 +358,7 @@ function buildEquipeAuditMeta(item) {
     const actor = String(item?.actorName || '').trim();
     const actorRole = formatEquipeRoleLabel(item?.actorRole || '');
     const target = String(item?.targetUserName || '').trim();
+    const metadata = item?.metadata || {};
     const parts = [];
 
     if (actor) {
@@ -359,6 +367,33 @@ function buildEquipeAuditMeta(item) {
 
     if (target && target !== actor) {
         parts.push(`alvo: ${target}`);
+    }
+
+    const orderCode = String(metadata?.orderCode || metadata?.orderId || '').trim();
+    if (orderCode) {
+        parts.push(`pedido: ${orderCode.slice(0, 8).toUpperCase()}`);
+    }
+
+    const tabId = String(metadata?.tabId || '').trim();
+    if (tabId) {
+        parts.push(`comanda: ${tabId.slice(0, 8)}`);
+    }
+
+    const paymentId = String(metadata?.paymentId || metadata?.payment_id || '').trim();
+    if (paymentId) {
+        parts.push(`pagamento: ${paymentId.slice(0, 8)}`);
+    }
+
+    if (metadata?.currentStatus) {
+        parts.push(`status: ${String(metadata.currentStatus).trim()}`);
+    }
+
+    if (metadata?.cancelCategory) {
+        parts.push(`categoria: ${String(metadata.cancelCategory).trim()}`);
+    }
+
+    if (metadata?.amount !== undefined && metadata?.amount !== null && Number(metadata.amount) > 0) {
+        parts.push(`valor: R$ ${formatEquipeCurrency(metadata.amount)}`);
     }
 
     if (!parts.length) {
