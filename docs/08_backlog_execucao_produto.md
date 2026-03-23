@@ -144,7 +144,7 @@ Criterios de pronto:
 
 ## Epic 07 - Cardapio Avancado
 
-Status: Planejado
+Status: Concluido
 
 Objetivo:
 Sair do cardapio flat e aumentar flexibilidade comercial.
@@ -157,12 +157,10 @@ Tasks:
 - [x] Adicionar estoque simples.
 - [x] Bloquear venda de item indisponivel por regra de estoque/horario.
 - [x] Exibir disponibilidade no bot e no admin.
+- [x] Exibir composicao de combos e opcionais na confirmacao do pedido e nas telas operacionais.
 
 Criterios de pronto:
 - Gestor consegue modelar cardapio real de restaurante sem gambiarras.
-
-Observacao:
-- A selecao estruturada de opcionais dentro do fluxo de pedido fica como proximo lote operacional do cardapio.
 
 ## Epic 08 - Usuarios e Permissoes
 

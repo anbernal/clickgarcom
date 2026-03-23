@@ -1,5 +1,6 @@
 // Mesas Page
 let mesasTableCache = [];
+let mesasMenuItemById = new Map();
 
 // ─── SVG ICONS ─────────────────────────────────────────────────
 const MESAS_ICONS = {
@@ -210,11 +211,17 @@ async function loadMesas() {
   if (!container) return;
 
   try {
-    const [tables, statsData] = await Promise.all([
+    const [tables, statsData, menuItems] = await Promise.all([
       api.get('/tables'),
       api.get('/tables/stats'),
+      api.get('/menu').catch(() => []),
     ]);
     mesasTableCache = Array.isArray(tables) ? tables : [];
+    mesasMenuItemById = new Map(
+      (Array.isArray(menuItems) ? menuItems : [])
+        .filter((item) => item && item.id)
+        .map((item) => [String(item.id), item])
+    );
 
     const reservedCount = tables.filter((table) => table.status === 'RESERVED').length;
 
@@ -446,6 +453,23 @@ function formatComandaSelectedOptions(options) {
     .join(', ');
 }
 
+function formatComandaComboSummary(item) {
+  const menuItemId = String(item?.menuItemId || item?.menu_item_id || '').trim();
+  if (!menuItemId || !mesasMenuItemById.has(menuItemId)) return '';
+
+  const comboComponents = mesasMenuItemById.get(menuItemId)?.comboComponents;
+  const parts = (Array.isArray(comboComponents) ? comboComponents : [])
+    .map((component) => {
+      const name = String(component?.menuItemName || component?.menu_item_name || '').trim();
+      const quantity = Number(component?.quantity || 0);
+      if (!name) return '';
+      return quantity > 1 ? `${quantity}x ${name}` : name;
+    })
+    .filter(Boolean);
+
+  return parts.length ? `Combo: ${parts.join(', ')}` : '';
+}
+
 function ensureComandaSplitState(detail) {
   const tabId = String(detail?.id || '');
   if (!tabId) {
@@ -579,6 +603,11 @@ function renderSplitItemsSection(detail, splitState) {
                 ${escapeHTML(`${item.quantity}x · ${formatCurrency(item.unitPrice || 0)} · restante ${item.remainingQuantity}`)}
                 ${Number(item.allocatedQuantity || 0) > 0 ? ` · ${escapeHTML(String(item.allocatedQuantity))} já alocado(s)` : ''}
               </div>
+              ${formatComandaComboSummary(item) ? `
+                <div style="font-size:12px; color:var(--text-light); margin-top:4px;">
+                  • ${escapeHTML(formatComandaComboSummary(item))}
+                </div>
+              ` : ''}
               ${formatComandaSelectedOptions(item.selectedOptions) ? `
                 <div style="font-size:12px; color:var(--text-light); margin-top:4px;">
                   + ${escapeHTML(formatComandaSelectedOptions(item.selectedOptions))}

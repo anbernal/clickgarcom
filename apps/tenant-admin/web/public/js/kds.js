@@ -121,6 +121,7 @@ let wsReconnectTimer = null;
 let pollTimer = null;
 let timerInterval = null;
 let menuItemNameById = new Map();
+let menuItemMetaById = new Map();
 let pendingRequests = [];
 let availableTables = [];
 let tablesSnapshot = [];
@@ -190,6 +191,11 @@ async function loadMenuItems() {
   try {
     const data = await apiGet('/menu');
     const items = Array.isArray(data) ? data : [];
+    menuItemMetaById = new Map(
+      items
+        .filter((item) => item && item.id)
+        .map((item) => [String(item.id), item])
+    );
     menuItemNameById = new Map(
       items
         .filter((item) => item && item.id && item.name)
@@ -198,6 +204,7 @@ async function loadMenuItems() {
   } catch (e) {
     console.warn('Failed to load menu items for KDS labels:', e);
     menuItemNameById = new Map();
+    menuItemMetaById = new Map();
   }
 }
 
@@ -218,6 +225,25 @@ function resolveItemName(item) {
 
   if (menuItemId) return shortId(menuItemId);
   return 'Item';
+}
+
+function formatComboComponentsSummary(comboComponents) {
+  const list = Array.isArray(comboComponents) ? comboComponents : [];
+  const parts = list
+    .map((component) => {
+      const name = String(component?.menuItemName || component?.menu_item_name || '').trim();
+      const quantity = Number(component?.quantity || 0);
+      if (!name) return '';
+      return quantity > 1 ? `${quantity}x ${name}` : name;
+    })
+    .filter(Boolean);
+  return parts.length ? `Combo: ${parts.join(', ')}` : '';
+}
+
+function resolveComboSummary(item) {
+  const menuItemId = String(item?.menu_item_id || item?.menuItemId || '').trim();
+  if (!menuItemId || !menuItemMetaById.has(menuItemId)) return '';
+  return formatComboComponentsSummary(menuItemMetaById.get(menuItemId)?.comboComponents);
 }
 
 // ─── API ───────────────────────────────────────────────────────
@@ -482,7 +508,7 @@ function buildCardHTML(order) {
   let itemsHtml = '';
   if (order.items && order.items.length) {
     itemsHtml = order.items.map(i =>
-      `<div class="order-item"><span class="item-qty">${escapeHTML(i.quantity)}x</span><span class="item-name">${escapeHTML(resolveItemName(i))}</span>${formatSelectedOptionsSummary(i.selected_options || i.selectedOptions) ? `<span class="item-note">+ ${escapeHTML(formatSelectedOptionsSummary(i.selected_options || i.selectedOptions))}</span>` : ''}${i.observations ? `<span class="item-note">${escapeHTML(i.observations)}</span>` : ''}</div>`
+      `<div class="order-item"><span class="item-qty">${escapeHTML(i.quantity)}x</span><span class="item-name">${escapeHTML(resolveItemName(i))}</span>${resolveComboSummary(i) ? `<span class="item-note">• ${escapeHTML(resolveComboSummary(i))}</span>` : ''}${formatSelectedOptionsSummary(i.selected_options || i.selectedOptions) ? `<span class="item-note">+ ${escapeHTML(formatSelectedOptionsSummary(i.selected_options || i.selectedOptions))}</span>` : ''}${i.observations ? `<span class="item-note">${escapeHTML(i.observations)}</span>` : ''}</div>`
     ).join('');
   }
 

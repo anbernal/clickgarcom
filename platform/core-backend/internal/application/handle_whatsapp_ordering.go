@@ -1465,6 +1465,7 @@ type orderingCartDisplayEntry struct {
 	ItemName        string
 	LineTotal       float64
 	UnitPrice       float64
+	ComboSummary    string
 	SelectedOptions []orderingSelectedOption
 }
 
@@ -1513,6 +1514,18 @@ func (uc *HandleWhatsAppMessageUseCase) resolveOrderingCartDisplayEntries(
 			if unitPrice <= 0 {
 				unitPrice = item.Price
 			}
+			entries = append(entries, orderingCartDisplayEntry{
+				LineID:          entry.LineID,
+				MenuItemID:      entry.MenuItemID,
+				Quantity:        quantity,
+				ItemName:        itemName,
+				LineTotal:       unitPrice * float64(quantity),
+				UnitPrice:       unitPrice,
+				ComboSummary:    orderingComboSummary(item),
+				SelectedOptions: append([]orderingSelectedOption(nil), entry.SelectedOptions...),
+			})
+			subtotal += unitPrice * float64(quantity)
+			continue
 		} else {
 			unitPrice = parseOrderingFloatValue(entry.UnitPrice)
 		}
@@ -1530,6 +1543,7 @@ func (uc *HandleWhatsAppMessageUseCase) resolveOrderingCartDisplayEntries(
 			ItemName:        itemName,
 			LineTotal:       lineTotal,
 			UnitPrice:       unitPrice,
+			ComboSummary:    "",
 			SelectedOptions: append([]orderingSelectedOption(nil), entry.SelectedOptions...),
 		})
 	}
@@ -1563,6 +1577,9 @@ func (uc *HandleWhatsAppMessageUseCase) buildOrderingCartMessageWithNotice(
 	lines := make([]string, 0, len(entries))
 	for index, entry := range entries {
 		line := fmt.Sprintf("*%d.* %dx %s — R$ %s", index+1, entry.Quantity, entry.ItemName, formatBRLCurrency(entry.LineTotal))
+		if strings.TrimSpace(entry.ComboSummary) != "" {
+			line += "\n   • " + entry.ComboSummary
+		}
 		if optionsSummary := buildOrderingSelectedOptionsSummary(entry.SelectedOptions); optionsSummary != "" {
 			line += "\n   + " + optionsSummary
 		}
@@ -1632,6 +1649,9 @@ func (uc *HandleWhatsAppMessageUseCase) buildOrderingCartRemovalFallback(
 	lines := make([]string, 0, len(entries))
 	for index, entry := range entries {
 		line := fmt.Sprintf("*%d* - %dx %s — R$ %s", index+1, entry.Quantity, entry.ItemName, formatBRLCurrency(entry.LineTotal))
+		if strings.TrimSpace(entry.ComboSummary) != "" {
+			line += "\n   • " + entry.ComboSummary
+		}
 		if optionsSummary := buildOrderingSelectedOptionsSummary(entry.SelectedOptions); optionsSummary != "" {
 			line += "\n   + " + optionsSummary
 		}
@@ -1969,13 +1989,18 @@ func (uc *HandleWhatsAppMessageUseCase) buildOrderingCartItemsSummary(
 			continue
 		}
 		itemName := strings.TrimSpace(entry.MenuItemName)
+		comboSummary := ""
 		if item := menuItemsByID[entry.MenuItemID]; item != nil {
 			itemName = item.Name
+			comboSummary = orderingComboSummary(item)
 		}
 		if itemName == "" {
 			itemName = "Item"
 		}
 		line := fmt.Sprintf("• %dx %s", entry.Quantity, itemName)
+		if comboSummary != "" {
+			line += " (" + comboSummary + ")"
+		}
 		if optionsSummary := buildOrderingSelectedOptionsSummary(entry.SelectedOptions); optionsSummary != "" {
 			line += " (" + optionsSummary + ")"
 		}
@@ -2669,11 +2694,13 @@ func (uc *HandleWhatsAppMessageUseCase) buildRepeatRoundItemsSummary(
 	}
 
 	nameByID := make(map[uuid.UUID]string, len(ids))
+	menuItemsByID := make(map[uuid.UUID]*menu.Item, len(ids))
 	menuItems, err := uc.menuRepo.FindItemsByIDs(ctx, ids, tenantID)
 	if err == nil {
 		for _, menuItem := range menuItems {
 			if menuItem != nil {
 				nameByID[menuItem.ID] = menuItem.Name
+				menuItemsByID[menuItem.ID] = menuItem
 			}
 		}
 	}
@@ -2681,10 +2708,17 @@ func (uc *HandleWhatsAppMessageUseCase) buildRepeatRoundItemsSummary(
 	lines := make([]string, 0, len(items))
 	for _, item := range items {
 		name := nameByID[item.MenuItemID]
+		comboSummary := ""
+		if menuItem := menuItemsByID[item.MenuItemID]; menuItem != nil {
+			comboSummary = orderingComboSummary(menuItem)
+		}
 		if name == "" {
 			name = fmt.Sprintf("Item %s", item.MenuItemID.String()[:8])
 		}
 		line := fmt.Sprintf("• %dx %s", item.Quantity, name)
+		if comboSummary != "" {
+			line += " (" + comboSummary + ")"
+		}
 		if optionsSummary := buildOrderingSelectedOptionsSummary(toOrderingSelectedOptions(item.SelectedOptions)); optionsSummary != "" {
 			line += " (" + optionsSummary + ")"
 		}
