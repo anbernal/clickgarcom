@@ -36,6 +36,102 @@ function formatWalletMonthReference(reference) {
     return `${labels[Math.max(0, Number(month) - 1)]}/${year}`;
 }
 
+function getWalletBillingCycleMeta(status) {
+    const normalized = String(status || '').trim().toLowerCase();
+    switch (normalized) {
+        case 'received':
+            return { label: 'Recebido', bg: 'rgba(26,188,156,0.12)', color: '#0f766e' };
+        case 'covered_by_balance':
+            return { label: 'Coberto por saldo', bg: 'rgba(59,130,246,0.12)', color: '#1d4ed8' };
+        case 'partial':
+            return { label: 'Parcial', bg: 'rgba(245,158,11,0.12)', color: '#b45309' };
+        case 'open':
+            return { label: 'Em aberto', bg: 'rgba(249,115,22,0.12)', color: '#c2410c' };
+        case 'attention':
+            return { label: 'Atenção', bg: 'rgba(239,68,68,0.12)', color: '#b91c1c' };
+        default:
+            return { label: 'Sem movimento', bg: 'rgba(148,163,184,0.14)', color: '#475569' };
+    }
+}
+
+function renderWalletBillingCycles(cycles, isPrePaid) {
+    if (!Array.isArray(cycles) || cycles.length === 0) {
+        return `
+            <div style="font-size:13px; color:var(--muted); padding:18px 0;">
+                As competências financeiras ainda não foram sincronizadas neste ambiente.
+            </div>
+        `;
+    }
+
+    return `
+        <div style="display:flex; flex-direction:column; gap:12px;">
+            ${cycles.map((cycle) => {
+                const meta = getWalletBillingCycleMeta(cycle.status);
+                const openingBalance = cycle.openingBalance === null || cycle.openingBalance === undefined
+                    ? '—'
+                    : `R$ ${formatWalletCurrency(cycle.openingBalance)}`;
+                const closingBalance = cycle.closingBalance === null || cycle.closingBalance === undefined
+                    ? '—'
+                    : `R$ ${formatWalletCurrency(cycle.closingBalance)}`;
+
+                return `
+                    <div style="
+                        border:1px solid var(--border);
+                        border-radius:16px;
+                        padding:18px 20px;
+                        background:var(--card-bg);
+                        box-shadow:var(--shadow);
+                    ">
+                        <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:14px; flex-wrap:wrap; margin-bottom:14px;">
+                            <div>
+                                <div style="font-size:14px; font-weight:800; color:var(--dark); margin-bottom:4px;">${formatWalletMonthReference(cycle.referenceMonth)}</div>
+                                <div style="font-size:12px; color:var(--muted);">${Number(cycle.chargedMessages || 0).toLocaleString('pt-BR')} mensagens cobradas nesta competência</div>
+                            </div>
+                            <span style="
+                                display:inline-flex;
+                                align-items:center;
+                                padding:6px 12px;
+                                border-radius:999px;
+                                background:${meta.bg};
+                                color:${meta.color};
+                                font-size:12px;
+                                font-weight:800;
+                                letter-spacing:0.3px;
+                                text-transform:uppercase;
+                            ">${meta.label}</span>
+                        </div>
+
+                        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:12px;">
+                            <div style="padding:14px; border-radius:12px; background:rgba(15,23,42,0.03); border:1px solid rgba(148,163,184,0.18);">
+                                <div style="font-size:11px; color:var(--muted); text-transform:uppercase; font-weight:700; margin-bottom:6px;">Faturado</div>
+                                <div style="font-size:22px; font-weight:800; font-family:'Sora',sans-serif; color:var(--dark);">R$ ${formatWalletCurrency(cycle.chargedAmount)}</div>
+                            </div>
+                            <div style="padding:14px; border-radius:12px; background:rgba(59,130,246,0.05); border:1px solid rgba(59,130,246,0.12);">
+                                <div style="font-size:11px; color:var(--muted); text-transform:uppercase; font-weight:700; margin-bottom:6px;">Recebido</div>
+                                <div style="font-size:22px; font-weight:800; font-family:'Sora',sans-serif; color:#1d4ed8;">R$ ${formatWalletCurrency(cycle.receivedAmount)}</div>
+                                <div style="font-size:11px; color:var(--muted); margin-top:4px;">${Number(cycle.receivedCount || 0).toLocaleString('pt-BR')} pagamento(s) confirmados</div>
+                            </div>
+                            <div style="padding:14px; border-radius:12px; background:rgba(26,188,156,0.05); border:1px solid rgba(26,188,156,0.12);">
+                                <div style="font-size:11px; color:var(--muted); text-transform:uppercase; font-weight:700; margin-bottom:6px;">${isPrePaid ? 'Coberto por saldo' : 'Em aberto'}</div>
+                                <div style="font-size:22px; font-weight:800; font-family:'Sora',sans-serif; color:${isPrePaid ? '#0f766e' : '#c2410c'};">R$ ${formatWalletCurrency(isPrePaid ? cycle.amountCoveredByBalance : cycle.outstandingAmount)}</div>
+                            </div>
+                            <div style="padding:14px; border-radius:12px; background:rgba(249,115,22,0.05); border:1px solid rgba(249,115,22,0.12);">
+                                <div style="font-size:11px; color:var(--muted); text-transform:uppercase; font-weight:700; margin-bottom:6px;">${isPrePaid ? 'Saldo final' : 'Receita pendente'}</div>
+                                <div style="font-size:22px; font-weight:800; font-family:'Sora',sans-serif; color:#c2410c;">${isPrePaid ? closingBalance : `R$ ${formatWalletCurrency(cycle.outstandingAmount)}`}</div>
+                            </div>
+                        </div>
+
+                        <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-top:12px; font-size:12px; color:var(--muted);">
+                            ${isPrePaid ? `<span>Saldo inicial: <strong style="color:var(--dark);">${openingBalance}</strong></span>` : ''}
+                            ${cycle.note ? `<span>${escapeHTML(cycle.note)}</span>` : ''}
+                        </div>
+                    </div>
+                `;
+            }).join('')}
+        </div>
+    `;
+}
+
 async function loadWallet() {
     const container = document.getElementById('page-wallet');
     container.innerHTML = `<div style="padding: 40px; text-align: center; color: var(--muted);">Carregando Carteira...</div>`;
@@ -59,6 +155,7 @@ async function loadWallet() {
         const forecast = res.forecast || {};
         const lowBalanceAlert = res.low_balance_alert || null;
         const financialOverview = res.financial_overview || {};
+        const billingCycles = Array.isArray(res.billing_cycles) ? res.billing_cycles : [];
         const averageDailyMessages = Number(forecast.averageDailyMessages || 0);
         const expectedNext30DaysMessages = Number(forecast.expectedNext30DaysMessages || 0);
         const expectedNext30DaysAmount = Number(forecast.expectedNext30DaysAmount || 0);
@@ -357,6 +454,31 @@ async function loadWallet() {
                             <div style="font-size:12px; color:var(--text); margin-top:10px;">${escapeHTML(financialNote)}</div>
                         ` : ''}
                     </div>
+                </div>
+
+                <div style="
+                    background: var(--card-bg);
+                    border-radius:18px;
+                    padding:24px;
+                    border:1px solid var(--border);
+                    box-shadow: var(--shadow);
+                    margin-bottom:16px;
+                ">
+                    <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:18px; flex-wrap:wrap; margin-bottom:18px;">
+                        <div>
+                            <div style="font-size:14px; font-weight:800; color:var(--dark); margin-bottom:6px;">Faturado x recebido por competência</div>
+                            <div style="font-size:13px; color:var(--muted); max-width:720px;">
+                                ${isPrePaid
+                ? 'Cada competência mostra o que foi cobrado em mensagens, o que entrou em recargas confirmadas e quanto do consumo precisou ser coberto pelo saldo já existente.'
+                : 'Cada competência mostra o valor faturado no período, o que já foi recebido e o que segue em aberto para fechamento.'}
+                            </div>
+                        </div>
+                        <div style="font-size:12px; color:var(--muted); font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">
+                            Últimos ${billingCycles.length || 0} ciclo(s)
+                        </div>
+                    </div>
+
+                    ${renderWalletBillingCycles(billingCycles, isPrePaid)}
                 </div>
 
                 <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:16px; margin-bottom:28px;">

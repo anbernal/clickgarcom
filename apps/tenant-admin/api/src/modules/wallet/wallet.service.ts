@@ -5,6 +5,7 @@ import { DataSource, Repository } from 'typeorm';
 
 import { Tenant } from '../../entities/tenant.entity';
 import { UserAccessAuditLog } from '../../entities/user-access-audit-log.entity';
+import { WalletBillingCycle } from '../../entities/wallet-billing-cycle.entity';
 
 type MessageStatementQuery = {
     page?: string | number;
@@ -66,6 +67,30 @@ type WalletFinancialOverview = {
     note: string;
 };
 
+type WalletBillingCycleStatus =
+    | 'idle'
+    | 'open'
+    | 'partial'
+    | 'received'
+    | 'covered_by_balance'
+    | 'attention';
+
+type WalletBillingCycleSummary = {
+    referenceMonth: string;
+    mode: 'pre_paid' | 'post_paid';
+    status: WalletBillingCycleStatus;
+    chargedMessages: number;
+    chargedAmount: number;
+    receivedAmount: number;
+    receivedCount: number;
+    amountCoveredByBalance: number;
+    outstandingAmount: number;
+    openingBalance: number | null;
+    closingBalance: number | null;
+    note: string;
+    syncedAt: string | null;
+};
+
 type WalletUsageAnalytics = {
     messagesIn: number;
     messagesOut: number;
@@ -90,6 +115,8 @@ export class WalletService {
         private readonly tenantRepo: Repository<Tenant>,
         @InjectRepository(UserAccessAuditLog)
         private readonly userAccessAuditLogRepository: Repository<UserAccessAuditLog>,
+        @InjectRepository(WalletBillingCycle)
+        private readonly walletBillingCycleRepository: Repository<WalletBillingCycle>,
         private readonly dataSource: DataSource,
     ) { }
 
@@ -111,6 +138,12 @@ export class WalletService {
             billingPlan,
             messagesRemaining,
         );
+        const billingCycles = await this.syncWalletBillingCycles(
+            tenantId,
+            billingPlan,
+            walletBalance,
+            messagePrice,
+        );
 
         return {
             ...balanceData,
@@ -126,6 +159,7 @@ export class WalletService {
             forecast: usage.forecast,
             low_balance_alert: usage.lowBalanceAlert,
             financial_overview: usage.financialOverview,
+            billing_cycles: billingCycles,
         };
     }
 
@@ -473,6 +507,13 @@ export class WalletService {
         return !!rows?.[0]?.reg;
     }
 
+    private async hasWalletBillingCyclesTable(): Promise<boolean> {
+        const rows = await this.dataSource.query(
+            `SELECT to_regclass('public.wallet_billing_cycles') AS reg`,
+        );
+        return !!rows?.[0]?.reg;
+    }
+
     private async buildMessageStatementBaseQuery(tenantId: string, filters: MessageStatementFilters) {
         const hasDetailColumns = await this.hasMessageLogDetailColumns();
         const detailPhoneExpr = hasDetailColumns ? `NULLIF(TRIM(ml.user_phone), '')` : `NULL`;
@@ -741,6 +782,323 @@ export class WalletService {
 
         const factor = 10 ** decimals;
         return Math.round(parsed * factor) / factor;
+    }
+
+    private async syncWalletBillingCycles(
+        tenantId: string,
+        billingPlan: string,
+        walletBalance: number,
+        messagePrice: number,
+    ): Promise<WalletBillingCycleSummary[]> {
+        if (!(await this.hasWalletBillingCyclesTable())) {
+            return [];
+        }
+
+        const cycles = await this.buildWalletBillingCycles(
+            tenantId,
+            billingPlan,
+            walletBalance,
+            messagePrice,
+        );
+
+        if (cycles.length === 0) {
+            return [];
+        }
+
+        await this.walletBillingCycleRepository.upsert(
+            cycles.map((cycle) => ({
+                tenantId,
+                referenceMonth: cycle.referenceMonth,
+                billingMode: cycle.mode,
+                status: cycle.status,
+                chargedMessages: cycle.chargedMessages,
+                chargedAmount: cycle.chargedAmount,
+                receivedAmount: cycle.receivedAmount,
+                receivedCount: cycle.receivedCount,
+                amountCoveredByBalance: cycle.amountCoveredByBalance,
+                outstandingAmount: cycle.outstandingAmount,
+                openingBalance: cycle.openingBalance,
+                closingBalance: cycle.closingBalance,
+                note: cycle.note,
+                syncedAt: new Date(),
+            })),
+            ['tenantId', 'referenceMonth'],
+        );
+
+        return cycles
+            .slice()
+            .sort((left, right) => right.referenceMonth.localeCompare(left.referenceMonth));
+    }
+
+    private async buildWalletBillingCycles(
+        tenantId: string,
+        billingPlan: string,
+        walletBalance: number,
+        messagePrice: number,
+    ): Promise<WalletBillingCycleSummary[]> {
+        const mode = billingPlan === 'post_paid' ? 'post_paid' : 'pre_paid';
+        const referenceMonths = this.buildRecentReferenceMonths(6);
+        if (referenceMonths.length === 0) {
+            return [];
+        }
+
+        const oldestReferenceMonth = referenceMonths[0];
+        const oldestMonthStart = `${oldestReferenceMonth}-01`;
+        const [hasMessageLogsTable, hasPaymentsTable] = await Promise.all([
+            this.hasMessageLogsTable(),
+            this.hasPaymentsTable(),
+        ]);
+        const [messageRows, paymentRows] = await Promise.all([
+            hasMessageLogsTable
+                ? this.dataSource.query(
+                    `SELECT
+                        TO_CHAR(DATE_TRUNC('month', created_at AT TIME ZONE '${MESSAGE_STATEMENT_TIMEZONE}'), 'YYYY-MM') AS reference_month,
+                        COALESCE(SUM(CASE WHEN direction = 'IN' THEN 1 ELSE 0 END), 0)::int AS messages_in,
+                        COALESCE(SUM(CASE WHEN direction = 'OUT' THEN 1 ELSE 0 END), 0)::int AS messages_out
+                     FROM message_logs
+                     WHERE tenant_id = $1
+                       AND DATE(created_at AT TIME ZONE '${MESSAGE_STATEMENT_TIMEZONE}') >= $2::date
+                     GROUP BY 1`,
+                    [tenantId, oldestMonthStart],
+                )
+                : Promise.resolve([]),
+            hasPaymentsTable
+                ? this.dataSource.query(
+                    `SELECT
+                        TO_CHAR(DATE_TRUNC('month', COALESCE(paid_at, created_at) AT TIME ZONE '${MESSAGE_STATEMENT_TIMEZONE}'), 'YYYY-MM') AS reference_month,
+                        COALESCE(SUM(amount), 0)::numeric(10,2) AS received_amount,
+                        COUNT(*)::int AS received_count
+                     FROM payments
+                     WHERE tenant_id = $1
+                       AND status = 'CONFIRMED'
+                       AND tab_id IS NULL
+                       AND order_id IS NULL
+                       AND DATE(COALESCE(paid_at, created_at) AT TIME ZONE '${MESSAGE_STATEMENT_TIMEZONE}') >= $2::date
+                     GROUP BY 1`,
+                    [tenantId, oldestMonthStart],
+                )
+                : Promise.resolve([]),
+        ]);
+
+        const messageMap = new Map<string, any>(
+            (messageRows || []).map((row: any) => [String(row.reference_month || ''), row]),
+        );
+        const paymentMap = new Map<string, any>(
+            (paymentRows || []).map((row: any) => [String(row.reference_month || ''), row]),
+        );
+
+        const baseCycles = referenceMonths.map((referenceMonth) => {
+            const messageRow = messageMap.get(referenceMonth) || {};
+            const paymentRow = paymentMap.get(referenceMonth) || {};
+            const chargedMessages =
+                Number(messageRow.messages_in || 0) + Number(messageRow.messages_out || 0);
+            const chargedAmount = this.normalizeCurrencyValue(chargedMessages * messagePrice);
+
+            return {
+                referenceMonth,
+                chargedMessages,
+                chargedAmount,
+                receivedAmount: this.normalizeCurrencyValue(paymentRow.received_amount || 0),
+                receivedCount: Number(paymentRow.received_count || 0),
+            };
+        });
+
+        const syncedAt = new Date().toISOString();
+        let rollingOpeningBalance =
+            mode === 'pre_paid'
+                ? this.normalizeCurrencyValue(
+                    walletBalance
+                    - baseCycles.reduce(
+                        (acc, cycle) => acc + cycle.receivedAmount - cycle.chargedAmount,
+                        0,
+                    ),
+                )
+                : null;
+
+        return baseCycles.map((cycle) => {
+            if (mode === 'post_paid') {
+                const outstandingAmount = this.normalizeCurrencyValue(
+                    Math.max(0, cycle.chargedAmount - cycle.receivedAmount),
+                );
+
+                return {
+                    referenceMonth: cycle.referenceMonth,
+                    mode,
+                    status: this.resolvePostPaidBillingCycleStatus(
+                        cycle.chargedAmount,
+                        cycle.receivedAmount,
+                        outstandingAmount,
+                    ),
+                    chargedMessages: cycle.chargedMessages,
+                    chargedAmount: cycle.chargedAmount,
+                    receivedAmount: cycle.receivedAmount,
+                    receivedCount: cycle.receivedCount,
+                    amountCoveredByBalance: 0,
+                    outstandingAmount,
+                    openingBalance: null,
+                    closingBalance: null,
+                    note: this.buildPostPaidBillingCycleNote(
+                        cycle.chargedAmount,
+                        cycle.receivedAmount,
+                        outstandingAmount,
+                    ),
+                    syncedAt,
+                };
+            }
+
+            const openingBalance = this.normalizeCurrencyValue(rollingOpeningBalance ?? 0);
+            const availableAmount = this.normalizeCurrencyValue(
+                Math.max(0, openingBalance) + cycle.receivedAmount,
+            );
+            const settledAmount = this.normalizeCurrencyValue(
+                Math.min(cycle.chargedAmount, availableAmount),
+            );
+            const amountCoveredByRecharge = this.normalizeCurrencyValue(
+                Math.min(cycle.chargedAmount, cycle.receivedAmount),
+            );
+            const amountCoveredByBalance = this.normalizeCurrencyValue(
+                Math.max(0, settledAmount - amountCoveredByRecharge),
+            );
+            const outstandingAmount = this.normalizeCurrencyValue(
+                Math.max(0, cycle.chargedAmount - settledAmount),
+            );
+            const closingBalance = this.normalizeCurrencyValue(
+                openingBalance + cycle.receivedAmount - cycle.chargedAmount,
+            );
+            rollingOpeningBalance = closingBalance;
+
+            return {
+                referenceMonth: cycle.referenceMonth,
+                mode,
+                status: this.resolvePrePaidBillingCycleStatus(
+                    cycle.chargedAmount,
+                    cycle.receivedAmount,
+                    amountCoveredByBalance,
+                    outstandingAmount,
+                ),
+                chargedMessages: cycle.chargedMessages,
+                chargedAmount: cycle.chargedAmount,
+                receivedAmount: cycle.receivedAmount,
+                receivedCount: cycle.receivedCount,
+                amountCoveredByBalance,
+                outstandingAmount,
+                openingBalance,
+                closingBalance,
+                note: this.buildPrePaidBillingCycleNote(
+                    cycle.chargedAmount,
+                    cycle.receivedAmount,
+                    amountCoveredByBalance,
+                    outstandingAmount,
+                    closingBalance,
+                ),
+                syncedAt,
+            };
+        });
+    }
+
+    private buildRecentReferenceMonths(months: number) {
+        const safeMonths = Math.max(1, Math.min(12, Math.trunc(months || 0) || 6));
+        const monthsList: string[] = [];
+        const cursor = new Date();
+        cursor.setDate(1);
+        cursor.setHours(0, 0, 0, 0);
+
+        for (let offset = safeMonths - 1; offset >= 0; offset -= 1) {
+            const current = new Date(cursor.getTime());
+            current.setMonth(current.getMonth() - offset);
+            monthsList.push(
+                `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}`,
+            );
+        }
+
+        return monthsList;
+    }
+
+    private resolvePrePaidBillingCycleStatus(
+        chargedAmount: number,
+        receivedAmount: number,
+        amountCoveredByBalance: number,
+        outstandingAmount: number,
+    ): WalletBillingCycleStatus {
+        if (outstandingAmount > 0) {
+            return 'attention';
+        }
+
+        if (chargedAmount <= 0 && receivedAmount <= 0) {
+            return 'idle';
+        }
+
+        if (amountCoveredByBalance > 0) {
+            return 'covered_by_balance';
+        }
+
+        return 'received';
+    }
+
+    private resolvePostPaidBillingCycleStatus(
+        chargedAmount: number,
+        receivedAmount: number,
+        outstandingAmount: number,
+    ): WalletBillingCycleStatus {
+        if (chargedAmount <= 0 && receivedAmount <= 0) {
+            return 'idle';
+        }
+
+        if (outstandingAmount <= 0 && chargedAmount > 0) {
+            return 'received';
+        }
+
+        if (receivedAmount > 0) {
+            return 'partial';
+        }
+
+        return 'open';
+    }
+
+    private buildPrePaidBillingCycleNote(
+        chargedAmount: number,
+        receivedAmount: number,
+        amountCoveredByBalance: number,
+        outstandingAmount: number,
+        closingBalance: number,
+    ) {
+        if (chargedAmount <= 0 && receivedAmount <= 0) {
+            return 'Competencia sem consumo e sem recarga confirmada.';
+        }
+
+        if (outstandingAmount > 0) {
+            return 'O historico consolidado desta competencia indica consumo acima do saldo disponivel no periodo.';
+        }
+
+        if (amountCoveredByBalance > 0) {
+            return `Parte do consumo foi coberta pelo saldo anterior. Saldo final estimado: R$ ${closingBalance.toFixed(2)}.`;
+        }
+
+        if (receivedAmount > chargedAmount) {
+            return 'As recargas confirmadas deste periodo superaram o consumo e reforcaram o saldo seguinte.';
+        }
+
+        return 'As recargas confirmadas desta competencia cobriram o consumo do periodo.';
+    }
+
+    private buildPostPaidBillingCycleNote(
+        chargedAmount: number,
+        receivedAmount: number,
+        outstandingAmount: number,
+    ) {
+        if (chargedAmount <= 0 && receivedAmount <= 0) {
+            return 'Competencia sem consumo financeiro.';
+        }
+
+        if (outstandingAmount <= 0 && chargedAmount > 0) {
+            return 'Competencia integralmente recebida.';
+        }
+
+        if (receivedAmount > 0) {
+            return 'Competencia parcialmente recebida e ainda com saldo em aberto.';
+        }
+
+        return 'Competencia faturada e aguardando recebimento.';
     }
 
     private async buildFinancialOverview(

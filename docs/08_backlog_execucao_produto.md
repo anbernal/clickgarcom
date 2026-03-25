@@ -32,7 +32,7 @@ Tasks:
 - [x] Adicionar bloco de previsao/alerta de saldo na tela da carteira.
 - [x] Implementar exportacao PDF do extrato via janela de impressao do navegador, respeitando os filtros ativos.
 - [x] Entregar painel financeiro mensal com `cobrado x cobertura financeira` para pre-pago e `cobrado x fechamento` para pos-pago.
-- [ ] Evoluir para fechamento `faturado x recebido` quando existir entidade de invoice/competencia explicita.
+- [x] Evoluir para fechamento `faturado x recebido` quando existir entidade de invoice/competencia explicita.
 
 Criterios de pronto:
 - Tenant consegue entender consumo passado, previsao futura e risco atual sem precisar abrir suporte.
