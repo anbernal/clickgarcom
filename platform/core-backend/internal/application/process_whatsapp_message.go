@@ -241,7 +241,7 @@ func (uc *ProcessWhatsAppMessageUseCase) buildClosedTenantResponse(
 	base := whatsapp.RestaurantClosedMessage(tenantObj.Settings.Messages)
 	openTab := uc.findOpenTabForPhone(ctx, tenantObj.ID, userPhone)
 	if openTab == nil {
-		return base + "\n\n📱 Para consultar opções, digite *2 - Ver minha comanda* quando reabrirmos."
+		return base
 	}
 
 	summary := fmt.Sprintf(
