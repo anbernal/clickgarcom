@@ -308,6 +308,32 @@ Tasks:
 Criterios de pronto:
 - Suporte consegue investigar e resolver incidente com menos tempo e menos SQL manual.
 
+## Epic 16 - Modernizacao do Admin e Recibo Visual
+
+Status: Concluido
+
+Objetivo:
+Modernizar o painel administrativo com controles centralizados, perfil visual e recibo de comanda por imagem no WhatsApp.
+
+Tasks:
+- [x] Centralizar controle de expediente com modal de confirmacao obrigatorio.
+- [x] Criar drawer lateral de perfil moderno com dados do restaurante, plano, endereco e role.
+- [x] Implementar animacoes suaves de entrada e saida no drawer de perfil (CSS transitions + requestAnimationFrame).
+- [x] Criar pagina Meu Restaurante para edicao de dados cadastrais (nome, CPF/CNPJ, endereco).
+- [x] Implementar endpoints GET/PUT /auth/tenant-profile com auditoria de alteracoes.
+- [x] Sincronizar dados do perfil em tempo real entre pagina de configuracoes, drawer e sidebar.
+- [x] Adicionar timer de expediente com tempo decorrido e nome de quem abriu, com refresh automatico a cada 30s.
+- [x] Persistir opened_at e opened_by no JSON settings do tenant ao alternar expediente.
+- [x] Instalar e integrar biblioteca gg (Go Graphics) para geracao de imagens.
+- [x] Criar gerador de imagem PNG estilo recibo termico com header, itens detalhados, totais e footer.
+- [x] Criar endpoint publico GET /api/receipt/:tabId/image.png para geracao on-demand.
+- [x] Integrar envio de recibo como imagem no fluxo WhatsApp (opcao 2 - Ver comanda) com fallback para texto.
+
+Criterios de pronto:
+- Painel admin tem perfil visual moderno e controle centralizado de expediente com timer.
+- Cliente recebe imagem estilo recibo ao consultar comanda no WhatsApp.
+- Falha na geracao de imagem cai automaticamente para o texto existente sem quebrar o fluxo.
+
 ## Lote Atual em Execucao
 
 Escopo desta rodada:
@@ -316,3 +342,4 @@ Escopo desta rodada:
 - [x] Implementar alerta de saldo baixo na carteira.
 - [x] Implementar fechamento mensal resumido.
 - [x] Implementar exportacao CSV do extrato filtrado.
+- [x] Modernizar painel admin com perfil lateral e recibo visual (Epic 16).

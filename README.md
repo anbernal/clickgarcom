@@ -266,6 +266,9 @@ Documentação detalhada disponível em:
 - [`docs/kds-websocket-contract.md`](docs/kds-websocket-contract.md) - Contrato estável do KDS em WebSocket
 - [`docs/06_bot_config_architecture.md`](docs/06_bot_config_architecture.md) - Evolução recomendada para templates, menus e conversation flows
 - [`docs/07_whatsapp_interactive_menu_architecture.md`](docs/07_whatsapp_interactive_menu_architecture.md) - Desenho do cardapio conversacional com imagens, carrinho e split para KDS
+- [`docs/08_backlog_execucao_produto.md`](docs/08_backlog_execucao_produto.md) - Backlog de execução do produto com 15 epics entregues
+- [`docs/09_performance_hotspots.md`](docs/09_performance_hotspots.md) - Hotspots de performance e otimizações
+- [`docs/10_roteiro_homologacao_e2e.md`](docs/10_roteiro_homologacao_e2e.md) - Roteiro de homologação end-to-end
 - [`docs/repository-migration-plan.md`](docs/repository-migration-plan.md) - Plano incremental para migrar o monorepo para `apps/` e `platform/` sem aumentar o risco operacional
 
 ## Reuso do Tenant Admin API
@@ -378,9 +381,18 @@ Perfis operacionais suportados:
 - [x] Sistema de painel para o garçom visualizar pedidos de mesas e assinar logicamente de dentro da lista de mesas vagas.
 - [x] Endpoint de debug para limpar sessões de teste no Redis (`/admin/api/debug/clear-sessions`).
 
+### ✅ Fase 17: Modernização do Admin & Recibo Visual (CONCLUÍDA)
+- [x] **Drawer de Perfil Lateral**: painel moderno slide-in com dados do restaurante, plano, endereço e role do usuário.
+- [x] **Página Meu Restaurante**: CRUD de dados cadastrais (nome, CPF/CNPJ, endereço) com endpoints `GET/PUT /auth/tenant-profile` e auditoria.
+- [x] **Expediente com Timer**: botão de expediente mostra tempo decorrido e quem abriu, com refresh automático a cada 30s.
+- [x] **Recibo Visual da Comanda**: geração de imagem PNG estilo recibo térmico via Go (`gg` library), enviada pelo WhatsApp quando o cliente pede "Ver comanda".
+- [x] **Endpoint Público de Recibo**: `GET /api/receipt/:tabId/image.png` gera a imagem on-demand com itens detalhados, preços, taxa e total.
+- [x] **Confirmação de Expediente**: modal de confirmação obrigatório para abrir/fechar expediente com estado sincronizado globalmente.
+
 ### 💳 Próximos Passos
 - [ ] Fechamento de Cestas e Split de Conta Inteligente
 - [ ] Funcionalidades Avançadas de Agendamento
+- [ ] App Mobile Nativo
 
 ## 🏗️ Estrutura do Projeto
 

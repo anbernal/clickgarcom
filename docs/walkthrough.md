@@ -42,6 +42,9 @@ Use quando:
 - [05_painel_admin.md](05_painel_admin.md): visao do painel administrativo
 - [06_bot_config_architecture.md](06_bot_config_architecture.md): configuracao de templates e conversation flows
 - [07_whatsapp_interactive_menu_architecture.md](07_whatsapp_interactive_menu_architecture.md): proposta do cardapio interativo no WhatsApp
+- [08_backlog_execucao_produto.md](08_backlog_execucao_produto.md): backlog de produto com 16 epics entregues
+- [09_performance_hotspots.md](09_performance_hotspots.md): hotspots de performance e otimizacoes
+- [10_roteiro_homologacao_e2e.md](10_roteiro_homologacao_e2e.md): roteiro de homologacao end-to-end
 
 ## Como usar esta documentacao
 
