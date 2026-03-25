@@ -1,7 +1,7 @@
 // Dashboard Page
 async function loadDashboard() {
     const container = document.getElementById('page-dashboard');
-    container.innerHTML = '<div class="loading"><div class="spinner"></div> Carregando...</div>';
+    container.innerHTML = renderSkeletonDashboard();
 
     try {
         const [stats, weekly, orders] = await Promise.all([
@@ -27,7 +27,7 @@ async function loadDashboard() {
 
         container.innerHTML = `
       <!-- EXPEDIENTE CARD -->
-      <div class="full-card" style="margin-bottom: 20px;">
+      <div class="full-card animate-slide-up" style="margin-bottom: 20px;">
           <div class="card-header">
               <div>
                   <div class="card-title">🕐 Expediente do Restaurante</div>
@@ -43,35 +43,35 @@ async function loadDashboard() {
 
       <!-- STAT CARDS -->
       <div class="stats-grid">
-        <div class="stat-card">
+        <div class="stat-card animate-slide-up delay-1">
           <div class="stat-icon">💰</div>
           <div class="stat-label">Faturamento Hoje</div>
-          <div class="stat-value">${formatCurrency(stats.revenue || 0)}</div>
+          <div class="stat-value" data-anim-value="${stats.revenue || 0}" data-anim-currency="true">R$ 0,00</div>
           <div class="stat-change change-up">📈 ${stats.ordersCount || 0} pedidos</div>
         </div>
-        <div class="stat-card">
+        <div class="stat-card animate-slide-up delay-2">
           <div class="stat-icon">🛒</div>
           <div class="stat-label">Pedidos Hoje</div>
-          <div class="stat-value">${stats.ordersCount || 0}</div>
+          <div class="stat-value" data-anim-value="${stats.ordersCount || 0}">${stats.ordersCount || 0}</div>
           <div class="stat-change" style="color:var(--muted)">${pendingCount} pendentes</div>
         </div>
-        <div class="stat-card">
+        <div class="stat-card animate-slide-up delay-3">
           <div class="stat-icon">🪑</div>
           <div class="stat-label">Mesas Ocupadas</div>
-          <div class="stat-value">${occupiedTables}<span style="font-size:16px;color:var(--muted)">/${totalTables}</span></div>
+          <div class="stat-value"><span data-anim-value="${occupiedTables}">${occupiedTables}</span><span style="font-size:16px;color:var(--muted)">/${totalTables}</span></div>
           <div class="stat-change" style="color:var(--muted)">${totalTables > 0 ? Math.round((occupiedTables / totalTables) * 100) : 0}% de ocupação</div>
         </div>
-        <div class="stat-card teal-card">
+        <div class="stat-card teal-card animate-slide-up delay-4">
           <div class="stat-icon" style="font-size:28px">⭐</div>
           <div class="stat-label">Ticket Médio</div>
-          <div class="stat-value">${formatCurrency(stats.avgTicket || 0)}</div>
+          <div class="stat-value" data-anim-value="${stats.avgTicket || 0}" data-anim-currency="true">R$ 0,00</div>
         </div>
       </div>
 
       <!-- MIDDLE GRID -->
       <div class="section-grid">
         <!-- PEDIDOS RECENTES -->
-        <div class="card">
+        <div class="card animate-slide-up delay-2">
           <div class="card-header">
             <div>
               <div class="card-title">Pedidos Recentes</div>
@@ -98,7 +98,7 @@ async function loadDashboard() {
         </div>
 
         <!-- MESAS RESUMO -->
-        <div class="card">
+        <div class="card animate-slide-up delay-3">
           <div class="card-header">
             <div>
               <div class="card-title">Status das Mesas</div>
@@ -126,13 +126,13 @@ async function loadDashboard() {
 
       <!-- SALES CHART -->
       <div class="bottom-grid">
-        <div class="upgrade-card">
-          <div class="price">${formatCurrency(stats.revenue || 0)}</div>
+        <div class="upgrade-card animate-slide-up delay-4">
+          <div class="price" data-anim-value="${stats.revenue || 0}" data-anim-currency="true">R$ 0,00</div>
           <div class="sub">Faturado hoje</div>
           <h3>🚀 ClickGarçom Admin</h3>
           <p>Gerencie seu restaurante com eficiência. Cardápio, mesas, pedidos e relatórios em um só lugar.</p>
         </div>
-        <div class="card">
+        <div class="card animate-slide-up delay-5">
           <div class="card-header">
             <div>
               <div class="card-title">Vendas por Período</div>
@@ -149,8 +149,9 @@ async function loadDashboard() {
       </div>
     `;
 
-        // Build chart
+        // Build chart and animations
         buildChart(weekly);
+        animateAllDashboardValues();
     } catch (err) {
         container.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><h3>Erro ao carregar</h3><p>${err.message}</p></div>`;
     }
@@ -243,4 +244,74 @@ function renderDashboardExpedienteContent() {
             </div>
         `}
     `;
+}
+
+// --- Dashboard Modernization Helpers ---
+
+function renderSkeletonDashboard() {
+    return `
+      <div class="full-card skeleton-card" style="margin-bottom:20px; border-radius:14px; padding:30px;">
+          <div class="skeleton skeleton-bar title"></div>
+          <div class="skeleton skeleton-bar"></div>
+      </div>
+      <div class="stats-grid">
+          ${[...Array(4)].map(() => `
+          <div class="skeleton-card">
+              <div class="skeleton skeleton-bar short"></div>
+              <div class="skeleton skeleton-bar title" style="height:36px; width:80%; margin-top:8px;"></div>
+              <div class="skeleton skeleton-bar" style="height:14px; width:50%; margin-top:auto;"></div>
+          </div>
+          `).join('')}
+      </div>
+      <div class="section-grid" style="margin-top:20px;">
+          <div class="skeleton-card" style="height: 380px;">
+              <div class="skeleton skeleton-bar title"></div>
+              ${[...Array(4)].map(() => '<div class="skeleton skeleton-bar" style="margin-top:16px; height:48px;"></div>').join('')}
+          </div>
+          <div class="skeleton-card" style="height: 380px;">
+              <div class="skeleton skeleton-bar title"></div>
+              <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:14px; margin-top:20px;">
+                  ${[...Array(8)].map(() => '<div class="skeleton skeleton-bar" style="height:70px; border-radius:12px;"></div>').join('')}
+              </div>
+          </div>
+      </div>
+    `;
+}
+
+function animateAllDashboardValues() {
+    const statElements = document.querySelectorAll('[data-anim-value]');
+    statElements.forEach(el => {
+        const endValue = parseFloat(el.getAttribute('data-anim-value')) || 0;
+        const isCurrency = el.getAttribute('data-anim-currency') === 'true';
+        animateValue(el, 0, endValue, 1000, isCurrency);
+    });
+}
+
+function animateValue(obj, start, end, duration, isCurrency) {
+    let startTimestamp = null;
+    const step = (timestamp) => {
+        if (!startTimestamp) startTimestamp = timestamp;
+        const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+        // easeOutQuart
+        const easeProgress = 1 - Math.pow(1 - progress, 4);
+        
+        const currentVal = progress * (end - start) + start;
+        if (isCurrency) {
+            obj.innerHTML = formatCurrency(currentVal);
+        } else {
+            obj.innerHTML = Math.floor(currentVal);
+        }
+        
+        if (progress < 1) {
+            window.requestAnimationFrame(step);
+        } else {
+            // Guarantee final exact value
+            if (isCurrency) {
+                obj.innerHTML = formatCurrency(end);
+            } else {
+                obj.innerHTML = Math.floor(end);
+            }
+        }
+    };
+    window.requestAnimationFrame(step);
 }
