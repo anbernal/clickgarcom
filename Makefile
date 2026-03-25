@@ -1,4 +1,4 @@
-.PHONY: help deploy-check deploy-sync deploy-remote redeploy validate-migration-baseline validate-layout-paths validate-compose validate-tenant-admin-api validate-tenant-admin-web validate-super-admin-api validate-super-admin-web validate-core-backend
+.PHONY: help deploy-check deploy-sync deploy-remote redeploy validate-migration-baseline validate-layout-paths validate-compose validate-tenant-admin-api validate-tenant-admin-web validate-super-admin-api validate-super-admin-web validate-core-backend stress-check stress-tenant-read stress-webhook stress-kds stress-super-admin stress-combined
 
 -include .deploy.env
 
@@ -17,6 +17,10 @@ SUPER_ADMIN_WEB_DIR ?= apps/super-admin/web
 DOCS_DIR ?= docs
 GO_TEST_CACHE_DIR ?= /tmp/clickgarcom-gocache
 GO_TEST_TMP_DIR ?= /tmp/clickgarcom-gotmp
+LOAD_TEST_DIR ?= tests/load
+LOAD_TEST_ENV_FILE ?= $(LOAD_TEST_DIR)/.env
+LOAD_TEST_RESULTS_DIR ?= $(LOAD_TEST_DIR)/results
+K6_BIN ?= k6
 
 help: ## Mostra este menu de ajuda
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -258,6 +262,32 @@ validate-layout-paths: ## Valida os diretorios atuais do layout alvo
 validate-compose: ## Valida resolucao do docker compose para a migracao
 	docker compose config >/tmp/clickgarcom-compose-config.out
 	tail -n 20 /tmp/clickgarcom-compose-config.out
+
+# ============ STRESS TEST ============
+stress-check: ## Valida pre-requisitos para rodar os testes de estresse
+	@command -v $(K6_BIN) >/dev/null 2>&1 || (echo "k6 nao encontrado. Instale em https://grafana.com/docs/k6/latest/set-up/install-k6/"; exit 1)
+	@test -f "$(LOAD_TEST_ENV_FILE)" || (echo "Arquivo $(LOAD_TEST_ENV_FILE) ausente. Copie tests/load/.env.example."; exit 1)
+	@mkdir -p "$(LOAD_TEST_RESULTS_DIR)"
+
+stress-tenant-read: stress-check ## Estressa leituras do tenant-admin
+	@set -a; . "$(LOAD_TEST_ENV_FILE)"; set +a; \
+	$(K6_BIN) run --summary-export "$(LOAD_TEST_RESULTS_DIR)/tenant-admin-read-summary.json" "$(LOAD_TEST_DIR)/k6/tenant-admin-read.js"
+
+stress-webhook: stress-check ## Estressa entrada do webhook WhatsApp
+	@set -a; . "$(LOAD_TEST_ENV_FILE)"; set +a; \
+	$(K6_BIN) run --summary-export "$(LOAD_TEST_RESULTS_DIR)/webhook-ingest-summary.json" "$(LOAD_TEST_DIR)/k6/webhook-ingest.js"
+
+stress-kds: stress-check ## Estressa conexoes WebSocket do KDS
+	@set -a; . "$(LOAD_TEST_ENV_FILE)"; set +a; \
+	$(K6_BIN) run --summary-export "$(LOAD_TEST_RESULTS_DIR)/kds-websocket-summary.json" "$(LOAD_TEST_DIR)/k6/kds-websocket.js"
+
+stress-super-admin: stress-check ## Estressa leituras do super-admin
+	@set -a; . "$(LOAD_TEST_ENV_FILE)"; set +a; \
+	$(K6_BIN) run --summary-export "$(LOAD_TEST_RESULTS_DIR)/super-admin-read-summary.json" "$(LOAD_TEST_DIR)/k6/super-admin-read.js"
+
+stress-combined: stress-check ## Estressa a aplicacao com trafego combinado
+	@set -a; . "$(LOAD_TEST_ENV_FILE)"; set +a; \
+	$(K6_BIN) run --summary-export "$(LOAD_TEST_RESULTS_DIR)/platform-combined-summary.json" "$(LOAD_TEST_DIR)/k6/platform-combined.js"
 
 validate-tenant-admin-api: ## Build do tenant admin API
 	cd $(TENANT_ADMIN_API_DIR) && npm run build
