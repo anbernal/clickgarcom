@@ -160,6 +160,7 @@ function logout() {
 }
 
 function setExpedienteButtonState(isOpen) {
+    window.isExpedienteAberto = isOpen;
     const btnExpediente = document.getElementById('btn-expediente');
     if (!btnExpediente) return;
 
@@ -173,6 +174,66 @@ function setExpedienteButtonState(isOpen) {
 }
 
 window.setExpedienteButtonState = setExpedienteButtonState;
+
+window.confirmAndToggleExpediente = function() {
+    if (!canPerformAction('toggleTenantStatus')) {
+        showToast('Seu perfil não pode alterar o expediente.', 'error');
+        return;
+    }
+
+    const nextState = !window.isExpedienteAberto;
+    const title = nextState ? 'Abrir Expediente?' : 'Fechar Expediente?';
+    const message = nextState 
+        ? 'Tem certeza que deseja abrir o expediente?<br><br>A partir dessa ativação, será permitido o recebimento de pedidos, alocação de mesas e solicitações de serviços.'
+        : 'Tem certeza que deseja fechar o restaurante?<br><br>Novos pedidos e alocações de mesas serão bloqueados. Clientes com comandas abertas ainda poderão finalizá-las.';
+
+    openModal(`
+        <div class="modal-header">
+            <h3>${title}</h3>
+            <button class="modal-close" onclick="closeModal()">✕</button>
+        </div>
+        <div class="modal-body">
+            <p style="font-size: 15px; color: var(--text); line-height: 1.5; margin-bottom: 10px;">
+                ${message}
+            </p>
+        </div>
+        <div class="modal-footer">
+            <button class="btn-sm btn-outline" onclick="closeModal()">Cancelar</button>
+            <button class="btn-sm ${nextState ? 'btn-primary' : 'btn-danger'}" id="btn-confirm-expediente" onclick="executeToggleExpediente(${nextState})">
+                ${nextState ? 'Sim, Abrir Expediente' : 'Sim, Fechar Expediente'}
+            </button>
+        </div>
+    `);
+};
+
+window.executeToggleExpediente = async function(nextState) {
+    const btn = document.getElementById('btn-confirm-expediente');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner" style="width: 14px; height: 14px; border-width: 2px;"></span> Salvando...';
+    }
+
+    try {
+        const res = await api.patch('/auth/status', { is_open: nextState });
+        setExpedienteButtonState(!!res.is_open);
+        
+        if (typeof window.updateDashboardExpediente === 'function') {
+            window.updateDashboardExpediente();
+        }
+        if (typeof window.updateConfiguracoesExpediente === 'function') {
+            window.updateConfiguracoesExpediente();
+        }
+
+        showToast(res.is_open ? 'Expediente Aberto!' : 'Expediente Fechado!', res.is_open ? 'success' : 'error');
+        closeModal();
+    } catch (err) {
+        showToast(err.message || 'Falha ao alterar expediente', 'error');
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = nextState ? 'Sim, Abrir Expediente' : 'Sim, Fechar Expediente';
+        }
+    }
+};
 
 // Init
 document.addEventListener('DOMContentLoaded', () => {
@@ -219,19 +280,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // Load Expediente Event Listener
     const btnExpediente = document.getElementById('btn-expediente');
     if (btnExpediente) {
-        btnExpediente.addEventListener('click', async () => {
-            if (!canPerformAction('toggleTenantStatus')) {
-                showToast('Seu perfil nao pode alterar o expediente.', 'error');
-                return;
-            }
-            const isOpen = btnExpediente.classList.contains('active');
-            const nextState = !isOpen;
-            try {
-                const res = await api.patch('/auth/status', { is_open: nextState });
-                setExpedienteButtonState(!!res.is_open);
-                showToast(res.is_open ? 'Expediente Aberto!' : 'Expediente Fechado!', res.is_open ? 'success' : 'error');
-            } catch (err) {
-                showToast(err.message, 'error');
+        btnExpediente.addEventListener('click', () => {
+            if (window.confirmAndToggleExpediente) {
+                window.confirmAndToggleExpediente();
             }
         });
 

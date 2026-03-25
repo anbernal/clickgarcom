@@ -26,6 +26,21 @@ async function loadDashboard() {
         const occupiedTables = tablesData.filter(t => t.status === 'OCCUPIED').length || 0;
 
         container.innerHTML = `
+      <!-- EXPEDIENTE CARD -->
+      <div class="full-card" style="margin-bottom: 20px;">
+          <div class="card-header">
+              <div>
+                  <div class="card-title">🕐 Expediente do Restaurante</div>
+                  <div class="card-subtitle">Controle o funcionamento e bloqueie novos pedidos</div>
+              </div>
+          </div>
+          <div style="padding: 20px 22px;">
+              <div class="config-expediente-box" id="dashboard-expediente-box">
+                  ${renderDashboardExpedienteContent()}
+              </div>
+          </div>
+      </div>
+
       <!-- STAT CARDS -->
       <div class="stats-grid">
         <div class="stat-card">
@@ -196,4 +211,36 @@ function buildChart(data) {
       <div class="bar-label">${d.day}</div>
     </div>`;
     }).join('');
+}
+
+window.updateDashboardExpediente = function() {
+    const box = document.getElementById('dashboard-expediente-box');
+    if (box) {
+        box.innerHTML = renderDashboardExpedienteContent();
+    }
+};
+
+function renderDashboardExpedienteContent() {
+    const isOpen = window.isExpedienteAberto;
+    const canToggle = canPerformAction('toggleTenantStatus');
+    return `
+        <div class="config-expediente-indicator ${isOpen ? 'open' : 'closed'}">
+            <span class="config-expediente-dot"></span>
+            <div>
+                <div class="config-expediente-title">${isOpen ? 'Aberto para pedidos' : 'Fechado para novos pedidos'}</div>
+                <div class="config-expediente-desc">${isOpen
+                    ? 'Clientes podem enviar pedidos normalmente pelo WhatsApp.'
+                    : 'Novos pedidos bloqueados. Clientes com comanda aberta podem finalizar.'}</div>
+            </div>
+        </div>
+        ${canToggle ? `
+            <button type="button" class="btn-sm ${isOpen ? 'btn-danger' : 'btn-primary'}" onclick="window.confirmAndToggleExpediente()">
+                ${isOpen ? '⏸ Fechar Expediente' : '▶ Abrir Expediente'}
+            </button>
+        ` : `
+            <div style="font-size:12px; color:var(--text-light); max-width:220px; text-align:right;">
+                Alteração de expediente liberada apenas para perfis de gestão.
+            </div>
+        `}
+    `;
 }

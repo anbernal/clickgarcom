@@ -1028,46 +1028,31 @@ async function handleSaveOperationalSettings(e) {
     }
 }
 
-async function toggleExpedienteFromConfig() {
-    if (!canPerformAction('toggleTenantStatus')) {
-        showToast('Seu perfil nao pode alterar o expediente.', 'error');
-        return;
+function toggleExpedienteFromConfig() {
+    if (window.confirmAndToggleExpediente) {
+        window.confirmAndToggleExpediente();
     }
-    const btn = document.getElementById('btn-expediente-config');
-    if (!btn) return;
+}
 
-    btn.disabled = true;
-    const nextState = !expedienteAberto;
-    try {
-        const res = await api.patch('/auth/status', { is_open: nextState });
-        expedienteAberto = !!res.is_open;
-
-        // Re-render box
-        const box = document.getElementById('expediente-box');
-        if (box) {
-            const indicator = box.querySelector('.config-expediente-indicator');
-            if (indicator) {
-                indicator.className = `config-expediente-indicator ${expedienteAberto ? 'open' : 'closed'}`;
-                indicator.querySelector('.config-expediente-title').textContent = expedienteAberto ? 'Aberto para pedidos' : 'Fechado para novos pedidos';
-                indicator.querySelector('.config-expediente-desc').textContent = expedienteAberto
-                    ? 'Clientes podem enviar pedidos normalmente pelo WhatsApp.'
-                    : 'Novos pedidos bloqueados. Clientes com comanda aberta podem finalizar.';
-            }
+window.updateConfiguracoesExpediente = function() {
+    expedienteAberto = window.isExpedienteAberto;
+    const box = document.getElementById('expediente-box');
+    if (box) {
+        const indicator = box.querySelector('.config-expediente-indicator');
+        if (indicator) {
+            indicator.className = `config-expediente-indicator ${expedienteAberto ? 'open' : 'closed'}`;
+            indicator.querySelector('.config-expediente-title').textContent = expedienteAberto ? 'Aberto para pedidos' : 'Fechado para novos pedidos';
+            indicator.querySelector('.config-expediente-desc').textContent = expedienteAberto
+                ? 'Clientes podem enviar pedidos normalmente pelo WhatsApp.'
+                : 'Novos pedidos bloqueados. Clientes com comanda aberta podem finalizar.';
+        }
+        const btn = document.getElementById('btn-expediente-config');
+        if (btn) {
             btn.className = `btn-sm ${expedienteAberto ? 'btn-danger' : 'btn-primary'}`;
             btn.innerHTML = expedienteAberto ? '⏸ Fechar Expediente' : '▶ Abrir Expediente';
         }
-
-        if (typeof window.setExpedienteButtonState === 'function') {
-            window.setExpedienteButtonState(expedienteAberto);
-        }
-
-        showToast(expedienteAberto ? 'Expediente aberto!' : 'Expediente fechado!', expedienteAberto ? 'success' : 'error');
-    } catch (err) {
-        showToast(err.message || 'Falha ao alterar expediente', 'error');
-    } finally {
-        btn.disabled = false;
     }
-}
+};
 
 // Register page handler
 if (window.registerPageHandler) {
