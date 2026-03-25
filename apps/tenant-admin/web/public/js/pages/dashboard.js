@@ -129,8 +129,20 @@ async function loadDashboard() {
         <div class="upgrade-card animate-slide-up delay-4">
           <div class="price" data-anim-value="${stats.revenue || 0}" data-anim-currency="true">R$ 0,00</div>
           <div class="sub">Faturado hoje</div>
-          <h3>🚀 ClickGarçom Admin</h3>
-          <p>Gerencie seu restaurante com eficiência. Cardápio, mesas, pedidos e relatórios em um só lugar.</p>
+          <div style="margin-top:16px; display:flex; flex-direction:column; gap:10px;">
+            <div style="display:flex; align-items:center; gap:10px;">
+              <span style="font-size:18px;">📦</span>
+              <span style="font-size:13px; opacity:0.9;">${stats.ordersCount || 0} pedidos processados</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:10px;">
+              <span style="font-size:18px;">🪑</span>
+              <span style="font-size:13px; opacity:0.9;">${occupiedTables}/${totalTables} mesas em uso</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:10px;">
+              <span style="font-size:18px;">⭐</span>
+              <span style="font-size:13px; opacity:0.9;">Ticket médio: ${formatCurrency(stats.avgTicket || 0)}</span>
+            </div>
+          </div>
         </div>
         <div class="card animate-slide-up delay-5">
           <div class="card-header">
