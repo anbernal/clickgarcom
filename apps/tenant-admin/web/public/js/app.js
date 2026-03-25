@@ -235,6 +235,59 @@ window.executeToggleExpediente = async function(nextState) {
     }
 };
 
+window.openRestaurantProfileModal = function(user, initials) {
+    openModal(`
+        <div class="modal-header" style="border-bottom:none; padding-bottom: 0; z-index: 10; position: absolute; right: 0; background: transparent;">
+            <button class="modal-close" style="color: white; background: rgba(0,0,0,0.2); border-radius: 50%;" onclick="closeModal()">✕</button>
+        </div>
+        <div class="modal-body" style="padding: 0; overflow: hidden; position: relative;">
+            <div style="background: linear-gradient(135deg, var(--teal), var(--accent-blue)); height: 140px; width: calc(100% + 48px); margin: -24px -24px 0 -24px; position: relative; overflow: hidden;">
+                <div style="position: absolute; width: 200px; height: 200px; background: rgba(255,255,255,0.1); border-radius: 50%; top: -50px; right: -50px;"></div>
+                <div style="position: absolute; width: 100px; height: 100px; background: rgba(255,255,255,0.1); border-radius: 50%; bottom: -20px; left: 20px;"></div>
+            </div>
+            
+            <div style="position: relative; margin-top: -50px; text-align: center; display: flex; flex-direction: column; align-items: center; padding-bottom: 24px;">
+                <div style="width: 90px; height: 90px; background: #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 34px; font-weight: 800; color: var(--teal); border: 5px solid var(--card-bg); box-shadow: 0 4px 14px rgba(0,0,0,0.12); margin-bottom: 14px; position: relative;">
+                    ${initials}
+                </div>
+                <h2 style="font-size: 24px; font-weight: 800; color: var(--text-primary); margin: 0 0 6px 0;">${user.tenant_name || 'Restaurante'}</h2>
+                <div style="font-size: 14px; font-weight: 600; color: var(--text-light); display: inline-flex; align-items: center; gap: 6px; background: rgba(26,188,156,0.1); border-radius: 20px; padding: 4px 12px;">
+                    <span style="color: var(--teal);">👤</span> ${user.name}
+                </div>
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 14px; padding-bottom: 8px;">
+                <div style="display: flex; align-items: center; gap: 14px; padding: 16px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; transition: all 0.2s;">
+                    <div style="font-size: 22px; color: var(--teal); background: rgba(26,188,156,0.1); width: 44px; height: 44px; border-radius: 10px; display: flex; align-items: center; justify-content: center;">📄</div>
+                    <div>
+                        <div style="font-size: 11px; text-transform: uppercase; font-weight: 800; color: var(--text-light); margin-bottom: 4px; letter-spacing: 0.5px;">CNPJ / CPF do Restaurante</div>
+                        <div style="font-size: 15px; font-weight: 700; color: var(--text);">${user.tenant_document || '<span style="color: var(--text-light); font-weight: 400; font-style: italic;">Não informado</span>'}</div>
+                    </div>
+                </div>
+
+                <div style="display: flex; align-items: center; gap: 14px; padding: 16px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px;">
+                    <div style="font-size: 22px; color: var(--accent-orange); background: rgba(243,156,18,0.1); width: 44px; height: 44px; border-radius: 10px; display: flex; align-items: center; justify-content: center;">📍</div>
+                    <div>
+                        <div style="font-size: 11px; text-transform: uppercase; font-weight: 800; color: var(--text-light); margin-bottom: 4px; letter-spacing: 0.5px;">Endereço Principal</div>
+                        <div style="font-size: 15px; font-weight: 700; color: var(--text);">${user.tenant_address || '<span style="color: var(--text-light); font-weight: 400; font-style: italic;">Não informado</span>'}</div>
+                    </div>
+                </div>
+
+                <div style="display: flex; align-items: center; gap: 14px; padding: 16px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px;">
+                    <div style="font-size: 22px; color: var(--accent-purple); background: rgba(155,89,182,0.1); width: 44px; height: 44px; border-radius: 10px; display: flex; align-items: center; justify-content: center;">💳</div>
+                    <div>
+                        <div style="font-size: 11px; text-transform: uppercase; font-weight: 800; color: var(--text-light); margin-bottom: 4px; letter-spacing: 0.5px;">Plano de Assinatura</div>
+                        <div style="font-size: 15px; font-weight: 700; color: var(--text); display: flex; align-items: center; gap: 10px;">
+                            ${user.billing_plan === 'pre_paid' ? 'Pré-pago (Recarga)' : 'Pós-pago (Fatura)'}
+                            <span class="status-pill status-done" style="font-size: 11px;">Ativo</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `);
+};
+
 // Init
 document.addEventListener('DOMContentLoaded', () => {
     applyNavigationPermissions();
@@ -273,7 +326,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const initials = session.user.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
             const avatar = document.querySelector('.avatar');
-            if (avatar) avatar.textContent = initials;
+            if (avatar) {
+                avatar.textContent = initials;
+                avatar.style.cursor = 'pointer';
+                avatar.title = 'Ver Perfil';
+                avatar.addEventListener('click', () => openRestaurantProfileModal(session.user, initials));
+            }
         }
     } catch (e) { console.error('Error injecting user data:', e); }
 

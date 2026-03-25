@@ -25,6 +25,8 @@ export interface TenantSettings {
     mp_access_token?: string;
     mp_public_key?: string;
     messages?: MessageTemplates;
+    document?: string;
+    address?: string;
 }
 
 @Entity('tenants')

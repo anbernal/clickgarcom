@@ -598,6 +598,7 @@ export class AuthService {
 
     private buildSessionUser(user: User & { tenant?: Tenant | null }) {
         const normalizedRole = normalizeTenantRole(user.role);
+        const settings = user.tenant?.settings || {};
 
         return {
             id: user.id,
@@ -607,6 +608,9 @@ export class AuthService {
             role: normalizedRole,
             tenant_id: user.tenantId,
             tenant_name: user.tenant?.name,
+            tenant_document: settings.document || null,
+            tenant_address: settings.address || null,
+            billing_plan: user.tenant?.billingPlan || 'pre_paid',
             active: !!user.active,
             isOpen: !!user.tenant?.isOpen,
             last_login_at: user.lastLoginAt ? new Date(user.lastLoginAt).toISOString() : null,

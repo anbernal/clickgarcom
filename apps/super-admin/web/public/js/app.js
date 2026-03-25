@@ -331,6 +331,7 @@ function renderOperationsSignals(tenant) {
     const signalTags = [
         `Webhook 24h: ${formatNumber(operations.inboxEvents24h)}`,
         `Inbox pend.: ${formatNumber(operations.pendingInbox)}`,
+        `Inbox erro: ${formatNumber(operations.failedInbox24h)}`,
         `Outbox pend.: ${formatNumber(operations.pendingOutbox)}`,
         `Outbox falha: ${formatNumber(operations.failedOutbox)}`,
         `Pagamentos: ${formatNumber(operations.pendingPayments)}`,
@@ -346,7 +347,7 @@ function renderOperationsSignals(tenant) {
                 ${signalTags.map((item) => `<span class="sub-metric">${escapeHtml(item)}</span>`).join('')}
             </div>
             <div class="muted-xs">
-                Últ. inbox: ${escapeHtml(formatDateTime(operations.lastInboxReceivedAt))} · Últ. outbox: ${escapeHtml(formatDateTime(operations.lastOutboxSentAt))} · Últ. pagamento: ${escapeHtml(formatDateTime(operations.lastPaymentAttemptAt))}
+                Últ. inbox: ${escapeHtml(formatDateTime(operations.lastInboxReceivedAt))} · Últ. erro inbox: ${escapeHtml(formatDateTime(operations.lastInboxFailedAt))} · Últ. outbox: ${escapeHtml(formatDateTime(operations.lastOutboxSentAt))} · Últ. pagamento: ${escapeHtml(formatDateTime(operations.lastPaymentAttemptAt))}
             </div>
         </div>
     `;

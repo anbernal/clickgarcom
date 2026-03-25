@@ -260,6 +260,45 @@ body {
   font-weight: 700;
   font-size: 14px;
   cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+  position: relative;
+}
+
+.avatar:hover {
+  transform: scale(1.1);
+  box-shadow: 0 0 0 3px rgba(26,188,156,0.25);
+}
+
+/* ── PROFILE DRAWER (lateral) ── */
+.profile-drawer-overlay {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.35);
+  backdrop-filter: blur(3px);
+  z-index: 2000;
+  justify-content: flex-end;
+}
+
+.profile-drawer-overlay.active {
+  display: flex;
+}
+
+.profile-drawer {
+  width: 380px;
+  max-width: 92vw;
+  height: 100vh;
+  background: var(--card-bg);
+  box-shadow: -8px 0 40px rgba(0,0,0,0.12);
+  display: flex;
+  flex-direction: column;
+  animation: slideInRight 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+  overflow-y: auto;
+}
+
+@keyframes slideInRight {
+  from { transform: translateX(100%); opacity: 0.5; }
+  to   { transform: translateX(0);    opacity: 1;   }
 }
 
 /* ── STATS CARDS ── */

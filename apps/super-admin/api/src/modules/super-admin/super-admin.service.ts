@@ -238,15 +238,21 @@ export class SuperAdminService {
                     COALESCE(ib.inbox_events_24h, 0)::int AS inbox_events_24h,
                     COALESCE(ib.pending_inbox, 0)::int AS pending_inbox,
                     COALESCE(ib.stale_inbox, 0)::int AS stale_inbox,
+                    COALESCE(ib.failed_inbox_24h, 0)::int AS failed_inbox_24h,
+                    COALESCE(ib.failed_inbox_7d, 0)::int AS failed_inbox_7d,
                     ib.last_inbox_received_at AS last_inbox_received_at,
                     ib.last_inbox_processed_at AS last_inbox_processed_at,
+                    ib.last_inbox_failed_at AS last_inbox_failed_at,
             `
             : `
                     0::int AS inbox_events_24h,
                     0::int AS pending_inbox,
                     0::int AS stale_inbox,
+                    0::int AS failed_inbox_24h,
+                    0::int AS failed_inbox_7d,
                     NULL::timestamp AS last_inbox_received_at,
                     NULL::timestamp AS last_inbox_processed_at,
+                    NULL::timestamp AS last_inbox_failed_at,
             `;
 
         const outboxSelect = hasOutboxMessages
@@ -308,8 +314,19 @@ export class SuperAdminService {
                             WHERE ie.processed = FALSE
                               AND ie.received_at <= NOW() - INTERVAL '15 minutes'
                         ) AS stale_inbox,
+                        COUNT(*) FILTER (
+                            WHERE ie.received_at >= NOW() - INTERVAL '24 hours'
+                              AND NULLIF(TRIM(COALESCE(ie.processing_error, '')), '') IS NOT NULL
+                        ) AS failed_inbox_24h,
+                        COUNT(*) FILTER (
+                            WHERE ie.received_at >= NOW() - INTERVAL '7 days'
+                              AND NULLIF(TRIM(COALESCE(ie.processing_error, '')), '') IS NOT NULL
+                        ) AS failed_inbox_7d,
                         MAX(ie.received_at) AS last_inbox_received_at,
-                        MAX(ie.processed_at) AS last_inbox_processed_at
+                        MAX(ie.processed_at) AS last_inbox_processed_at,
+                        MAX(ie.received_at) FILTER (
+                            WHERE NULLIF(TRIM(COALESCE(ie.processing_error, '')), '') IS NOT NULL
+                        ) AS last_inbox_failed_at
                     FROM inbox_events ie
                     WHERE ie.tenant_id = t.id
                 ) ib ON true
@@ -431,9 +448,12 @@ export class SuperAdminService {
                     acc.outboxAlertTenants += 1;
                 }
                 if (tenant.riskFlags.some((flag: any) =>
-                    ['INBOX_STALE', 'INBOX_BACKLOG', 'WEBHOOK_SILENCE'].includes(String(flag.code || '')),
+                    ['INBOX_STALE', 'INBOX_BACKLOG', 'WEBHOOK_SILENCE', 'WEBHOOK_PROCESSING_FAILURE'].includes(String(flag.code || '')),
                 )) {
                     acc.webhookQueueTenants += 1;
+                }
+                if (tenant.riskFlags.some((flag: any) => String(flag.code || '') === 'WEBHOOK_PROCESSING_FAILURE')) {
+                    acc.webhookFailureTenants += 1;
                 }
                 if (tenant.riskFlags.some((flag: any) => String(flag.code || '') === 'WEBHOOK_SILENCE')) {
                     acc.webhookSilentTenants += 1;
@@ -455,6 +475,7 @@ export class SuperAdminService {
                 abnormalConsumptionTenants: 0,
                 outboxAlertTenants: 0,
                 webhookQueueTenants: 0,
+                webhookFailureTenants: 0,
                 webhookSilentTenants: 0,
                 pendingPaymentsTenants: 0,
             },
@@ -814,6 +835,8 @@ export class SuperAdminService {
         const inboxEvents24h = Number(row.inbox_events_24h || 0);
         const pendingInbox = Number(row.pending_inbox || 0);
         const staleInbox = Number(row.stale_inbox || 0);
+        const failedInbox24h = Number(row.failed_inbox_24h || 0);
+        const failedInbox7d = Number(row.failed_inbox_7d || 0);
         const outboxSent24h = Number(row.outbox_sent_24h || 0);
         const pendingOutbox = Number(row.pending_outbox || 0);
         const staleOutbox = Number(row.stale_outbox || 0);
@@ -851,6 +874,8 @@ export class SuperAdminService {
             inboxEvents24h,
             pendingInbox,
             staleInbox,
+            failedInbox24h,
+            failedInbox7d,
             lastInboxReceivedAt: row.last_inbox_received_at,
             outboxSent24h,
             pendingOutbox,
@@ -886,8 +911,11 @@ export class SuperAdminService {
                 inboxEvents24h,
                 pendingInbox,
                 staleInbox,
+                failedInbox24h,
+                failedInbox7d,
                 lastInboxReceivedAt: row.last_inbox_received_at || null,
                 lastInboxProcessedAt: row.last_inbox_processed_at || null,
+                lastInboxFailedAt: row.last_inbox_failed_at || null,
                 outboxSent24h,
                 averageDailyMessages,
                 previousDailyAverage,
@@ -989,6 +1017,8 @@ export class SuperAdminService {
         inboxEvents24h: number;
         pendingInbox: number;
         staleInbox: number;
+        failedInbox24h: number;
+        failedInbox7d: number;
         lastInboxReceivedAt?: string | Date | null;
         outboxSent24h: number;
         pendingOutbox: number;
@@ -1114,6 +1144,22 @@ export class SuperAdminService {
                 severity: 'WARNING',
                 title: 'Inbox acumulada',
                 description: 'O volume de eventos aguardando processamento já saiu do normal.',
+            });
+        }
+
+        if (input.active && input.failedInbox24h > 0) {
+            this.pushRisk(flags, {
+                code: 'WEBHOOK_PROCESSING_FAILURE',
+                severity: 'CRITICAL',
+                title: 'Webhook com erro de processamento',
+                description: 'Eventos da inbox estão chegando, mas falharam durante o processamento interno nas últimas 24 horas.',
+            });
+        } else if (input.active && input.failedInbox7d >= 3) {
+            this.pushRisk(flags, {
+                code: 'WEBHOOK_PROCESSING_FAILURE',
+                severity: 'WARNING',
+                title: 'Falhas recentes de webhook',
+                description: 'O tenant acumulou erros de processamento de inbox na última semana.',
             });
         }
 
