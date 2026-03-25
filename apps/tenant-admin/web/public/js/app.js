@@ -236,56 +236,79 @@ window.executeToggleExpediente = async function(nextState) {
 };
 
 window.openRestaurantProfileModal = function(user, initials) {
-    openModal(`
-        <div class="modal-header" style="border-bottom:none; padding-bottom: 0; z-index: 10; position: absolute; right: 0; background: transparent;">
-            <button class="modal-close" style="color: white; background: rgba(0,0,0,0.2); border-radius: 50%;" onclick="closeModal()">✕</button>
+    const drawer = document.getElementById('profile-drawer-content');
+    const overlay = document.getElementById('profile-drawer-overlay');
+    if (!drawer || !overlay) return;
+
+    const planLabel = user.billing_plan === 'pre_paid' ? 'Pré-pago' : 'Pós-pago';
+    const planDesc = user.billing_plan === 'pre_paid' ? 'Recarga de créditos' : 'Faturamento mensal';
+
+    drawer.innerHTML = `
+        <!-- Cover -->
+        <div style="background: linear-gradient(135deg, var(--teal), var(--accent-blue)); min-height: 160px; position: relative; overflow: hidden; flex-shrink: 0;">
+            <div style="position: absolute; width: 200px; height: 200px; background: rgba(255,255,255,0.08); border-radius: 50%; top: -60px; right: -40px;"></div>
+            <div style="position: absolute; width: 120px; height: 120px; background: rgba(255,255,255,0.06); border-radius: 50%; bottom: -30px; left: 30px;"></div>
+            <button onclick="closeProfileDrawer()" style="position: absolute; top: 16px; right: 16px; width: 32px; height: 32px; border-radius: 50%; border: none; background: rgba(255,255,255,0.15); color: white; font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px); transition: background 0.2s;">✕</button>
         </div>
-        <div class="modal-body" style="padding: 0; overflow: hidden; position: relative;">
-            <div style="background: linear-gradient(135deg, var(--teal), var(--accent-blue)); height: 140px; width: calc(100% + 48px); margin: -24px -24px 0 -24px; position: relative; overflow: hidden;">
-                <div style="position: absolute; width: 200px; height: 200px; background: rgba(255,255,255,0.1); border-radius: 50%; top: -50px; right: -50px;"></div>
-                <div style="position: absolute; width: 100px; height: 100px; background: rgba(255,255,255,0.1); border-radius: 50%; bottom: -20px; left: 20px;"></div>
+
+        <!-- Avatar + Name -->
+        <div style="margin-top: -48px; padding: 0 28px 20px; display: flex; flex-direction: column; align-items: center; text-align: center; position: relative; z-index: 1;">
+            <div style="width: 96px; height: 96px; background: linear-gradient(135deg, var(--teal), var(--accent-purple)); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 36px; font-weight: 800; color: white; border: 5px solid var(--card-bg); box-shadow: 0 6px 20px rgba(0,0,0,0.15);">
+                ${initials}
             </div>
-            
-            <div style="position: relative; margin-top: -50px; text-align: center; display: flex; flex-direction: column; align-items: center; padding-bottom: 24px;">
-                <div style="width: 90px; height: 90px; background: #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 34px; font-weight: 800; color: var(--teal); border: 5px solid var(--card-bg); box-shadow: 0 4px 14px rgba(0,0,0,0.12); margin-bottom: 14px; position: relative;">
-                    ${initials}
-                </div>
-                <h2 style="font-size: 24px; font-weight: 800; color: var(--text-primary); margin: 0 0 6px 0;">${user.tenant_name || 'Restaurante'}</h2>
-                <div style="font-size: 14px; font-weight: 600; color: var(--text-light); display: inline-flex; align-items: center; gap: 6px; background: rgba(26,188,156,0.1); border-radius: 20px; padding: 4px 12px;">
-                    <span style="color: var(--teal);">👤</span> ${user.name}
+            <h2 style="font-size: 22px; font-weight: 800; color: var(--dark); margin: 16px 0 6px;">${user.tenant_name || 'Restaurante'}</h2>
+            <div style="font-size: 13px; font-weight: 600; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; background: var(--bg); border-radius: 20px; padding: 5px 14px; border: 1px solid var(--border);">
+                👤 ${user.name}
+            </div>
+            <div style="font-size: 12px; color: var(--muted); margin-top: 6px;">${user.email}</div>
+        </div>
+
+        <!-- Info Cards -->
+        <div style="padding: 0 20px 28px; display: flex; flex-direction: column; gap: 12px;">
+            <div style="display: flex; align-items: center; gap: 14px; padding: 14px 16px; background: var(--bg); border: 1px solid var(--border); border-radius: 14px; transition: transform 0.15s; cursor: default;" onmouseenter="this.style.transform='translateX(4px)'" onmouseleave="this.style.transform='translateX(0)'">
+                <div style="width: 44px; height: 44px; border-radius: 12px; background: rgba(26,188,156,0.1); display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0;">📄</div>
+                <div style="min-width: 0;">
+                    <div style="font-size: 11px; text-transform: uppercase; font-weight: 800; color: var(--muted); letter-spacing: 0.6px;">CPF / CNPJ</div>
+                    <div style="font-size: 15px; font-weight: 700; color: var(--dark); margin-top: 2px;">${user.tenant_document || '<span style="color:var(--muted);font-weight:400;font-style:italic;">Não informado</span>'}</div>
                 </div>
             </div>
 
-            <div style="display: flex; flex-direction: column; gap: 14px; padding-bottom: 8px;">
-                <div style="display: flex; align-items: center; gap: 14px; padding: 16px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; transition: all 0.2s;">
-                    <div style="font-size: 22px; color: var(--teal); background: rgba(26,188,156,0.1); width: 44px; height: 44px; border-radius: 10px; display: flex; align-items: center; justify-content: center;">📄</div>
-                    <div>
-                        <div style="font-size: 11px; text-transform: uppercase; font-weight: 800; color: var(--text-light); margin-bottom: 4px; letter-spacing: 0.5px;">CNPJ / CPF do Restaurante</div>
-                        <div style="font-size: 15px; font-weight: 700; color: var(--text);">${user.tenant_document || '<span style="color: var(--text-light); font-weight: 400; font-style: italic;">Não informado</span>'}</div>
-                    </div>
+            <div style="display: flex; align-items: center; gap: 14px; padding: 14px 16px; background: var(--bg); border: 1px solid var(--border); border-radius: 14px; transition: transform 0.15s; cursor: default;" onmouseenter="this.style.transform='translateX(4px)'" onmouseleave="this.style.transform='translateX(0)'">
+                <div style="width: 44px; height: 44px; border-radius: 12px; background: rgba(249,115,22,0.1); display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0;">📍</div>
+                <div style="min-width: 0;">
+                    <div style="font-size: 11px; text-transform: uppercase; font-weight: 800; color: var(--muted); letter-spacing: 0.6px;">Endereço</div>
+                    <div style="font-size: 15px; font-weight: 700; color: var(--dark); margin-top: 2px;">${user.tenant_address || '<span style="color:var(--muted);font-weight:400;font-style:italic;">Não informado</span>'}</div>
                 </div>
+            </div>
 
-                <div style="display: flex; align-items: center; gap: 14px; padding: 16px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px;">
-                    <div style="font-size: 22px; color: var(--accent-orange); background: rgba(243,156,18,0.1); width: 44px; height: 44px; border-radius: 10px; display: flex; align-items: center; justify-content: center;">📍</div>
-                    <div>
-                        <div style="font-size: 11px; text-transform: uppercase; font-weight: 800; color: var(--text-light); margin-bottom: 4px; letter-spacing: 0.5px;">Endereço Principal</div>
-                        <div style="font-size: 15px; font-weight: 700; color: var(--text);">${user.tenant_address || '<span style="color: var(--text-light); font-weight: 400; font-style: italic;">Não informado</span>'}</div>
+            <div style="display: flex; align-items: center; gap: 14px; padding: 14px 16px; background: var(--bg); border: 1px solid var(--border); border-radius: 14px; transition: transform 0.15s; cursor: default;" onmouseenter="this.style.transform='translateX(4px)'" onmouseleave="this.style.transform='translateX(0)'">
+                <div style="width: 44px; height: 44px; border-radius: 12px; background: rgba(139,92,246,0.1); display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0;">💳</div>
+                <div style="min-width: 0;">
+                    <div style="font-size: 11px; text-transform: uppercase; font-weight: 800; color: var(--muted); letter-spacing: 0.6px;">Plano</div>
+                    <div style="font-size: 15px; font-weight: 700; color: var(--dark); margin-top: 2px; display: flex; align-items: center; gap: 8px;">
+                        ${planLabel}
+                        <span class="status-pill status-done" style="font-size: 10px;">Ativo</span>
                     </div>
+                    <div style="font-size: 12px; color: var(--muted); margin-top: 2px;">${planDesc}</div>
                 </div>
+            </div>
 
-                <div style="display: flex; align-items: center; gap: 14px; padding: 16px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px;">
-                    <div style="font-size: 22px; color: var(--accent-purple); background: rgba(155,89,182,0.1); width: 44px; height: 44px; border-radius: 10px; display: flex; align-items: center; justify-content: center;">💳</div>
-                    <div>
-                        <div style="font-size: 11px; text-transform: uppercase; font-weight: 800; color: var(--text-light); margin-bottom: 4px; letter-spacing: 0.5px;">Plano de Assinatura</div>
-                        <div style="font-size: 15px; font-weight: 700; color: var(--text); display: flex; align-items: center; gap: 10px;">
-                            ${user.billing_plan === 'pre_paid' ? 'Pré-pago (Recarga)' : 'Pós-pago (Fatura)'}
-                            <span class="status-pill status-done" style="font-size: 11px;">Ativo</span>
-                        </div>
-                    </div>
+            <div style="display: flex; align-items: center; gap: 14px; padding: 14px 16px; background: var(--bg); border: 1px solid var(--border); border-radius: 14px; transition: transform 0.15s; cursor: default;" onmouseenter="this.style.transform='translateX(4px)'" onmouseleave="this.style.transform='translateX(0)'">
+                <div style="width: 44px; height: 44px; border-radius: 12px; background: rgba(59,130,246,0.1); display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0;">🔑</div>
+                <div style="min-width: 0;">
+                    <div style="font-size: 11px; text-transform: uppercase; font-weight: 800; color: var(--muted); letter-spacing: 0.6px;">Perfil de Acesso</div>
+                    <div style="font-size: 15px; font-weight: 700; color: var(--dark); margin-top: 2px;">${user.role === 'admin' ? 'Administrador' : user.role === 'manager' ? 'Gerente' : user.role}</div>
                 </div>
             </div>
         </div>
-    `);
+    `;
+
+    overlay.classList.add('active');
+};
+
+window.closeProfileDrawer = function() {
+    const overlay = document.getElementById('profile-drawer-overlay');
+    if (overlay) overlay.classList.remove('active');
 };
 
 // Init
@@ -302,9 +325,17 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.target === e.currentTarget) closeModal();
     });
 
+    // Close profile drawer on overlay click
+    document.getElementById('profile-drawer-overlay').addEventListener('click', (e) => {
+        if (e.target === e.currentTarget) closeProfileDrawer();
+    });
+
     // Keyboard escape
     document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') closeModal();
+        if (e.key === 'Escape') {
+            closeModal();
+            closeProfileDrawer();
+        }
     });
 
     const btnLogout = document.getElementById('btn-logout');
