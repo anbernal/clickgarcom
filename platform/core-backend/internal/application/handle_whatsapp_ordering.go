@@ -2826,6 +2826,42 @@ func formatTableNumberForDisplay(number string) string {
 	return "0" + raw
 }
 
+func (uc *HandleWhatsAppMessageUseCase) handleViewTab(
+	ctx context.Context,
+	sess *session.Session,
+) (string, session.ConversationState, error) {
+	userTab := uc.findSessionOpenTab(ctx, sess)
+	if userTab == nil || userTab.Total <= 0 {
+		// No tab or empty tab — fall back to text summary
+		return uc.buildTabSummaryResponse(ctx, sess, false)
+	}
+
+	// Try to send receipt image
+	baseURL := uc.resolveCurrentPublicCheckoutBaseURL()
+	if baseURL != "" {
+		receiptURL := strings.TrimRight(baseURL, "/") + "/api/receipt/" + userTab.ID.String() + "/image.png"
+		caption := fmt.Sprintf("📋 Comanda — %s", userTab.ID.String()[:8])
+
+		_, err := uc.sender.SendImage(ctx, sess.UserPhone, receiptURL, caption)
+		if err != nil {
+			uc.logger.Warn("failed to send receipt image, falling back to text",
+				zap.Error(err),
+				zap.String("tab_id", userTab.ID.String()),
+				zap.String("receipt_url", receiptURL),
+			)
+			// Fall back to text summary
+			return uc.buildTabSummaryResponse(ctx, sess, false)
+		}
+
+		// Image sent successfully — return a brief text follow-up
+		return "👆 Confira os detalhes da sua comanda na imagem acima.\n\n_Digite 0 para voltar ao menu_",
+			session.StateViewingTab, nil
+	}
+
+	// No public URL available — fall back to text summary
+	return uc.buildTabSummaryResponse(ctx, sess, false)
+}
+
 func (uc *HandleWhatsAppMessageUseCase) buildTabSummaryResponse(
 	ctx context.Context,
 	sess *session.Session,

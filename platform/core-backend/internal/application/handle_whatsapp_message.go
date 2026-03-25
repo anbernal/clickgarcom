@@ -793,10 +793,8 @@ func (uc *HandleWhatsAppMessageUseCase) handleMainMenu(
 			session.StateOrdering, nil
 
 	case "2":
-		// Ver comanda
-		// TODO: Buscar comanda do usuário
-		return "📋 *Sua Comanda*\n\nAinda não há itens na comanda.\n\n_Digite 0 para voltar ao menu_",
-			session.StateViewingTab, nil
+		// Ver comanda — envia recibo como imagem
+		return uc.handleViewTab(ctx, sess)
 
 	case "3":
 		return uc.handleRepeatLastRound(ctx, sess)

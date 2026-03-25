@@ -330,6 +330,10 @@ func SetupRoutes(
 		})
 	})
 
+	// Receipt image (public — Meta API fetches this URL)
+	receiptHandler := handlers.NewReceiptHandler(db.DB, logger)
+	app.Get("/api/receipt/:tabId/image.png", receiptHandler.GetReceiptImage)
+
 	// Middleware JWT
 	jwtAuth := middleware.JWTAuth(authService)
 
