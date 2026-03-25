@@ -136,6 +136,19 @@ export class SuperAdminController {
         return this.superAdminService.listReliabilityIncidents(limit ? Number(limit) : undefined);
     }
 
+    @Get('reliability/dlq')
+    async reliabilityDlq(
+        @Request() req,
+        @Headers('authorization') authorization?: string,
+    ) {
+        await this.superAdminService.requireAuthenticatedSession({
+            authorization,
+            sourceIp: this.resolveSourceIp(req),
+            userAgent: this.resolveUserAgent(req),
+        });
+        return this.superAdminService.getReliabilityDlqOverview();
+    }
+
     @Get('reliability/correlations')
     async reliabilityCorrelations(
         @Request() req,
@@ -154,6 +167,21 @@ export class SuperAdminController {
             messageId,
             paymentId,
         });
+    }
+
+    @Post('reliability/inbox/:id/retry')
+    async retryInboxEvent(
+        @Request() req,
+        @Headers('authorization') authorization: string | undefined,
+        @Param('id') id: string,
+    ) {
+        const actor = await this.superAdminService.requireAuthenticatedSession({
+            authorization,
+            sourceIp: this.resolveSourceIp(req),
+            userAgent: this.resolveUserAgent(req),
+            sensitiveOperation: true,
+        });
+        return this.superAdminService.retryInboxEvent(id, actor);
     }
 
     @Post('reliability/outbox/:id/retry')

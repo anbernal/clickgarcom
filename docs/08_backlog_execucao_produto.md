@@ -293,14 +293,14 @@ Criterios de pronto:
 
 ## Epic 15 - Confiabilidade e Suporte
 
-Status: Em andamento
+Status: Concluido
 
 Objetivo:
 Melhorar recuperacao operacional e investigacao de incidentes.
 
 Tasks:
-- [ ] Criar dashboard de DLQ.
-- [ ] Criar retentativa manual para fluxos criticos.
+- [x] Criar dashboard de DLQ.
+- [x] Criar retentativa manual para fluxos criticos.
 - [x] Criar correlacao por `tenant_id`, `message_id` e `payment_id`.
 - [x] Criar visao de incidentes recentes.
 - [x] Criar ferramentas internas para suporte sem acesso direto ao banco.

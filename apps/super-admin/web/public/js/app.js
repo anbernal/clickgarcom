@@ -90,12 +90,20 @@ const api = {
     getReliabilityIncidents(limit = 30) {
         return request(`/reliability/incidents?limit=${encodeURIComponent(String(limit))}`);
     },
+    getReliabilityDlq() {
+        return request('/reliability/dlq');
+    },
     getReliabilityCorrelation(params = {}) {
         const query = new URLSearchParams();
         if (params.tenantId) query.set('tenant_id', String(params.tenantId).trim());
         if (params.messageId) query.set('message_id', String(params.messageId).trim());
         if (params.paymentId) query.set('payment_id', String(params.paymentId).trim());
         return request(`/reliability/correlations?${query.toString()}`);
+    },
+    retryReliabilityInbox(id) {
+        return request(`/reliability/inbox/${encodeURIComponent(String(id))}/retry`, {
+            method: 'POST',
+        });
     },
     retryReliabilityOutbox(id) {
         return request(`/reliability/outbox/${encodeURIComponent(String(id))}/retry`, {
@@ -267,6 +275,32 @@ function formatReliabilityCorrelation(correlation) {
     if (correlation.providerPaymentId) parts.push(`prov ${correlation.providerPaymentId}`);
     if (correlation.externalReference) parts.push(`ref ${correlation.externalReference}`);
     return parts.length ? parts.join(' · ') : '-';
+}
+
+function renderReliabilityDlqPeek(payload) {
+    if (!payload || payload.available === false) {
+        return '<div class="page-sub" style="margin-bottom:0">Não foi possível inspecionar a DLQ no RabbitMQ Management API.</div>';
+    }
+
+    const queueName = payload.queueName || '';
+    const messages = Array.isArray(payload.messages) ? payload.messages : [];
+    if (!queueName || !messages.length) {
+        return '<div class="page-sub" style="margin-bottom:0">Nenhuma mensagem disponível para inspeção rápida na DLQ.</div>';
+    }
+
+    return `
+        <div class="card" style="margin-top:0">
+            <h4 style="margin-bottom:12px">Peek da DLQ: ${escapeHtml(queueName)}</h4>
+            <div class="stack-list">
+                ${messages.map((item) => `
+                    <div class="sub-metric">
+                        <strong>${escapeHtml(item.routingKey || '-')}</strong> · ${escapeHtml(item.exchange || '-')} · ${item.redelivered ? 'redelivered' : 'first seen'}<br>
+                        <span style="font-family:monospace; font-size:12px">${escapeHtml(item.payload || '-')}</span>
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+    `;
 }
 
 function renderReliabilityList(title, items, formatter) {
@@ -615,10 +649,13 @@ async function loadReliability() {
     try {
         setTableLoading('#reliability-tenants-table tbody', 2, 'Carregando tenants impactados...');
         setTableLoading('#reliability-incidents-table tbody', 6, 'Carregando incidentes...');
+        setTableLoading('#reliability-dlq-table tbody', 5, 'Carregando filas...');
+        document.getElementById('reliability-dlq-peek').innerHTML = '';
 
-        const [overview, incidentsPayload] = await Promise.all([
+        const [overview, incidentsPayload, dlqPayload] = await Promise.all([
             api.getReliabilityOverview(),
             api.getReliabilityIncidents(30),
+            api.getReliabilityDlq(),
         ]);
 
         state.reliabilityOverview = overview;
@@ -631,7 +668,12 @@ async function loadReliability() {
         document.getElementById('rel-failed-inbox').textContent = formatNumber(summary.failedInbox || 0);
         document.getElementById('rel-payment-failures').textContent = formatNumber((summary.paymentFailures || 0) + (summary.stalePayments || 0));
         document.getElementById('rel-impacted-tenants').textContent = formatNumber(summary.impactedTenants || 0);
+        document.getElementById('rel-dlq-messages').textContent = formatNumber(dlqPayload?.summary?.dlqMessages || 0);
+        document.getElementById('rel-no-consumer').textContent = formatNumber(dlqPayload?.summary?.queuesWithoutConsumers || 0);
         document.getElementById('rel-generated-at').textContent = formatDateTime(overview?.generatedAt);
+        document.getElementById('rel-dlq-status').textContent = dlqPayload?.available === false
+            ? 'RabbitMQ Management API indisponível'
+            : `${formatNumber((dlqPayload?.queues || []).length)} fila(s) monitoradas`;
 
         const tenantsTbody = document.querySelector('#reliability-tenants-table tbody');
         const topTenants = Array.isArray(overview?.topTenants) ? overview.topTenants : [];
@@ -646,6 +688,26 @@ async function loadReliability() {
             `).join('');
         }
 
+        const dlqTbody = document.querySelector('#reliability-dlq-table tbody');
+        const queues = Array.isArray(dlqPayload?.queues) ? dlqPayload.queues : [];
+        if (!queues.length) {
+            dlqTbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--text-muted)">${escapeHtml(dlqPayload?.available === false ? 'Sem conexão com o RabbitMQ Management API.' : 'Nenhuma fila encontrada.')}</td></tr>`;
+        } else {
+            dlqTbody.innerHTML = queues.map((queue) => `
+                <tr>
+                    <td>
+                        <strong>${escapeHtml(queue.name || '-')}</strong>
+                        ${queue.dlq ? '<span class="badge critical" style="margin-left:8px">DLQ</span>' : ''}
+                    </td>
+                    <td>${escapeHtml(queue.state || '-')} · ${escapeHtml(queue.type || '-')}</td>
+                    <td>${formatNumber(queue.messages || 0)}<br><small style="color:var(--text-muted)">ready ${formatNumber(queue.messagesReady || 0)} · unacked ${formatNumber(queue.messagesUnacknowledged || 0)}</small></td>
+                    <td><span class="badge ${Number(queue.consumers || 0) > 0 ? 'active' : 'warning'}">${formatNumber(queue.consumers || 0)}</span></td>
+                    <td>${escapeHtml(queue.deadLetterExchange || '-')}</td>
+                </tr>
+            `).join('');
+        }
+        document.getElementById('reliability-dlq-peek').innerHTML = renderReliabilityDlqPeek(dlqPayload?.peek);
+
         const incidentsTbody = document.querySelector('#reliability-incidents-table tbody');
         if (!state.reliabilityIncidents.length) {
             incidentsTbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--text-muted)">Nenhum incidente relevante encontrado.</td></tr>';
@@ -658,9 +720,11 @@ async function loadReliability() {
                     <td>${escapeHtml(incident.summary || '-')}</td>
                     <td style="font-family:monospace; font-size:12px; color:var(--text-muted)">${escapeHtml(formatReliabilityCorrelation(incident.correlation))}</td>
                     <td>
-                        ${incident?.retry?.available
+                        ${incident?.retry?.action === 'retry_outbox'
                             ? `<button class="btn" style="padding:6px 12px" onclick="retryReliabilityOutbox('${escapeHtml(incident.entityId)}')">Retry outbox</button>`
-                            : '<span style="color:var(--text-muted)">Somente leitura</span>'}
+                            : incident?.retry?.action === 'retry_inbox'
+                                ? `<button class="btn" style="padding:6px 12px" onclick="retryReliabilityInbox('${escapeHtml(incident.entityId)}')">Retry inbox</button>`
+                                : '<span style="color:var(--text-muted)">Somente leitura</span>'}
                     </td>
                 </tr>
             `).join('');
@@ -669,6 +733,8 @@ async function loadReliability() {
         console.error(error);
         setTableLoading('#reliability-tenants-table tbody', 2, `Falha ao carregar confiabilidade: ${error.message}`);
         setTableLoading('#reliability-incidents-table tbody', 6, `Falha ao carregar incidentes: ${error.message}`);
+        setTableLoading('#reliability-dlq-table tbody', 5, `Falha ao carregar filas: ${error.message}`);
+        document.getElementById('reliability-dlq-peek').innerHTML = '';
     }
 }
 
@@ -762,6 +828,22 @@ async function retryReliabilityOutbox(outboxId) {
     } catch (error) {
         console.error(error);
         alert(`Falha ao solicitar retentativa: ${error.message}`);
+    }
+}
+
+async function retryReliabilityInbox(inboxId) {
+    if (!inboxId) return;
+    const confirmed = window.confirm('Solicitar reprocessamento manual deste evento de inbox?');
+    if (!confirmed) return;
+
+    try {
+        const response = await api.retryReliabilityInbox(inboxId);
+        const target = response?.inbox || {};
+        alert(`Reprocessamento agendado para ${target.providerMessageId || inboxId}.`);
+        await loadReliability();
+    } catch (error) {
+        console.error(error);
+        alert(`Falha ao solicitar retry da inbox: ${error.message}`);
     }
 }
 

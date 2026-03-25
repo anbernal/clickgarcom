@@ -307,6 +307,16 @@
                     <div class="stat-value" id="rel-impacted-tenants">0</div>
                     <div class="stat-trend">Necessitam investigação</div>
                 </div>
+                <div class="card">
+                    <div class="stat-title">Mensagens na DLQ</div>
+                    <div class="stat-value" id="rel-dlq-messages">0</div>
+                    <div class="stat-trend">Backlog morto no broker</div>
+                </div>
+                <div class="card">
+                    <div class="stat-title">Filas sem Consumer</div>
+                    <div class="stat-value" id="rel-no-consumer">0</div>
+                    <div class="stat-trend">Risco de fila parada</div>
+                </div>
             </div>
 
             <div class="card">
@@ -334,8 +344,34 @@
             <div class="card">
                 <div class="flex-between" style="margin-bottom:20px; gap:16px; flex-wrap:wrap;">
                     <div>
+                        <h3 style="margin-bottom:6px">DLQ & Filas do Broker</h3>
+                        <p class="page-sub" style="margin-bottom:0"><span id="rel-dlq-status">Carregando RabbitMQ...</span></p>
+                    </div>
+                </div>
+                <table id="reliability-dlq-table">
+                    <thead>
+                        <tr>
+                            <th>Fila</th>
+                            <th>Estado</th>
+                            <th>Mensagens</th>
+                            <th>Consumers</th>
+                            <th>Dead-letter</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td colspan="5" style="text-align:center; color:var(--text-muted)">Carregando filas...</td>
+                        </tr>
+                    </tbody>
+                </table>
+                <div id="reliability-dlq-peek" style="margin-top:16px"></div>
+            </div>
+
+            <div class="card">
+                <div class="flex-between" style="margin-bottom:20px; gap:16px; flex-wrap:wrap;">
+                    <div>
                         <h3 style="margin-bottom:6px">Incidentes Recentes</h3>
-                        <p class="page-sub" style="margin-bottom:0">Suporte pode agir diretamente em outbox travada</p>
+                        <p class="page-sub" style="margin-bottom:0">Suporte pode agir diretamente em outbox travada ou reprocessar inbox com falha</p>
                     </div>
                 </div>
                 <table id="reliability-incidents-table">

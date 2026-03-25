@@ -990,7 +990,7 @@ export class SuperAdminService {
                     NULL::text AS external_reference,
                     ie.received_at AS occurred_at,
                     LEFT(COALESCE(NULLIF(ie.processing_error, ''), 'Falha de processamento da inbox.'), 240) AS summary,
-                    'none'::text AS retry_action,
+                    'retry_inbox'::text AS retry_action,
                     jsonb_build_object(
                         'processed', ie.processed,
                         'source', ie.source,
@@ -1134,10 +1134,58 @@ export class SuperAdminService {
                 },
                 retry: {
                     action: row.retry_action || 'none',
-                    available: row.retry_action === 'retry_outbox',
+                    available: ['retry_outbox', 'retry_inbox'].includes(String(row.retry_action || '')),
                 },
                 metadata: this.parseJsonRecord(row.metadata),
             })),
+        };
+    }
+
+    async getReliabilityDlqOverview() {
+        const queuePayload = await this.fetchRabbitMqQueues();
+        if (!queuePayload.available) {
+            return queuePayload;
+        }
+
+        const queues = Array.isArray(queuePayload.queues) ? queuePayload.queues : [];
+        const dlqQueues = queues.filter((queue: any) => String(queue.name || '').toLowerCase().endsWith('.dlq'));
+        const totalDlqMessages = dlqQueues.reduce((acc: number, queue: any) => acc + Number(queue.messages || 0), 0);
+        const queuesWithoutConsumers = queues.filter((queue: any) => Number(queue.consumers || 0) === 0);
+        const alertQueues = queues.filter((queue: any) => {
+            const messages = Number(queue.messages || 0);
+            const consumers = Number(queue.consumers || 0);
+            return messages > 0 || consumers === 0;
+        });
+
+        const peek = dlqQueues.length
+            ? await this.fetchRabbitMqDlqPeek(String(dlqQueues[0].name || ''))
+            : {
+                available: true,
+                queueName: null,
+                messages: [],
+            };
+
+        return {
+            available: true,
+            summary: {
+                dlqQueues: dlqQueues.length,
+                dlqMessages: totalDlqMessages,
+                queuesWithoutConsumers: queuesWithoutConsumers.length,
+                alertQueues: alertQueues.length,
+            },
+            queues: queues.map((queue: any) => ({
+                name: queue.name,
+                vhost: queue.vhost,
+                state: queue.state || null,
+                type: queue.type || null,
+                consumers: Number(queue.consumers || 0),
+                messages: Number(queue.messages || 0),
+                messagesReady: Number(queue.messages_ready || 0),
+                messagesUnacknowledged: Number(queue.messages_unacknowledged || 0),
+                dlq: String(queue.name || '').toLowerCase().endsWith('.dlq'),
+                deadLetterExchange: queue?.arguments?.['x-dead-letter-exchange'] || null,
+            })),
+            peek,
         };
     }
 
@@ -1459,6 +1507,81 @@ export class SuperAdminService {
         }
 
         return result;
+    }
+
+    async retryInboxEvent(inboxId: string, actor: SuperAdminActorContext) {
+        if (!await this.hasInboxEventsTable()) {
+            throw new NotFoundException('Tabela de inbox não disponível neste ambiente.');
+        }
+
+        const normalizedId = this.normalizeUuid(inboxId);
+        if (!normalizedId) {
+            throw new BadRequestException('ID de inbox inválido.');
+        }
+
+        const rows = await this.dataSource.query(
+            `SELECT
+                ie.id,
+                ie.tenant_id,
+                ie.source,
+                ie.provider_message_id,
+                ie.processed,
+                ie.processing_error,
+                ie.received_at,
+                ie.processed_at,
+                t.name AS tenant_name
+             FROM inbox_events ie
+             LEFT JOIN tenants t ON t.id = ie.tenant_id
+             WHERE ie.id = $1::uuid
+             LIMIT 1`,
+            [normalizedId],
+        );
+        const existing = rows?.[0];
+        if (!existing) {
+            throw new NotFoundException('Evento de inbox não encontrado.');
+        }
+
+        await this.dataSource.query(
+            `UPDATE inbox_events
+             SET processed = FALSE,
+                 processing_error = NULL,
+                 processed_at = NULL
+             WHERE id = $1::uuid`,
+            [normalizedId],
+        );
+
+        await this.publishRabbitMqMessage('whatsapp.messages', {
+            inbox_id: normalizedId,
+            wamid: existing.provider_message_id,
+        });
+
+        await this.recordAuditLog({
+            action: 'SUPPORT_INBOX_RETRY_REQUESTED',
+            entityType: 'INBOX_EVENT',
+            entityId: normalizedId,
+            tenantId: existing.tenant_id || null,
+            actor,
+            details: {
+                summary: `Reprocessamento manual solicitado para inbox ${normalizedId} (${existing.provider_message_id}).`,
+                source: existing.source,
+                previous_error: existing.processing_error || null,
+                previously_processed: !!existing.processed,
+            },
+        });
+
+        return {
+            retried: true,
+            inbox: {
+                id: normalizedId,
+                tenantId: existing.tenant_id || null,
+                tenantName: existing.tenant_name || null,
+                source: existing.source,
+                providerMessageId: existing.provider_message_id,
+                receivedAt: existing.received_at,
+                previousProcessedAt: existing.processed_at || null,
+                previousError: existing.processing_error || null,
+            },
+        };
     }
 
     async retryOutboxMessage(outboxId: string, actor: SuperAdminActorContext) {
@@ -2710,6 +2833,123 @@ export class SuperAdminService {
                 .map((item) => item.trim())
                 .filter(Boolean),
         ));
+    }
+
+    private getRabbitMqManagementBaseUrl() {
+        const configured = String(process.env.RABBITMQ_MANAGEMENT_URL || '').trim();
+        if (configured) {
+            return configured.replace(/\/+$/, '');
+        }
+        return 'http://rabbitmq:15672/api';
+    }
+
+    private getRabbitMqManagementAuth() {
+        const username = String(process.env.RABBITMQ_USER || 'clickgarcom').trim();
+        const password = String(process.env.RABBITMQ_PASSWORD || 'clickgarcom123').trim();
+        return { username, password };
+    }
+
+    private getRabbitMqManagementVhost() {
+        const configured = String(process.env.RABBITMQ_VHOST || '/').trim();
+        return configured || '/';
+    }
+
+    private getRabbitMqManagementVhostPath() {
+        return encodeURIComponent(this.getRabbitMqManagementVhost());
+    }
+
+    private async fetchRabbitMqQueues() {
+        try {
+            const response = await axios.get(
+                `${this.getRabbitMqManagementBaseUrl()}/queues/${this.getRabbitMqManagementVhostPath()}`,
+                {
+                    auth: this.getRabbitMqManagementAuth(),
+                    timeout: 3000,
+                },
+            );
+            return {
+                available: true,
+                queues: Array.isArray(response.data) ? response.data : [],
+            };
+        } catch (error) {
+            this.logger.warn(`Falha ao consultar RabbitMQ Management API: ${(error as Error).message}`);
+            return {
+                available: false,
+                reason: 'rabbitmq_management_unavailable',
+                queues: [],
+            };
+        }
+    }
+
+    private async fetchRabbitMqDlqPeek(queueName: string) {
+        const normalizedQueue = String(queueName || '').trim();
+        if (!normalizedQueue) {
+            return {
+                available: true,
+                queueName: null,
+                messages: [],
+            };
+        }
+
+        try {
+            const response = await axios.post(
+                `${this.getRabbitMqManagementBaseUrl()}/queues/${this.getRabbitMqManagementVhostPath()}/${encodeURIComponent(normalizedQueue)}/get`,
+                {
+                    count: 5,
+                    ackmode: 'ack_requeue_true',
+                    encoding: 'auto',
+                    truncate: 400,
+                },
+                {
+                    auth: this.getRabbitMqManagementAuth(),
+                    timeout: 3000,
+                },
+            );
+            return {
+                available: true,
+                queueName: normalizedQueue,
+                messages: Array.isArray(response.data)
+                    ? response.data.map((item: any) => ({
+                        payload: String(item?.payload || '').slice(0, 400),
+                        exchange: item?.exchange || null,
+                        routingKey: item?.routing_key || null,
+                        redelivered: !!item?.redelivered,
+                    }))
+                    : [],
+            };
+        } catch (error) {
+            this.logger.warn(`Falha ao inspecionar mensagens da DLQ: ${(error as Error).message}`);
+            return {
+                available: false,
+                queueName: normalizedQueue,
+                messages: [],
+            };
+        }
+    }
+
+    private async publishRabbitMqMessage(queueName: string, payload: Record<string, unknown>) {
+        const normalizedQueue = String(queueName || '').trim();
+        if (!normalizedQueue) {
+            throw new BadRequestException('Fila de destino inválida para publicação.');
+        }
+
+        try {
+            await axios.post(
+                `${this.getRabbitMqManagementBaseUrl()}/exchanges/${this.getRabbitMqManagementVhostPath()}/amq.default/publish`,
+                {
+                    properties: {},
+                    routing_key: normalizedQueue,
+                    payload: JSON.stringify(payload || {}),
+                    payload_encoding: 'string',
+                },
+                {
+                    auth: this.getRabbitMqManagementAuth(),
+                    timeout: 3000,
+                },
+            );
+        } catch (error) {
+            throw new BadRequestException(`Falha ao publicar retentativa no RabbitMQ: ${(error as Error).message}`);
+        }
     }
 
     private async countReliabilityImpactedTenants(input: {
