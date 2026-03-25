@@ -143,11 +143,14 @@ export class ReportsService {
         const result = await this.orderItemRepo
             .createQueryBuilder('oi')
             .select('oi.menu_item_id', 'menuItemId')
+            .addSelect('mi.name', 'itemName')
             .addSelect('SUM(oi.quantity)', 'totalQuantity')
             .addSelect('SUM(oi.unit_price * oi.quantity)', 'totalRevenue')
             .innerJoin('orders', 'o', 'o.id = oi.order_id')
+            .leftJoin('menu_items', 'mi', 'mi.id = oi.menu_item_id')
             .where('o.tenant_id = :tenantId', { tenantId })
             .groupBy('oi.menu_item_id')
+            .addGroupBy('mi.name')
             .orderBy('"totalQuantity"', 'DESC')
             .limit(limit)
             .getRawMany();

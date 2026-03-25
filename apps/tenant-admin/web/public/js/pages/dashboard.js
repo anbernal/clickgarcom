@@ -10,9 +10,11 @@ async function loadDashboard() {
             api.get('/orders'),
         ]);
 
-        // Get tables info
+        // Get tables and top items info
         let tablesData = [];
+        let topItems = [];
         try { tablesData = await api.get('/tables'); } catch (e) { }
+        try { topItems = await api.get('/reports/top-items?limit=3'); } catch (e) { }
 
         const tableNumbersByTabId = buildTableNumbersByTabId(tablesData);
         const recentOrders = (orders || []).slice(0, 4);
@@ -129,19 +131,24 @@ async function loadDashboard() {
         <div class="upgrade-card animate-slide-up delay-4">
           <div class="price" data-anim-value="${stats.revenue || 0}" data-anim-currency="true">R$ 0,00</div>
           <div class="sub">Faturado hoje</div>
-          <div style="margin-top:16px; display:flex; flex-direction:column; gap:10px;">
-            <div style="display:flex; align-items:center; gap:10px;">
-              <span style="font-size:18px;">📦</span>
-              <span style="font-size:13px; opacity:0.9;">${stats.ordersCount || 0} pedidos processados</span>
-            </div>
-            <div style="display:flex; align-items:center; gap:10px;">
-              <span style="font-size:18px;">🪑</span>
-              <span style="font-size:13px; opacity:0.9;">${occupiedTables}/${totalTables} mesas em uso</span>
-            </div>
-            <div style="display:flex; align-items:center; gap:10px;">
-              <span style="font-size:18px;">⭐</span>
-              <span style="font-size:13px; opacity:0.9;">Ticket médio: ${formatCurrency(stats.avgTicket || 0)}</span>
-            </div>
+          <div style="margin-top:18px; border-top:1px solid rgba(255,255,255,0.15); padding-top:14px;">
+            <div style="font-size:11px; text-transform:uppercase; letter-spacing:0.8px; opacity:0.7; margin-bottom:10px; font-weight:600;">🏆 Destaques do Cardápio</div>
+            ${topItems.length === 0
+              ? '<div style="font-size:13px; opacity:0.7;">Nenhuma venda registrada ainda</div>'
+              : topItems.slice(0, 3).map((item, i) => {
+                const medals = ['🥇', '🥈', '🥉'];
+                const name = item.itemName || 'Item removido';
+                const qty = parseInt(item.totalQuantity) || 0;
+                return `
+                <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
+                  <span style="font-size:18px;">${medals[i]}</span>
+                  <div style="flex:1; min-width:0;">
+                    <div style="font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${name}</div>
+                  </div>
+                  <span style="font-size:12px; opacity:0.8; flex-shrink:0;">${qty}x vendidos</span>
+                </div>`;
+              }).join('')
+            }
           </div>
         </div>
         <div class="card animate-slide-up delay-5">
