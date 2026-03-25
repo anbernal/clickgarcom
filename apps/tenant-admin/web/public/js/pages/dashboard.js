@@ -128,29 +128,7 @@ async function loadDashboard() {
 
       <!-- SALES CHART -->
       <div class="bottom-grid">
-        <div class="upgrade-card animate-slide-up delay-4">
-          <div class="price" data-anim-value="${stats.revenue || 0}" data-anim-currency="true">R$ 0,00</div>
-          <div class="sub">Faturado hoje</div>
-          <div style="margin-top:18px; border-top:1px solid rgba(255,255,255,0.15); padding-top:14px;">
-            <div style="font-size:11px; text-transform:uppercase; letter-spacing:0.8px; opacity:0.7; margin-bottom:10px; font-weight:600;">🏆 Destaques do Cardápio</div>
-            ${topItems.length === 0
-              ? '<div style="font-size:13px; opacity:0.7;">Nenhuma venda registrada ainda</div>'
-              : topItems.slice(0, 3).map((item, i) => {
-                const medals = ['🥇', '🥈', '🥉'];
-                const name = item.itemName || 'Item removido';
-                const qty = parseInt(item.totalQuantity) || 0;
-                return `
-                <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
-                  <span style="font-size:18px;">${medals[i]}</span>
-                  <div style="flex:1; min-width:0;">
-                    <div style="font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${name}</div>
-                  </div>
-                  <span style="font-size:12px; opacity:0.8; flex-shrink:0;">${qty}x vendidos</span>
-                </div>`;
-              }).join('')
-            }
-          </div>
-        </div>
+        ${renderPerformanceCard(weekly, stats, topItems)}
         <div class="card animate-slide-up delay-5">
           <div class="card-header">
             <div>
@@ -333,4 +311,66 @@ function animateValue(obj, start, end, duration, isCurrency) {
         }
     };
     window.requestAnimationFrame(step);
+}
+
+function renderPerformanceCard(weekly, stats, topItems) {
+    const hour = new Date().getHours();
+    const greeting = hour < 12 ? '☀️ Bom dia' : hour < 18 ? '🌤️ Boa tarde' : '🌙 Boa noite';
+
+    // Today vs Yesterday from weekly data
+    const todayData = (weekly || []).find(d => d.date === new Date().toISOString().slice(0, 10));
+    const yesterdayDate = new Date();
+    yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+    const yesterdayData = (weekly || []).find(d => d.date === yesterdayDate.toISOString().slice(0, 10));
+
+    const todayRev = todayData ? todayData.revenue : (stats.revenue || 0);
+    const yesterdayRev = yesterdayData ? yesterdayData.revenue : 0;
+    const todayOrders = todayData ? todayData.orders : (stats.ordersCount || 0);
+    const yesterdayOrders = yesterdayData ? yesterdayData.orders : 0;
+
+    const revDelta = yesterdayRev > 0 ? Math.round(((todayRev - yesterdayRev) / yesterdayRev) * 100) : (todayRev > 0 ? 100 : 0);
+    const revTrend = revDelta > 0 ? '↑' : revDelta < 0 ? '↓' : '→';
+    const revColor = revDelta > 0 ? '#86efac' : revDelta < 0 ? '#fca5a5' : 'rgba(255,255,255,0.7)';
+
+    // Top item
+    const topItem = (topItems || [])[0];
+    const topName = topItem ? (topItem.itemName || 'Item') : null;
+    const topQty = topItem ? (parseInt(topItem.totalQuantity) || 0) : 0;
+
+    // Best day of the week
+    const bestDay = (weekly || []).reduce((best, d) => (!best || d.revenue > best.revenue) ? d : best, null);
+    const dayNames = { Dom: 'Domingo', Seg: 'Segunda', Ter: 'Terça', Qua: 'Quarta', Qui: 'Quinta', Sex: 'Sexta', 'Sáb': 'Sábado' };
+    const bestDayLabel = bestDay ? (dayNames[bestDay.day] || bestDay.day) : null;
+
+    return `
+    <div class="upgrade-card animate-slide-up delay-4">
+      <div style="font-size:22px; font-weight:700; margin-bottom:4px;">${greeting}</div>
+      <div style="font-size:12px; opacity:0.7; margin-bottom:18px;">Comparativo com ontem</div>
+
+      <div style="display:flex; gap:16px; margin-bottom:16px;">
+        <div style="flex:1; background:rgba(255,255,255,0.1); border-radius:10px; padding:12px;">
+          <div style="font-size:10px; text-transform:uppercase; letter-spacing:0.6px; opacity:0.6; margin-bottom:6px;">Faturamento</div>
+          <div style="font-size:18px; font-weight:700;">${formatCurrency(todayRev)}</div>
+          <div style="font-size:12px; color:${revColor}; margin-top:4px; font-weight:600;">${revTrend} ${Math.abs(revDelta)}% vs ontem</div>
+        </div>
+        <div style="flex:1; background:rgba(255,255,255,0.1); border-radius:10px; padding:12px;">
+          <div style="font-size:10px; text-transform:uppercase; letter-spacing:0.6px; opacity:0.6; margin-bottom:6px;">Pedidos</div>
+          <div style="font-size:18px; font-weight:700;">${todayOrders}</div>
+          <div style="font-size:12px; opacity:0.7; margin-top:4px;">ontem: ${yesterdayOrders}</div>
+        </div>
+      </div>
+
+      <div style="border-top:1px solid rgba(255,255,255,0.12); padding-top:12px; display:flex; flex-direction:column; gap:8px;">
+        ${topName ? `
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:16px;">🥇</span>
+          <span style="font-size:12px; opacity:0.9;">Mais vendido: <strong>${topName}</strong> (${topQty}x)</span>
+        </div>` : ''}
+        ${bestDayLabel && bestDay.revenue > 0 ? `
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:16px;">📅</span>
+          <span style="font-size:12px; opacity:0.9;">Melhor dia da semana: <strong>${bestDayLabel}</strong> (${formatCurrency(bestDay.revenue)})</span>
+        </div>` : ''}
+      </div>
+    </div>`;
 }
