@@ -109,6 +109,68 @@ export class SuperAdminController {
         return this.superAdminService.listAccessLogs(limit ? Number(limit) : undefined);
     }
 
+    @Get('reliability/overview')
+    async reliabilityOverview(
+        @Request() req,
+        @Headers('authorization') authorization?: string,
+    ) {
+        await this.superAdminService.requireAuthenticatedSession({
+            authorization,
+            sourceIp: this.resolveSourceIp(req),
+            userAgent: this.resolveUserAgent(req),
+        });
+        return this.superAdminService.getReliabilityOverview();
+    }
+
+    @Get('reliability/incidents')
+    async reliabilityIncidents(
+        @Request() req,
+        @Headers('authorization') authorization?: string,
+        @Query('limit') limit?: string,
+    ) {
+        await this.superAdminService.requireAuthenticatedSession({
+            authorization,
+            sourceIp: this.resolveSourceIp(req),
+            userAgent: this.resolveUserAgent(req),
+        });
+        return this.superAdminService.listReliabilityIncidents(limit ? Number(limit) : undefined);
+    }
+
+    @Get('reliability/correlations')
+    async reliabilityCorrelations(
+        @Request() req,
+        @Headers('authorization') authorization?: string,
+        @Query('tenant_id') tenantId?: string,
+        @Query('message_id') messageId?: string,
+        @Query('payment_id') paymentId?: string,
+    ) {
+        await this.superAdminService.requireAuthenticatedSession({
+            authorization,
+            sourceIp: this.resolveSourceIp(req),
+            userAgent: this.resolveUserAgent(req),
+        });
+        return this.superAdminService.searchReliabilityCorrelation({
+            tenantId,
+            messageId,
+            paymentId,
+        });
+    }
+
+    @Post('reliability/outbox/:id/retry')
+    async retryOutboxMessage(
+        @Request() req,
+        @Headers('authorization') authorization: string | undefined,
+        @Param('id') id: string,
+    ) {
+        const actor = await this.superAdminService.requireAuthenticatedSession({
+            authorization,
+            sourceIp: this.resolveSourceIp(req),
+            userAgent: this.resolveUserAgent(req),
+            sensitiveOperation: true,
+        });
+        return this.superAdminService.retryOutboxMessage(id, actor);
+    }
+
     @Post('tenants')
     async createTenant(
         @Request() req,

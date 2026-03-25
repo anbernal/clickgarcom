@@ -532,6 +532,18 @@ export class AuthService {
         }
 
         tenant.isOpen = isOpen;
+
+        // Track who opened/closed and when
+        const currentSettings = tenant.settings || {};
+        if (isOpen) {
+            currentSettings.opened_at = new Date().toISOString();
+            currentSettings.opened_by = actor?.userName || 'Sistema';
+        } else {
+            currentSettings.opened_at = null;
+            currentSettings.opened_by = null;
+        }
+        tenant.settings = currentSettings;
+
         await this.tenantRepository.save(tenant);
         await this.recordAuditEvent(tenantId, {
             actorUserId: actor?.userId,
@@ -547,6 +559,8 @@ export class AuthService {
         return {
             success: true,
             is_open: tenant.isOpen,
+            opened_at: currentSettings.opened_at || null,
+            opened_by: currentSettings.opened_by || null,
             message: tenant.isOpen ? 'Expediente Aberto!' : 'Expediente Fechado'
         };
     }
@@ -683,6 +697,8 @@ export class AuthService {
             billing_plan: user.tenant?.billingPlan || 'pre_paid',
             active: !!user.active,
             isOpen: !!user.tenant?.isOpen,
+            opened_at: settings.opened_at || null,
+            opened_by: settings.opened_by || null,
             last_login_at: user.lastLoginAt ? new Date(user.lastLoginAt).toISOString() : null,
             permissions: this.buildFrontendPermissions(normalizedRole),
         };

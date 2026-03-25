@@ -160,17 +160,53 @@ function logout() {
     window.location.href = '/login.html';
 }
 
-function setExpedienteButtonState(isOpen) {
+// Expediente timer interval
+let _expedienteTimerInterval = null;
+
+function formatElapsedTime(isoDate) {
+    if (!isoDate) return '';
+    const diff = Date.now() - new Date(isoDate).getTime();
+    if (diff < 0) return '';
+    const mins = Math.floor(diff / 60000);
+    const hours = Math.floor(mins / 60);
+    const remainMins = mins % 60;
+    if (hours > 0) return `${hours}h${remainMins > 0 ? String(remainMins).padStart(2, '0') + 'min' : ''}`;
+    return `${mins}min`;
+}
+
+function setExpedienteButtonState(isOpen, openedAt, openedBy) {
     window.isExpedienteAberto = isOpen;
+    window.expedienteOpenedAt = openedAt || null;
+    window.expedienteOpenedBy = openedBy || null;
+
+    // Clear previous timer
+    if (_expedienteTimerInterval) {
+        clearInterval(_expedienteTimerInterval);
+        _expedienteTimerInterval = null;
+    }
+
     const btnExpediente = document.getElementById('btn-expediente');
     if (!btnExpediente) return;
 
-    if (isOpen) {
-        btnExpediente.classList.add('active');
-        btnExpediente.innerHTML = '<span class="nav-icon">🟢</span> Aberto';
-    } else {
-        btnExpediente.classList.remove('active');
-        btnExpediente.innerHTML = '<span class="nav-icon">🔴</span> Fechado';
+    function render() {
+        if (window.isExpedienteAberto) {
+            const elapsed = formatElapsedTime(window.expedienteOpenedAt);
+            const byText = window.expedienteOpenedBy ? `por ${window.expedienteOpenedBy}` : '';
+            const detail = (elapsed || byText)
+                ? `<span style="font-size:10px;color:var(--muted);display:block;margin-top:2px;line-height:1.2;">${elapsed ? '⏱ ' + elapsed : ''}${elapsed && byText ? ' · ' : ''}${byText}</span>`
+                : '';
+            btnExpediente.classList.add('active');
+            btnExpediente.innerHTML = `<span class="nav-icon">🟢</span><div>Aberto${detail}</div>`;
+        } else {
+            btnExpediente.classList.remove('active');
+            btnExpediente.innerHTML = '<span class="nav-icon">🔴</span> Fechado';
+        }
+    }
+
+    render();
+
+    if (isOpen && openedAt) {
+        _expedienteTimerInterval = setInterval(render, 30000);
     }
 }
 
@@ -216,7 +252,7 @@ window.executeToggleExpediente = async function(nextState) {
 
     try {
         const res = await api.patch('/auth/status', { is_open: nextState });
-        setExpedienteButtonState(!!res.is_open);
+        setExpedienteButtonState(!!res.is_open, res.opened_at, res.opened_by);
         
         if (typeof window.updateDashboardExpediente === 'function') {
             window.updateDashboardExpediente();
@@ -385,7 +421,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Load initial status from API /auth/me
         api.get('/auth/me').then(user => {
             setAuthSessionUser(user);
-            setExpedienteButtonState(!!user.isOpen);
+            setExpedienteButtonState(!!user.isOpen, user.opened_at, user.opened_by);
             applyNavigationPermissions();
         }).catch(err => console.error(err));
     }

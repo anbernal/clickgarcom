@@ -27,6 +27,8 @@ export interface TenantSettings {
     messages?: MessageTemplates;
     document?: string;
     address?: string;
+    opened_at?: string | null;
+    opened_by?: string | null;
 }
 
 @Entity('tenants')

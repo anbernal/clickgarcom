@@ -8,6 +8,8 @@ const state = {
     activePage: 'dashboard',
     tenants: [],
     operationsOverview: null,
+    reliabilityOverview: null,
+    reliabilityIncidents: [],
     session: null,
 };
 
@@ -81,6 +83,24 @@ const api = {
     },
     getAccessLogs(limit = 20) {
         return request(`/access-logs?limit=${encodeURIComponent(String(limit))}`);
+    },
+    getReliabilityOverview() {
+        return request('/reliability/overview');
+    },
+    getReliabilityIncidents(limit = 30) {
+        return request(`/reliability/incidents?limit=${encodeURIComponent(String(limit))}`);
+    },
+    getReliabilityCorrelation(params = {}) {
+        const query = new URLSearchParams();
+        if (params.tenantId) query.set('tenant_id', String(params.tenantId).trim());
+        if (params.messageId) query.set('message_id', String(params.messageId).trim());
+        if (params.paymentId) query.set('payment_id', String(params.paymentId).trim());
+        return request(`/reliability/correlations?${query.toString()}`);
+    },
+    retryReliabilityOutbox(id) {
+        return request(`/reliability/outbox/${encodeURIComponent(String(id))}/retry`, {
+            method: 'POST',
+        });
     },
     createTenant(payload) {
         return request('/tenants', {
@@ -222,6 +242,53 @@ function summarizeAccessDetails(details) {
     }
 }
 
+function formatReliabilityIncidentType(value) {
+    const key = String(value || '').trim().toUpperCase();
+    if (key === 'INBOX_FAILURE') return 'Inbox falhou';
+    if (key === 'OUTBOX_DEAD') return 'Outbox morta';
+    if (key === 'OUTBOX_STALE') return 'Outbox atrasada';
+    if (key === 'PAYMENT_FAILURE') return 'Pagamento falhou';
+    if (key === 'PAYMENT_STALE') return 'Pagamento parado';
+    return key || 'Incidente';
+}
+
+function getReliabilitySeverityClass(value) {
+    const key = String(value || '').trim().toUpperCase();
+    if (key === 'CRITICAL') return 'critical';
+    if (key === 'WARNING') return 'warning';
+    return 'info';
+}
+
+function formatReliabilityCorrelation(correlation) {
+    if (!correlation || typeof correlation !== 'object') return '-';
+    const parts = [];
+    if (correlation.messageId) parts.push(`msg ${correlation.messageId}`);
+    if (correlation.paymentId) parts.push(`pgto ${correlation.paymentId}`);
+    if (correlation.providerPaymentId) parts.push(`prov ${correlation.providerPaymentId}`);
+    if (correlation.externalReference) parts.push(`ref ${correlation.externalReference}`);
+    return parts.length ? parts.join(' · ') : '-';
+}
+
+function renderReliabilityList(title, items, formatter) {
+    if (!Array.isArray(items) || !items.length) {
+        return `
+            <div class="card" style="margin-top:16px">
+                <h4 style="margin-bottom:12px">${escapeHtml(title)}</h4>
+                <div class="page-sub" style="margin-bottom:0">Sem registros correlacionados.</div>
+            </div>
+        `;
+    }
+
+    return `
+        <div class="card" style="margin-top:16px">
+            <h4 style="margin-bottom:12px">${escapeHtml(title)}</h4>
+            <div class="stack-list">
+                ${items.map((item) => `<div class="sub-metric">${formatter(item)}</div>`).join('')}
+            </div>
+        </div>
+    `;
+}
+
 function setTableLoading(selector, colspan, text) {
     const tbody = document.querySelector(selector);
     if (!tbody) return;
@@ -245,6 +312,7 @@ function navigate(pageId) {
     if (targetPage === 'tenants') loadTenants();
     if (targetPage === 'wallet') loadWallet();
     if (targetPage === 'operations') loadOperations();
+    if (targetPage === 'reliability') loadReliability();
 }
 
 async function loadDashboard() {
@@ -540,6 +608,160 @@ async function loadOperations() {
         setTableLoading('#operations-table tbody', 5, `Falha ao carregar visão operacional: ${error.message}`);
         setTableLoading('#operations-audit-table tbody', 5, `Falha ao carregar auditoria: ${error.message}`);
         setTableLoading('#operations-access-table tbody', 5, `Falha ao carregar acessos: ${error.message}`);
+    }
+}
+
+async function loadReliability() {
+    try {
+        setTableLoading('#reliability-tenants-table tbody', 2, 'Carregando tenants impactados...');
+        setTableLoading('#reliability-incidents-table tbody', 6, 'Carregando incidentes...');
+
+        const [overview, incidentsPayload] = await Promise.all([
+            api.getReliabilityOverview(),
+            api.getReliabilityIncidents(30),
+        ]);
+
+        state.reliabilityOverview = overview;
+        state.reliabilityIncidents = Array.isArray(incidentsPayload?.incidents) ? incidentsPayload.incidents : [];
+
+        const summary = overview?.summary || {};
+        document.getElementById('rel-incidents-24h').textContent = formatNumber(summary.incidents24h || 0);
+        document.getElementById('rel-dead-outbox').textContent = formatNumber(summary.deadOutbox || 0);
+        document.getElementById('rel-retryable-outbox').textContent = formatNumber(summary.retryableOutbox || 0);
+        document.getElementById('rel-failed-inbox').textContent = formatNumber(summary.failedInbox || 0);
+        document.getElementById('rel-payment-failures').textContent = formatNumber((summary.paymentFailures || 0) + (summary.stalePayments || 0));
+        document.getElementById('rel-impacted-tenants').textContent = formatNumber(summary.impactedTenants || 0);
+        document.getElementById('rel-generated-at').textContent = formatDateTime(overview?.generatedAt);
+
+        const tenantsTbody = document.querySelector('#reliability-tenants-table tbody');
+        const topTenants = Array.isArray(overview?.topTenants) ? overview.topTenants : [];
+        if (!topTenants.length) {
+            tenantsTbody.innerHTML = '<tr><td colspan="2" style="text-align:center; color:var(--text-muted)">Nenhum tenant impactado no momento.</td></tr>';
+        } else {
+            tenantsTbody.innerHTML = topTenants.map((item) => `
+                <tr>
+                    <td><strong>${escapeHtml(item.tenantName || item.tenantId || '-')}</strong><br><small style="color:var(--text-muted)">${escapeHtml(item.tenantId || '-')}</small></td>
+                    <td><span class="badge critical">${formatNumber(item.incidentCount || 0)} incidente(s)</span></td>
+                </tr>
+            `).join('');
+        }
+
+        const incidentsTbody = document.querySelector('#reliability-incidents-table tbody');
+        if (!state.reliabilityIncidents.length) {
+            incidentsTbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--text-muted)">Nenhum incidente relevante encontrado.</td></tr>';
+        } else {
+            incidentsTbody.innerHTML = state.reliabilityIncidents.map((incident) => `
+                <tr>
+                    <td>${escapeHtml(formatDateTime(incident.occurredAt))}</td>
+                    <td><span class="badge ${getReliabilitySeverityClass(incident.severity)}">${escapeHtml(formatReliabilityIncidentType(incident.incidentType))}</span></td>
+                    <td>${escapeHtml(incident.tenantName || incident.tenantId || '-')}</td>
+                    <td>${escapeHtml(incident.summary || '-')}</td>
+                    <td style="font-family:monospace; font-size:12px; color:var(--text-muted)">${escapeHtml(formatReliabilityCorrelation(incident.correlation))}</td>
+                    <td>
+                        ${incident?.retry?.available
+                            ? `<button class="btn" style="padding:6px 12px" onclick="retryReliabilityOutbox('${escapeHtml(incident.entityId)}')">Retry outbox</button>`
+                            : '<span style="color:var(--text-muted)">Somente leitura</span>'}
+                    </td>
+                </tr>
+            `).join('');
+        }
+    } catch (error) {
+        console.error(error);
+        setTableLoading('#reliability-tenants-table tbody', 2, `Falha ao carregar confiabilidade: ${error.message}`);
+        setTableLoading('#reliability-incidents-table tbody', 6, `Falha ao carregar incidentes: ${error.message}`);
+    }
+}
+
+function renderReliabilityCorrelationResults(payload) {
+    const tenant = payload?.tenant || null;
+    const correlation = payload?.correlation || {};
+    const sections = [];
+
+    if (tenant) {
+        sections.push(`
+            <div class="card" style="margin-top:16px">
+                <h4 style="margin-bottom:12px">Tenant</h4>
+                <div class="stack-list">
+                    <div class="sub-metric"><strong>${escapeHtml(tenant.name || '-')}</strong> · ${escapeHtml(tenant.id || '-')}</div>
+                    <div class="sub-metric">Slug: ${escapeHtml(tenant.slug || '-')} · Plano: ${escapeHtml(tenant.billingPlan || '-')} · ${tenant.active ? 'Ativo' : 'Pausado'}</div>
+                </div>
+            </div>
+        `);
+    }
+
+    if (correlation.payment) {
+        sections.push(`
+            <div class="card" style="margin-top:16px">
+                <h4 style="margin-bottom:12px">Pagamento</h4>
+                <div class="stack-list">
+                    <div class="sub-metric"><strong>${escapeHtml(correlation.payment.id || '-')}</strong> · ${escapeHtml(correlation.payment.status || '-')} · ${escapeHtml(formatCurrency(correlation.payment.amount || 0))}</div>
+                    <div class="sub-metric">Ref externa: ${escapeHtml(correlation.payment.externalReference || '-')} · Pix TXID: ${escapeHtml(correlation.payment.pixTxid || '-')}</div>
+                    <div class="sub-metric">Criado: ${escapeHtml(formatDateTime(correlation.payment.createdAt))} · Pago: ${escapeHtml(formatDateTime(correlation.payment.paidAt))}</div>
+                </div>
+            </div>
+        `);
+    }
+
+    sections.push(renderReliabilityList('Inbox correlacionada', correlation.inboxEvents, (item) => (
+        `<strong>${escapeHtml(item.providerMessageId || item.id || '-')}</strong> · ${item.processed ? 'processado' : 'pendente'} · ${escapeHtml(formatDateTime(item.receivedAt))}${item.processingError ? ` · ${escapeHtml(item.processingError)}` : ''}`
+    )));
+    sections.push(renderReliabilityList('Message logs', correlation.messageLogs, (item) => (
+        `<strong>${escapeHtml(item.messageId || item.id || '-')}</strong> · ${escapeHtml(item.direction || '-')} · ${escapeHtml(item.status || '-')} · ${escapeHtml(item.userPhone || '-')} · ${escapeHtml(formatDateTime(item.createdAt))}`
+    )));
+    sections.push(renderReliabilityList('Outbox pendente', correlation.outboxMessages, (item) => (
+        `<strong>${escapeHtml(item.id || '-')}</strong> · ${escapeHtml(item.destination || '-')} para ${escapeHtml(item.recipient || '-')} · ${escapeHtml(String(item.attempts || 0))}/${escapeHtml(String(item.maxAttempts || 0))} tentativa(s)${item.lastError ? ` · ${escapeHtml(item.lastError)}` : ''}`
+    )));
+    sections.push(renderReliabilityList('Tentativas de pagamento', correlation.paymentAttempts, (item) => (
+        `<strong>${escapeHtml(item.id || '-')}</strong> · ${escapeHtml(item.status || '-')} · ${escapeHtml(item.providerPaymentId || item.externalReference || '-')} · ${escapeHtml(formatCurrency(item.requestedAmount || 0))} · ${escapeHtml(formatDateTime(item.createdAt))}`
+    )));
+    sections.push(renderReliabilityList('Incidentes recentes do tenant', correlation.recentIncidents, (item) => (
+        `<strong>${escapeHtml(formatReliabilityIncidentType(item.incidentType))}</strong> · ${escapeHtml(formatDateTime(item.occurredAt))} · ${escapeHtml(item.summary || '-')}`
+    )));
+
+    return sections.join('');
+}
+
+async function searchReliabilityCorrelation(event) {
+    event.preventDefault();
+    const tenantId = document.getElementById('rel-search-tenant')?.value.trim() || '';
+    const messageId = document.getElementById('rel-search-message')?.value.trim() || '';
+    const paymentId = document.getElementById('rel-search-payment')?.value.trim() || '';
+    const statusEl = document.getElementById('reliability-correlation-status');
+    const resultsEl = document.getElementById('reliability-correlation-results');
+
+    if (!tenantId && !messageId && !paymentId) {
+        statusEl.textContent = 'Informe ao menos um identificador.';
+        resultsEl.innerHTML = '';
+        return;
+    }
+
+    statusEl.textContent = 'Buscando correlação...';
+    resultsEl.innerHTML = '';
+
+    try {
+        const payload = await api.getReliabilityCorrelation({ tenantId, messageId, paymentId });
+        statusEl.textContent = 'Correlação carregada.';
+        resultsEl.innerHTML = renderReliabilityCorrelationResults(payload);
+    } catch (error) {
+        console.error(error);
+        statusEl.textContent = `Falha ao buscar correlação: ${error.message}`;
+        resultsEl.innerHTML = '';
+    }
+}
+
+async function retryReliabilityOutbox(outboxId) {
+    if (!outboxId) return;
+    const confirmed = window.confirm('Solicitar nova tentativa para esta mensagem da outbox?');
+    if (!confirmed) return;
+
+    try {
+        const response = await api.retryReliabilityOutbox(outboxId);
+        const target = response?.outbox || {};
+        alert(`Retentativa agendada para ${target.recipient || outboxId}.`);
+        await loadReliability();
+    } catch (error) {
+        console.error(error);
+        alert(`Falha ao solicitar retentativa: ${error.message}`);
     }
 }
 

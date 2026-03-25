@@ -10,7 +10,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import axios from 'axios';
-import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'crypto';
+import { createHash, createHmac, randomUUID, timingSafeEqual } from 'crypto';
 import { Tenant, TenantSettings } from '../../entities/tenant.entity';
 import { User } from '../../entities/user.entity';
 
@@ -866,6 +866,703 @@ export class SuperAdminService {
                 details: this.parseJsonRecord(row.details),
                 createdAt: row.created_at,
             })),
+        };
+    }
+
+    async getReliabilityOverview() {
+        const [hasInboxEvents, hasOutboxMessages, hasPaymentAttempts] = await Promise.all([
+            this.hasInboxEventsTable(),
+            this.hasOutboxMessagesTable(),
+            this.hasPaymentAttemptsTable(),
+        ]);
+
+        const inboxSummary = hasInboxEvents
+            ? (await this.dataSource.query(
+                `SELECT
+                    COUNT(*) FILTER (WHERE processing_error IS NOT NULL)::int AS failed_total,
+                    COUNT(*) FILTER (
+                        WHERE processing_error IS NOT NULL
+                          AND received_at >= NOW() - INTERVAL '24 hours'
+                    )::int AS failed_24h,
+                    COUNT(*) FILTER (WHERE processed = FALSE)::int AS pending_total
+                 FROM inbox_events`,
+            ))?.[0] || {}
+            : {};
+
+        const outboxSummary = hasOutboxMessages
+            ? (await this.dataSource.query(
+                `SELECT
+                    COUNT(*) FILTER (WHERE sent = FALSE)::int AS pending_total,
+                    COUNT(*) FILTER (WHERE sent = FALSE AND attempts >= GREATEST(max_attempts, 1))::int AS dead_total,
+                    COUNT(*) FILTER (
+                        WHERE sent = FALSE
+                          AND attempts < GREATEST(max_attempts, 1)
+                          AND COALESCE(next_retry_at, created_at) <= NOW()
+                    )::int AS retryable_now,
+                    COUNT(*) FILTER (
+                        WHERE sent = FALSE
+                          AND COALESCE(next_retry_at, created_at) <= NOW() - INTERVAL '30 minutes'
+                    )::int AS stale_total,
+                    COUNT(*) FILTER (
+                        WHERE sent = FALSE
+                          AND created_at >= NOW() - INTERVAL '24 hours'
+                    )::int AS incidents_24h
+                 FROM outbox_messages`,
+            ))?.[0] || {}
+            : {};
+
+        const paymentSummary = hasPaymentAttempts
+            ? (await this.dataSource.query(
+                `SELECT
+                    COUNT(*) FILTER (WHERE status IN ('ERROR', 'REJECTED', 'EXPIRED'))::int AS failed_total,
+                    COUNT(*) FILTER (
+                        WHERE status IN ('ERROR', 'REJECTED', 'EXPIRED')
+                          AND created_at >= NOW() - INTERVAL '24 hours'
+                    )::int AS failed_24h,
+                    COUNT(*) FILTER (
+                        WHERE status IN ('CREATED', 'PROCESSING', 'UNKNOWN', 'PENDING')
+                          AND reconciled_at IS NULL
+                          AND created_at <= NOW() - INTERVAL '30 minutes'
+                    )::int AS stale_pending_total
+                 FROM payment_attempts`,
+            ))?.[0] || {}
+            : {};
+
+        const impactedTenants = await this.countReliabilityImpactedTenants({
+            hasInboxEvents,
+            hasOutboxMessages,
+            hasPaymentAttempts,
+        });
+        const topTenants = await this.listReliabilityTopTenants({
+            hasInboxEvents,
+            hasOutboxMessages,
+            hasPaymentAttempts,
+        });
+
+        const incidents24h =
+            Number(inboxSummary.failed_24h || 0) +
+            Number(outboxSummary.incidents_24h || 0) +
+            Number(paymentSummary.failed_24h || 0);
+
+        return {
+            generatedAt: new Date().toISOString(),
+            summary: {
+                incidents24h,
+                impactedTenants,
+                retryableOutbox: Number(outboxSummary.retryable_now || 0),
+                deadOutbox: Number(outboxSummary.dead_total || 0),
+                staleOutbox: Number(outboxSummary.stale_total || 0),
+                failedInbox: Number(inboxSummary.failed_total || 0),
+                pendingInbox: Number(inboxSummary.pending_total || 0),
+                paymentFailures: Number(paymentSummary.failed_total || 0),
+                stalePayments: Number(paymentSummary.stale_pending_total || 0),
+            },
+            topTenants,
+        };
+    }
+
+    async listReliabilityIncidents(limitRaw?: number) {
+        const limit = Math.max(1, Math.min(100, Number(limitRaw || 30) || 30));
+        const [hasInboxEvents, hasOutboxMessages, hasPaymentAttempts, hasPayments] = await Promise.all([
+            this.hasInboxEventsTable(),
+            this.hasOutboxMessagesTable(),
+            this.hasPaymentAttemptsTable(),
+            this.hasPaymentsTable(),
+        ]);
+
+        const incidentQueries: string[] = [];
+        const params: any[] = [];
+
+        if (hasInboxEvents) {
+            incidentQueries.push(`
+                SELECT
+                    'INBOX_FAILURE'::text AS incident_type,
+                    CASE
+                        WHEN ie.received_at <= NOW() - INTERVAL '6 hours' THEN 'critical'
+                        ELSE 'warning'
+                    END AS severity,
+                    ie.id::text AS entity_id,
+                    ie.tenant_id::text AS tenant_id,
+                    COALESCE(t.name, 'Tenant não identificado') AS tenant_name,
+                    ie.provider_message_id AS message_id,
+                    NULL::text AS payment_id,
+                    NULL::text AS provider_payment_id,
+                    NULL::text AS external_reference,
+                    ie.received_at AS occurred_at,
+                    LEFT(COALESCE(NULLIF(ie.processing_error, ''), 'Falha de processamento da inbox.'), 240) AS summary,
+                    'none'::text AS retry_action,
+                    jsonb_build_object(
+                        'processed', ie.processed,
+                        'source', ie.source,
+                        'providerMessageId', ie.provider_message_id
+                    ) AS metadata
+                FROM inbox_events ie
+                LEFT JOIN tenants t ON t.id = ie.tenant_id
+                WHERE ie.processing_error IS NOT NULL
+            `);
+        }
+
+        if (hasOutboxMessages) {
+            incidentQueries.push(`
+                SELECT
+                    CASE
+                        WHEN om.attempts >= GREATEST(om.max_attempts, 1) THEN 'OUTBOX_DEAD'
+                        ELSE 'OUTBOX_STALE'
+                    END AS incident_type,
+                    CASE
+                        WHEN om.attempts >= GREATEST(om.max_attempts, 1) THEN 'critical'
+                        ELSE 'warning'
+                    END AS severity,
+                    om.id::text AS entity_id,
+                    om.tenant_id::text AS tenant_id,
+                    COALESCE(t.name, 'Tenant não identificado') AS tenant_name,
+                    NULL::text AS message_id,
+                    NULL::text AS payment_id,
+                    NULL::text AS provider_payment_id,
+                    NULL::text AS external_reference,
+                    COALESCE(om.next_retry_at, om.created_at) AS occurred_at,
+                    LEFT(
+                        CONCAT(
+                            'Destino ', COALESCE(om.destination, 'desconhecido'),
+                            ' para ', COALESCE(om.recipient, '-'),
+                            ' com ', om.attempts::text, '/', GREATEST(om.max_attempts, 1)::text,
+                            ' tentativa(s). ',
+                            COALESCE(NULLIF(om.last_error, ''), 'Sem detalhe de erro.')
+                        ),
+                        240
+                    ) AS summary,
+                    'retry_outbox'::text AS retry_action,
+                    jsonb_build_object(
+                        'destination', om.destination,
+                        'recipient', om.recipient,
+                        'attempts', om.attempts,
+                        'maxAttempts', om.max_attempts,
+                        'lastError', om.last_error
+                    ) AS metadata
+                FROM outbox_messages om
+                LEFT JOIN tenants t ON t.id = om.tenant_id
+                WHERE om.sent = FALSE
+                  AND (
+                      om.attempts >= GREATEST(om.max_attempts, 1)
+                      OR COALESCE(om.next_retry_at, om.created_at) <= NOW() - INTERVAL '30 minutes'
+                  )
+            `);
+        }
+
+        if (hasPaymentAttempts && hasPayments) {
+            incidentQueries.push(`
+                SELECT
+                    CASE
+                        WHEN pa.status IN ('ERROR', 'REJECTED', 'EXPIRED') THEN 'PAYMENT_FAILURE'
+                        ELSE 'PAYMENT_STALE'
+                    END AS incident_type,
+                    CASE
+                        WHEN pa.status = 'ERROR' THEN 'critical'
+                        WHEN pa.status = 'REJECTED' THEN 'critical'
+                        ELSE 'warning'
+                    END AS severity,
+                    pa.id::text AS entity_id,
+                    pa.tenant_id::text AS tenant_id,
+                    COALESCE(t.name, 'Tenant não identificado') AS tenant_name,
+                    NULL::text AS message_id,
+                    pa.payment_id::text AS payment_id,
+                    COALESCE(pa.provider_payment_id, '') AS provider_payment_id,
+                    COALESCE(p.external_reference, '') AS external_reference,
+                    COALESCE(pa.updated_at, pa.created_at) AS occurred_at,
+                    LEFT(
+                        CONCAT(
+                            'Pagamento ', pa.payment_id::text,
+                            ' em status ', pa.status,
+                            COALESCE(CONCAT(' / ', NULLIF(pa.provider_status, '')), ''),
+                            '. ',
+                            COALESCE(NULLIF(pa.last_error, ''), NULLIF(pa.provider_status_detail, ''), 'Aguardando investigação.')
+                        ),
+                        240
+                    ) AS summary,
+                    'none'::text AS retry_action,
+                    jsonb_build_object(
+                        'status', pa.status,
+                        'providerStatus', pa.provider_status,
+                        'providerStatusDetail', pa.provider_status_detail,
+                        'requestedAmount', pa.requested_amount,
+                        'paymentMethod', pa.payment_method
+                    ) AS metadata
+                FROM payment_attempts pa
+                LEFT JOIN tenants t ON t.id = pa.tenant_id
+                LEFT JOIN payments p ON p.id = pa.payment_id
+                WHERE pa.status IN ('ERROR', 'REJECTED', 'EXPIRED')
+                   OR (
+                        pa.status IN ('CREATED', 'PROCESSING', 'UNKNOWN', 'PENDING')
+                        AND pa.reconciled_at IS NULL
+                        AND pa.created_at <= NOW() - INTERVAL '30 minutes'
+                   )
+            `);
+        }
+
+        if (!incidentQueries.length) {
+            return {
+                available: false,
+                incidents: [],
+            };
+        }
+
+        params.push(limit);
+        const rows = await this.dataSource.query(
+            `${incidentQueries.join('\nUNION ALL\n')}
+             ORDER BY occurred_at DESC
+             LIMIT $${params.length}`,
+            params,
+        );
+
+        return {
+            available: true,
+            incidents: (rows || []).map((row: any) => ({
+                id: `${row.incident_type}:${row.entity_id}`,
+                incidentType: row.incident_type,
+                severity: String(row.severity || 'warning').toUpperCase(),
+                entityId: row.entity_id,
+                tenantId: row.tenant_id || null,
+                tenantName: row.tenant_name || null,
+                occurredAt: row.occurred_at,
+                summary: row.summary || '',
+                correlation: {
+                    tenantId: row.tenant_id || null,
+                    messageId: row.message_id || null,
+                    paymentId: row.payment_id || null,
+                    providerPaymentId: row.provider_payment_id || null,
+                    externalReference: row.external_reference || null,
+                },
+                retry: {
+                    action: row.retry_action || 'none',
+                    available: row.retry_action === 'retry_outbox',
+                },
+                metadata: this.parseJsonRecord(row.metadata),
+            })),
+        };
+    }
+
+    async searchReliabilityCorrelation(input: {
+        tenantId?: string;
+        messageId?: string;
+        paymentId?: string;
+    }) {
+        const tenantId = this.normalizeUuid(input.tenantId);
+        const messageId = this.normalizeOptionalText(input.messageId, 255);
+        const paymentId = this.normalizeUuid(input.paymentId);
+
+        if (!tenantId && !messageId && !paymentId) {
+            throw new BadRequestException('Informe tenant_id, message_id ou payment_id para correlacionar.');
+        }
+
+        const [hasInboxEvents, hasOutboxMessages, hasPaymentAttempts, hasMessageLogs, hasPayments] = await Promise.all([
+            this.hasInboxEventsTable(),
+            this.hasOutboxMessagesTable(),
+            this.hasPaymentAttemptsTable(),
+            this.hasMessageLogsTable(),
+            this.hasPaymentsTable(),
+        ]);
+
+        const tenant = tenantId
+            ? await this.tenantRepo.findOne({ where: { id: tenantId } })
+            : null;
+
+        const result: any = {
+            query: {
+                tenantId,
+                messageId,
+                paymentId,
+            },
+            tenant: tenant
+                ? {
+                    id: tenant.id,
+                    name: tenant.name,
+                    slug: tenant.slug,
+                    active: !!tenant.active,
+                    billingPlan: tenant.billingPlan,
+                }
+                : null,
+            correlation: {
+                inboxEvents: [],
+                messageLogs: [],
+                outboxMessages: [],
+                payment: null,
+                paymentAttempts: [],
+                recentIncidents: [],
+            },
+        };
+
+        if (hasInboxEvents && (messageId || tenantId)) {
+            const rows = messageId
+                ? await this.dataSource.query(
+                    `SELECT
+                        ie.id,
+                        ie.tenant_id,
+                        ie.provider_message_id,
+                        ie.source,
+                        ie.processed,
+                        ie.processing_error,
+                        ie.received_at,
+                        ie.processed_at
+                     FROM inbox_events ie
+                     WHERE ie.provider_message_id = $1
+                     ORDER BY ie.received_at DESC
+                     LIMIT 10`,
+                    [messageId],
+                )
+                : await this.dataSource.query(
+                    `SELECT
+                        ie.id,
+                        ie.tenant_id,
+                        ie.provider_message_id,
+                        ie.source,
+                        ie.processed,
+                        ie.processing_error,
+                        ie.received_at,
+                        ie.processed_at
+                     FROM inbox_events ie
+                     WHERE ie.tenant_id = $1::uuid
+                     ORDER BY ie.received_at DESC
+                     LIMIT 10`,
+                    [tenantId],
+                );
+
+            result.correlation.inboxEvents = (rows || []).map((row: any) => ({
+                id: row.id,
+                tenantId: row.tenant_id || null,
+                providerMessageId: row.provider_message_id,
+                source: row.source,
+                processed: !!row.processed,
+                processingError: row.processing_error || null,
+                receivedAt: row.received_at,
+                processedAt: row.processed_at || null,
+            }));
+        }
+
+        if (hasMessageLogs && (messageId || tenantId)) {
+            const rows = messageId
+                ? await this.dataSource.query(
+                    `SELECT
+                        ml.id,
+                        ml.tenant_id,
+                        ml.direction,
+                        ml.status,
+                        ml.message_id,
+                        ml.user_phone,
+                        ml.message_preview,
+                        ml.created_at
+                     FROM message_logs ml
+                     WHERE ml.message_id = $1
+                     ORDER BY ml.created_at DESC
+                     LIMIT 10`,
+                    [messageId],
+                )
+                : await this.dataSource.query(
+                    `SELECT
+                        ml.id,
+                        ml.tenant_id,
+                        ml.direction,
+                        ml.status,
+                        ml.message_id,
+                        ml.user_phone,
+                        ml.message_preview,
+                        ml.created_at
+                     FROM message_logs ml
+                     WHERE ml.tenant_id = $1::uuid
+                     ORDER BY ml.created_at DESC
+                     LIMIT 10`,
+                    [tenantId],
+                );
+
+            result.correlation.messageLogs = (rows || []).map((row: any) => ({
+                id: row.id,
+                tenantId: row.tenant_id || null,
+                direction: row.direction,
+                status: row.status || null,
+                messageId: row.message_id || null,
+                userPhone: row.user_phone || null,
+                messagePreview: row.message_preview || null,
+                createdAt: row.created_at,
+            }));
+        }
+
+        if (hasOutboxMessages && tenantId) {
+            const rows = await this.dataSource.query(
+                `SELECT
+                    om.id,
+                    om.destination,
+                    om.recipient,
+                    om.sent,
+                    om.attempts,
+                    om.max_attempts,
+                    om.last_error,
+                    om.created_at,
+                    om.sent_at,
+                    om.next_retry_at
+                 FROM outbox_messages om
+                 WHERE om.tenant_id = $1::uuid
+                   AND om.sent = FALSE
+                 ORDER BY COALESCE(om.next_retry_at, om.created_at) ASC
+                 LIMIT 10`,
+                [tenantId],
+            );
+
+            result.correlation.outboxMessages = (rows || []).map((row: any) => ({
+                id: row.id,
+                destination: row.destination,
+                recipient: row.recipient,
+                sent: !!row.sent,
+                attempts: Number(row.attempts || 0),
+                maxAttempts: Number(row.max_attempts || 0),
+                lastError: row.last_error || null,
+                createdAt: row.created_at,
+                sentAt: row.sent_at || null,
+                nextRetryAt: row.next_retry_at || null,
+                retryAvailable: !row.sent,
+            }));
+        }
+
+        if (hasPayments && (paymentId || tenantId)) {
+            const paymentRows = paymentId
+                ? await this.dataSource.query(
+                    `SELECT
+                        p.id,
+                        p.tenant_id,
+                        p.tab_id,
+                        p.payment_type,
+                        p.amount,
+                        p.status,
+                        p.pix_txid,
+                        p.external_reference,
+                        p.created_at,
+                        p.paid_at,
+                        p.expired_at,
+                        p.metadata
+                     FROM payments p
+                     WHERE p.id = $1::uuid
+                     LIMIT 1`,
+                    [paymentId],
+                )
+                : await this.dataSource.query(
+                    `SELECT
+                        p.id,
+                        p.tenant_id,
+                        p.tab_id,
+                        p.payment_type,
+                        p.amount,
+                        p.status,
+                        p.pix_txid,
+                        p.external_reference,
+                        p.created_at,
+                        p.paid_at,
+                        p.expired_at,
+                        p.metadata
+                     FROM payments p
+                     WHERE p.tenant_id = $1::uuid
+                     ORDER BY p.created_at DESC
+                     LIMIT 1`,
+                    [tenantId],
+                );
+
+            const paymentRow = paymentRows?.[0];
+            if (paymentRow) {
+                result.correlation.payment = {
+                    id: paymentRow.id,
+                    tenantId: paymentRow.tenant_id,
+                    tabId: paymentRow.tab_id || null,
+                    paymentType: paymentRow.payment_type || null,
+                    amount: Number(paymentRow.amount || 0),
+                    status: paymentRow.status || null,
+                    pixTxid: paymentRow.pix_txid || null,
+                    externalReference: paymentRow.external_reference || null,
+                    metadata: this.parseJsonRecord(paymentRow.metadata),
+                    createdAt: paymentRow.created_at,
+                    paidAt: paymentRow.paid_at || null,
+                    expiredAt: paymentRow.expired_at || null,
+                };
+            }
+        }
+
+        if (hasPaymentAttempts && (paymentId || tenantId || result.correlation.payment?.id)) {
+            const resolvedPaymentId = paymentId || result.correlation.payment?.id || null;
+            const rows = resolvedPaymentId
+                ? await this.dataSource.query(
+                    `SELECT
+                        pa.id,
+                        pa.payment_id,
+                        pa.status,
+                        pa.provider,
+                        pa.payment_method,
+                        pa.provider_payment_id,
+                        pa.provider_status,
+                        pa.provider_status_detail,
+                        pa.last_error,
+                        pa.requested_amount,
+                        pa.external_reference,
+                        pa.reconciled_at,
+                        pa.settled_at,
+                        pa.created_at,
+                        pa.updated_at
+                     FROM payment_attempts pa
+                     WHERE pa.payment_id = $1::uuid
+                     ORDER BY pa.created_at DESC
+                     LIMIT 10`,
+                    [resolvedPaymentId],
+                )
+                : await this.dataSource.query(
+                    `SELECT
+                        pa.id,
+                        pa.payment_id,
+                        pa.status,
+                        pa.provider,
+                        pa.payment_method,
+                        pa.provider_payment_id,
+                        pa.provider_status,
+                        pa.provider_status_detail,
+                        pa.last_error,
+                        pa.requested_amount,
+                        pa.external_reference,
+                        pa.reconciled_at,
+                        pa.settled_at,
+                        pa.created_at,
+                        pa.updated_at
+                     FROM payment_attempts pa
+                     WHERE pa.tenant_id = $1::uuid
+                     ORDER BY pa.created_at DESC
+                     LIMIT 10`,
+                    [tenantId],
+                );
+
+            result.correlation.paymentAttempts = (rows || []).map((row: any) => ({
+                id: row.id,
+                paymentId: row.payment_id,
+                status: row.status,
+                provider: row.provider,
+                paymentMethod: row.payment_method,
+                providerPaymentId: row.provider_payment_id || null,
+                providerStatus: row.provider_status || null,
+                providerStatusDetail: row.provider_status_detail || null,
+                lastError: row.last_error || null,
+                requestedAmount: Number(row.requested_amount || 0),
+                externalReference: row.external_reference || null,
+                reconciledAt: row.reconciled_at || null,
+                settledAt: row.settled_at || null,
+                createdAt: row.created_at,
+                updatedAt: row.updated_at,
+            }));
+        }
+
+        if (tenantId) {
+            const incidents = await this.listReliabilityIncidents(100);
+            result.correlation.recentIncidents = (incidents.incidents || [])
+                .filter((item: any) => item.tenantId === tenantId)
+                .slice(0, 10);
+        }
+
+        return result;
+    }
+
+    async retryOutboxMessage(outboxId: string, actor: SuperAdminActorContext) {
+        if (!await this.hasOutboxMessagesTable()) {
+            throw new NotFoundException('Tabela de outbox não disponível neste ambiente.');
+        }
+
+        const normalizedId = this.normalizeUuid(outboxId);
+        if (!normalizedId) {
+            throw new BadRequestException('ID de outbox inválido.');
+        }
+
+        const rows = await this.dataSource.query(
+            `SELECT
+                om.id,
+                om.tenant_id,
+                om.destination,
+                om.recipient,
+                om.sent,
+                om.attempts,
+                om.max_attempts,
+                om.last_error,
+                om.created_at,
+                om.next_retry_at,
+                t.name AS tenant_name
+             FROM outbox_messages om
+             LEFT JOIN tenants t ON t.id = om.tenant_id
+             WHERE om.id = $1::uuid
+             LIMIT 1`,
+            [normalizedId],
+        );
+        const existing = rows?.[0];
+        if (!existing) {
+            throw new NotFoundException('Mensagem de outbox não encontrada.');
+        }
+        if (existing.sent) {
+            throw new BadRequestException('A mensagem já foi enviada e não precisa de retentativa.');
+        }
+
+        await this.dataSource.query(
+            `UPDATE outbox_messages
+             SET sent = FALSE,
+                 sent_at = NULL,
+                 next_retry_at = NOW(),
+                 attempts = CASE
+                     WHEN attempts >= GREATEST(max_attempts, 1)
+                         THEN GREATEST(GREATEST(max_attempts, 1) - 1, 0)
+                     ELSE attempts
+                 END
+             WHERE id = $1::uuid`,
+            [normalizedId],
+        );
+        const refreshedRows = await this.dataSource.query(
+            `SELECT
+                om.id,
+                om.tenant_id,
+                om.destination,
+                om.recipient,
+                om.sent,
+                om.attempts,
+                om.max_attempts,
+                om.last_error,
+                om.created_at,
+                om.next_retry_at,
+                om.sent_at,
+                t.name AS tenant_name
+             FROM outbox_messages om
+             LEFT JOIN tenants t ON t.id = om.tenant_id
+             WHERE om.id = $1::uuid
+             LIMIT 1`,
+            [normalizedId],
+        );
+        const updated = refreshedRows?.[0];
+
+        await this.recordAuditLog({
+            action: 'SUPPORT_OUTBOX_RETRY_REQUESTED',
+            entityType: 'OUTBOX_MESSAGE',
+            entityId: updated.id,
+            tenantId: updated.tenant_id || null,
+            actor,
+            details: {
+                summary: `Retentativa manual solicitada para outbox ${updated.id} (${existing.destination} -> ${existing.recipient}).`,
+                previous_attempts: Number(existing.attempts || 0),
+                previous_max_attempts: Number(existing.max_attempts || 0),
+                previous_error: existing.last_error || null,
+            },
+        });
+
+        return {
+            retried: true,
+            outbox: {
+                id: updated.id,
+                tenantId: updated.tenant_id || null,
+                tenantName: updated.tenant_name || existing.tenant_name || null,
+                destination: updated.destination,
+                recipient: updated.recipient,
+                sent: !!updated.sent,
+                attempts: Number(updated.attempts || 0),
+                maxAttempts: Number(updated.max_attempts || 0),
+                lastError: updated.last_error || null,
+                nextRetryAt: updated.next_retry_at,
+                sentAt: updated.sent_at || null,
+                createdAt: updated.created_at,
+            },
         };
     }
 
@@ -2015,6 +2712,120 @@ export class SuperAdminService {
         ));
     }
 
+    private async countReliabilityImpactedTenants(input: {
+        hasInboxEvents: boolean;
+        hasOutboxMessages: boolean;
+        hasPaymentAttempts: boolean;
+    }) {
+        const unions: string[] = [];
+        if (input.hasInboxEvents) {
+            unions.push(`
+                SELECT ie.tenant_id
+                FROM inbox_events ie
+                WHERE ie.processing_error IS NOT NULL
+            `);
+        }
+        if (input.hasOutboxMessages) {
+            unions.push(`
+                SELECT om.tenant_id
+                FROM outbox_messages om
+                WHERE om.sent = FALSE
+                  AND (
+                      om.attempts >= GREATEST(om.max_attempts, 1)
+                      OR COALESCE(om.next_retry_at, om.created_at) <= NOW() - INTERVAL '30 minutes'
+                  )
+            `);
+        }
+        if (input.hasPaymentAttempts) {
+            unions.push(`
+                SELECT pa.tenant_id
+                FROM payment_attempts pa
+                WHERE pa.status IN ('ERROR', 'REJECTED', 'EXPIRED')
+                   OR (
+                        pa.status IN ('CREATED', 'PROCESSING', 'UNKNOWN', 'PENDING')
+                        AND pa.reconciled_at IS NULL
+                        AND pa.created_at <= NOW() - INTERVAL '30 minutes'
+                   )
+            `);
+        }
+
+        if (!unions.length) {
+            return 0;
+        }
+
+        const rows = await this.dataSource.query(
+            `SELECT COUNT(DISTINCT tenant_id)::int AS total
+             FROM (
+                ${unions.join('\nUNION ALL\n')}
+             ) incidents
+             WHERE tenant_id IS NOT NULL`,
+        );
+        return Number(rows?.[0]?.total || 0);
+    }
+
+    private async listReliabilityTopTenants(input: {
+        hasInboxEvents: boolean;
+        hasOutboxMessages: boolean;
+        hasPaymentAttempts: boolean;
+    }) {
+        const unions: string[] = [];
+        if (input.hasInboxEvents) {
+            unions.push(`
+                SELECT ie.tenant_id
+                FROM inbox_events ie
+                WHERE ie.processing_error IS NOT NULL
+            `);
+        }
+        if (input.hasOutboxMessages) {
+            unions.push(`
+                SELECT om.tenant_id
+                FROM outbox_messages om
+                WHERE om.sent = FALSE
+                  AND (
+                      om.attempts >= GREATEST(om.max_attempts, 1)
+                      OR COALESCE(om.next_retry_at, om.created_at) <= NOW() - INTERVAL '30 minutes'
+                  )
+            `);
+        }
+        if (input.hasPaymentAttempts) {
+            unions.push(`
+                SELECT pa.tenant_id
+                FROM payment_attempts pa
+                WHERE pa.status IN ('ERROR', 'REJECTED', 'EXPIRED')
+                   OR (
+                        pa.status IN ('CREATED', 'PROCESSING', 'UNKNOWN', 'PENDING')
+                        AND pa.reconciled_at IS NULL
+                        AND pa.created_at <= NOW() - INTERVAL '30 minutes'
+                   )
+            `);
+        }
+
+        if (!unions.length) {
+            return [];
+        }
+
+        const rows = await this.dataSource.query(
+            `SELECT
+                i.tenant_id,
+                t.name AS tenant_name,
+                COUNT(*)::int AS incident_count
+             FROM (
+                ${unions.join('\nUNION ALL\n')}
+             ) i
+             JOIN tenants t ON t.id = i.tenant_id
+             WHERE i.tenant_id IS NOT NULL
+             GROUP BY i.tenant_id, t.name
+             ORDER BY incident_count DESC, t.name ASC
+             LIMIT 8`,
+        );
+
+        return (rows || []).map((row: any) => ({
+            tenantId: row.tenant_id,
+            tenantName: row.tenant_name,
+            incidentCount: Number(row.incident_count || 0),
+        }));
+    }
+
     private base64UrlEncode(value: string) {
         return this.base64UrlEncodeBytes(Buffer.from(value, 'utf8'));
     }
@@ -2121,6 +2932,17 @@ export class SuperAdminService {
         const normalized = String(value || '').trim();
         if (!normalized) return null;
         return normalized.slice(0, maxLength);
+    }
+
+    private normalizeUuid(value: unknown) {
+        const normalized = String(value || '').trim().toLowerCase();
+        if (!normalized) {
+            return null;
+        }
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(normalized)) {
+            return null;
+        }
+        return normalized;
     }
 
     private async getWebhookUrl(): Promise<string> {
