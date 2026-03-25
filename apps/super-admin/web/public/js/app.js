@@ -1,6 +1,6 @@
 // Super Admin - Application Logic
 
-if (sessionStorage.getItem('super_admin_authenticated') !== 'true') {
+if (!sessionStorage.getItem('super_admin_access_token')) {
     window.location.href = '/login';
 }
 
@@ -8,6 +8,7 @@ const state = {
     activePage: 'dashboard',
     tenants: [],
     operationsOverview: null,
+    session: null,
 };
 
 function resolveApiBase() {
@@ -26,10 +27,8 @@ const API_BASE = resolveApiBase();
 
 function getRequestHeaders() {
     const headers = { 'Content-Type': 'application/json' };
-    const key = (localStorage.getItem('clickgarcom_super_admin_key') || '').trim();
-    if (key) headers['x-super-admin-key'] = key;
-    const operator = (sessionStorage.getItem('super_admin_operator_name') || 'admin').trim();
-    if (operator) headers['x-super-admin-operator'] = operator;
+    const token = (sessionStorage.getItem('super_admin_access_token') || '').trim();
+    if (token) headers.Authorization = `Bearer ${token}`;
     return headers;
 }
 
@@ -49,6 +48,10 @@ async function request(path, options = {}) {
         const message = typeof body === 'string'
             ? body
             : body.message || body.error || `Erro HTTP ${response.status}`;
+        if (response.status === 401 && path !== '/auth/login') {
+            clearSession();
+            window.location.href = '/login';
+        }
         throw new Error(message);
     }
 
@@ -56,6 +59,14 @@ async function request(path, options = {}) {
 }
 
 const api = {
+    getSessionProfile() {
+        return request('/auth/me');
+    },
+    logout() {
+        return request('/auth/logout', {
+            method: 'POST',
+        });
+    },
     getMetrics() {
         return request('/metrics');
     },
@@ -67,6 +78,9 @@ const api = {
     },
     getAuditLogs(limit = 20) {
         return request(`/audit-logs?limit=${encodeURIComponent(String(limit))}`);
+    },
+    getAccessLogs(limit = 20) {
+        return request(`/access-logs?limit=${encodeURIComponent(String(limit))}`);
     },
     createTenant(payload) {
         return request('/tenants', {
@@ -94,6 +108,11 @@ const api = {
     },
 };
 
+function clearSession() {
+    sessionStorage.removeItem('super_admin_access_token');
+    sessionStorage.removeItem('super_admin_operator_name');
+}
+
 function escapeHtml(value) {
     return String(value ?? '')
         .replace(/&/g, '&amp;')
@@ -116,6 +135,24 @@ function formatCurrency(value) {
         style: 'currency',
         currency: 'BRL',
     });
+}
+
+function formatPercent(value) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return '-';
+    return `${numeric.toLocaleString('pt-BR', {
+        minimumFractionDigits: 1,
+        maximumFractionDigits: 1,
+    })}%`;
+}
+
+function formatMinutes(value) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return '-';
+    return `${numeric.toLocaleString('pt-BR', {
+        minimumFractionDigits: 1,
+        maximumFractionDigits: 1,
+    })} min`;
 }
 
 function formatDateTime(value) {
@@ -148,9 +185,35 @@ function formatAuditAction(action) {
     return key || 'Ação';
 }
 
+function formatAccessEvent(eventType) {
+    const key = String(eventType || '').trim().toUpperCase();
+    if (key === 'LOGIN_SUCCESS') return 'Login ok';
+    if (key === 'LOGIN_FAILURE') return 'Login falhou';
+    if (key === 'TOKEN_REJECTED') return 'Token rejeitado';
+    if (key === 'IP_BLOCKED') return 'IP bloqueado';
+    if (key === 'LOGOUT') return 'Logout';
+    return key || 'Acesso';
+}
+
 function summarizeAuditDetails(details) {
     const summary = String(details?.summary || '').trim();
     if (summary) return summary.length > 180 ? `${summary.slice(0, 177)}...` : summary;
+    try {
+        const raw = JSON.stringify(details || {});
+        return raw.length > 180 ? `${raw.slice(0, 177)}...` : raw;
+    } catch (_error) {
+        return '-';
+    }
+}
+
+function summarizeAccessDetails(details) {
+    const reason = String(details?.reason || '').trim();
+    const expiresAt = String(details?.expires_at || '').trim();
+    if (reason && expiresAt) {
+        return `${reason} · expira ${formatDateTime(expiresAt)}`;
+    }
+    if (reason) return reason;
+    if (expiresAt) return `Expira ${formatDateTime(expiresAt)}`;
     try {
         const raw = JSON.stringify(details || {});
         return raw.length > 180 ? `${raw.slice(0, 177)}...` : raw;
@@ -332,9 +395,14 @@ function renderOperationsSignals(tenant) {
         `Webhook 24h: ${formatNumber(operations.inboxEvents24h)}`,
         `Inbox pend.: ${formatNumber(operations.pendingInbox)}`,
         `Inbox erro: ${formatNumber(operations.failedInbox24h)}`,
+        `Pedidos 7d: ${formatNumber(operations.orders7d)}`,
+        `Fila atrasada: ${formatNumber(operations.delayedQueueOrders)}`,
+        `Aceite médio: ${formatMinutes(operations.avgAcceptanceMinutes7d)}`,
+        `Cancelamento: ${formatPercent(operations.cancelRate7d)}`,
         `Outbox pend.: ${formatNumber(operations.pendingOutbox)}`,
         `Outbox falha: ${formatNumber(operations.failedOutbox)}`,
-        `Pagamentos: ${formatNumber(operations.pendingPayments)}`,
+        `Pagamentos pend.: ${formatNumber(operations.pendingPayments)}`,
+        `Conversão pgto: ${formatPercent(operations.paymentConversionRate7d)}`,
     ];
 
     if (operations.daysOfBalance !== null && operations.daysOfBalance !== undefined && Number.isFinite(Number(operations.daysOfBalance))) {
@@ -347,7 +415,7 @@ function renderOperationsSignals(tenant) {
                 ${signalTags.map((item) => `<span class="sub-metric">${escapeHtml(item)}</span>`).join('')}
             </div>
             <div class="muted-xs">
-                Últ. inbox: ${escapeHtml(formatDateTime(operations.lastInboxReceivedAt))} · Últ. erro inbox: ${escapeHtml(formatDateTime(operations.lastInboxFailedAt))} · Últ. outbox: ${escapeHtml(formatDateTime(operations.lastOutboxSentAt))} · Últ. pagamento: ${escapeHtml(formatDateTime(operations.lastPaymentAttemptAt))}
+                Últ. pedido: ${escapeHtml(formatDateTime(operations.lastOrderCreatedAt))} · Últ. inbox: ${escapeHtml(formatDateTime(operations.lastInboxReceivedAt))} · Últ. erro inbox: ${escapeHtml(formatDateTime(operations.lastInboxFailedAt))} · Últ. outbox: ${escapeHtml(formatDateTime(operations.lastOutboxSentAt))} · Últ. pagamento: ${escapeHtml(formatDateTime(operations.lastPaymentCreatedAt || operations.lastPaymentAttemptAt))}
             </div>
         </div>
     `;
@@ -357,9 +425,11 @@ async function loadOperations() {
     try {
         setTableLoading('#operations-table tbody', 5, 'Carregando visão operacional...');
         setTableLoading('#operations-audit-table tbody', 5, 'Carregando trilha de ações...');
-        const [overview, auditPayload] = await Promise.all([
+        setTableLoading('#operations-access-table tbody', 5, 'Carregando logs de acesso...');
+        const [overview, auditPayload, accessPayload] = await Promise.all([
             api.getOperationsOverview(),
             api.getAuditLogs(20),
+            api.getAccessLogs(20),
         ]);
         state.operationsOverview = overview;
 
@@ -370,78 +440,106 @@ async function loadOperations() {
         document.getElementById('ops-balance').textContent = formatNumber(summary.lowBalanceTenants || 0);
         document.getElementById('ops-queue').textContent = formatNumber(summary.webhookQueueTenants || 0);
         document.getElementById('ops-webhook').textContent = formatNumber(summary.webhookSilentTenants || 0);
+        document.getElementById('ops-webhook-failure').textContent = formatNumber(summary.webhookFailureTenants || 0);
+        document.getElementById('ops-delay').textContent = formatNumber(summary.delayedQueueTenants || 0);
+        document.getElementById('ops-cancel').textContent = formatNumber(summary.highCancellationTenants || 0);
+        document.getElementById('ops-conversion').textContent = formatNumber(summary.lowPaymentConversionTenants || 0);
         document.getElementById('ops-generated-at').textContent = formatDateTime(overview?.generatedAt);
         document.getElementById('ops-audit-status').textContent = auditPayload?.available === false
             ? 'Auditoria aguardando migration'
             : `Últimas ${formatNumber((auditPayload?.logs || []).length)} ações`;
+        document.getElementById('ops-access-status').textContent = accessPayload?.available === false
+            ? 'Log de acesso aguardando migration'
+            : `Últimos ${formatNumber((accessPayload?.logs || []).length)} eventos de autenticação`;
 
         const tenants = Array.isArray(overview?.tenants) ? overview.tenants : [];
         const tbody = document.querySelector('#operations-table tbody');
         if (!tenants.length) {
             tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted)">Nenhum tenant encontrado.</td></tr>';
-            return;
+        } else {
+            tbody.innerHTML = tenants.map((tenant) => `
+                <tr>
+                    <td>
+                        <div class="cell-stack">
+                            <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                                <strong>${escapeHtml(tenant.name)}</strong>
+                                <span class="badge ${tenant.active ? 'active' : 'paused'}">${tenant.active ? 'Ativo' : 'Pausado'}</span>
+                                <span class="badge info">${escapeHtml(tenant.billingPlan === 'pre_paid' ? 'Pré-pago' : 'Pós-pago')}</span>
+                            </div>
+                            <div class="muted-xs">
+                                ${escapeHtml(tenant.adminEmail || 'Sem admin principal')} · ${escapeHtml(tenant.whatsappNumber || 'Sem WhatsApp')} · Criado em ${escapeHtml(formatDateTime(tenant.createdAt))}
+                            </div>
+                        </div>
+                    </td>
+                    <td>
+                        <div class="cell-stack">
+                            <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                                <span class="badge ${getHealthBadgeClass(tenant.healthStatus)}">${escapeHtml(getHealthStatusLabel(tenant.healthStatus))}</span>
+                                <strong>${escapeHtml(String(tenant.healthScore || 0))}/100</strong>
+                            </div>
+                            <div class="progress-track"><div class="progress-bar" style="width:${Math.max(0, Math.min(100, Number(tenant.healthScore || 0)))}%"></div></div>
+                        </div>
+                    </td>
+                    <td>${renderOperationsChecklist(tenant.onboarding)}</td>
+                    <td>${renderOperationsRisks(tenant.riskFlags)}</td>
+                    <td>
+                        <div class="cell-stack">
+                            <div><strong>${escapeHtml(formatCurrency(tenant.walletBalance))}</strong></div>
+                            <div class="muted-xs">Preço msg: ${escapeHtml(formatCurrency(tenant.messagePrice))}</div>
+                            ${renderOperationsSignals(tenant)}
+                        </div>
+                    </td>
+                </tr>
+            `).join('');
         }
-
-        tbody.innerHTML = tenants.map((tenant) => `
-            <tr>
-                <td>
-                    <div class="cell-stack">
-                        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-                            <strong>${escapeHtml(tenant.name)}</strong>
-                            <span class="badge ${tenant.active ? 'active' : 'paused'}">${tenant.active ? 'Ativo' : 'Pausado'}</span>
-                            <span class="badge info">${escapeHtml(tenant.billingPlan === 'pre_paid' ? 'Pré-pago' : 'Pós-pago')}</span>
-                        </div>
-                        <div class="muted-xs">
-                            ${escapeHtml(tenant.adminEmail || 'Sem admin principal')} · ${escapeHtml(tenant.whatsappNumber || 'Sem WhatsApp')} · Criado em ${escapeHtml(formatDateTime(tenant.createdAt))}
-                        </div>
-                    </div>
-                </td>
-                <td>
-                    <div class="cell-stack">
-                        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-                            <span class="badge ${getHealthBadgeClass(tenant.healthStatus)}">${escapeHtml(getHealthStatusLabel(tenant.healthStatus))}</span>
-                            <strong>${escapeHtml(String(tenant.healthScore || 0))}/100</strong>
-                        </div>
-                        <div class="progress-track"><div class="progress-bar" style="width:${Math.max(0, Math.min(100, Number(tenant.healthScore || 0)))}%"></div></div>
-                    </div>
-                </td>
-                <td>${renderOperationsChecklist(tenant.onboarding)}</td>
-                <td>${renderOperationsRisks(tenant.riskFlags)}</td>
-                <td>
-                    <div class="cell-stack">
-                        <div><strong>${escapeHtml(formatCurrency(tenant.walletBalance))}</strong></div>
-                        <div class="muted-xs">Preço msg: ${escapeHtml(formatCurrency(tenant.messagePrice))}</div>
-                        ${renderOperationsSignals(tenant)}
-                    </div>
-                </td>
-            </tr>
-        `).join('');
 
         const auditLogs = Array.isArray(auditPayload?.logs) ? auditPayload.logs : [];
         const auditTbody = document.querySelector('#operations-audit-table tbody');
         if (!auditLogs.length) {
             auditTbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--text-muted)">${escapeHtml(auditPayload?.available === false ? 'Tabela de auditoria ainda não existe no banco local.' : 'Nenhuma ação registrada ainda.')}</td></tr>`;
+        } else {
+            auditTbody.innerHTML = auditLogs.map((log) => `
+                <tr>
+                    <td>${escapeHtml(formatDateTime(log.createdAt))}</td>
+                    <td>
+                        <div class="cell-stack">
+                            <strong>${escapeHtml(log.operatorName || 'Operador não identificado')}</strong>
+                            <div class="muted-xs">${escapeHtml(log.sourceIp || '-')} · sessão ${escapeHtml(log.operatorKeyFingerprint || '-')}</div>
+                        </div>
+                    </td>
+                    <td><span class="badge info">${escapeHtml(formatAuditAction(log.action))}</span></td>
+                    <td>${escapeHtml(log.tenantName || log.tenantId || '-')}</td>
+                    <td>${escapeHtml(summarizeAuditDetails(log.details))}</td>
+                </tr>
+            `).join('');
+        }
+
+        const accessLogs = Array.isArray(accessPayload?.logs) ? accessPayload.logs : [];
+        const accessTbody = document.querySelector('#operations-access-table tbody');
+        if (!accessLogs.length) {
+            accessTbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--text-muted)">${escapeHtml(accessPayload?.available === false ? 'Tabela de acesso ainda não existe no banco local.' : 'Nenhum evento de autenticação registrado ainda.')}</td></tr>`;
             return;
         }
 
-        auditTbody.innerHTML = auditLogs.map((log) => `
+        accessTbody.innerHTML = accessLogs.map((log) => `
             <tr>
                 <td>${escapeHtml(formatDateTime(log.createdAt))}</td>
+                <td><span class="badge ${log.success ? 'active' : 'critical'}">${escapeHtml(formatAccessEvent(log.eventType))}</span></td>
+                <td>${escapeHtml(log.operatorName || 'Operador não identificado')}</td>
                 <td>
                     <div class="cell-stack">
-                        <strong>${escapeHtml(log.operatorName || 'Operador não identificado')}</strong>
-                        <div class="muted-xs">${escapeHtml(log.sourceIp || '-')} · chave ${escapeHtml(log.operatorKeyFingerprint || '-')}</div>
+                        <strong>${escapeHtml(log.authMethod || '-')}</strong>
+                        <div class="muted-xs">${escapeHtml(log.sourceIp || '-')}</div>
                     </div>
                 </td>
-                <td><span class="badge info">${escapeHtml(formatAuditAction(log.action))}</span></td>
-                <td>${escapeHtml(log.tenantName || log.tenantId || '-')}</td>
-                <td>${escapeHtml(summarizeAuditDetails(log.details))}</td>
+                <td>${escapeHtml(summarizeAccessDetails(log.details))}</td>
             </tr>
         `).join('');
     } catch (error) {
         console.error(error);
         setTableLoading('#operations-table tbody', 5, `Falha ao carregar visão operacional: ${error.message}`);
         setTableLoading('#operations-audit-table tbody', 5, `Falha ao carregar auditoria: ${error.message}`);
+        setTableLoading('#operations-access-table tbody', 5, `Falha ao carregar acessos: ${error.message}`);
     }
 }
 
@@ -586,12 +684,30 @@ async function saveWallet(event) {
     }
 }
 
-function logout() {
-    sessionStorage.removeItem('super_admin_authenticated');
-    sessionStorage.removeItem('super_admin_operator_name');
+async function logout() {
+    try {
+        await api.logout();
+    } catch (_error) {
+        // The client still clears the local session if the token is already invalid.
+    }
+    clearSession();
     window.location.href = '/login';
 }
 
+async function bootstrap() {
+    try {
+        state.session = await api.getSessionProfile();
+        if (state.session?.operatorName) {
+            sessionStorage.setItem('super_admin_operator_name', state.session.operatorName);
+        }
+        navigate('dashboard');
+    } catch (error) {
+        console.error(error);
+        clearSession();
+        window.location.href = '/login';
+    }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
-    navigate('dashboard');
+    bootstrap();
 });

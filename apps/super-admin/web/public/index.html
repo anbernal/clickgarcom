@@ -139,7 +139,7 @@
         <!-- OPERATIONS -->
         <div id="page-operations" class="page" style="display:none">
             <h1 class="page-title">Monitoramento Operacional</h1>
-            <p class="page-sub">Health score, checklist de onboarding e sinais de risco por tenant</p>
+            <p class="page-sub">Health score, checklist, fila, cancelamento e conversão por tenant</p>
 
             <div class="dashboard-grid">
                 <div class="card" style="border-top:4px solid var(--danger)">
@@ -172,6 +172,26 @@
                     <div class="stat-value" id="ops-webhook">0</div>
                     <div class="stat-trend">Sem eventos recentes na inbox</div>
                 </div>
+                <div class="card">
+                    <div class="stat-title">Webhook com Falha</div>
+                    <div class="stat-value" id="ops-webhook-failure">0</div>
+                    <div class="stat-trend">Erro explícito de processamento</div>
+                </div>
+                <div class="card">
+                    <div class="stat-title">Fila Atrasada</div>
+                    <div class="stat-value" id="ops-delay">0</div>
+                    <div class="stat-trend">Tenants com pedidos acima do SLA</div>
+                </div>
+                <div class="card">
+                    <div class="stat-title">Cancelamento Alto</div>
+                    <div class="stat-value" id="ops-cancel">0</div>
+                    <div class="stat-trend">Taxa recente acima do esperado</div>
+                </div>
+                <div class="card">
+                    <div class="stat-title">Conversão Baixa</div>
+                    <div class="stat-value" id="ops-conversion">0</div>
+                    <div class="stat-trend">Cobranças com baixa confirmação</div>
+                </div>
             </div>
 
             <div class="card">
@@ -188,7 +208,7 @@
                             <th>Health</th>
                             <th>Checklist</th>
                             <th>Alertas</th>
-                            <th>Atividade & Financeiro</th>
+                            <th>Atividade, Fila & Conversão</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -219,6 +239,31 @@
                     <tbody>
                         <tr>
                             <td colspan="5" style="text-align:center; color:var(--text-muted)">Carregando trilha de ações...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="card">
+                <div class="flex-between" style="margin-bottom:20px; gap:16px; flex-wrap:wrap;">
+                    <div>
+                        <h3 style="margin-bottom:6px">Acesso & Autenticação</h3>
+                        <p class="page-sub" style="margin-bottom:0"><span id="ops-access-status">Carregando acessos...</span></p>
+                    </div>
+                </div>
+                <table id="operations-access-table">
+                    <thead>
+                        <tr>
+                            <th>Quando</th>
+                            <th>Resultado</th>
+                            <th>Operador</th>
+                            <th>Método / IP</th>
+                            <th>Detalhes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td colspan="5" style="text-align:center; color:var(--text-muted)">Carregando logs de acesso...</td>
                         </tr>
                     </tbody>
                 </table>

@@ -4,12 +4,13 @@ import {
     Injectable,
     Logger,
     NotFoundException,
+    UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import axios from 'axios';
-import { createHash } from 'crypto';
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'crypto';
 import { Tenant, TenantSettings } from '../../entities/tenant.entity';
 import { User } from '../../entities/user.entity';
 
@@ -24,18 +25,32 @@ type TenantPayload = {
     admin_password?: string;
 };
 
-type SuperAdminActorPayload = {
-    receivedKey?: string;
-    operatorName?: string;
+type SuperAdminLoginPayload = {
+    operator?: string;
+    password?: string;
+};
+
+type SuperAdminRequestContext = {
+    authorization?: string;
     sourceIp?: string;
     userAgent?: string;
+    sensitiveOperation?: boolean;
 };
 
 type SuperAdminActorContext = {
+    sessionId: string | null;
     operatorName: string | null;
     keyFingerprint: string | null;
     sourceIp: string | null;
     userAgent: string | null;
+    sessionExpiresAt: string | null;
+};
+
+type SuperAdminSessionTokenPayload = {
+    sid: string;
+    op: string;
+    iat: number;
+    exp: number;
 };
 
 @Injectable()
@@ -50,12 +65,180 @@ export class SuperAdminService {
         private readonly dataSource: DataSource,
     ) { }
 
-    assertAccess(receivedKey?: string) {
-        const configured = (process.env.SUPER_ADMIN_KEY || '').trim();
-        if (!configured) return;
-        if ((receivedKey || '').trim() !== configured) {
-            throw new ForbiddenException('Acesso Super Admin negado.');
+    async login(payload: SuperAdminLoginPayload, requestContext?: SuperAdminRequestContext) {
+        const operatorName = this.normalizeOptionalText(payload.operator, 120);
+        const password = String(payload.password || '');
+        const sourceIp = this.normalizeSourceIp(requestContext?.sourceIp);
+        const userAgent = this.normalizeOptionalText(requestContext?.userAgent, 1000);
+
+        if (!operatorName || !password) {
+            await this.recordAccessLog({
+                eventType: 'LOGIN_FAILURE',
+                success: false,
+                operatorName,
+                sourceIp,
+                userAgent,
+                authMethod: 'password',
+                details: {
+                    reason: 'missing_credentials',
+                },
+            });
+            throw new BadRequestException('Informe operador e senha.');
         }
+
+        const isPasswordValid = await this.verifySuperAdminPassword(password);
+        if (!isPasswordValid) {
+            await this.recordAccessLog({
+                eventType: 'LOGIN_FAILURE',
+                success: false,
+                operatorName,
+                sourceIp,
+                userAgent,
+                authMethod: 'password',
+                details: {
+                    reason: 'invalid_password',
+                },
+            });
+            throw new UnauthorizedException('Credenciais inválidas.');
+        }
+
+        const session = await this.createSession(operatorName, sourceIp, userAgent);
+        const token = this.signSessionToken({
+            sid: session.id,
+            op: operatorName,
+            iat: Math.floor(Date.now() / 1000),
+            exp: Math.floor(new Date(session.expires_at).getTime() / 1000),
+        });
+
+        await this.recordAccessLog({
+            eventType: 'LOGIN_SUCCESS',
+            success: true,
+            operatorName,
+            sessionId: session.id,
+            sourceIp,
+            userAgent,
+            authMethod: 'password',
+            details: {
+                expires_at: session.expires_at,
+            },
+        });
+
+        return {
+            accessToken: token,
+            session: {
+                operatorName,
+                expiresAt: session.expires_at,
+                issuedAt: session.issued_at,
+            },
+        };
+    }
+
+    async requireAuthenticatedSession(requestContext?: SuperAdminRequestContext): Promise<SuperAdminActorContext> {
+        const sourceIp = this.normalizeSourceIp(requestContext?.sourceIp);
+        const userAgent = this.normalizeOptionalText(requestContext?.userAgent, 1000);
+        const token = this.parseBearerToken(requestContext?.authorization);
+
+        if (!token) {
+            await this.recordAccessLog({
+                eventType: 'TOKEN_REJECTED',
+                success: false,
+                sourceIp,
+                userAgent,
+                authMethod: 'bearer',
+                details: {
+                    reason: 'missing_bearer_token',
+                },
+            });
+            throw new UnauthorizedException('Sessão do super-admin ausente.');
+        }
+
+        let decoded: SuperAdminSessionTokenPayload;
+        try {
+            decoded = this.verifySessionToken(token);
+        } catch (error) {
+            await this.recordAccessLog({
+                eventType: 'TOKEN_REJECTED',
+                success: false,
+                sourceIp,
+                userAgent,
+                authMethod: 'bearer',
+                details: {
+                    reason: (error as Error).message || 'invalid_token',
+                },
+            });
+            throw new UnauthorizedException('Sessão do super-admin inválida ou expirada.');
+        }
+
+        const session = await this.getSessionById(decoded.sid);
+        if (!session || session.revoked_at || new Date(session.expires_at).getTime() <= Date.now()) {
+            await this.recordAccessLog({
+                eventType: 'TOKEN_REJECTED',
+                success: false,
+                operatorName: decoded.op,
+                sessionId: decoded.sid,
+                sourceIp,
+                userAgent,
+                authMethod: 'bearer',
+                details: {
+                    reason: session?.revoked_at ? 'session_revoked' : 'session_expired',
+                },
+            });
+            throw new UnauthorizedException('Sessão do super-admin inválida ou expirada.');
+        }
+
+        if (requestContext?.sensitiveOperation) {
+            await this.assertSensitiveIpAllowed(sourceIp, decoded.op);
+        }
+
+        await this.touchSession(session.id);
+
+        return {
+            sessionId: session.id,
+            operatorName: decoded.op,
+            keyFingerprint: createHash('sha256').update(token).digest('hex').slice(0, 12),
+            sourceIp,
+            userAgent,
+            sessionExpiresAt: new Date(session.expires_at).toISOString(),
+        };
+    }
+
+    getSessionProfile(actor: SuperAdminActorContext) {
+        return {
+            operatorName: actor.operatorName,
+            sessionId: actor.sessionId,
+            sessionExpiresAt: actor.sessionExpiresAt,
+            ipAllowlistEnabled: this.getSensitiveIpAllowlist().length > 0,
+        };
+    }
+
+    async logoutSession(actor: SuperAdminActorContext) {
+        if (actor.sessionId) {
+            await this.dataSource.query(
+                `UPDATE super_admin_sessions
+                 SET revoked_at = NOW(),
+                     revoked_reason = COALESCE(revoked_reason, 'logout')
+                 WHERE id = $1
+                   AND revoked_at IS NULL`,
+                [actor.sessionId],
+            );
+        }
+
+        await this.recordAccessLog({
+            eventType: 'LOGOUT',
+            success: true,
+            operatorName: actor.operatorName,
+            sessionId: actor.sessionId,
+            sourceIp: actor.sourceIp,
+            userAgent: actor.userAgent,
+            authMethod: 'bearer',
+            details: {
+                reason: 'user_logout',
+            },
+        });
+
+        return {
+            loggedOut: true,
+        };
     }
 
     async getMetrics() {
@@ -212,11 +395,13 @@ export class SuperAdminService {
     }
 
     async getOperationsOverview() {
-        const [hasMessageLogs, hasOutboxMessages, hasPaymentAttempts, hasInboxEvents] = await Promise.all([
+        const [hasMessageLogs, hasOutboxMessages, hasPaymentAttempts, hasInboxEvents, hasOrders, hasPayments] = await Promise.all([
             this.hasMessageLogsTable(),
             this.hasOutboxMessagesTable(),
             this.hasPaymentAttemptsTable(),
             this.hasInboxEventsTable(),
+            this.hasOrdersTable(),
+            this.hasPaymentsTable(),
         ]);
 
         const messageSelect = hasMessageLogs
@@ -278,13 +463,47 @@ export class SuperAdminService {
                     COALESCE(pay.pending_payments, 0)::int AS pending_payments,
                     COALESCE(pay.stale_pending_payments, 0)::int AS stale_pending_payments,
                     COALESCE(pay.failed_payments_7d, 0)::int AS failed_payments_7d,
-                    pay.last_payment_attempt_at AS last_payment_attempt_at
+                    pay.last_payment_attempt_at AS last_payment_attempt_at,
             `
             : `
                     0::int AS pending_payments,
                     0::int AS stale_pending_payments,
                     0::int AS failed_payments_7d,
-                    NULL::timestamp AS last_payment_attempt_at
+                    NULL::timestamp AS last_payment_attempt_at,
+            `;
+
+        const orderSelect = hasOrders
+            ? `
+                    COALESCE(ord.orders_24h, 0)::int AS orders_24h,
+                    COALESCE(ord.orders_7d, 0)::int AS orders_7d,
+                    COALESCE(ord.active_orders, 0)::int AS active_orders,
+                    COALESCE(ord.delayed_queue_orders, 0)::int AS delayed_queue_orders,
+                    COALESCE(ord.canceled_orders_7d, 0)::int AS canceled_orders_7d,
+                    COALESCE(ord.avg_acceptance_minutes_7d, 0)::numeric(10,2) AS avg_acceptance_minutes_7d,
+                    ord.last_order_created_at AS last_order_created_at,
+            `
+            : `
+                    0::int AS orders_24h,
+                    0::int AS orders_7d,
+                    0::int AS active_orders,
+                    0::int AS delayed_queue_orders,
+                    0::int AS canceled_orders_7d,
+                    0::numeric(10,2) AS avg_acceptance_minutes_7d,
+                    NULL::timestamp AS last_order_created_at,
+            `;
+
+        const paymentBusinessSelect = hasPayments
+            ? `
+                    COALESCE(paybiz.payments_created_7d, 0)::int AS payments_created_7d,
+                    COALESCE(paybiz.payments_confirmed_7d, 0)::int AS payments_confirmed_7d,
+                    COALESCE(paybiz.payments_failed_7d, 0)::int AS payments_failed_7d,
+                    paybiz.last_payment_created_at AS last_payment_created_at
+            `
+            : `
+                    0::int AS payments_created_7d,
+                    0::int AS payments_confirmed_7d,
+                    0::int AS payments_failed_7d,
+                    NULL::timestamp AS last_payment_created_at
             `;
 
         const messageJoin = hasMessageLogs
@@ -380,6 +599,53 @@ export class SuperAdminService {
             `
             : '';
 
+        const orderJoin = hasOrders
+            ? `
+                LEFT JOIN LATERAL (
+                    SELECT
+                        COUNT(*) FILTER (WHERE o.created_at >= NOW() - INTERVAL '24 hours') AS orders_24h,
+                        COUNT(*) FILTER (WHERE o.created_at >= NOW() - INTERVAL '7 days') AS orders_7d,
+                        COUNT(*) FILTER (WHERE o.status IN ('PENDING', 'ACCEPTED', 'READY')) AS active_orders,
+                        COUNT(*) FILTER (
+                            WHERE (o.status = 'PENDING' AND o.created_at <= NOW() - INTERVAL '5 minutes')
+                               OR (o.status = 'ACCEPTED' AND COALESCE(o.accepted_at, o.created_at) <= NOW() - INTERVAL '20 minutes')
+                               OR (o.status = 'READY' AND COALESCE(o.ready_at, o.created_at) <= NOW() - INTERVAL '8 minutes')
+                        ) AS delayed_queue_orders,
+                        COUNT(*) FILTER (
+                            WHERE o.status = 'CANCELED'
+                              AND o.created_at >= NOW() - INTERVAL '7 days'
+                        ) AS canceled_orders_7d,
+                        AVG(EXTRACT(EPOCH FROM (o.accepted_at - o.created_at)) / 60.0) FILTER (
+                            WHERE o.accepted_at IS NOT NULL
+                              AND o.created_at >= NOW() - INTERVAL '7 days'
+                        ) AS avg_acceptance_minutes_7d,
+                        MAX(o.created_at) AS last_order_created_at
+                    FROM orders o
+                    WHERE o.tenant_id = t.id
+                ) ord ON true
+            `
+            : '';
+
+        const paymentBusinessJoin = hasPayments
+            ? `
+                LEFT JOIN LATERAL (
+                    SELECT
+                        COUNT(*) FILTER (WHERE p.created_at >= NOW() - INTERVAL '7 days') AS payments_created_7d,
+                        COUNT(*) FILTER (
+                            WHERE p.created_at >= NOW() - INTERVAL '7 days'
+                              AND p.status = 'CONFIRMED'
+                        ) AS payments_confirmed_7d,
+                        COUNT(*) FILTER (
+                            WHERE p.created_at >= NOW() - INTERVAL '7 days'
+                              AND p.status IN ('EXPIRED', 'CANCELED')
+                        ) AS payments_failed_7d,
+                        MAX(p.created_at) AS last_payment_created_at
+                    FROM payments p
+                    WHERE p.tenant_id = t.id
+                ) paybiz ON true
+            `
+            : '';
+
         const rows = await this.dataSource.query(
             `SELECT
                 t.id,
@@ -399,6 +665,8 @@ export class SuperAdminService {
                 ${inboxSelect}
                 ${outboxSelect}
                 ${paymentSelect}
+                ${orderSelect}
+                ${paymentBusinessSelect}
              FROM tenants t
              LEFT JOIN LATERAL (
                 SELECT u.email
@@ -411,6 +679,8 @@ export class SuperAdminService {
              ${inboxJoin}
              ${outboxJoin}
              ${paymentJoin}
+             ${orderJoin}
+             ${paymentBusinessJoin}
              ORDER BY t.active DESC, t.created_at DESC, t.name ASC`,
         );
 
@@ -458,6 +728,18 @@ export class SuperAdminService {
                 if (tenant.riskFlags.some((flag: any) => String(flag.code || '') === 'WEBHOOK_SILENCE')) {
                     acc.webhookSilentTenants += 1;
                 }
+                if (tenant.riskFlags.some((flag: any) => String(flag.code || '') === 'QUEUE_DELAYED')) {
+                    acc.delayedQueueTenants += 1;
+                }
+                if (tenant.riskFlags.some((flag: any) => String(flag.code || '') === 'HIGH_CANCELLATION_RATE')) {
+                    acc.highCancellationTenants += 1;
+                }
+                if (tenant.riskFlags.some((flag: any) => String(flag.code || '') === 'LOW_PAYMENT_CONVERSION')) {
+                    acc.lowPaymentConversionTenants += 1;
+                }
+                if (tenant.riskFlags.some((flag: any) => String(flag.code || '') === 'SLOW_ORDER_ACCEPTANCE')) {
+                    acc.slowAcceptanceTenants += 1;
+                }
                 if (tenant.operations.pendingPayments > 0) {
                     acc.pendingPaymentsTenants += 1;
                 }
@@ -477,6 +759,10 @@ export class SuperAdminService {
                 webhookQueueTenants: 0,
                 webhookFailureTenants: 0,
                 webhookSilentTenants: 0,
+                delayedQueueTenants: 0,
+                highCancellationTenants: 0,
+                lowPaymentConversionTenants: 0,
+                slowAcceptanceTenants: 0,
                 pendingPaymentsTenants: 0,
             },
         );
@@ -538,7 +824,52 @@ export class SuperAdminService {
         };
     }
 
-    async createTenant(payload: TenantPayload, actorPayload?: SuperAdminActorPayload) {
+    async listAccessLogs(limitRaw?: number) {
+        const limit = Math.max(1, Math.min(100, Number(limitRaw || 20) || 20));
+        const available = await this.hasSuperAdminAccessLogsTable();
+        if (!available) {
+            return {
+                available: false,
+                logs: [],
+            };
+        }
+
+        const rows = await this.dataSource.query(
+            `SELECT
+                l.id,
+                l.event_type,
+                l.success,
+                l.operator_name,
+                l.session_id,
+                l.source_ip,
+                l.user_agent,
+                l.auth_method,
+                l.details,
+                l.created_at
+             FROM super_admin_access_logs l
+             ORDER BY l.created_at DESC
+             LIMIT $1`,
+            [limit],
+        );
+
+        return {
+            available: true,
+            logs: (rows || []).map((row: any) => ({
+                id: row.id,
+                eventType: row.event_type,
+                success: !!row.success,
+                operatorName: row.operator_name || null,
+                sessionId: row.session_id || null,
+                sourceIp: row.source_ip || null,
+                userAgent: row.user_agent || null,
+                authMethod: row.auth_method || null,
+                details: this.parseJsonRecord(row.details),
+                createdAt: row.created_at,
+            })),
+        };
+    }
+
+    async createTenant(payload: TenantPayload, actor: SuperAdminActorContext) {
         const name = String(payload.name || '').trim();
         const slug = String(payload.slug || '').trim().toLowerCase();
         const whatsappNumber = this.normalizeDigits(payload.whatsapp_number);
@@ -593,7 +924,7 @@ export class SuperAdminService {
             entityType: 'TENANT',
             entityId: savedTenant.id,
             tenantId: savedTenant.id,
-            actor: this.resolveActorContext(actorPayload),
+            actor,
             details: {
                 summary: `Tenant ${savedTenant.name} criado com slug ${savedTenant.slug}.`,
                 slug: savedTenant.slug,
@@ -616,10 +947,9 @@ export class SuperAdminService {
         };
     }
 
-    async updateTenant(id: string, payload: TenantPayload, actorPayload?: SuperAdminActorPayload) {
+    async updateTenant(id: string, payload: TenantPayload, actor: SuperAdminActorContext) {
         const tenant = await this.tenantRepo.findOne({ where: { id } });
         if (!tenant) throw new NotFoundException('Tenant nao encontrado.');
-        const actor = this.resolveActorContext(actorPayload);
         const changedFields: string[] = [];
 
         const name = String(payload.name || '').trim();
@@ -722,7 +1052,7 @@ export class SuperAdminService {
         };
     }
 
-    async setTenantActive(id: string, active: boolean, actorPayload?: SuperAdminActorPayload) {
+    async setTenantActive(id: string, active: boolean, actor: SuperAdminActorContext) {
         const tenant = await this.tenantRepo.findOne({ where: { id } });
         if (!tenant) throw new NotFoundException('Tenant nao encontrado.');
         tenant.active = !!active;
@@ -733,7 +1063,7 @@ export class SuperAdminService {
             entityType: 'TENANT',
             entityId: tenant.id,
             tenantId: tenant.id,
-            actor: this.resolveActorContext(actorPayload),
+            actor,
             details: {
                 summary: `Tenant ${tenant.name} foi ${tenant.active ? 'ativado' : 'pausado'}.`,
                 active: tenant.active,
@@ -749,7 +1079,7 @@ export class SuperAdminService {
     async updateWallet(
         id: string,
         payload: { amount?: number; billing_plan?: string },
-        actorPayload?: SuperAdminActorPayload,
+        actor: SuperAdminActorContext,
     ) {
         const tenant = await this.tenantRepo.findOne({ where: { id } });
         if (!tenant) throw new NotFoundException('Tenant nao encontrado.');
@@ -780,7 +1110,7 @@ export class SuperAdminService {
             entityType: 'TENANT',
             entityId: tenant.id,
             tenantId: tenant.id,
-            actor: this.resolveActorContext(actorPayload),
+            actor,
             details: {
                 summary: `Carteira de ${tenant.name} ajustada para saldo ${Number(tenant.walletBalance || 0).toFixed(2)} e plano ${tenant.billingPlan}.`,
                 previous_billing_plan: previousBillingPlan,
@@ -844,11 +1174,26 @@ export class SuperAdminService {
         const pendingPayments = Number(row.pending_payments || 0);
         const stalePendingPayments = Number(row.stale_pending_payments || 0);
         const failedPayments7d = Number(row.failed_payments_7d || 0);
+        const orders24h = Number(row.orders_24h || 0);
+        const orders7d = Number(row.orders_7d || 0);
+        const activeOrders = Number(row.active_orders || 0);
+        const delayedQueueOrders = Number(row.delayed_queue_orders || 0);
+        const canceledOrders7d = Number(row.canceled_orders_7d || 0);
+        const avgAcceptanceMinutes7d = Number(row.avg_acceptance_minutes_7d || 0);
+        const paymentsCreated7d = Number(row.payments_created_7d || 0);
+        const paymentsConfirmed7d = Number(row.payments_confirmed_7d || 0);
+        const paymentsFailed7d = Number(row.payments_failed_7d || 0);
         const walletBalance = Number(row.wallet_balance || 0);
         const billingPlan = String(row.billing_plan || 'pre_paid').trim();
         const averageDailyMessages = messages7d / 7;
         const previousDailyAverage = messagesPrevious7d / 7;
         const estimatedDailyBurn = averageDailyMessages * Math.max(messagePrice, 0);
+        const cancelRate7d = orders7d > 0
+            ? this.roundMetric((canceledOrders7d / orders7d) * 100)
+            : 0;
+        const paymentConversionRate7d = paymentsCreated7d > 0
+            ? this.roundMetric((paymentsConfirmed7d / paymentsCreated7d) * 100)
+            : null;
         const daysOfBalance =
             billingPlan === 'pre_paid' && estimatedDailyBurn > 0
                 ? walletBalance / estimatedDailyBurn
@@ -877,6 +1222,13 @@ export class SuperAdminService {
             failedInbox24h,
             failedInbox7d,
             lastInboxReceivedAt: row.last_inbox_received_at,
+            orders24h,
+            orders7d,
+            activeOrders,
+            delayedQueueOrders,
+            canceledOrders7d,
+            avgAcceptanceMinutes7d,
+            cancelRate7d,
             outboxSent24h,
             pendingOutbox,
             staleOutbox,
@@ -885,6 +1237,8 @@ export class SuperAdminService {
             pendingPayments,
             stalePendingPayments,
             failedPayments7d,
+            paymentsCreated7d,
+            paymentConversionRate7d,
         });
         const healthScore = this.computeHealthScore(riskFlags);
         const healthStatus = this.resolveHealthStatus(!!row.active, riskFlags);
@@ -916,6 +1270,13 @@ export class SuperAdminService {
                 lastInboxReceivedAt: row.last_inbox_received_at || null,
                 lastInboxProcessedAt: row.last_inbox_processed_at || null,
                 lastInboxFailedAt: row.last_inbox_failed_at || null,
+                orders24h,
+                orders7d,
+                activeOrders,
+                delayedQueueOrders,
+                canceledOrders7d,
+                cancelRate7d,
+                avgAcceptanceMinutes7d: this.roundMetric(avgAcceptanceMinutes7d),
                 outboxSent24h,
                 averageDailyMessages,
                 previousDailyAverage,
@@ -929,8 +1290,14 @@ export class SuperAdminService {
                 pendingPayments,
                 stalePendingPayments,
                 failedPayments7d,
+                paymentsCreated7d,
+                paymentsConfirmed7d,
+                paymentsFailed7d,
+                paymentConversionRate7d,
                 lastMessageAt: row.last_message_at || null,
                 lastPaymentAttemptAt: row.last_payment_attempt_at || null,
+                lastOrderCreatedAt: row.last_order_created_at || null,
+                lastPaymentCreatedAt: row.last_payment_created_at || null,
             },
             riskFlags,
         };
@@ -1020,6 +1387,13 @@ export class SuperAdminService {
         failedInbox24h: number;
         failedInbox7d: number;
         lastInboxReceivedAt?: string | Date | null;
+        orders24h: number;
+        orders7d: number;
+        activeOrders: number;
+        delayedQueueOrders: number;
+        canceledOrders7d: number;
+        avgAcceptanceMinutes7d: number;
+        cancelRate7d: number;
         outboxSent24h: number;
         pendingOutbox: number;
         staleOutbox: number;
@@ -1028,6 +1402,8 @@ export class SuperAdminService {
         pendingPayments: number;
         stalePendingPayments: number;
         failedPayments7d: number;
+        paymentsCreated7d: number;
+        paymentConversionRate7d: number | null;
     }) {
         const flags: Array<{
             code: string;
@@ -1128,6 +1504,70 @@ export class SuperAdminService {
                 severity: 'WARNING',
                 title: 'Consumo fora do padrão',
                 description: 'O volume das últimas 24h está muito acima da média da semana anterior.',
+            });
+        }
+
+        if (input.active && input.delayedQueueOrders >= 8) {
+            this.pushRisk(flags, {
+                code: 'QUEUE_DELAYED',
+                severity: 'CRITICAL',
+                title: 'Fila atrasada',
+                description: 'O tenant tem pedidos ativos acima do SLA operacional esperado.',
+            });
+        } else if (input.active && input.delayedQueueOrders >= 3) {
+            this.pushRisk(flags, {
+                code: 'QUEUE_DELAYED',
+                severity: 'WARNING',
+                title: 'Fila em atenção',
+                description: 'A fila de pedidos já acumula itens atrasados acima do normal.',
+            });
+        }
+
+        if (input.active && input.orders7d >= 10 && input.cancelRate7d >= 25) {
+            this.pushRisk(flags, {
+                code: 'HIGH_CANCELLATION_RATE',
+                severity: 'CRITICAL',
+                title: 'Cancelamento alto',
+                description: 'A taxa de cancelamento da última semana está acima do aceitável.',
+            });
+        } else if (input.active && input.orders7d >= 5 && input.cancelRate7d >= 12) {
+            this.pushRisk(flags, {
+                code: 'HIGH_CANCELLATION_RATE',
+                severity: 'WARNING',
+                title: 'Cancelamento em alta',
+                description: 'A taxa de cancelamento recente do tenant merece investigação.',
+            });
+        }
+
+        if (input.active && input.orders7d >= 10 && input.avgAcceptanceMinutes7d >= 15) {
+            this.pushRisk(flags, {
+                code: 'SLOW_ORDER_ACCEPTANCE',
+                severity: 'CRITICAL',
+                title: 'Aceite lento',
+                description: 'O tempo médio até aceite está alto e já impacta a operação.',
+            });
+        } else if (input.active && input.orders7d >= 5 && input.avgAcceptanceMinutes7d >= 8) {
+            this.pushRisk(flags, {
+                code: 'SLOW_ORDER_ACCEPTANCE',
+                severity: 'WARNING',
+                title: 'Aceite em atenção',
+                description: 'O tempo médio até aceite saiu do padrão esperado para a semana.',
+            });
+        }
+
+        if (input.active && input.paymentsCreated7d >= 10 && input.paymentConversionRate7d !== null && input.paymentConversionRate7d < 35) {
+            this.pushRisk(flags, {
+                code: 'LOW_PAYMENT_CONVERSION',
+                severity: 'CRITICAL',
+                title: 'Conversão baixa de pagamento',
+                description: 'Poucas cobranças geradas estão sendo confirmadas no tenant.',
+            });
+        } else if (input.active && input.paymentsCreated7d >= 5 && input.paymentConversionRate7d !== null && input.paymentConversionRate7d < 60) {
+            this.pushRisk(flags, {
+                code: 'LOW_PAYMENT_CONVERSION',
+                severity: 'WARNING',
+                title: 'Conversão de pagamento em atenção',
+                description: 'A conversão de cobranças confirmadas está abaixo do recomendado.',
             });
         }
 
@@ -1319,17 +1759,291 @@ export class SuperAdminService {
         return {};
     }
 
-    private resolveActorContext(actorPayload?: SuperAdminActorPayload): SuperAdminActorContext {
-        const operatorName = this.normalizeOptionalText(actorPayload?.operatorName, 120) || 'Operador não identificado';
-        const receivedKey = String(actorPayload?.receivedKey || '').trim();
+    private roundMetric(value: number, decimals = 1) {
+        const numeric = Number(value || 0);
+        if (!Number.isFinite(numeric)) {
+            return 0;
+        }
+
+        const factor = 10 ** decimals;
+        return Math.round(numeric * factor) / factor;
+    }
+
+    private parseBearerToken(authorization?: string) {
+        const raw = String(authorization || '').trim();
+        if (!raw) {
+            return '';
+        }
+        const match = raw.match(/^Bearer\s+(.+)$/i);
+        return match?.[1]?.trim() || '';
+    }
+
+    private signSessionToken(payload: SuperAdminSessionTokenPayload) {
+        const encodedPayload = this.base64UrlEncode(JSON.stringify(payload));
+        const secret = this.getSessionSecrets()[0];
+        const signature = this.base64UrlEncodeBytes(
+            createHmac('sha256', secret).update(encodedPayload).digest(),
+        );
+        return `sa.${encodedPayload}.${signature}`;
+    }
+
+    private verifySessionToken(token: string): SuperAdminSessionTokenPayload {
+        const parts = String(token || '').trim().split('.');
+        if (parts.length !== 3 || parts[0] !== 'sa') {
+            throw new Error('invalid_token_format');
+        }
+
+        const encodedPayload = parts[1];
+        const providedSignature = parts[2];
+        const isValidSignature = this.getSessionSecrets().some((secret) => {
+            const expectedSignature = this.base64UrlEncodeBytes(
+                createHmac('sha256', secret).update(encodedPayload).digest(),
+            );
+            return this.safeCompare(expectedSignature, providedSignature);
+        });
+
+        if (!isValidSignature) {
+            throw new Error('invalid_token_signature');
+        }
+
+        const payload = JSON.parse(this.base64UrlDecode(encodedPayload)) as Partial<SuperAdminSessionTokenPayload>;
+        if (!payload?.sid || !payload?.op || !payload?.exp) {
+            throw new Error('invalid_token_payload');
+        }
+        if (Number(payload.exp) * 1000 <= Date.now()) {
+            throw new Error('token_expired');
+        }
+
         return {
-            operatorName,
-            keyFingerprint: receivedKey
-                ? createHash('sha256').update(receivedKey).digest('hex').slice(0, 12)
-                : null,
-            sourceIp: this.normalizeOptionalText(actorPayload?.sourceIp, 80),
-            userAgent: this.normalizeOptionalText(actorPayload?.userAgent, 1000),
+            sid: String(payload.sid),
+            op: String(payload.op),
+            iat: Number(payload.iat || 0),
+            exp: Number(payload.exp),
         };
+    }
+
+    private async createSession(operatorName: string, sourceIp: string | null, userAgent: string | null) {
+        if (!await this.hasSuperAdminSessionsTable()) {
+            throw new ForbiddenException('Migration de segurança do super-admin ainda não foi aplicada.');
+        }
+
+        const sessionId = randomUUID();
+        const expiresAt = new Date(Date.now() + this.getSessionTtlHours() * 60 * 60 * 1000);
+        await this.dataSource.query(
+            `INSERT INTO super_admin_sessions
+                (id, operator_name, source_ip, user_agent, issued_at, last_seen_at, expires_at)
+             VALUES
+                ($1::uuid, $2, $3, $4, NOW(), NOW(), $5)`,
+            [sessionId, operatorName, sourceIp, userAgent, expiresAt.toISOString()],
+        );
+
+        const rows = await this.dataSource.query(
+            `SELECT id, operator_name, source_ip, user_agent, issued_at, last_seen_at, expires_at, revoked_at
+             FROM super_admin_sessions
+             WHERE id = $1::uuid
+             LIMIT 1`,
+            [sessionId],
+        );
+        return rows?.[0];
+    }
+
+    private async getSessionById(sessionId: string) {
+        if (!await this.hasSuperAdminSessionsTable()) {
+            return null;
+        }
+
+        const rows = await this.dataSource.query(
+            `SELECT id, operator_name, source_ip, user_agent, issued_at, last_seen_at, expires_at, revoked_at
+             FROM super_admin_sessions
+             WHERE id = $1::uuid
+             LIMIT 1`,
+            [sessionId],
+        );
+        return rows?.[0] || null;
+    }
+
+    private async touchSession(sessionId: string) {
+        if (!await this.hasSuperAdminSessionsTable()) {
+            return;
+        }
+
+        await this.dataSource.query(
+            `UPDATE super_admin_sessions
+             SET last_seen_at = NOW()
+             WHERE id = $1::uuid`,
+            [sessionId],
+        );
+    }
+
+    private async assertSensitiveIpAllowed(sourceIp: string | null, operatorName?: string | null) {
+        const allowlist = this.getSensitiveIpAllowlist();
+        if (!allowlist.length) {
+            return;
+        }
+
+        const normalizedIp = this.normalizeSourceIp(sourceIp);
+        const allowed = !!normalizedIp && allowlist.some((candidate) => this.matchesAllowedIp(normalizedIp, candidate));
+        if (allowed) {
+            return;
+        }
+
+        await this.recordAccessLog({
+            eventType: 'IP_BLOCKED',
+            success: false,
+            operatorName: operatorName || null,
+            sourceIp: normalizedIp,
+            authMethod: 'bearer',
+            details: {
+                reason: 'ip_not_allowlisted',
+                allowlist,
+            },
+        });
+        throw new ForbiddenException('Seu IP nao esta autorizado para operacoes sensiveis do super-admin.');
+    }
+
+    private getSensitiveIpAllowlist() {
+        return this.splitConfigList(
+            process.env.SUPER_ADMIN_MUTATION_IP_ALLOWLIST || process.env.SUPER_ADMIN_IP_ALLOWLIST || '',
+        ).map((item) => item.toLowerCase());
+    }
+
+    private matchesAllowedIp(sourceIp: string, candidate: string) {
+        const normalizedSource = this.normalizeSourceIp(sourceIp);
+        const normalizedCandidate = String(candidate || '').trim().toLowerCase();
+
+        if (!normalizedSource || !normalizedCandidate) {
+            return false;
+        }
+        if (normalizedCandidate === '*') {
+            return true;
+        }
+        if (normalizedCandidate === 'loopback') {
+            return normalizedSource === '127.0.0.1';
+        }
+        if (normalizedCandidate.endsWith('*')) {
+            return normalizedSource.startsWith(normalizedCandidate.slice(0, -1));
+        }
+        return normalizedSource === normalizedCandidate;
+    }
+
+    private normalizeSourceIp(value: unknown) {
+        const raw = this.normalizeOptionalText(value, 120);
+        if (!raw) {
+            return null;
+        }
+
+        let normalized = raw.split(',')[0].trim().toLowerCase();
+        if (normalized.startsWith('::ffff:')) {
+            normalized = normalized.slice(7);
+        }
+        if (normalized === '::1') {
+            normalized = '127.0.0.1';
+        }
+        return normalized.slice(0, 80);
+    }
+
+    private async verifySuperAdminPassword(password: string) {
+        const normalizedPassword = String(password || '');
+        const hashCandidates = this.splitConfigList(
+            process.env.SUPER_ADMIN_AUTH_PASSWORD_HASHES || process.env.SUPER_ADMIN_AUTH_PASSWORD_HASH || '',
+        );
+        for (const hash of hashCandidates) {
+            if (await bcrypt.compare(normalizedPassword, hash)) {
+                return true;
+            }
+        }
+
+        const plainCandidates = this.getSuperAdminPlainPasswordCandidates();
+        return plainCandidates.some((candidate) => this.safeCompare(candidate, normalizedPassword));
+    }
+
+    private getSuperAdminPlainPasswordCandidates() {
+        const configured = this.splitConfigList(
+            process.env.SUPER_ADMIN_AUTH_PASSWORDS ||
+            process.env.SUPER_ADMIN_AUTH_PASSWORD ||
+            process.env.SUPER_ADMIN_KEY ||
+            '',
+        );
+
+        if (configured.length) {
+            return configured;
+        }
+
+        if (String(process.env.NODE_ENV || '').trim().toLowerCase() !== 'production') {
+            return ['admin123@@##'];
+        }
+
+        return [];
+    }
+
+    private getSessionSecrets() {
+        const configured = this.splitConfigList(
+            process.env.SUPER_ADMIN_SESSION_SECRETS || process.env.SUPER_ADMIN_SESSION_SECRET || '',
+        );
+        if (configured.length) {
+            return configured;
+        }
+
+        const fallbacks = this.splitConfigList(
+            process.env.SUPER_ADMIN_AUTH_PASSWORD || process.env.SUPER_ADMIN_KEY || '',
+        );
+        if (fallbacks.length) {
+            return fallbacks;
+        }
+
+        if (String(process.env.NODE_ENV || '').trim().toLowerCase() !== 'production') {
+            return ['clickgarcom-super-admin-dev-session-secret'];
+        }
+
+        throw new ForbiddenException('Nenhum segredo de sessão do super-admin foi configurado.');
+    }
+
+    private getSessionTtlHours() {
+        const raw = Number(process.env.SUPER_ADMIN_SESSION_TTL_HOURS || 12);
+        if (!Number.isFinite(raw) || raw <= 0) {
+            return 12;
+        }
+        return Math.min(168, Math.max(1, Math.round(raw)));
+    }
+
+    private splitConfigList(rawValue: unknown) {
+        return Array.from(new Set(
+            String(rawValue || '')
+                .split(',')
+                .map((item) => item.trim())
+                .filter(Boolean),
+        ));
+    }
+
+    private base64UrlEncode(value: string) {
+        return this.base64UrlEncodeBytes(Buffer.from(value, 'utf8'));
+    }
+
+    private base64UrlEncodeBytes(value: Buffer) {
+        return Buffer.from(value)
+            .toString('base64')
+            .replace(/\+/g, '-')
+            .replace(/\//g, '_')
+            .replace(/=+$/g, '');
+    }
+
+    private base64UrlDecode(value: string) {
+        const normalized = String(value || '')
+            .replace(/-/g, '+')
+            .replace(/_/g, '/');
+        const padding = normalized.length % 4 === 0
+            ? ''
+            : '='.repeat(4 - (normalized.length % 4));
+        return Buffer.from(`${normalized}${padding}`, 'base64').toString('utf8');
+    }
+
+    private safeCompare(left: string, right: string) {
+        const leftBuffer = Buffer.from(String(left || ''), 'utf8');
+        const rightBuffer = Buffer.from(String(right || ''), 'utf8');
+        if (leftBuffer.length !== rightBuffer.length) {
+            return false;
+        }
+        return timingSafeEqual(leftBuffer, rightBuffer);
     }
 
     private async recordAuditLog(input: {
@@ -1364,6 +2078,42 @@ export class SuperAdminService {
             );
         } catch (error) {
             this.logger.warn(`Falha ao gravar auditoria do super-admin: ${(error as Error).message}`);
+        }
+    }
+
+    private async recordAccessLog(input: {
+        eventType: string;
+        success: boolean;
+        operatorName?: string | null;
+        sessionId?: string | null;
+        sourceIp?: string | null;
+        userAgent?: string | null;
+        authMethod?: string | null;
+        details?: Record<string, unknown>;
+    }) {
+        if (!await this.hasSuperAdminAccessLogsTable()) {
+            return;
+        }
+
+        try {
+            await this.dataSource.query(
+                `INSERT INTO super_admin_access_logs
+                    (event_type, success, operator_name, session_id, source_ip, user_agent, auth_method, details, created_at)
+                 VALUES
+                    ($1, $2, $3, NULLIF($4, '')::uuid, $5, $6, $7, $8::jsonb, NOW())`,
+                [
+                    String(input.eventType || '').trim(),
+                    !!input.success,
+                    this.normalizeOptionalText(input.operatorName, 120),
+                    String(input.sessionId || '').trim(),
+                    this.normalizeSourceIp(input.sourceIp),
+                    this.normalizeOptionalText(input.userAgent, 1000),
+                    this.normalizeOptionalText(input.authMethod, 40),
+                    JSON.stringify(input.details || {}),
+                ],
+            );
+        } catch (error) {
+            this.logger.warn(`Falha ao gravar log de acesso do super-admin: ${(error as Error).message}`);
         }
     }
 
@@ -1427,8 +2177,24 @@ export class SuperAdminService {
         return this.hasTable('payment_attempts');
     }
 
+    private async hasPaymentsTable(): Promise<boolean> {
+        return this.hasTable('payments');
+    }
+
+    private async hasOrdersTable(): Promise<boolean> {
+        return this.hasTable('orders');
+    }
+
     private async hasSuperAdminAuditLogsTable(): Promise<boolean> {
         return this.hasTable('super_admin_audit_logs');
+    }
+
+    private async hasSuperAdminSessionsTable(): Promise<boolean> {
+        return this.hasTable('super_admin_sessions');
+    }
+
+    private async hasSuperAdminAccessLogsTable(): Promise<boolean> {
+        return this.hasTable('super_admin_access_logs');
     }
 
     private async hasTable(tableName: string): Promise<boolean> {

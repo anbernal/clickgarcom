@@ -13,6 +13,7 @@ const pages = {
     mesas: { title: 'Mesas & Comandas', sub: 'Gerencie as mesas e comandas do restaurante', loader: loadMesas },
     pagamentos: { title: 'Pagamentos & Conciliação', sub: 'Acompanhe pagamentos, divergências e baixas operacionais', loader: loadPagamentos },
     vendas: { title: 'Vendas', sub: 'Relatório completo de vendas', loader: loadVendas },
+    meuRestaurante: { title: 'Meu Restaurante', sub: 'Gerencie os dados cadastrais do seu estabelecimento', loader: loadMeuRestaurante },
     equipe: { title: 'Equipe & Acessos', sub: 'Gerencie usuários internos, papéis e credenciais de acesso', loader: loadEquipePage },
     configuracoes: { title: 'Configurações de Mensagens', sub: 'Personalize as mensagens do bot', loader: loadConfiguracoesPage },
 };
@@ -303,7 +304,13 @@ window.openRestaurantProfileModal = function(user, initials) {
         </div>
     `;
 
-    overlay.classList.add('active');
+    overlay.classList.remove('active');
+    // Force browser to paint the initial (off-screen) state before animating in
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            overlay.classList.add('active');
+        });
+    });
 };
 
 window.closeProfileDrawer = function() {

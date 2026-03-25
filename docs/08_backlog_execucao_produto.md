@@ -257,36 +257,36 @@ Criterios de pronto:
 
 ## Epic 13 - Observabilidade de Negocio
 
-Status: Planejado
+Status: Concluido
 
 Objetivo:
 Complementar a observabilidade tecnica com metricas de negocio por tenant.
 
 Tasks:
-- [ ] Criar metricas por tenant para falha de webhook.
-- [ ] Criar metricas de fila atrasada.
-- [ ] Criar metricas de outbox represado.
-- [ ] Criar metricas de tempo medio ate aceite.
-- [ ] Criar metricas de taxa de cancelamento.
-- [ ] Criar metricas de conversao de pagamento.
-- [ ] Criar dashboard de negocio por tenant.
+- [x] Criar metricas por tenant para falha de webhook.
+- [x] Criar metricas de fila atrasada.
+- [x] Criar metricas de outbox represado.
+- [x] Criar metricas de tempo medio ate aceite.
+- [x] Criar metricas de taxa de cancelamento.
+- [x] Criar metricas de conversao de pagamento.
+- [x] Criar dashboard de negocio por tenant.
 
 Criterios de pronto:
 - O time consegue detectar degradacao operacional e financeira com telemetria objetiva.
 
 ## Epic 14 - Seguranca
 
-Status: Planejado
+Status: Concluido
 
 Objetivo:
 Endurecer acesso administrativo e reduzir superficie de risco.
 
 Tasks:
-- [ ] Substituir chave estatica simples do super-admin por autenticacao forte.
-- [ ] Permitir rotacao de segredo.
-- [ ] Adicionar allowlist de IP para operacao sensivel.
-- [ ] Criar log de acesso e falha de autenticacao.
-- [ ] Revisar exposicao de segredos e configuracoes em respostas.
+- [x] Substituir chave estatica simples do super-admin por autenticacao forte.
+- [x] Permitir rotacao de segredo.
+- [x] Adicionar allowlist de IP para operacao sensivel.
+- [x] Criar log de acesso e falha de autenticacao.
+- [x] Revisar exposicao de segredos e configuracoes em respostas.
 
 Criterios de pronto:
 - Super-admin deixa de depender de um unico header estatico para acesso.

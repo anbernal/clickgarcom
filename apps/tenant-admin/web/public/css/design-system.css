@@ -271,17 +271,21 @@ body {
 
 /* ── PROFILE DRAWER (lateral) ── */
 .profile-drawer-overlay {
-  display: none;
   position: fixed;
   top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0,0,0,0.35);
-  backdrop-filter: blur(3px);
+  background: rgba(0,0,0,0);
+  backdrop-filter: blur(0px);
   z-index: 2000;
   justify-content: flex-end;
+  display: flex;
+  pointer-events: none;
+  transition: background 0.35s ease, backdrop-filter 0.35s ease;
 }
 
 .profile-drawer-overlay.active {
-  display: flex;
+  background: rgba(0,0,0,0.35);
+  backdrop-filter: blur(3px);
+  pointer-events: auto;
 }
 
 .profile-drawer {
@@ -292,13 +296,15 @@ body {
   box-shadow: -8px 0 40px rgba(0,0,0,0.12);
   display: flex;
   flex-direction: column;
-  animation: slideInRight 0.3s cubic-bezier(0.22, 1, 0.36, 1);
   overflow-y: auto;
+  transform: translateX(100%);
+  opacity: 0;
+  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.3s ease;
 }
 
-@keyframes slideInRight {
-  from { transform: translateX(100%); opacity: 0.5; }
-  to   { transform: translateX(0);    opacity: 1;   }
+.profile-drawer-overlay.active .profile-drawer {
+  transform: translateX(0);
+  opacity: 1;
 }
 
 /* ── STATS CARDS ── */

@@ -238,24 +238,51 @@
     </div>
 
     <script>
-        if (sessionStorage.getItem('super_admin_authenticated') === 'true') {
+        if (sessionStorage.getItem('super_admin_access_token')) {
             window.location.href = '/';
         }
 
-        document.getElementById('login-form').addEventListener('submit', function (e) {
+        const API_BASE = '/admin/api/super-admin';
+
+        document.getElementById('login-form').addEventListener('submit', async function (e) {
             e.preventDefault();
             const user = document.getElementById('username').value.trim();
             const pass = document.getElementById('password').value;
             const errorAlert = document.getElementById('error-alert');
+            const submitButton = document.querySelector('.login-btn');
 
-            if (user && pass === 'admin123@@##') {
-                sessionStorage.setItem('super_admin_authenticated', 'true');
-                sessionStorage.setItem('super_admin_operator_name', user);
+            errorAlert.classList.remove('visible');
+            submitButton.disabled = true;
+            submitButton.textContent = 'Entrando...';
+
+            try {
+                const response = await fetch(`${API_BASE}/auth/login`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        operator: user,
+                        password: pass,
+                    }),
+                });
+
+                const body = await response.json().catch(() => ({}));
+                if (!response.ok) {
+                    throw new Error(body.message || body.error || 'Falha ao autenticar.');
+                }
+
+                sessionStorage.setItem('super_admin_access_token', body.accessToken || '');
+                sessionStorage.setItem('super_admin_operator_name', body?.session?.operatorName || user);
                 window.location.href = '/';
-            } else {
+            } catch (error) {
                 errorAlert.classList.add('visible');
+                errorAlert.textContent = error.message || 'Credenciais inválidas. Tente novamente.';
                 document.getElementById('password').value = '';
                 document.getElementById('password').focus();
+            } finally {
+                submitButton.disabled = false;
+                submitButton.textContent = 'Entrar';
             }
         });
 

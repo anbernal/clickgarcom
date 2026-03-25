@@ -451,6 +451,76 @@ export class AuthService {
         };
     }
 
+    async getTenantProfile(tenantId: string) {
+        const tenant = await this.tenantRepository.findOne({ where: { id: tenantId } });
+        if (!tenant) {
+            throw new HttpException('Restaurante não encontrado.', HttpStatus.NOT_FOUND);
+        }
+
+        const settings = tenant.settings || {};
+
+        return {
+            tenant_id: tenant.id,
+            name: tenant.name,
+            slug: tenant.slug,
+            whatsapp_number: tenant.whatsappNumber,
+            billing_plan: tenant.billingPlan,
+            document: settings.document || '',
+            address: settings.address || '',
+        };
+    }
+
+    async updateTenantProfile(tenantId: string, payload: any, actor?: TenantActorContext) {
+        const tenant = await this.tenantRepository.findOne({ where: { id: tenantId } });
+        if (!tenant) {
+            throw new HttpException('Restaurante não encontrado.', HttpStatus.NOT_FOUND);
+        }
+
+        const previous = {
+            name: tenant.name,
+            document: tenant.settings?.document || '',
+            address: tenant.settings?.address || '',
+        };
+
+        if (typeof payload.name === 'string' && payload.name.trim()) {
+            tenant.name = payload.name.trim();
+        }
+
+        const currentSettings = tenant.settings || {};
+        if (typeof payload.document === 'string') {
+            currentSettings.document = payload.document.trim();
+        }
+        if (typeof payload.address === 'string') {
+            currentSettings.address = payload.address.trim();
+        }
+        tenant.settings = currentSettings;
+
+        await this.tenantRepository.save(tenant);
+        await this.recordAuditEvent(tenantId, {
+            actorUserId: actor?.userId,
+            actorName: actor?.userName,
+            actorRole: actor?.userRole,
+            eventType: 'TENANT_PROFILE_UPDATED',
+            description: 'Perfil do restaurante atualizado.',
+            metadata: {
+                before: previous,
+                after: {
+                    name: tenant.name,
+                    document: currentSettings.document || '',
+                    address: currentSettings.address || '',
+                },
+            },
+        });
+
+        return {
+            status: 'updated',
+            tenant_id: tenant.id,
+            name: tenant.name,
+            document: currentSettings.document || '',
+            address: currentSettings.address || '',
+        };
+    }
+
     async toggleTenantStatus(tenantId: string, currentStatus: boolean, token?: string, actor?: TenantActorContext): Promise<any> {
         return this.setTenantStatus(tenantId, !currentStatus, actor);
     }
@@ -680,7 +750,7 @@ export class AuthService {
         if (routeGroups.includes('menu_read')) pages.push('cardapio', 'categorias');
         if (routeGroups.includes('table_read')) pages.push('mesas');
         if (routeGroups.includes('reports')) pages.push('vendas');
-        if (routeGroups.includes('full_access')) pages.push('configuracoes', 'equipe');
+        if (routeGroups.includes('full_access')) pages.push('meuRestaurante', 'configuracoes', 'equipe');
 
         return {
             pages,

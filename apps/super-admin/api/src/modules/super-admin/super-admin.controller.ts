@@ -5,97 +5,189 @@ import { SuperAdminService } from './super-admin.service';
 export class SuperAdminController {
     constructor(private readonly superAdminService: SuperAdminService) { }
 
+    @Post('auth/login')
+    login(
+        @Request() req,
+        @Body() body: { operator?: string; password?: string },
+    ) {
+        return this.superAdminService.login(body || {}, {
+            sourceIp: this.resolveSourceIp(req),
+            userAgent: this.resolveUserAgent(req),
+        });
+    }
+
+    @Get('auth/me')
+    async me(
+        @Request() req,
+        @Headers('authorization') authorization?: string,
+    ) {
+        const session = await this.superAdminService.requireAuthenticatedSession({
+            authorization,
+            sourceIp: this.resolveSourceIp(req),
+            userAgent: this.resolveUserAgent(req),
+        });
+        return this.superAdminService.getSessionProfile(session);
+    }
+
+    @Post('auth/logout')
+    async logout(
+        @Request() req,
+        @Headers('authorization') authorization?: string,
+    ) {
+        const session = await this.superAdminService.requireAuthenticatedSession({
+            authorization,
+            sourceIp: this.resolveSourceIp(req),
+            userAgent: this.resolveUserAgent(req),
+        });
+        return this.superAdminService.logoutSession(session);
+    }
+
     @Get('metrics')
-    metrics(@Headers('x-super-admin-key') key?: string) {
-        this.superAdminService.assertAccess(key);
+    async metrics(
+        @Request() req,
+        @Headers('authorization') authorization?: string,
+    ) {
+        await this.superAdminService.requireAuthenticatedSession({
+            authorization,
+            sourceIp: this.resolveSourceIp(req),
+            userAgent: this.resolveUserAgent(req),
+        });
         return this.superAdminService.getMetrics();
     }
 
     @Get('tenants')
-    tenants(@Headers('x-super-admin-key') key?: string) {
-        this.superAdminService.assertAccess(key);
+    async tenants(
+        @Request() req,
+        @Headers('authorization') authorization?: string,
+    ) {
+        await this.superAdminService.requireAuthenticatedSession({
+            authorization,
+            sourceIp: this.resolveSourceIp(req),
+            userAgent: this.resolveUserAgent(req),
+        });
         return this.superAdminService.listTenants();
     }
 
     @Get('operations/overview')
-    operationsOverview(@Headers('x-super-admin-key') key?: string) {
-        this.superAdminService.assertAccess(key);
+    async operationsOverview(
+        @Request() req,
+        @Headers('authorization') authorization?: string,
+    ) {
+        await this.superAdminService.requireAuthenticatedSession({
+            authorization,
+            sourceIp: this.resolveSourceIp(req),
+            userAgent: this.resolveUserAgent(req),
+        });
         return this.superAdminService.getOperationsOverview();
     }
 
     @Get('audit-logs')
-    auditLogs(
-        @Headers('x-super-admin-key') key?: string,
+    async auditLogs(
+        @Request() req,
+        @Headers('authorization') authorization?: string,
         @Query('limit') limit?: string,
     ) {
-        this.superAdminService.assertAccess(key);
+        await this.superAdminService.requireAuthenticatedSession({
+            authorization,
+            sourceIp: this.resolveSourceIp(req),
+            userAgent: this.resolveUserAgent(req),
+        });
         return this.superAdminService.listAuditLogs(limit ? Number(limit) : undefined);
     }
 
-    @Post('tenants')
-    createTenant(
+    @Get('access-logs')
+    async accessLogs(
         @Request() req,
-        @Headers('x-super-admin-key') key: string | undefined,
-        @Headers('x-super-admin-operator') operator: string | undefined,
+        @Headers('authorization') authorization?: string,
+        @Query('limit') limit?: string,
+    ) {
+        await this.superAdminService.requireAuthenticatedSession({
+            authorization,
+            sourceIp: this.resolveSourceIp(req),
+            userAgent: this.resolveUserAgent(req),
+        });
+        return this.superAdminService.listAccessLogs(limit ? Number(limit) : undefined);
+    }
+
+    @Post('tenants')
+    async createTenant(
+        @Request() req,
+        @Headers('authorization') authorization: string | undefined,
         @Body() body: any,
     ) {
-        this.superAdminService.assertAccess(key);
-        return this.superAdminService.createTenant(body || {}, {
-            receivedKey: key,
-            operatorName: operator,
-            sourceIp: req.ip,
-            userAgent: req.headers['user-agent'],
+        const actor = await this.superAdminService.requireAuthenticatedSession({
+            authorization,
+            sourceIp: this.resolveSourceIp(req),
+            userAgent: this.resolveUserAgent(req),
+            sensitiveOperation: true,
         });
+        return this.superAdminService.createTenant(body || {}, actor);
     }
 
     @Patch('tenants/:id')
-    updateTenant(
+    async updateTenant(
         @Request() req,
-        @Headers('x-super-admin-key') key: string | undefined,
-        @Headers('x-super-admin-operator') operator: string | undefined,
+        @Headers('authorization') authorization: string | undefined,
         @Param('id') id: string,
         @Body() body: any,
     ) {
-        this.superAdminService.assertAccess(key);
-        return this.superAdminService.updateTenant(id, body || {}, {
-            receivedKey: key,
-            operatorName: operator,
-            sourceIp: req.ip,
-            userAgent: req.headers['user-agent'],
+        const actor = await this.superAdminService.requireAuthenticatedSession({
+            authorization,
+            sourceIp: this.resolveSourceIp(req),
+            userAgent: this.resolveUserAgent(req),
+            sensitiveOperation: true,
         });
+        return this.superAdminService.updateTenant(id, body || {}, actor);
     }
 
     @Patch('tenants/:id/active')
-    setTenantActive(
+    async setTenantActive(
         @Request() req,
-        @Headers('x-super-admin-key') key: string | undefined,
-        @Headers('x-super-admin-operator') operator: string | undefined,
+        @Headers('authorization') authorization: string | undefined,
         @Param('id') id: string,
         @Body() body: { active?: boolean },
     ) {
-        this.superAdminService.assertAccess(key);
-        return this.superAdminService.setTenantActive(id, !!body?.active, {
-            receivedKey: key,
-            operatorName: operator,
-            sourceIp: req.ip,
-            userAgent: req.headers['user-agent'],
+        const actor = await this.superAdminService.requireAuthenticatedSession({
+            authorization,
+            sourceIp: this.resolveSourceIp(req),
+            userAgent: this.resolveUserAgent(req),
+            sensitiveOperation: true,
         });
+        return this.superAdminService.setTenantActive(id, !!body?.active, actor);
     }
 
     @Patch('tenants/:id/wallet')
-    updateWallet(
+    async updateWallet(
         @Request() req,
-        @Headers('x-super-admin-key') key: string | undefined,
-        @Headers('x-super-admin-operator') operator: string | undefined,
+        @Headers('authorization') authorization: string | undefined,
         @Param('id') id: string,
         @Body() body: { amount?: number; billing_plan?: string },
     ) {
-        this.superAdminService.assertAccess(key);
-        return this.superAdminService.updateWallet(id, body || {}, {
-            receivedKey: key,
-            operatorName: operator,
-            sourceIp: req.ip,
-            userAgent: req.headers['user-agent'],
+        const actor = await this.superAdminService.requireAuthenticatedSession({
+            authorization,
+            sourceIp: this.resolveSourceIp(req),
+            userAgent: this.resolveUserAgent(req),
+            sensitiveOperation: true,
         });
+        return this.superAdminService.updateWallet(id, body || {}, actor);
+    }
+
+    private resolveSourceIp(req: any) {
+        const forwarded = req?.headers?.['x-forwarded-for'];
+        if (Array.isArray(forwarded) && forwarded.length) {
+            return String(forwarded[0] || '').trim();
+        }
+        if (String(forwarded || '').trim()) {
+            return String(forwarded).split(',')[0].trim();
+        }
+        return String(req?.ip || req?.socket?.remoteAddress || '').trim();
+    }
+
+    private resolveUserAgent(req: any) {
+        const header = req?.headers?.['user-agent'];
+        if (Array.isArray(header)) {
+            return header.join(' ').trim();
+        }
+        return String(header || '').trim();
     }
 }

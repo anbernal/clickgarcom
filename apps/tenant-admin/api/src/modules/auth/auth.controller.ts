@@ -89,6 +89,24 @@ export class AuthController {
     }
 
     @UseGuards(JwtAuthGuard)
+    @Get('tenant-profile')
+    @Roles(...TENANT_FULL_ACCESS_ROLES)
+    async getTenantProfile(@Request() req) {
+        return this.authService.getTenantProfile(req.user.tenantId);
+    }
+
+    @UseGuards(JwtAuthGuard)
+    @Put('tenant-profile')
+    @Roles(...TENANT_FULL_ACCESS_ROLES)
+    async updateTenantProfile(@Request() req, @Body() data: any) {
+        return this.authService.updateTenantProfile(req.user.tenantId, data || {}, {
+            userId: req.user.id,
+            userName: req.user.name,
+            userRole: req.user.role,
+        });
+    }
+
+    @UseGuards(JwtAuthGuard)
     @Patch('password')
     @Roles(...TENANT_AUTHENTICATED_ROLES)
     async changePassword(@Request() req, @Body() data: ChangePasswordDto) {
