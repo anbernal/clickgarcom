@@ -9,6 +9,8 @@ import { DEFAULT_MESSAGE_TEMPLATES, resolveMessageTemplate } from '../../shared/
 import { AmqpService } from '../amqp/amqp.service';
 import { TENANT_ORDER_CANCEL_ROLES, normalizeTenantRole } from '../auth/roles';
 
+const OUTBOX_TEMPLATE_INTERACTIVE_MAIN_MENU = 'interactive_main_menu';
+
 const VALID_TRANSITIONS: Record<string, string[]> = {
     PENDING: ['ACCEPTED', 'CANCELED'],
     ACCEPTED: ['READY', 'CANCELED'],
@@ -369,15 +371,25 @@ export class OrdersService {
 
         if (!message) return;
 
-        await this.enqueueWhatsAppMessage(tenantId, recipient, message);
+        await this.enqueueWhatsAppMessage(
+            tenantId,
+            recipient,
+            message,
+            OUTBOX_TEMPLATE_INTERACTIVE_MAIN_MENU,
+        );
     }
 
-    private async enqueueWhatsAppMessage(tenantId: string, recipient: string, message: string) {
+    private async enqueueWhatsAppMessage(
+        tenantId: string,
+        recipient: string,
+        message: string,
+        templateId?: string,
+    ) {
         await this.dataSource.query(
             `INSERT INTO outbox_messages
-                (tenant_id, destination, recipient, payload, sent, attempts, max_attempts, created_at)
-             VALUES ($1, 'whatsapp', $2, $3, false, 0, 3, NOW())`,
-            [tenantId, recipient, message],
+                (tenant_id, destination, recipient, payload, template_id, sent, attempts, max_attempts, created_at)
+             VALUES ($1, 'whatsapp', $2, $3, $4, false, 0, 3, NOW())`,
+            [tenantId, recipient, message, templateId || null],
         );
     }
 

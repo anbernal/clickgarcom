@@ -171,7 +171,7 @@ func (i *OrderItem) EnsureSelectedOptions() []SelectedOption {
 func (i *OrderItem) SetSelectedOptions(options []SelectedOption) {
 	if len(options) == 0 {
 		i.SelectedOptions = nil
-		i.SelectedOptionsRaw = ""
+		i.SelectedOptionsRaw = "[]"
 		return
 	}
 
@@ -191,14 +191,14 @@ func (i *OrderItem) SetSelectedOptions(options []SelectedOption) {
 
 	if len(sanitized) == 0 {
 		i.SelectedOptions = nil
-		i.SelectedOptionsRaw = ""
+		i.SelectedOptionsRaw = "[]"
 		return
 	}
 
 	i.SelectedOptions = sanitized
 	payload, err := json.Marshal(sanitized)
 	if err != nil {
-		i.SelectedOptionsRaw = ""
+		i.SelectedOptionsRaw = "[]"
 		return
 	}
 	i.SelectedOptionsRaw = string(payload)

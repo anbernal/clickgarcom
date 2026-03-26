@@ -165,8 +165,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleOrderingCategorySelection(
 ) (string, session.ConversationState, error) {
 	categoryID, ok := uc.resolveOrderingCategorySelection(sess, text)
 	if !ok {
-		return "❌ Categoria inválida. Escolha uma opção da lista enviada ou digite *0* para voltar ao menu principal.",
-			session.StateOrdering, nil
+		return uc.repeatCurrentPrompt(ctx, sess)
 	}
 
 	items, err := uc.menuRepo.FindItemsByCategory(ctx, categoryID, sess.TenantID, true)
@@ -214,8 +213,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleOrderingItemSelection(
 ) (string, session.ConversationState, error) {
 	itemID, ok := uc.resolveOrderingItemSelection(sess, text)
 	if !ok {
-		return "❌ Item inválido. Escolha um item da lista enviada ou digite *0* para voltar ao menu principal.",
-			session.StateOrdering, nil
+		return uc.repeatCurrentPrompt(ctx, sess)
 	}
 
 	selectedItem, err := uc.menuRepo.FindItemByID(ctx, itemID, sess.TenantID)
@@ -345,8 +343,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleMainMenuSimplified(
 		return uc.startClosingTabFlow(ctx, sess)
 
 	default:
-		return whatsapp.InvalidOptionMessage() + "\n\n" + whatsapp.MainMenuMessage(),
-			session.StateMainMenu, nil
+		return uc.repeatCurrentPrompt(ctx, sess)
 	}
 }
 
@@ -1594,7 +1591,7 @@ func (uc *HandleWhatsAppMessageUseCase) buildOrderingCartMessageWithNotice(
 		"🛒 *Seu pedido*",
 		strings.Join(lines, "\n"),
 		fmt.Sprintf("Subtotal parcial: *R$ %s*", formatBRLCurrency(subtotal)),
-		"Deseja adicionar mais itens, ajustar algum item ou enviar agora?\n\n_Digite 0 para voltar ao menu principal_",
+		"Deseja adicionar mais itens, ajustar algum item ou enviar agora?\n\n_Se seu pedido já estiver completo, toque em *Enviar pedido* para finalizar._",
 	)
 
 	return strings.Join(sections, "\n\n")
@@ -2410,8 +2407,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleClosingTab(
 		return uc.requestCloseBillByStaff(ctx, sess)
 
 	default:
-		return buildClosingTabInvalidOptionMessage(),
-			session.StateClosingTab, nil
+		return uc.repeatCurrentPrompt(ctx, sess)
 	}
 }
 
@@ -2473,10 +2469,6 @@ func buildClosingTabTextFallback(tabSummary string) string {
 		"*1* - 💳 Pagar agora pelo celular\n" +
 		"*2* - 🙋 Pedir para a equipe fechar na mesa\n\n" +
 		"_Digite 0 para voltar ao menu_"
-}
-
-func buildClosingTabInvalidOptionMessage() string {
-	return "❌ Opção inválida.\n\n*1* - 💳 Pagar agora pelo celular\n*2* - 🙋 Pedir para a equipe fechar na mesa\n\n_Digite 0 para voltar ao menu_"
 }
 
 func buildClosingTabOwnerOnlyMessage() string {

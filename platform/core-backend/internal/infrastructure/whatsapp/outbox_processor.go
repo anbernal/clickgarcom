@@ -14,6 +14,11 @@ import (
 	"gorm.io/gorm"
 )
 
+const (
+	outboxTemplateInteractiveMainMenu = "interactive_main_menu"
+	outboxMainMenuButtonText          = "Abrir menu"
+)
+
 type OutboxProcessor struct {
 	db         *gorm.DB
 	apiClient  *MetaAPIClient
@@ -86,10 +91,13 @@ func (p *OutboxProcessor) processMessage(ctx context.Context, msg *domain.Outbox
 	// 1. Incrementar tentativas
 	msg.Attempts++
 
+	var billingTenant *tenant.Tenant
+
 	// Fase 13: Verificação de Pedágio (Pre-paid Check)
 	if msg.TenantID != nil && p.tenantRepo != nil {
 		tnt, err := p.tenantRepo.FindByID(ctx, *msg.TenantID)
 		if err == nil {
+			billingTenant = tnt
 			if tnt.BillingPlan == tenant.PlanPrePaid && tnt.WalletBalance <= 0 {
 				p.logger.Warn("tenant out of credits, dropping outgoing message", zap.String("msg_id", msg.ID.String()))
 
@@ -104,7 +112,7 @@ func (p *OutboxProcessor) processMessage(ctx context.Context, msg *domain.Outbox
 	}
 
 	// 2. Tentar enviar
-	messageID, err := p.apiClient.SendTextMessage(ctx, msg.Recipient, msg.Payload)
+	messageID, preview, err := p.sendMessage(ctx, msg, billingTenant)
 
 	if err != nil {
 		// Falhou - atualizar erro e próximo retry
@@ -161,11 +169,122 @@ func (p *OutboxProcessor) processMessage(ctx context.Context, msg *domain.Outbox
 					MessageID:      mid,
 					Status:         "SENT",
 					UserPhone:      strings.TrimSpace(msg.Recipient),
-					MessagePreview: sanitizeMessagePreview(msg.Payload),
+					MessagePreview: sanitizeMessagePreview(preview),
 				})
 			}
 		}(*msg.TenantID, messageID)
 	}
 
 	return err
+}
+
+func (p *OutboxProcessor) sendMessage(
+	ctx context.Context,
+	msg *domain.OutboxMessage,
+	tenantObj *tenant.Tenant,
+) (string, string, error) {
+	if p.apiClient == nil {
+		return "", "", fmt.Errorf("MetaAPIClient is not initialized")
+	}
+
+	preview := msg.Payload
+	if msg.TemplateID == outboxTemplateInteractiveMainMenu {
+		body := p.composeInteractiveMainMenuBody(msg.Payload, tenantObj)
+		if body != "" {
+			if messageID, err := p.apiClient.SendInteractiveList(
+				ctx,
+				msg.Recipient,
+				body,
+				outboxMainMenuButtonText,
+				buildOutboxMainMenuSections(),
+			); err == nil {
+				return messageID, body, nil
+			} else {
+				p.logger.Warn("failed to send interactive main menu, falling back to text",
+					zap.String("id", msg.ID.String()),
+					zap.String("recipient", msg.Recipient),
+					zap.Error(err),
+				)
+			}
+		}
+	}
+
+	messageID, err := p.apiClient.SendTextMessage(ctx, msg.Recipient, msg.Payload)
+	return messageID, preview, err
+}
+
+func (p *OutboxProcessor) composeInteractiveMainMenuBody(
+	payload string,
+	tenantObj *tenant.Tenant,
+) string {
+	prefix, matched := extractMainMenuPrefix(payload, tenantObj)
+	if matched {
+		body := strings.TrimSpace(domain.MainMenuBodyMessage())
+		if tenantObj != nil {
+			body = strings.TrimSpace(domain.MainMenuBodyMessage(tenantObj.Settings.Messages))
+		}
+
+		switch {
+		case strings.TrimSpace(prefix) == "":
+			return decorateInteractiveBody(body, tenantObj)
+		case body == "":
+			return decorateInteractiveBody(prefix, tenantObj)
+		default:
+			return decorateInteractiveBody(prefix+"\n\n"+body, tenantObj)
+		}
+	}
+
+	return decorateInteractiveBody(payload, tenantObj)
+}
+
+func decorateInteractiveBody(body string, tenantObj *tenant.Tenant) string {
+	text := strings.TrimSpace(body)
+	if text == "" {
+		return ""
+	}
+	if tenantObj == nil {
+		return text
+	}
+	return domain.WithRestaurantHeader(strings.TrimSpace(tenantObj.Name), text)
+}
+
+func extractMainMenuPrefix(message string, tenantObj *tenant.Tenant) (string, bool) {
+	body := strings.TrimSpace(message)
+	if body == "" {
+		return "", false
+	}
+
+	candidates := []string{strings.TrimSpace(domain.MainMenuMessage())}
+	if tenantObj != nil {
+		candidates = append(candidates, strings.TrimSpace(domain.MainMenuMessage(tenantObj.Settings.Messages)))
+	}
+
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		if body == candidate {
+			return "", true
+		}
+		if idx := strings.LastIndex(body, candidate); idx >= 0 {
+			return strings.TrimSpace(body[:idx]), true
+		}
+	}
+
+	return "", false
+}
+
+func buildOutboxMainMenuSections() []domain.InteractiveListSection {
+	return []domain.InteractiveListSection{
+		{
+			Title: "Atendimento",
+			Rows: []domain.InteractiveListRow{
+				{ID: "1", Title: "Fazer pedido", Description: "Ver os itens do cardápio"},
+				{ID: "2", Title: "Ver minha comanda", Description: "Consultar itens e valores"},
+				{ID: "3", Title: "Repetir última rodada", Description: "Refazer seu último pedido"},
+				{ID: "4", Title: "Chamar garçom", Description: "Falar com nossa equipe"},
+				{ID: "5", Title: "Fechar conta", Description: "Pagar ou pedir fechamento"},
+			},
+		},
+	}
 }

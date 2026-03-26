@@ -135,7 +135,19 @@ Você receberá uma notificação quando estiver pronto! 🍳`
 
 const defaultOrderReady = `Seu pedido já está pronto! 😊🍽️
 
-Nossa equipe já vai levar até você aí na mesa. 🚶‍♂️✨`
+Nossa equipe já vai levar até você aí na mesa. 🚶‍♂️✨
+
+📱 *Menu Principal*
+
+Escolha a opção que você deseja abrir:
+
+*1* - 🛒 Fazer pedido
+*2* - 📋 Ver minha comanda
+*3* - 🔄 Repetir última rodada
+*4* - 🙋 Chamar garçom
+*5* - 💰 Fechar conta
+
+_Digite o número da opção_`
 
 const defaultTabSummary = `🧾 *Sua Comanda{mesa_label}*
 ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈

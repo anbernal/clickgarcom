@@ -353,6 +353,237 @@ func (uc *HandleWhatsAppMessageUseCase) processMessage(
 	}
 }
 
+func (uc *HandleWhatsAppMessageUseCase) repeatCurrentPrompt(
+	ctx context.Context,
+	sess *session.Session,
+) (string, session.ConversationState, error) {
+	if sess == nil {
+		return whatsapp.MainMenuMessage(), session.StateMainMenu, nil
+	}
+
+	switch sess.State {
+	case session.StateWelcome:
+		return "", session.StateWelcome, nil
+	case session.StateMainMenu:
+		return whatsapp.MainMenuMessage(), session.StateMainMenu, nil
+	case session.StateOrdering:
+		return uc.repeatOrderingPrompt(ctx, sess)
+	case session.StateSelectingQty:
+		return uc.repeatQuantityPrompt(ctx, sess)
+	case session.StateSelectingOptions:
+		return uc.repeatOptionPrompt(ctx, sess)
+	case session.StateConfirmingOrder:
+		cart := uc.getOrderingCart(sess)
+		if len(cart) == 0 {
+			return uc.startOrderingFlow(ctx, sess)
+		}
+		return uc.presentCartConfirmation(ctx, sess, uc.buildOrderingCartMessage(ctx, sess, cart))
+	case session.StateRemovingOrderItem:
+		return uc.repeatCartRemovalPrompt(ctx, sess)
+	case session.StateAdjustingOrderItem:
+		return uc.repeatCartAdjustmentPrompt(ctx, sess)
+	case session.StateSelectingCartItemQty:
+		return uc.repeatCartQuantityPrompt(ctx, sess)
+	case session.StateViewingTab:
+		return uc.buildTabSummaryResponse(ctx, sess, false)
+	case session.StateClosingTab:
+		return uc.startClosingTabFlow(ctx, sess)
+	case session.StateWaitingTableConfirmation:
+		return uc.repeatWaitingTableConfirmationPrompt(ctx, sess)
+	case session.StateWaitingAdminApproval:
+		return whatsapp.AlreadyInQueueMessage(), session.StateWaitingAdminApproval, nil
+	case session.StateWaitingCollabChoice:
+		return uc.repeatCollabChoicePrompt(sess), session.StateWaitingCollabChoice, nil
+	case session.StateWaitingJoinApproval:
+		return "⏳ Aguardando aprovação da pessoa responsável pela mesa...\n\n_Digite 0 para cancelar_",
+			session.StateWaitingJoinApproval, nil
+	case session.StateWaitingOpenerDecision:
+		return "🔔 *Solicitação pendente*\n\nEscolha *Aprovar* ou *Recusar* para responder ao pedido de entrada.",
+			session.StateWaitingOpenerDecision, nil
+	default:
+		return whatsapp.MainMenuMessage(), session.StateMainMenu, nil
+	}
+}
+
+func (uc *HandleWhatsAppMessageUseCase) repeatOrderingPrompt(
+	ctx context.Context,
+	sess *session.Session,
+) (string, session.ConversationState, error) {
+	switch uc.getContextString(sess, orderingStepKey) {
+	case orderingStepItemSelection:
+		selectedCategoryID := uc.getContextString(sess, orderingSelectedCategoryIDKey)
+		if selectedCategoryID == "" {
+			return uc.showAllItemsForOrdering(ctx, sess)
+		}
+
+		categoryID, err := uuid.Parse(selectedCategoryID)
+		if err != nil {
+			return uc.startOrderingFlow(ctx, sess)
+		}
+
+		items, err := uc.menuRepo.FindItemsByCategory(ctx, categoryID, sess.TenantID, true)
+		if err != nil || len(items) == 0 {
+			return uc.startOrderingFlow(ctx, sess)
+		}
+
+		categoryName := "Cardápio"
+		if category, categoryErr := uc.menuRepo.FindCategoryByID(ctx, categoryID, sess.TenantID); categoryErr == nil && category != nil && strings.TrimSpace(category.Name) != "" {
+			categoryName = category.Name
+		}
+
+		sess.SetContext(orderingItemIDsKey, menuItemIDs(items))
+		uc.setOrderingItemPreviewCache(sess, items)
+		if err := uc.sendOrderingItemsMenu(ctx, sess.UserPhone, sess.TenantID, categoryName, items); err == nil {
+			return "", session.StateOrdering, nil
+		}
+		return uc.buildOrderingItemsFallback(categoryName, items), session.StateOrdering, nil
+	default:
+		return uc.startOrderingFlow(ctx, sess)
+	}
+}
+
+func (uc *HandleWhatsAppMessageUseCase) repeatQuantityPrompt(
+	ctx context.Context,
+	sess *session.Session,
+) (string, session.ConversationState, error) {
+	selectedItemID := uc.getContextString(sess, orderingSelectedItemIDKey)
+	if selectedItemID == "" {
+		return uc.startOrderingFlow(ctx, sess)
+	}
+
+	itemID, err := uuid.Parse(selectedItemID)
+	if err != nil {
+		return uc.startOrderingFlow(ctx, sess)
+	}
+
+	selectedItem, err := uc.menuRepo.FindItemByID(ctx, itemID, sess.TenantID)
+	if err != nil || selectedItem == nil {
+		return uc.startOrderingFlow(ctx, sess)
+	}
+
+	selectedItem = uc.mergeOrderingItemWithPreviewCache(sess, selectedItem)
+	if err := uc.sendQuantityMenu(ctx, sess.UserPhone, sess.TenantID, selectedItem); err == nil {
+		return "", session.StateSelectingQty, nil
+	}
+	return uc.buildQuantityFallback(selectedItem), session.StateSelectingQty, nil
+}
+
+func (uc *HandleWhatsAppMessageUseCase) repeatOptionPrompt(
+	ctx context.Context,
+	sess *session.Session,
+) (string, session.ConversationState, error) {
+	selectedItemID := uc.getContextString(sess, orderingSelectedItemIDKey)
+	if selectedItemID == "" {
+		return uc.startOrderingFlow(ctx, sess)
+	}
+
+	itemID, err := uuid.Parse(selectedItemID)
+	if err != nil {
+		return uc.startOrderingFlow(ctx, sess)
+	}
+
+	selectedItem, err := uc.menuRepo.FindItemByID(ctx, itemID, sess.TenantID)
+	if err != nil || selectedItem == nil {
+		return uc.startOrderingFlow(ctx, sess)
+	}
+
+	selectedItem = uc.mergeOrderingItemWithPreviewCache(sess, selectedItem)
+	groups := selectedItem.EnsureOptionGroups()
+	if len(groups) == 0 {
+		return uc.repeatQuantityPrompt(ctx, sess)
+	}
+
+	currentIndex := uc.getOrderingOptionGroupIndex(sess)
+	if currentIndex < 0 || currentIndex >= len(groups) {
+		currentIndex = 0
+		uc.setOrderingOptionGroupIndex(sess, currentIndex)
+	}
+
+	return uc.presentOrderingOptionGroup(ctx, sess, selectedItem, groups[currentIndex], uc.getOrderingOptionSelections(sess), "")
+}
+
+func (uc *HandleWhatsAppMessageUseCase) repeatCartRemovalPrompt(
+	ctx context.Context,
+	sess *session.Session,
+) (string, session.ConversationState, error) {
+	cart := uc.getOrderingCart(sess)
+	if len(cart) == 0 {
+		return uc.startOrderingFlow(ctx, sess)
+	}
+
+	if err := uc.sendCartRemovalMenu(ctx, sess.UserPhone, sess.TenantID, sess, cart); err == nil {
+		return "", session.StateRemovingOrderItem, nil
+	}
+	return uc.buildOrderingCartRemovalFallback(ctx, sess, cart), session.StateRemovingOrderItem, nil
+}
+
+func (uc *HandleWhatsAppMessageUseCase) repeatCartAdjustmentPrompt(
+	ctx context.Context,
+	sess *session.Session,
+) (string, session.ConversationState, error) {
+	selectedItemID := uc.getContextString(sess, orderingSelectedCartItemIDKey)
+	if selectedItemID == "" {
+		return uc.repeatCartRemovalPrompt(ctx, sess)
+	}
+
+	displayEntry, found := uc.resolveOrderingCartDisplayEntry(ctx, sess, selectedItemID)
+	if !found {
+		return uc.repeatCartRemovalPrompt(ctx, sess)
+	}
+
+	if err := uc.sendCartRemovalActionMenu(ctx, sess.UserPhone, sess.TenantID, displayEntry); err == nil {
+		return "", session.StateAdjustingOrderItem, nil
+	}
+	return uc.buildCartRemovalActionFallback(displayEntry), session.StateAdjustingOrderItem, nil
+}
+
+func (uc *HandleWhatsAppMessageUseCase) repeatCartQuantityPrompt(
+	ctx context.Context,
+	sess *session.Session,
+) (string, session.ConversationState, error) {
+	selectedItemID := uc.getContextString(sess, orderingSelectedCartItemIDKey)
+	if selectedItemID == "" {
+		return uc.repeatCartRemovalPrompt(ctx, sess)
+	}
+
+	displayEntry, found := uc.resolveOrderingCartDisplayEntry(ctx, sess, selectedItemID)
+	if !found {
+		return uc.repeatCartAdjustmentPrompt(ctx, sess)
+	}
+
+	if err := uc.sendCartQuantitySelectionMenu(ctx, sess.UserPhone, sess.TenantID, displayEntry); err == nil {
+		return "", session.StateSelectingCartItemQty, nil
+	}
+	return uc.buildCartQuantitySelectionFallback(displayEntry), session.StateSelectingCartItemQty, nil
+}
+
+func (uc *HandleWhatsAppMessageUseCase) repeatWaitingTableConfirmationPrompt(
+	ctx context.Context,
+	sess *session.Session,
+) (string, session.ConversationState, error) {
+	tableNumber := uc.getContextString(sess, "pending_table_number")
+	if tableNumber == "" {
+		return whatsapp.MainMenuMessage(), session.StateMainMenu, nil
+	}
+
+	tenantObj, err := uc.tenantRepo.FindByID(ctx, sess.TenantID)
+	if err != nil || tenantObj == nil {
+		return whatsapp.MainMenuMessage(), session.StateMainMenu, nil
+	}
+
+	return whatsapp.WelcomeTableMessage(tenantObj.Name, tableNumber, tenantObj.Settings.Messages),
+		session.StateWaitingTableConfirmation, nil
+}
+
+func (uc *HandleWhatsAppMessageUseCase) repeatCollabChoicePrompt(sess *session.Session) string {
+	tableNumber := uc.getContextString(sess, "pending_table_number")
+	if tableNumber != "" {
+		return fmt.Sprintf("Olá! 😊 Vimos que a *Mesa %s* já está em andamento.\n\nVocê deseja entrar na comanda com seus amigos ou criar uma conta só para você?", tableNumber)
+	}
+
+	return "Olá! 😊 Essa mesa já está em andamento.\n\nVocê deseja entrar na comanda com seus amigos ou criar uma conta só para você?"
+}
+
 func (uc *HandleWhatsAppMessageUseCase) handleWelcomeMenu(
 	ctx context.Context,
 	sess *session.Session,
@@ -393,7 +624,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleWelcomeMenu(
 		return "", session.StateWelcome, nil
 	}
 
-	return whatsapp.InvalidOptionMessage(t.Settings.Messages), session.StateWelcome, nil
+	return uc.repeatCurrentPrompt(ctx, sess)
 }
 
 func isWelcomeGreeting(text string) bool {
@@ -807,8 +1038,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleMainMenu(
 		return uc.startClosingTabFlow(ctx, sess)
 
 	default:
-		return whatsapp.InvalidOptionMessage() + "\n\n" + whatsapp.MainMenuMessage(),
-			session.StateMainMenu, nil
+		return uc.repeatCurrentPrompt(ctx, sess)
 	}
 }
 
@@ -889,9 +1119,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleQuantitySelection(
 	}
 
 	if err != nil || quantity < 1 || quantity > 20 {
-		return fmt.Sprintf("❌ Quantidade inválida para *%s*. Escolha um dos botões ou envie um número entre 1 e 20.\n\n_Digite 0 para voltar ao menu principal_",
-				selectedItem.Name),
-			session.StateSelectingQty, nil
+		return uc.repeatCurrentPrompt(ctx, sess)
 	}
 
 	sess.SetContext(orderingSelectedQuantityKey, quantity)
@@ -1117,8 +1345,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleOrderConfirmation(
 		return uc.buildOrderingCartRemovalFallback(ctx, sess, cart), session.StateRemovingOrderItem, nil
 	case orderingConfirmOrderID, "1":
 	default:
-		return "❌ Opção inválida. Use *Enviar pedido*, *Adicionar mais itens*, *Ajustar item* ou digite *0* para voltar ao menu principal.",
-			session.StateConfirmingOrder, nil
+		return uc.repeatCurrentPrompt(ctx, sess)
 	}
 
 	cart := uc.getOrderingCart(sess)
@@ -1199,8 +1426,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleOrderingCartItemRemoval(
 
 	menuItemID, ok := uc.resolveOrderingCartRemovalSelection(sess, text)
 	if !ok {
-		return "❌ Item inválido. Escolha um item da lista para excluir ou digite *0* para voltar ao carrinho.",
-			session.StateRemovingOrderItem, nil
+		return uc.repeatCurrentPrompt(ctx, sess)
 	}
 
 	sess.SetContext(orderingSelectedCartItemIDKey, menuItemID)
@@ -1291,8 +1517,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleOrderingCartItemAdjustment(
 	case text == orderingRemoveAllUnitsID || (text == "4" && selectedItem.Quantity > 1) || (text == "3" && selectedItem.Quantity <= 1):
 		removeEntireLine = true
 	default:
-		return "❌ Opção inválida. Escolha uma ação da lista ou digite *0* para voltar ao carrinho.",
-			session.StateAdjustingOrderItem, nil
+		return uc.repeatCurrentPrompt(ctx, sess)
 	}
 
 	var updatedCart []orderingCartItem
@@ -1390,8 +1615,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleOrderingCartItemQuantitySelection(
 	}
 
 	if err != nil || quantity < 1 || quantity > 20 {
-		return "❌ Quantidade inválida. Escolha uma opção da lista ou digite um número entre *1* e *20*.\n\n_Digite 0 para voltar ao ajuste do item_",
-			session.StateSelectingCartItemQty, nil
+		return uc.repeatCurrentPrompt(ctx, sess)
 	}
 
 	updatedItem, updatedCart, ok := uc.updateOrderingCartItemQuantity(sess, selectedItemID, quantity)
@@ -1584,7 +1808,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleTableConfirmation(
 	// Validar quantidade de pessoas
 	paxCount, err := strconv.Atoi(text)
 	if err != nil || paxCount < 1 || paxCount > 20 {
-		return "❌ Por favor, digite um número válido de pessoas (1 a 20).\n\n_Ou digite 0 para cancelar_", session.StateWaitingTableConfirmation, nil
+		return uc.repeatCurrentPrompt(ctx, sess)
 	}
 
 	tableIDStr, ok := sess.GetContext("pending_table_id")
@@ -1749,7 +1973,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleCollabChoice(
 	} else if isIndividual {
 		joinType = tab.JoinTypeIndividual
 	} else {
-		return "Por favor, toque em um dos botões: *🤝 Entrar na Comanda* ou *💳 Individual*.", session.StateWaitingCollabChoice, nil
+		return uc.repeatCurrentPrompt(ctx, sess)
 	}
 
 	mainTabIDStr, hasMain := sess.GetContext("main_tab_id")
