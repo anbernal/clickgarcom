@@ -61,6 +61,10 @@ Use quando:
 2. Use [project_architecture.md](project_architecture.md) ao mexer em contratos, filas ou dominio.
 3. Use os documentos `01` a `07` para regras de negocio e direcao de produto.
 
+### Ultimas Modernizacoes de UI
+- Modernizacao do Dashboard Admin (Glassmorphism, animacoes de entrada e numeros)
+![Dashboard Modernizado Animacao](file:///Users/macbook/.gemini/antigravity/brain/a9399f52-080e-48b8-9023-5b766938b9a6/dashboard_modernized_verify_1774468190944.webp)
+
 ### Ao implementar mudancas
 
 1. Verifique no codigo qual servico e dono da responsabilidade.
