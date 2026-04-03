@@ -134,6 +134,49 @@ let activeWaiterChatId = null;
 let closeBillRequests = [];
 let operationsSummary = null;
 const PANEL_ORDER = ['kitchen', 'bar', 'salao'];
+const SALAO_STATS_CARD_DEFINITIONS = [
+  {
+    key: 'availableTables',
+    label: 'Mesas Livres',
+    icon: KDS_ICONS.chair,
+    iconBackground: 'var(--green-bg)',
+    iconColor: 'var(--green)',
+    valueColor: 'var(--green)',
+  },
+  {
+    key: 'readyOrders',
+    label: 'Prontos p/ Entrega',
+    icon: KDS_ICONS.check,
+    iconBackground: 'var(--green-bg)',
+    iconColor: 'var(--green)',
+    valueColor: 'var(--green)',
+  },
+  {
+    key: 'pendingRequests',
+    label: 'Aguardando',
+    icon: KDS_ICONS.phone,
+    iconBackground: 'var(--yellow-bg)',
+    iconColor: 'var(--yellow)',
+    valueColor: '#8a6e00',
+  },
+  {
+    key: 'openChats',
+    label: 'WhatsApp',
+    icon: KDS_ICONS.chat,
+    iconBackground: 'var(--blue-bg)',
+    iconColor: 'var(--blue)',
+    valueColor: 'var(--blue)',
+  },
+  {
+    key: 'closeBillRequests',
+    label: 'Fechando Conta',
+    icon: KDS_ICONS.bill,
+    iconBackground: 'var(--red-bg)',
+    iconColor: 'var(--red)',
+    valueColor: 'var(--red)',
+  },
+];
+const STATION_STATS_CARD_KEYS = ['pending', 'accepted', 'ready', 'total', 'delayed', 'avgPreparation', 'bottleneck'];
 
 function resolveInitialPanel() {
   const panel = new URLSearchParams(window.location.search).get('panel');
@@ -411,10 +454,20 @@ function handleWSEvent(event) {
 
 // ─── RENDER ────────────────────────────────────────────────────
 function renderAll() {
-  renderPanel('kitchen', 'KITCHEN');
-  renderPanel('bar', 'BAR');
-  renderSalao();
+  renderCurrentPanel();
   updateNavBadges();
+}
+
+function renderCurrentPanel() {
+  if (activePanel === 'bar') {
+    renderPanel('bar', 'BAR');
+    return;
+  }
+  if (activePanel === 'salao') {
+    renderSalao();
+    return;
+  }
+  renderPanel('kitchen', 'KITCHEN');
 }
 
 function renderPanel(panel, destination) {
@@ -472,15 +525,46 @@ function renderColumn(containerId, orders, status) {
 
 function createOrderCard(order) {
   const card = document.createElement('div');
-  card.className = `order-card ${getCardClass(order)}`;
   card.dataset.id = order.id;
-  card.innerHTML = buildCardHTML(order);
+  applyOrderCardSnapshot(card, order);
   return card;
 }
 
 function updateOrderCard(card, order) {
-  card.className = `order-card ${getCardClass(order)}`;
-  card.innerHTML = buildCardHTML(order);
+  applyOrderCardSnapshot(card, order);
+}
+
+function applyOrderCardSnapshot(card, order) {
+  const snapshot = buildOrderCardRenderSnapshot(order);
+  if (card.dataset.renderKey === snapshot.key) return;
+  card.className = snapshot.className;
+  card.dataset.renderKey = snapshot.key;
+  card.innerHTML = snapshot.html;
+}
+
+function buildOrderCardRenderSnapshot(order) {
+  const stage = getOrderStageSnapshot(order);
+  const className = `order-card ${getCardClass(order)}`;
+  const html = buildCardHTML(order, stage);
+  const signature = [
+    order.id,
+    order.status,
+    order.destination,
+    order.created_at || '',
+    order.accepted_at || '',
+    order.ready_at || '',
+    order.delivered_at || '',
+    getOrderDisplayCode(order),
+    getOrderTableLabel(order),
+    stage.key,
+    stage.stationKey || '',
+    stage.startedAt || '',
+    stage.elapsed.severity || '',
+    JSON.stringify(order.items || []),
+    String(order.notes || ''),
+  ].join('|');
+
+  return { className, html, key: signature };
 }
 
 function getCardClass(order) {
@@ -500,10 +584,9 @@ function getCardClass(order) {
   return classes.join(' ');
 }
 
-function buildCardHTML(order) {
+function buildCardHTML(order, stage = getOrderStageSnapshot(order)) {
   const badge = order.destination === 'KITCHEN' ? 'badge-kitchen' : 'badge-bar';
   const destLabel = order.destination === 'KITCHEN' ? 'Cozinha' : 'Bar';
-  const stage = getOrderStageSnapshot(order);
 
   let itemsHtml = '';
   if (order.items && order.items.length) {
@@ -549,6 +632,12 @@ function buildCardHTML(order) {
 function renderStats(containerId, pending, accepted, ready, destination, stationSummary) {
   const el = document.getElementById(containerId);
   if (!el) return;
+  const values = buildStationStatsValues(pending, accepted, ready, destination, stationSummary);
+  ensureStationStatsCards(el, destination);
+  updateStationStatsCards(el, values);
+}
+
+function buildStationStatsValues(pending, accepted, ready, destination, stationSummary) {
   const icon = destination === 'KITCHEN' ? '🍳' : '🍹';
   const delayedCount = Number(stationSummary?.delayedCount || 0);
   const warningCount = Number(stationSummary?.warningCount || 0);
@@ -559,94 +648,252 @@ function renderStats(containerId, pending, accepted, ready, destination, station
   const bottleneckDetail = Number(stationSummary?.bottleneckDelayedCount || 0) > 0
     ? `${stationSummary.bottleneckDelayedCount} acima do SLA · fila ${stationSummary.bottleneckQueueCount || 0}`
     : `${stationSummary?.bottleneckQueueCount || 0} pedido(s) no estágio mais carregado`;
-  el.innerHTML = `
-    <div class="stat-card"><div class="stat-icon" style="background:var(--red-bg);color:var(--red)">${KDS_ICONS.alert}</div><div><div class="stat-value" style="color:var(--red)">${pending}</div><div class="stat-label">Aguardando aceite</div></div></div>
-    <div class="stat-card"><div class="stat-icon" style="background:var(--yellow-bg);color:var(--yellow)">${KDS_ICONS.clock}</div><div><div class="stat-value" style="color:#8a6e00">${accepted}</div><div class="stat-label">Em preparo · SLA ${escapeHTML(String(preparationSla.criticalMinutes || 0))} min</div></div></div>
-    <div class="stat-card"><div class="stat-icon" style="background:var(--green-bg);color:var(--green)">${KDS_ICONS.check}</div><div><div class="stat-value" style="color:var(--green)">${ready}</div><div class="stat-label">Prontos</div></div></div>
-    <div class="stat-card"><div class="stat-icon" style="background:var(--surface-2)">${icon}</div><div><div class="stat-value">${pending + accepted + ready}</div><div class="stat-label">Total ativos</div></div></div>
-    <div class="stat-card"><div class="stat-icon" style="background:${delayedCount > 0 ? 'var(--red-bg)' : 'var(--yellow-bg)'};color:${delayedCount > 0 ? 'var(--red)' : 'var(--yellow)'}">${KDS_ICONS.fire}</div><div><div class="stat-value" style="color:${delayedCount > 0 ? 'var(--red)' : '#8a6e00'}">${delayedCount}</div><div class="stat-label">${warningCount > 0 ? `${warningCount} em atenção` : 'Acima do SLA'}</div></div></div>
-    <div class="stat-card"><div class="stat-icon" style="background:var(--blue-bg);color:var(--blue)">${KDS_ICONS.clock}</div><div><div class="stat-value" style="color:var(--blue)">${avgPreparationMinutes}</div><div class="stat-label">Prep médio · Aceite ${avgAcceptanceMinutes}</div></div></div>
-    <div class="stat-card"><div class="stat-icon" style="background:var(--orange-bg);color:var(--orange)">${KDS_ICONS.wall}</div><div><div class="stat-value" style="font-size:13px; line-height:1.2;">${escapeHTML(bottleneckLabel)}</div><div class="stat-label">${escapeHTML(bottleneckDetail)}</div></div></div>`;
+  return {
+    pending: {
+      icon: KDS_ICONS.alert,
+      iconBackground: 'var(--red-bg)',
+      iconColor: 'var(--red)',
+      value: String(pending),
+      valueColor: 'var(--red)',
+      label: 'Aguardando aceite',
+    },
+    accepted: {
+      icon: KDS_ICONS.clock,
+      iconBackground: 'var(--yellow-bg)',
+      iconColor: 'var(--yellow)',
+      value: String(accepted),
+      valueColor: '#8a6e00',
+      label: `Em preparo · SLA ${String(preparationSla.criticalMinutes || 0)} min`,
+    },
+    ready: {
+      icon: KDS_ICONS.check,
+      iconBackground: 'var(--green-bg)',
+      iconColor: 'var(--green)',
+      value: String(ready),
+      valueColor: 'var(--green)',
+      label: 'Prontos',
+    },
+    total: {
+      icon,
+      iconBackground: 'var(--surface-2)',
+      iconColor: '',
+      value: String(pending + accepted + ready),
+      valueColor: '',
+      label: 'Total ativos',
+    },
+    delayed: {
+      icon: KDS_ICONS.fire,
+      iconBackground: delayedCount > 0 ? 'var(--red-bg)' : 'var(--yellow-bg)',
+      iconColor: delayedCount > 0 ? 'var(--red)' : 'var(--yellow)',
+      value: String(delayedCount),
+      valueColor: delayedCount > 0 ? 'var(--red)' : '#8a6e00',
+      label: warningCount > 0 ? `${warningCount} em atenção` : 'Acima do SLA',
+    },
+    avgPreparation: {
+      icon: KDS_ICONS.clock,
+      iconBackground: 'var(--blue-bg)',
+      iconColor: 'var(--blue)',
+      value: avgPreparationMinutes,
+      valueColor: 'var(--blue)',
+      label: `Prep médio · Aceite ${avgAcceptanceMinutes}`,
+    },
+    bottleneck: {
+      icon: KDS_ICONS.wall,
+      iconBackground: 'var(--orange-bg)',
+      iconColor: 'var(--orange)',
+      value: bottleneckLabel,
+      valueColor: '',
+      label: bottleneckDetail,
+      compactValue: true,
+    },
+  };
+}
+
+function ensureStationStatsCards(container, destination) {
+  if (container.dataset.initialized === 'true' && container.dataset.destination === destination) return;
+
+  container.innerHTML = STATION_STATS_CARD_KEYS.map((key) => `
+    <div class="stat-card" data-station-stat="${key}">
+      <div class="stat-icon" data-role="icon"></div>
+      <div>
+        <div class="stat-value" data-role="value">0</div>
+        <div class="stat-label" data-role="label"></div>
+      </div>
+    </div>
+  `).join('');
+  container.dataset.initialized = 'true';
+  container.dataset.destination = destination;
+}
+
+function updateStationStatsCards(container, values) {
+  STATION_STATS_CARD_KEYS.forEach((key) => {
+    const card = container.querySelector(`[data-station-stat="${key}"]`);
+    const value = values[key];
+    if (!card || !value) return;
+
+    const iconEl = card.querySelector('[data-role="icon"]');
+    const valueEl = card.querySelector('[data-role="value"]');
+    const labelEl = card.querySelector('[data-role="label"]');
+
+    if (iconEl) {
+      if (iconEl.innerHTML !== value.icon) iconEl.innerHTML = value.icon;
+      if (iconEl.style.background !== value.iconBackground) iconEl.style.background = value.iconBackground;
+      if (iconEl.style.color !== value.iconColor) iconEl.style.color = value.iconColor;
+    }
+
+    if (valueEl) {
+      if (valueEl.textContent !== value.value) valueEl.textContent = value.value;
+      if (valueEl.style.color !== value.valueColor) valueEl.style.color = value.valueColor;
+      if (value.compactValue) {
+        valueEl.style.fontSize = '13px';
+        valueEl.style.lineHeight = '1.2';
+      } else {
+        valueEl.style.fontSize = '';
+        valueEl.style.lineHeight = '';
+      }
+    }
+
+    if (labelEl && labelEl.textContent !== value.label) {
+      labelEl.textContent = value.label;
+    }
+  });
 }
 
 function renderSalao() {
-  const readyOrders = Object.values(allOrders).filter(o => o.status === 'READY');
-  const openChats = waiterChats.filter((chat) => chat.status === 'OPEN').length;
-
-  // --- Stats ---
-  const statsEl = document.getElementById('stats-salao');
-  if (statsEl) {
-    statsEl.innerHTML = `
-      <div class="stat-card"><div class="stat-icon" style="background:var(--green-bg);color:var(--green)">${KDS_ICONS.chair}</div><div><div class="stat-value" style="color:var(--green)">${tableMetrics.available}</div><div class="stat-label">Mesas Livres</div></div></div>
-      <div class="stat-card"><div class="stat-icon" style="background:var(--green-bg);color:var(--green)">${KDS_ICONS.check}</div><div><div class="stat-value" style="color:var(--green)">${readyOrders.length}</div><div class="stat-label">Prontos p/ Entrega</div></div></div>
-      <div class="stat-card"><div class="stat-icon" style="background:var(--yellow-bg);color:var(--yellow)">${KDS_ICONS.phone}</div><div><div class="stat-value" style="color:#8a6e00">${pendingRequests.length}</div><div class="stat-label">Aguardando</div></div></div>
-      <div class="stat-card"><div class="stat-icon" style="background:var(--blue-bg);color:var(--blue)">${KDS_ICONS.chat}</div><div><div class="stat-value" style="color:var(--blue)">${openChats}</div><div class="stat-label">WhatsApp</div></div></div>
-      <div class="stat-card"><div class="stat-icon" style="background:var(--red-bg);color:var(--red)">${KDS_ICONS.bill}</div><div><div class="stat-value" style="color:var(--red)">${closeBillRequests.length}</div><div class="stat-label">Fechando Conta</div></div></div>`;
-  }
-
-  // --- Primeiro Contato ---
-  const newList = document.getElementById('salao-new-list');
-  if (newList) {
-    if (pendingRequests.length === 0) {
-      newList.innerHTML = `<div class="empty-state">
-        <div class="empty-icon">👤</div>
-        Nenhum cliente aguardando
-        <div class="empty-sub">Clientes serão listados aqui</div>
-      </div>`;
-    } else {
-      newList.innerHTML = pendingRequests.map(req => {
-        const elapsed = getElapsed(req.createdAt || req.created_at);
-        const phone = escapeHTML(req.userPhone || req.user_phone || 'N/A');
-        const pax = req.paxCount || req.pax_count || '?';
-        return `<div class="ready-item">
-          <div style="font-size:20px;flex-shrink:0">📱</div>
-          <div class="ready-item-left">
-            <div class="ready-item-title">${phone}</div>
-            <div class="ready-item-sub">${pax} pessoa(s) · Aguardando há ${escapeHTML(elapsed.text)}</div>
-          </div>
-          <button class="action-btn accept-btn" style="flex-shrink:0" onclick="openAssignModal('${escapeHTML(req.id)}','${phone}','${pax}')">🥞 Alocar Mesa</button>
-        </div>`;
-      }).join('');
-    }
-    document.getElementById('salao-new-count').textContent = pendingRequests.length;
-  }
-
-  // --- Prontos para Entrega ---
-  const readyList = document.getElementById('salao-ready-list');
-  if (readyList) {
-    if (readyOrders.length === 0) {
-      readyList.innerHTML = `<div class="empty-state">
-        <div class="empty-icon">🍽</div>
-        Nenhum pedido pronto
-        <div class="empty-sub">Pedidos prontos aparecerão aqui</div>
-      </div>`;
-    } else {
-      readyList.innerHTML = readyOrders.map(o => {
-        const elapsed = getElapsed(o.ready_at || o.created_at);
-        const icon = o.destination === 'KITCHEN' ? '🍳' : '🍹';
-        const tag = o.destination === 'KITCHEN'
-          ? '<span class="ready-tag" style="background:var(--orange-bg);color:var(--orange)">Cozinha</span>'
-          : '<span class="ready-tag" style="background:var(--blue-bg);color:var(--blue)">Bar</span>';
-        const itemNames = escapeHTML((o.items || []).map(i => `${i.quantity}x ${resolveItemName(i)}`).join(', ') || 'Itens');
-        return `<div class="ready-item ${elapsed.urgent ? 'style="background:var(--red-bg);border-color:#f0c4be"' : ''}">
-          <div style="font-size:20px;flex-shrink:0">${icon}</div>
-          <div class="ready-item-left">
-            <div class="ready-item-title">Pedido #${escapeHTML(getOrderDisplayCode(o))}</div>
-            <div class="ready-item-sub">${itemNames}</div>
-            <div style="font-size:10px;color:var(--text-3);font-family:'DM Mono';margin-top:3px">Pronto há ${escapeHTML(elapsed.text)}</div>
-          </div>
-          ${tag}
-          <button class="action-btn deliver-btn" style="flex-shrink:0" onclick="updateStatus('${o.id}','DELIVERED')">Entregar</button>
-        </div>`;
-      }).join('');
-    }
-    document.getElementById('salao-ready-count').textContent = readyOrders.length;
-  }
+  renderSalaoStats(getSalaoStatsValues());
+  renderSalaoPendingRequests();
+  renderSalaoReadyOrders();
 
   // --- Fechar Conta + Chats + Mesas ---
   renderCloseBillRequests();
   renderWaiterChats();
   renderSalaoTables();
+}
+
+function getSalaoStatsValues() {
+  return {
+    availableTables: tableMetrics.available,
+    readyOrders: Object.values(allOrders).filter(o => o.status === 'READY').length,
+    pendingRequests: pendingRequests.length,
+    openChats: waiterChats.filter((chat) => chat.status === 'OPEN').length,
+    closeBillRequests: closeBillRequests.length,
+  };
+}
+
+function renderSalaoPendingRequests() {
+  const newList = document.getElementById('salao-new-list');
+  if (!newList) return;
+
+  if (pendingRequests.length === 0) {
+    newList.innerHTML = `<div class="empty-state">
+      <div class="empty-icon">👤</div>
+      Nenhum cliente aguardando
+      <div class="empty-sub">Clientes serão listados aqui</div>
+    </div>`;
+  } else {
+    newList.innerHTML = pendingRequests.map(req => {
+      const elapsed = getElapsed(req.createdAt || req.created_at);
+      const phone = escapeHTML(req.userPhone || req.user_phone || 'N/A');
+      const pax = req.paxCount || req.pax_count || '?';
+      return `<div class="ready-item">
+        <div style="font-size:20px;flex-shrink:0">📱</div>
+        <div class="ready-item-left">
+          <div class="ready-item-title">${phone}</div>
+          <div class="ready-item-sub">${pax} pessoa(s) · Aguardando há ${escapeHTML(elapsed.text)}</div>
+        </div>
+        <button class="action-btn accept-btn" style="flex-shrink:0" onclick="openAssignModal('${escapeHTML(req.id)}','${phone}','${pax}')">🥞 Alocar Mesa</button>
+      </div>`;
+    }).join('');
+  }
+  document.getElementById('salao-new-count').textContent = pendingRequests.length;
+}
+
+function renderSalaoReadyOrders() {
+  const readyList = document.getElementById('salao-ready-list');
+  if (!readyList) return;
+
+  const readyOrders = Object.values(allOrders).filter(o => o.status === 'READY');
+  if (readyOrders.length === 0) {
+    readyList.innerHTML = `<div class="empty-state">
+      <div class="empty-icon">🍽</div>
+      Nenhum pedido pronto
+      <div class="empty-sub">Pedidos prontos aparecerão aqui</div>
+    </div>`;
+  } else {
+    readyList.innerHTML = readyOrders.map(o => {
+      const elapsed = getElapsed(o.ready_at || o.created_at);
+      const icon = o.destination === 'KITCHEN' ? '🍳' : '🍹';
+      const tag = o.destination === 'KITCHEN'
+        ? '<span class="ready-tag" style="background:var(--orange-bg);color:var(--orange)">Cozinha</span>'
+        : '<span class="ready-tag" style="background:var(--blue-bg);color:var(--blue)">Bar</span>';
+      const itemNames = escapeHTML((o.items || []).map(i => `${i.quantity}x ${resolveItemName(i)}`).join(', ') || 'Itens');
+      return `<div class="ready-item ${elapsed.urgent ? 'style="background:var(--red-bg);border-color:#f0c4be"' : ''}">
+        <div style="font-size:20px;flex-shrink:0">${icon}</div>
+        <div class="ready-item-left">
+          <div class="ready-item-title">Pedido #${escapeHTML(getOrderDisplayCode(o))}</div>
+          <div class="ready-item-sub">${itemNames}</div>
+          <div style="font-size:10px;color:var(--text-3);font-family:'DM Mono';margin-top:3px">Pronto há ${escapeHTML(elapsed.text)}</div>
+        </div>
+        ${tag}
+        <button class="action-btn deliver-btn" style="flex-shrink:0" onclick="updateStatus('${o.id}','DELIVERED')">Entregar</button>
+      </div>`;
+    }).join('');
+  }
+  document.getElementById('salao-ready-count').textContent = readyOrders.length;
+}
+
+function renderSalaoStats(values) {
+  const statsEl = document.getElementById('stats-salao');
+  if (!statsEl) return;
+
+  ensureSalaoStatsCards(statsEl);
+
+  SALAO_STATS_CARD_DEFINITIONS.forEach((definition) => {
+    const card = statsEl.querySelector(`[data-salao-stat="${definition.key}"]`);
+    if (!card) return;
+
+    const iconEl = card.querySelector('[data-role="icon"]');
+    const valueEl = card.querySelector('[data-role="value"]');
+    const labelEl = card.querySelector('[data-role="label"]');
+
+    if (iconEl) {
+      if (iconEl.style.background !== definition.iconBackground) {
+        iconEl.style.background = definition.iconBackground;
+      }
+      if (iconEl.style.color !== definition.iconColor) {
+        iconEl.style.color = definition.iconColor;
+      }
+    }
+
+    if (valueEl) {
+      const nextValue = String(values?.[definition.key] ?? 0);
+      if (valueEl.textContent !== nextValue) {
+        valueEl.textContent = nextValue;
+      }
+      if (valueEl.style.color !== definition.valueColor) {
+        valueEl.style.color = definition.valueColor;
+      }
+    }
+
+    if (labelEl && labelEl.textContent !== definition.label) {
+      labelEl.textContent = definition.label;
+    }
+  });
+}
+
+function ensureSalaoStatsCards(statsEl) {
+  if (statsEl.dataset.initialized === 'true') return;
+
+  statsEl.innerHTML = SALAO_STATS_CARD_DEFINITIONS.map((definition) => `
+    <div class="stat-card" data-salao-stat="${definition.key}">
+      <div class="stat-icon" data-role="icon">${definition.icon}</div>
+      <div>
+        <div class="stat-value" data-role="value">0</div>
+        <div class="stat-label" data-role="label">${definition.label}</div>
+      </div>
+    </div>
+  `).join('');
+  statsEl.dataset.initialized = 'true';
 }
 
 // --- Table capacity filter ---
@@ -1061,6 +1308,8 @@ function switchPanel(name) {
   document.querySelectorAll('.sidebar-nav .nav-item').forEach((n, i) => n.classList.toggle('active', PANEL_ORDER[i] === nextPanel));
   document.getElementById('topbar-title').textContent = TITLES[nextPanel][0];
   document.getElementById('topbar-sub').textContent = TITLES[nextPanel][1];
+  renderCurrentPanel();
+  updateNavBadges();
 }
 
 // ─── TOAST ─────────────────────────────────────────────────────
@@ -1134,7 +1383,10 @@ async function loadPendingRequests() {
   try {
     const data = await apiGet('/tables/requests/pending');
     pendingRequests = Array.isArray(data) ? data : [];
-    renderSalao();
+    if (activePanel === 'salao') {
+      renderSalaoStats(getSalaoStatsValues());
+      renderSalaoPendingRequests();
+    }
     updateNavBadges();
   } catch (e) {
     console.warn('Failed to load pending requests:', e);
@@ -1163,14 +1415,16 @@ async function loadTableState() {
       available: availableTables.length,
       occupied: tablesSnapshot.filter(t => t.status === 'OCCUPIED').length,
     };
-    renderAll();
+    renderCurrentPanel();
+    updateNavBadges();
   } catch (e) {
     console.warn('Failed to load tables:', e);
     tablesSnapshot = [];
     availableTables = [];
     tabMetaById = new Map();
     tableMetrics = { total: 0, available: 0, occupied: 0 };
-    renderAll();
+    renderCurrentPanel();
+    updateNavBadges();
   }
 }
 
@@ -1178,7 +1432,10 @@ async function loadWaiterChats() {
   try {
     const data = await apiGet('/tables/waiter/chats/open');
     waiterChats = Array.isArray(data) ? data : [];
-    renderWaiterChats();
+    if (activePanel === 'salao') {
+      renderSalaoStats(getSalaoStatsValues());
+      renderWaiterChats();
+    }
     updateNavBadges();
 
     if (activeWaiterChatId) {
@@ -1198,7 +1455,10 @@ async function loadCloseRequests() {
   try {
     const data = await apiGet('/tables/waiter/close-requests');
     closeBillRequests = Array.isArray(data) ? data : [];
-    renderSalao();
+    if (activePanel === 'salao') {
+      renderSalaoStats(getSalaoStatsValues());
+      renderCloseBillRequests();
+    }
     updateNavBadges();
   } catch (e) {
     console.warn('Failed to load close bill requests:', e);

@@ -37,7 +37,7 @@ const server = http.createServer((req, res) => {
   }
 
   if (pathname === '/_config.js') {
-    return sendRuntimeConfig(res);
+    return sendRuntimeConfig(req, res);
   }
 
   if (req.method !== 'GET' && req.method !== 'HEAD') {
@@ -56,13 +56,13 @@ server.listen(PORT, () => {
   console.log(`ClickGarcom Web Admin running on http://localhost:${PORT}`);
 });
 
-function sendRuntimeConfig(res) {
-  const apiBaseUrl = normalizeBaseUrl(process.env.ADMIN_API_BASE_URL, 'http://localhost:3002/admin/api');
+function sendRuntimeConfig(req, res) {
+  const apiBaseUrl = resolveAdminApiBaseUrl(req);
   const publicTablesApiBaseUrl = normalizeBaseUrl(
     process.env.ADMIN_PUBLIC_API_BASE_URL,
     `${apiBaseUrl}/public/tables`,
   );
-  const kdsWsUrl = String(process.env.KDS_WS_URL || 'ws://localhost:8080/ws/kds').trim();
+  const kdsWsUrl = resolveKdsWebSocketUrl(req);
   const payload = {
     apiBaseUrl,
     publicTablesApiBaseUrl,
@@ -157,4 +157,63 @@ function fileExists(filename) {
 function normalizeBaseUrl(rawValue, fallback) {
   const value = String(rawValue || '').trim();
   return (value || fallback).replace(/\/+$/, '');
+}
+
+function resolveAdminApiBaseUrl(req) {
+  const configuredValue = String(process.env.ADMIN_API_BASE_URL || '').trim();
+  if (configuredValue) {
+    return normalizeBaseUrl(configuredValue, '');
+  }
+
+  return buildBrowserServiceUrl(req, {
+    pathname: '/admin/api',
+    port: process.env.ADMIN_API_BROWSER_PORT || '3002',
+  });
+}
+
+function resolveKdsWebSocketUrl(req) {
+  const configuredValue = String(process.env.KDS_WS_URL || '').trim();
+  if (configuredValue) {
+    return configuredValue.replace(/\/+$/, '');
+  }
+
+  const origin = getRequestOrigin(req);
+  return buildBrowserServiceUrl(req, {
+    pathname: '/ws/kds',
+    port: process.env.KDS_WS_BROWSER_PORT || '8080',
+    protocol: origin.protocol === 'https:' ? 'wss:' : 'ws:',
+  });
+}
+
+function buildBrowserServiceUrl(req, { pathname, port, protocol }) {
+  const origin = getRequestOrigin(req);
+  const targetUrl = new URL(pathname, origin);
+
+  if (protocol) {
+    targetUrl.protocol = protocol;
+  }
+
+  if (String(port || '').trim()) {
+    targetUrl.port = String(port).trim();
+  }
+
+  return targetUrl.toString().replace(/\/+$/, '');
+}
+
+function getRequestOrigin(req) {
+  const forwardedProto = getForwardedHeader(req.headers['x-forwarded-proto']);
+  const forwardedHost = getForwardedHeader(req.headers['x-forwarded-host']);
+  const host = forwardedHost || req.headers.host || `localhost:${PORT}`;
+  const protocol = forwardedProto || 'http';
+
+  try {
+    return new URL(`${protocol}://${host}`);
+  } catch (_error) {
+    return new URL(`http://localhost:${PORT}`);
+  }
+}
+
+function getForwardedHeader(value) {
+  const normalized = Array.isArray(value) ? value[0] : value;
+  return String(normalized || '').split(',')[0].trim();
 }
