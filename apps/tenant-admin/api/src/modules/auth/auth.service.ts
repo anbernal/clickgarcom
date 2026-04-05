@@ -1,6 +1,6 @@
-import { ForbiddenException, Injectable, HttpException, HttpStatus, UnauthorizedException } from '@nestjs/common';
+import { ForbiddenException, HttpException, HttpStatus, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Not, Repository } from 'typeorm';
+import { DataSource, Not, Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { User } from '../../entities/user.entity';
@@ -67,13 +67,24 @@ const DEFAULT_OPERATIONAL_SETTINGS: Required<Pick<
     voucher_enabled: true,
 };
 
+type ShiftCloseSessionSweepResult = {
+    eligibleTabs: number;
+    processedTabs: number;
+    releasedSessions: number;
+    failedTabs: number;
+    failedTabIds: string[];
+};
+
 @Injectable()
 export class AuthService {
+    private readonly logger = new Logger(AuthService.name);
+
     constructor(
         @InjectRepository(User) private readonly userRepository: Repository<User>,
         @InjectRepository(UserAccessAuditLog) private readonly userAccessAuditLogRepository: Repository<UserAccessAuditLog>,
         @InjectRepository(Tenant) private readonly tenantRepository: Repository<Tenant>,
         private readonly jwtService: JwtService,
+        private readonly dataSource: DataSource,
     ) { }
 
     async register(data: any): Promise<any> {
@@ -545,6 +556,9 @@ export class AuthService {
         tenant.settings = currentSettings;
 
         await this.tenantRepository.save(tenant);
+        const sessionSweep = !tenant.isOpen
+            ? await this.releaseEligibleSessionsOnShiftClose(tenantId)
+            : null;
         await this.recordAuditEvent(tenantId, {
             actorUserId: actor?.userId,
             actorName: actor?.userName,
@@ -553,6 +567,7 @@ export class AuthService {
             description: tenant.isOpen ? 'Expediente aberto no tenant admin.' : 'Expediente fechado no tenant admin.',
             metadata: {
                 isOpen: !!tenant.isOpen,
+                sessionSweep,
             },
         });
 
@@ -561,7 +576,8 @@ export class AuthService {
             is_open: tenant.isOpen,
             opened_at: currentSettings.opened_at || null,
             opened_by: currentSettings.opened_by || null,
-            message: tenant.isOpen ? 'Expediente Aberto!' : 'Expediente Fechado'
+            message: tenant.isOpen ? 'Expediente Aberto!' : 'Expediente Fechado',
+            session_sweep: sessionSweep,
         };
     }
 
@@ -936,6 +952,101 @@ export class AuthService {
                 ? settings.voucher_enabled
                 : DEFAULT_OPERATIONAL_SETTINGS.voucher_enabled,
         };
+    }
+
+    private async releaseEligibleSessionsOnShiftClose(tenantId: string): Promise<ShiftCloseSessionSweepResult> {
+        const eligibleTabs = await this.dataSource.query(
+            `SELECT id, user_phone
+               FROM tabs
+              WHERE tenant_id = $1
+                AND (
+                    status = 'CLOSED'
+                    OR ROUND(COALESCE(total, 0)::numeric - COALESCE(paid_amount, 0)::numeric, 2) <= 0
+                )
+              ORDER BY opened_at DESC`,
+            [tenantId],
+        );
+
+        const result: ShiftCloseSessionSweepResult = {
+            eligibleTabs: eligibleTabs.length,
+            processedTabs: 0,
+            releasedSessions: 0,
+            failedTabs: 0,
+            failedTabIds: [],
+        };
+
+        for (const row of eligibleTabs) {
+            const tabId = String(row?.id || '').trim();
+            if (!tabId) {
+                continue;
+            }
+
+            try {
+                const cleared = await this.releaseGoCoreSessions(
+                    tenantId,
+                    tabId,
+                    String(row?.user_phone || '').trim(),
+                );
+                result.processedTabs += 1;
+                result.releasedSessions += cleared;
+            } catch (error) {
+                result.failedTabs += 1;
+                result.failedTabIds.push(tabId);
+                this.logger.warn(
+                    `Falha ao liberar sessão vinculada ao fechamento do expediente para tenant=${tenantId} tab=${tabId}: ${(error as Error)?.message || error}`,
+                );
+            }
+        }
+
+        return result;
+    }
+
+    private async releaseGoCoreSessions(tenantId: string, tabId: string, userPhone?: string) {
+        const payload = {
+            tenant_id: tenantId,
+            tab_id: tabId,
+            user_phone: String(userPhone || '').trim(),
+        };
+
+        const token = String(process.env.INTERNAL_SERVICE_TOKEN || 'clickgarcom-internal-token').trim()
+            || 'clickgarcom-internal-token';
+
+        let lastError: Error | null = null;
+
+        for (const baseUrl of this.getGoCoreBaseUrls()) {
+            try {
+                const response = await fetch(`${baseUrl}/internal/sessions/release`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Internal-Token': token,
+                    },
+                    body: JSON.stringify(payload),
+                    signal: AbortSignal.timeout(5000),
+                });
+
+                if (response.ok) {
+                    const body = await response.json().catch(() => null) as { cleared?: unknown } | null;
+                    return Number.parseInt(String(body?.cleared ?? '0'), 10) || 0;
+                }
+
+                const body = await response.text().catch(() => '');
+                lastError = new Error(`go-core release returned status ${response.status}: ${body || response.statusText}`);
+            } catch (error) {
+                lastError = error as Error;
+            }
+        }
+
+        if (lastError) {
+            throw lastError;
+        }
+
+        return 0;
+    }
+
+    private getGoCoreBaseUrls() {
+        const configured = (process.env.GO_CORE_BASE_URL || '').trim();
+        return [...new Set([configured, 'http://go-api:8080', 'http://localhost:8080'].filter(Boolean))];
     }
 
     private async recordAuditEvent(
