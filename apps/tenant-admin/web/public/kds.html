@@ -1857,11 +1857,11 @@
             <div class="sidebar-logo">Click<span>Garçom</span></div>
             <nav class="sidebar-nav">
                 <div class="nav-section-label">Estações</div>
-                <a class="nav-item active" onclick="switchPanel('kitchen')"><span class="icon">🍳</span><span
+                <a class="nav-item active" data-panel="kitchen" onclick="switchPanel('kitchen')"><span class="icon">🍳</span><span
                         class="nav-text">Cozinha</span> <span class="nav-badge" id="nb-kitchen">0</span></a>
-                <a class="nav-item" onclick="switchPanel('bar')"><span class="icon">🍹</span><span
+                <a class="nav-item" data-panel="bar" onclick="switchPanel('bar')"><span class="icon">🍹</span><span
                         class="nav-text">Bar</span> <span class="nav-badge" id="nb-bar">0</span></a>
-                <a class="nav-item" onclick="switchPanel('salao')"><span class="icon">🏠</span><span
+                <a class="nav-item" data-panel="salao" onclick="switchPanel('salao')"><span class="icon">🏠</span><span
                         class="nav-text">Salão</span> <span class="nav-badge" id="nb-salao">0</span></a>
             </nav>
             <div class="sidebar-footer">
@@ -1882,9 +1882,9 @@
 
             <div class="content">
                 <div class="screen-tabs">
-                    <button class="screen-tab active" onclick="switchPanel('kitchen')">🍳 Cozinha</button>
-                    <button class="screen-tab" onclick="switchPanel('bar')">🍹 Bar</button>
-                    <button class="screen-tab" onclick="switchPanel('salao')">🏠 Salão</button>
+                    <button class="screen-tab active" data-panel="kitchen" onclick="switchPanel('kitchen')">🍳 Cozinha</button>
+                    <button class="screen-tab" data-panel="bar" onclick="switchPanel('bar')">🍹 Bar</button>
+                    <button class="screen-tab" data-panel="salao" onclick="switchPanel('salao')">🏠 Salão</button>
                 </div>
 
                 <!-- COZINHA -->

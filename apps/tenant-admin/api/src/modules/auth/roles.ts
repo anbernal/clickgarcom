@@ -93,7 +93,6 @@ export const TENANT_SETTLEMENT_ROLES = [
 export const TENANT_REPORT_ROLES = [
     TenantUserRole.Admin,
     TenantUserRole.Manager,
-    TenantUserRole.Cashier,
 ] as const;
 
 export const TENANT_WALLET_ROLES = [...TENANT_REPORT_ROLES] as const;

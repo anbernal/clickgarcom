@@ -57,8 +57,8 @@ const TENANT_ROUTE_GROUPS = {
     table_write: ['ADMIN', 'MANAGER'],
     floor_operations: ['ADMIN', 'MANAGER', 'WAITER'],
     settlement: ['ADMIN', 'MANAGER', 'WAITER', 'CASHIER'],
-    reports: ['ADMIN', 'MANAGER', 'CASHIER'],
-    wallet: ['ADMIN', 'MANAGER', 'CASHIER'],
+    reports: ['ADMIN', 'MANAGER'],
+    wallet: ['ADMIN', 'MANAGER'],
     bot_config: ['ADMIN', 'MANAGER'],
 };
 
@@ -187,7 +187,33 @@ async function handleResponse(res) {
         window.location.href = LOGIN_PAGE_PATH;
         throw new Error('Sessão expirada. Faça login novamente.');
     }
-    if (!res.ok) throw new Error(`API Error: ${res.status}`);
+
+    if (!res.ok) {
+        let errorMessage = `API Error: ${res.status}`;
+
+        try {
+            const contentType = String(res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                const payload = await res.json();
+                errorMessage = String(
+                    payload?.message
+                    || payload?.error
+                    || payload?.details
+                    || errorMessage
+                );
+            } else {
+                const text = (await res.text()).trim();
+                if (text) {
+                    errorMessage = text;
+                }
+            }
+        } catch (error) {
+            console.error('API error parse failed', error);
+        }
+
+        throw new Error(errorMessage);
+    }
+
     return res.json();
 }
 

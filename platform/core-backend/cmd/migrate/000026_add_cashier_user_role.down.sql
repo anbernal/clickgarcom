@@ -1,0 +1,5 @@
+ALTER TABLE users DROP CONSTRAINT IF EXISTS valid_user_role;
+
+ALTER TABLE users
+ADD CONSTRAINT valid_user_role
+CHECK (role IN ('ADMIN', 'MANAGER', 'WAITER', 'KITCHEN', 'BAR'));

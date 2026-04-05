@@ -8,7 +8,7 @@ async function loadMeuRestaurante() {
 
     try {
         const profile = await api.get('/auth/tenant-profile');
-        const showBillingInfo = getCurrentUserRole() !== 'WAITER';
+        const showBillingInfo = !['WAITER', 'KITCHEN', 'BAR'].includes(getCurrentUserRole());
 
         const planLabel = profile.billing_plan === 'pre_paid' ? 'Pré-pago (Recarga)' : 'Pós-pago (Fatura)';
 

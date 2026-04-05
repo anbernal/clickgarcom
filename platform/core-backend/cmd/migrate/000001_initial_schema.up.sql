@@ -410,7 +410,7 @@ CREATE TABLE users (
     updated_at TIMESTAMP DEFAULT NOW(),
     last_login_at TIMESTAMP,
     
-    CONSTRAINT valid_user_role CHECK (role IN ('ADMIN', 'MANAGER', 'WAITER', 'KITCHEN', 'BAR')),
+    CONSTRAINT valid_user_role CHECK (role IN ('ADMIN', 'MANAGER', 'WAITER', 'KITCHEN', 'BAR', 'CASHIER')),
     UNIQUE(tenant_id, email)
 );
 

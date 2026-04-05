@@ -178,6 +178,22 @@ const SALAO_STATS_CARD_DEFINITIONS = [
   },
 ];
 const STATION_STATS_CARD_KEYS = ['pending', 'accepted', 'ready', 'total', 'delayed', 'avgPreparation', 'bottleneck'];
+const KDS_ROLE_ALIASES = {
+  ADMINISTRATOR: 'ADMIN',
+  ADMIN: 'ADMIN',
+  GERENTE: 'MANAGER',
+  MANAGER: 'MANAGER',
+  WAITER: 'WAITER',
+  ATENDENTE: 'WAITER',
+  SALAO: 'WAITER',
+  GARCOM: 'WAITER',
+  'GARÇOM': 'WAITER',
+  KITCHEN: 'KITCHEN',
+  COZINHA: 'KITCHEN',
+  BAR: 'BAR',
+  CASHIER: 'CASHIER',
+  CAIXA: 'CASHIER',
+};
 const KDS_SYNC_CHANNEL_NAME = 'clickgarcom-kds-sync';
 const KDS_SYNC_STORAGE_KEY = 'clickgarcom_kds_sync_event';
 const KDS_SYNC_SOURCE_ID = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -186,9 +202,66 @@ const KDS_SYNC_SOURCE_ID = typeof crypto !== 'undefined' && typeof crypto.random
 let kdsSyncChannel = null;
 
 function resolveInitialPanel() {
-  const panel = new URLSearchParams(window.location.search).get('panel');
-  return PANEL_ORDER.includes(panel) ? panel : 'kitchen';
+  return KDS_ACCESS.defaultPanel;
 }
+
+function normalizeKdsRole(role) {
+  const normalized = String(role || '').trim().toUpperCase();
+  return KDS_ROLE_ALIASES[normalized] || normalized;
+}
+
+function getCurrentKdsRole() {
+  return normalizeKdsRole(authSession?.user?.role);
+}
+
+function resolveRequestedPanel(panel) {
+  const normalized = String(panel || '').trim().toLowerCase();
+  if (!normalized) return null;
+  if (normalized === 'attendance' || normalized === 'atendimento' || normalized === 'salao' || normalized === 'salão') return 'salao';
+  if (normalized === 'kitchen' || normalized === 'cozinha') return 'kitchen';
+  if (normalized === 'bar') return 'bar';
+  return null;
+}
+
+function getPanelsAllowedForRole(role) {
+  if (role === 'KITCHEN') return ['kitchen'];
+  if (role === 'BAR') return ['bar'];
+  if (role === 'WAITER' || role === 'ADMIN' || role === 'MANAGER') return [...PANEL_ORDER];
+  return [];
+}
+
+function buildKdsAccess() {
+  const role = getCurrentKdsRole();
+  const requestedPanel = resolveRequestedPanel(new URLSearchParams(window.location.search).get('panel'));
+  const rolePanels = getPanelsAllowedForRole(role);
+  const availablePanels = requestedPanel && rolePanels.includes(requestedPanel)
+    ? [requestedPanel]
+    : rolePanels;
+
+  return {
+    role,
+    requestedPanel,
+    availablePanels,
+    defaultPanel: availablePanels[0] || 'kitchen',
+    canViewSalao: rolePanels.includes('salao'),
+    canLoadTables: ['ADMIN', 'MANAGER', 'WAITER'].includes(role),
+  };
+}
+
+function applyKdsPanelAccess() {
+  const allowedPanels = new Set(KDS_ACCESS.availablePanels);
+
+  document.querySelectorAll('[data-panel]').forEach((element) => {
+    element.style.display = allowedPanels.has(element.dataset.panel) ? '' : 'none';
+  });
+
+  document.querySelectorAll('.screen-panel').forEach((panel) => {
+    const panelName = String(panel.id || '').replace('panel-', '');
+    panel.style.display = allowedPanels.has(panelName) ? '' : 'none';
+  });
+}
+
+const KDS_ACCESS = buildKdsAccess();
 
 function initKdsRealtimeSync() {
   if ('BroadcastChannel' in window) {
@@ -239,15 +312,20 @@ function handleKdsSyncEvent(event) {
 
 function refreshKdsRealtimeState() {
   loadOrders();
-  loadPendingRequests();
-  loadTableState();
-  loadWaiterChats();
-  loadCloseRequests();
+  if (KDS_ACCESS.canViewSalao) {
+    loadPendingRequests();
+    loadWaiterChats();
+    loadCloseRequests();
+  }
+  if (KDS_ACCESS.canLoadTables) {
+    loadTableState();
+  }
 }
 
 // ─── INIT ──────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   initKdsRealtimeSync();
+  applyKdsPanelAccess();
   switchPanel(resolveInitialPanel());
   applySidebarTenantName();
   startClock();
@@ -257,22 +335,38 @@ document.addEventListener('DOMContentLoaded', () => {
       startTimerUpdates();
     });
   });
-  Promise.all([loadPendingRequests(), loadTableState(), loadWaiterChats(), loadCloseRequests()]);
-  setInterval(() => {
-    loadPendingRequests();
-    loadTableState();
-  }, 10000);
-  setInterval(() => {
-    loadWaiterChats();
-  }, 3000);
-  setInterval(() => {
-    loadCloseRequests();
-  }, 5000);
-  setInterval(() => {
-    if (activeWaiterChatId) {
-      loadWaiterChatMessages(activeWaiterChatId);
-    }
-  }, 2000);
+  const startupTasks = [];
+  if (KDS_ACCESS.canViewSalao) {
+    startupTasks.push(loadPendingRequests(), loadWaiterChats(), loadCloseRequests());
+  }
+  if (KDS_ACCESS.canLoadTables) {
+    startupTasks.push(loadTableState());
+  }
+  Promise.all(startupTasks);
+
+  if (KDS_ACCESS.canViewSalao || KDS_ACCESS.canLoadTables) {
+    setInterval(() => {
+      if (KDS_ACCESS.canViewSalao) {
+        loadPendingRequests();
+      }
+      if (KDS_ACCESS.canLoadTables) {
+        loadTableState();
+      }
+    }, 10000);
+  }
+  if (KDS_ACCESS.canViewSalao) {
+    setInterval(() => {
+      loadWaiterChats();
+    }, 3000);
+    setInterval(() => {
+      loadCloseRequests();
+    }, 5000);
+    setInterval(() => {
+      if (activeWaiterChatId) {
+        loadWaiterChatMessages(activeWaiterChatId);
+      }
+    }, 2000);
+  }
 });
 
 function applySidebarTenantName() {
@@ -1393,12 +1487,12 @@ const TITLES = {
 };
 
 function switchPanel(name) {
-  const nextPanel = PANEL_ORDER.includes(name) ? name : 'kitchen';
+  const nextPanel = KDS_ACCESS.availablePanels.includes(name) ? name : KDS_ACCESS.defaultPanel;
   activePanel = nextPanel;
   document.querySelectorAll('.screen-panel').forEach(p => p.classList.remove('active'));
   document.getElementById('panel-' + nextPanel).classList.add('active');
-  document.querySelectorAll('.screen-tab').forEach((t, i) => t.classList.toggle('active', PANEL_ORDER[i] === nextPanel));
-  document.querySelectorAll('.sidebar-nav .nav-item').forEach((n, i) => n.classList.toggle('active', PANEL_ORDER[i] === nextPanel));
+  document.querySelectorAll('.screen-tab[data-panel]').forEach((tab) => tab.classList.toggle('active', tab.dataset.panel === nextPanel));
+  document.querySelectorAll('.sidebar-nav .nav-item[data-panel]').forEach((navItem) => navItem.classList.toggle('active', navItem.dataset.panel === nextPanel));
   document.getElementById('topbar-title').textContent = TITLES[nextPanel][0];
   document.getElementById('topbar-sub').textContent = TITLES[nextPanel][1];
   renderCurrentPanel();
@@ -1451,7 +1545,7 @@ function toggleSidebar() {
 
 // Close mobile sidebar when clicking a nav item
 document.addEventListener('DOMContentLoaded', () => {
-  document.querySelectorAll('.sidebar-nav .nav-item').forEach(item => {
+  document.querySelectorAll('.sidebar-nav .nav-item[data-panel]').forEach(item => {
     item.addEventListener('click', () => {
       if (window.innerWidth <= 900) {
         const sidebar = document.getElementById('kds-sidebar');

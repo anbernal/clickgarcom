@@ -37,6 +37,56 @@ function applyNavigationPermissions() {
     if (btnExpediente) {
         btnExpediente.style.display = canPerformAction('toggleTenantStatus') ? '' : 'none';
     }
+
+    configureKdsNavigation();
+    collapseEmptyNavigationSections();
+}
+
+function collapseEmptyNavigationSections() {
+    document.querySelectorAll('.nav-section').forEach((section) => {
+        const visibleItems = Array.from(section.querySelectorAll('.nav-item'))
+            .filter((item) => item.style.display !== 'none');
+        section.style.display = visibleItems.length > 0 ? '' : 'none';
+    });
+}
+
+function configureKdsNavigation() {
+    const kdsLink = document.getElementById('nav-kds-link');
+    const kdsIcon = document.getElementById('nav-kds-icon');
+    const kdsLabel = document.getElementById('nav-kds-label');
+    const atendimentoLink = document.querySelector('.nav-item[data-route-group="floor_operations"]');
+    if (!kdsLink || !kdsIcon || !kdsLabel) return;
+
+    const role = getCurrentUserRole();
+
+    if (!['ADMIN', 'MANAGER', 'WAITER', 'KITCHEN', 'BAR'].includes(role)) {
+        kdsLink.style.display = 'none';
+        if (atendimentoLink) {
+            atendimentoLink.style.display = 'none';
+        }
+        return;
+    }
+
+    if (role === 'BAR') {
+        kdsLink.style.display = '';
+        kdsLink.href = '/kds.html?panel=bar';
+        kdsIcon.textContent = '🍹';
+        kdsLabel.textContent = 'KDS (Bar)';
+        return;
+    }
+
+    if (role === 'KITCHEN') {
+        kdsLink.style.display = '';
+        kdsLink.href = '/kds.html?panel=kitchen';
+        kdsIcon.textContent = '🍳';
+        kdsLabel.textContent = 'KDS (Cozinha)';
+        return;
+    }
+
+    kdsLink.style.display = '';
+    kdsLink.href = '/kds.html';
+    kdsIcon.textContent = '🍳';
+    kdsLabel.textContent = 'KDS (Operação)';
 }
 
 function navigate(pageId, options = {}) {
@@ -280,7 +330,7 @@ window.openRestaurantProfileModal = function(user, initials) {
     const normalizedRole = typeof normalizeTenantUserRole === 'function'
         ? normalizeTenantUserRole(user.role)
         : String(user.role || '').trim().toUpperCase();
-    const showBillingInfo = normalizedRole !== 'WAITER';
+    const showBillingInfo = !['WAITER', 'KITCHEN', 'BAR', 'CASHIER'].includes(normalizedRole);
     const planLabel = user.billing_plan === 'pre_paid' ? 'Pré-pago' : 'Pós-pago';
     const planDesc = user.billing_plan === 'pre_paid' ? 'Recarga de créditos' : 'Faturamento mensal';
     const roleLabel = {

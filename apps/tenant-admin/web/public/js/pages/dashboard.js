@@ -4,10 +4,11 @@ async function loadDashboard() {
     container.innerHTML = renderSkeletonDashboard();
 
     try {
-        const isWaiterView = getCurrentUserRole() === 'WAITER';
+        const currentRole = getCurrentUserRole();
+        const isOperationalDashboardView = ['WAITER', 'KITCHEN', 'BAR', 'CASHIER'].includes(currentRole);
         const [stats, weekly, orders] = await Promise.all([
-            isWaiterView ? Promise.resolve({}) : api.get('/reports/stats'),
-            isWaiterView ? Promise.resolve([]) : api.get('/reports/weekly'),
+            isOperationalDashboardView ? Promise.resolve({}) : api.get('/reports/stats'),
+            isOperationalDashboardView ? Promise.resolve([]) : api.get('/reports/weekly'),
             api.get('/orders'),
         ]);
 
@@ -15,17 +16,19 @@ async function loadDashboard() {
         let tablesData = [];
         let topItems = [];
         try { tablesData = await api.get('/tables'); } catch (e) { }
-        if (!isWaiterView) {
+        if (!isOperationalDashboardView) {
             try { topItems = await api.get('/reports/top-items?limit=3'); } catch (e) { }
         }
 
+        const visibleOrders = getDashboardVisibleOrders(orders || [], currentRole);
         const tableNumbersByTabId = buildTableNumbersByTabId(tablesData);
-        const recentOrders = (orders || []).slice(0, 4);
-        const pendingCount = (orders || []).filter(o => o.status === 'PENDING').length;
-        const acceptedCount = (orders || []).filter(o => o.status === 'ACCEPTED').length;
-        const readyCount = (orders || []).filter(o => o.status === 'READY').length;
-        const deliveredCount = (orders || []).filter(o => o.status === 'DELIVERED').length;
+        const recentOrders = visibleOrders.slice(0, 4);
+        const pendingCount = visibleOrders.filter(o => o.status === 'PENDING').length;
+        const acceptedCount = visibleOrders.filter(o => o.status === 'ACCEPTED').length;
+        const readyCount = visibleOrders.filter(o => o.status === 'READY').length;
+        const deliveredCount = visibleOrders.filter(o => o.status === 'DELIVERED').length;
         const openOrdersCount = pendingCount + acceptedCount + readyCount;
+        const recentOrdersBlock = getDashboardRecentOrdersContent(currentRole);
 
         // Update badge
         const badge = document.getElementById('badge-pedidos');
@@ -52,7 +55,7 @@ async function loadDashboard() {
 
       <!-- STAT CARDS -->
       <div class="stats-grid">
-        ${isWaiterView ? `
+        ${isOperationalDashboardView ? `
         <div class="stat-card animate-slide-up delay-1">
           <div class="stat-icon">🛎️</div>
           <div class="stat-label">Pedidos Abertos</div>
@@ -69,27 +72,27 @@ async function loadDashboard() {
         `}
         <div class="stat-card animate-slide-up delay-2">
           <div class="stat-icon">🛒</div>
-          <div class="stat-label">${isWaiterView ? 'Pendentes' : 'Pedidos Hoje'}</div>
-          <div class="stat-value" data-anim-value="${isWaiterView ? pendingCount : (stats.ordersCount || 0)}">${isWaiterView ? pendingCount : (stats.ordersCount || 0)}</div>
-          <div class="stat-change" style="color:var(--muted)">${isWaiterView ? `${acceptedCount} em preparo` : `${pendingCount} pendentes`}</div>
+          <div class="stat-label">${isOperationalDashboardView ? 'Pendentes' : 'Pedidos Hoje'}</div>
+          <div class="stat-value" data-anim-value="${isOperationalDashboardView ? pendingCount : (stats.ordersCount || 0)}">${isOperationalDashboardView ? pendingCount : (stats.ordersCount || 0)}</div>
+          <div class="stat-change" style="color:var(--muted)">${isOperationalDashboardView ? `${acceptedCount} em preparo` : `${pendingCount} pendentes`}</div>
         </div>
         <div class="stat-card animate-slide-up delay-3">
-          <div class="stat-icon">${isWaiterView ? '👨‍🍳' : '🪑'}</div>
-          <div class="stat-label">${isWaiterView ? 'Em Preparo' : 'Mesas Ocupadas'}</div>
-          <div class="stat-value">${isWaiterView
+          <div class="stat-icon">${isOperationalDashboardView ? '👨‍🍳' : '🪑'}</div>
+          <div class="stat-label">${isOperationalDashboardView ? 'Em Preparo' : 'Mesas Ocupadas'}</div>
+          <div class="stat-value">${isOperationalDashboardView
                 ? `<span data-anim-value="${acceptedCount}">${acceptedCount}</span>`
                 : `<span data-anim-value="${occupiedTables}">${occupiedTables}</span><span style="font-size:16px;color:var(--muted)">/${totalTables}</span>`}</div>
-          <div class="stat-change" style="color:var(--muted)">${isWaiterView
+          <div class="stat-change" style="color:var(--muted)">${isOperationalDashboardView
                 ? `${readyCount} prontos para entrega`
                 : `${totalTables > 0 ? Math.round((occupiedTables / totalTables) * 100) : 0}% de ocupação`}</div>
         </div>
         <div class="stat-card teal-card animate-slide-up delay-4">
-          <div class="stat-icon" style="font-size:28px">${isWaiterView ? '🪑' : '⭐'}</div>
-          <div class="stat-label">${isWaiterView ? 'Mesas Ocupadas' : 'Ticket Médio'}</div>
-          <div class="stat-value">${isWaiterView
+          <div class="stat-icon" style="font-size:28px">${isOperationalDashboardView ? '🪑' : '⭐'}</div>
+          <div class="stat-label">${isOperationalDashboardView ? 'Mesas Ocupadas' : 'Ticket Médio'}</div>
+          <div class="stat-value">${isOperationalDashboardView
                 ? `<span data-anim-value="${occupiedTables}">${occupiedTables}</span><span style="font-size:16px;color:rgba(255,255,255,0.75)">/${totalTables}</span>`
                 : `<span data-anim-value="${stats.avgTicket || 0}" data-anim-currency="true">R$ 0,00</span>`}</div>
-          ${isWaiterView ? `<div class="stat-change" style="color:rgba(255,255,255,0.85)">${totalTables > 0 ? Math.round((occupiedTables / totalTables) * 100) : 0}% de ocupação</div>` : ''}
+          ${isOperationalDashboardView ? `<div class="stat-change" style="color:rgba(255,255,255,0.85)">${totalTables > 0 ? Math.round((occupiedTables / totalTables) * 100) : 0}% de ocupação</div>` : ''}
         </div>
       </div>
 
@@ -99,13 +102,13 @@ async function loadDashboard() {
         <div class="card animate-slide-up delay-2">
           <div class="card-header">
             <div>
-              <div class="card-title">Pedidos Recentes</div>
-              <div class="card-subtitle">Últimas atualizações</div>
+              <div class="card-title">${recentOrdersBlock.title}</div>
+              <div class="card-subtitle">${recentOrdersBlock.subtitle}</div>
             </div>
             <button class="btn-sm btn-primary" onclick="navigate('pedidos')">Ver todos</button>
           </div>
           <div class="order-list">
-            ${recentOrders.length === 0 ? '<div class="empty-state"><div class="icon">📭</div><p>Nenhum pedido ainda</p></div>' : ''}
+            ${recentOrders.length === 0 ? `<div class="empty-state"><div class="icon">📭</div><p>${recentOrdersBlock.emptyLabel}</p></div>` : ''}
             ${recentOrders.map((order, i) => {
             const total = order.items ? order.items.reduce((s, item) => s + Number(item.unitPrice) * item.quantity, 0) : 0;
             return `
@@ -115,7 +118,7 @@ async function loadDashboard() {
                   <div class="order-name">Pedido #${getOrderDisplayCode(order, tableNumbersByTabId)}</div>
                   <div class="order-meta">${formatTime(order.createdAt)} · ${order.destination}</div>
                 </div>
-                ${isWaiterView ? '' : `<div class="order-amount">${formatCurrency(total)}</div>`}
+                ${isOperationalDashboardView ? '' : `<div class="order-amount">${formatCurrency(total)}</div>`}
                 <div class="status-pill ${statusClass(order.status)}">${statusLabel(order.status)}</div>
               </div>`;
         }).join('')}
@@ -137,7 +140,7 @@ async function loadDashboard() {
             const statusMap = { AVAILABLE: 'free', OCCUPIED: 'occupied', RESERVED: 'reserved', CLEANING: 'closed' };
             const labelMap = { AVAILABLE: 'Livre', OCCUPIED: 'Ocupada', RESERVED: 'Reservada', CLEANING: 'Limpeza' };
             const cls = statusMap[table.status] || 'free';
-            const tableInfo = isWaiterView
+            const tableInfo = isOperationalDashboardView
                 ? (table.status === 'OCCUPIED' ? 'Em atendimento' : 'Sem comanda')
                 : (table.currentTab ? formatCurrency(table.currentTab.total) : '—');
             return `
@@ -153,13 +156,13 @@ async function loadDashboard() {
 
       <!-- SALES CHART -->
       <div class="bottom-grid">
-        ${isWaiterView ? renderWaiterOperationsCard({ pendingCount, acceptedCount, readyCount, deliveredCount, occupiedTables, totalTables }) : renderPerformanceCard(weekly, stats, topItems)}
-        ${isWaiterView ? renderWaiterFlowCard(recentOrders, tableNumbersByTabId) : renderSalesChartCard(weekly)}
+        ${isOperationalDashboardView ? renderWaiterOperationsCard({ pendingCount, acceptedCount, readyCount, deliveredCount, occupiedTables, totalTables }) : renderPerformanceCard(weekly, stats, topItems)}
+        ${isOperationalDashboardView ? renderWaiterFlowCard(recentOrders, tableNumbersByTabId) : renderSalesChartCard(weekly)}
       </div>
     `;
 
         // Build chart and animations
-        if (!isWaiterView) {
+        if (!isOperationalDashboardView) {
             buildChart(weekly);
         }
         animateAllDashboardValues();
@@ -179,6 +182,62 @@ function buildTableNumbersByTabId(tablesData) {
         });
     });
     return map;
+}
+
+function getDashboardVisibleOrders(orders, role) {
+    const normalizedRole = String(role || '').toUpperCase();
+
+    if (normalizedRole === 'KITCHEN') {
+        return orders.filter((order) => String(order?.destination || '').toUpperCase() === 'KITCHEN');
+    }
+
+    if (normalizedRole === 'BAR') {
+        return orders.filter((order) => String(order?.destination || '').toUpperCase() === 'BAR');
+    }
+
+    return orders;
+}
+
+function getDashboardRecentOrdersContent(role) {
+    const normalizedRole = String(role || '').toUpperCase();
+
+    if (normalizedRole === 'KITCHEN') {
+        return {
+            title: 'Fila da Cozinha',
+            subtitle: 'Últimos pedidos enviados para a cozinha',
+            emptyLabel: 'Nenhum pedido da cozinha no momento',
+        };
+    }
+
+    if (normalizedRole === 'BAR') {
+        return {
+            title: 'Fila do Bar',
+            subtitle: 'Últimos pedidos enviados para o bar',
+            emptyLabel: 'Nenhum pedido do bar no momento',
+        };
+    }
+
+    if (normalizedRole === 'WAITER') {
+        return {
+            title: 'Pedidos do Salão',
+            subtitle: 'Últimas atualizações para atendimento e entrega',
+            emptyLabel: 'Nenhum pedido em andamento no momento',
+        };
+    }
+
+    if (normalizedRole === 'CASHIER') {
+        return {
+            title: 'Operação do Caixa',
+            subtitle: 'Pedidos e comandas que impactam fechamento e conciliação',
+            emptyLabel: 'Nenhum pedido impactando o caixa no momento',
+        };
+    }
+
+    return {
+        title: 'Pedidos Recentes',
+        subtitle: 'Últimas atualizações',
+        emptyLabel: 'Nenhum pedido ainda',
+    };
 }
 
 function getOrderDisplayCode(order, tableNumbersByTabId) {

@@ -7,6 +7,39 @@ const equipeRoleVisuals = {
     CASHIER: { label: 'Caixa', bg: 'rgba(20, 184, 166, 0.12)', border: 'rgba(20, 184, 166, 0.24)', color: '#0f766e' },
 };
 
+const equipeRoleResponsibilities = {
+    ADMIN: {
+        summary: 'Responsável pela gestão completa do tenant.',
+        scope: 'Configura equipe, acessos, cardápio, relatórios, carteira e todas as rotinas operacionais.',
+        caution: 'Use para sócios ou responsáveis de confiança. Pode gerenciar outros administradores.',
+    },
+    MANAGER: {
+        summary: 'Responsável pela operação do dia a dia.',
+        scope: 'Acompanha pedidos, mesas, pagamentos, configurações e equipe operacional.',
+        caution: 'Não pode criar nem administrar contas ADMIN.',
+    },
+    WAITER: {
+        summary: 'Responsável pelo salão e atendimento ao cliente.',
+        scope: 'Opera pedidos, entrega, mesas, comandas, pagamentos operacionais e atendimento no KDS.',
+        caution: 'Não deve ser usado para funções gerenciais ou financeiras.',
+    },
+    KITCHEN: {
+        summary: 'Responsável pela produção da cozinha.',
+        scope: 'Vê e movimenta apenas pedidos da estação cozinha no KDS.',
+        caution: 'Não deve acessar rotinas de salão, caixa ou gestão.',
+    },
+    BAR: {
+        summary: 'Responsável pela produção do bar.',
+        scope: 'Vê e movimenta apenas pedidos da estação bar no KDS.',
+        caution: 'Não deve acessar rotinas de salão, caixa ou gestão.',
+    },
+    CASHIER: {
+        summary: 'Responsável pelo fechamento financeiro operacional.',
+        scope: 'Acompanha pagamentos, baixas, conferência de comandas e conciliação operacional.',
+        caution: 'Não acessa relatórios gerenciais, carteira, equipe, configurações nem KDS.',
+    },
+};
+
 const equipeState = {
     payload: null,
     audit: [],
@@ -118,6 +151,13 @@ function renderEquipePage() {
             <div style="padding:22px;">
                 <div style="margin-bottom:18px; padding:14px 16px; border-radius:12px; background:rgba(26,188,156,0.08); border:1px solid rgba(26,188,156,0.18); color:var(--text-primary, #1f2937);">
                     Crie um acesso por pessoa, acompanhe ultimo login e desative rapidamente quem nao deve mais operar o tenant.
+                </div>
+
+                <div style="margin-bottom:18px;">
+                    <div style="font-size:12px; font-weight:800; color:var(--dark); text-transform:uppercase; letter-spacing:0.6px; margin-bottom:10px;">Guia rápido de perfis</div>
+                    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:12px;">
+                        ${renderEquipeRoleGuideCards(payload.roleOptions || [])}
+                    </div>
                 </div>
 
                 <div style="display:grid; grid-template-columns: minmax(220px, 2fr) minmax(160px, 1fr) minmax(160px, 1fr); gap:14px; margin-bottom:18px;">
@@ -246,6 +286,28 @@ function buildEquipeRoleFilterOptions(roleOptions, selectedRole) {
     `).join('');
 }
 
+function renderEquipeRoleGuideCards(roleOptions) {
+    const roleValues = roleOptions.length
+        ? roleOptions.map((roleOption) => String(roleOption.value || '').toUpperCase())
+        : Object.keys(equipeRoleResponsibilities);
+
+    return roleValues.map((roleValue) => {
+        const guide = getEquipeRoleResponsibility(roleValue);
+        return `
+            <div style="border:1px solid var(--border); border-radius:14px; background:#fff; padding:14px;">
+                <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+                    ${renderEquipeRoleBadge(roleValue)}
+                </div>
+                <div style="font-size:13px; font-weight:700; color:var(--dark); margin-bottom:6px;">${escapeHTML(guide.summary)}</div>
+                <div style="font-size:12px; color:var(--muted); line-height:1.45; margin-bottom:8px;">${escapeHTML(guide.scope)}</div>
+                <div style="font-size:11px; color:#92400e; background:rgba(245, 158, 11, 0.10); border:1px solid rgba(245, 158, 11, 0.18); border-radius:10px; padding:8px 10px;">
+                    ${escapeHTML(guide.caution)}
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
 function renderEquipeUserRow(user) {
     const permissions = user.permissions || {};
 
@@ -319,6 +381,14 @@ function renderEquipeStatusBadge(active) {
 function formatEquipeRoleLabel(role) {
     const visual = equipeRoleVisuals[String(role || '').toUpperCase()];
     return visual?.label || String(role || '-');
+}
+
+function getEquipeRoleResponsibility(role) {
+    return equipeRoleResponsibilities[String(role || '').toUpperCase()] || {
+        summary: 'Perfil operacional interno.',
+        scope: 'Use este acesso apenas para a responsabilidade real da pessoa na operação.',
+        caution: 'Revise as permissões antes de salvar o usuário.',
+    };
 }
 
 function formatEquipeDateTime(dateStr) {
@@ -418,6 +488,7 @@ function openEquipeUserModal(userId = '') {
     const roleOptions = Array.isArray(payload.roleOptions) ? payload.roleOptions : [];
     const isEdit = !!user;
     const defaultRole = user?.role || roleOptions.find((roleOption) => roleOption.assignable)?.value || '';
+    const roleGuide = getEquipeRoleResponsibility(defaultRole);
 
     openModal(`
         <div class="modal-header">
@@ -447,7 +518,7 @@ function openEquipeUserModal(userId = '') {
                 </div>
                 <div class="form-group">
                     <label for="equipe-user-role">Perfil</label>
-                    <select id="equipe-user-role">
+                    <select id="equipe-user-role" onchange="updateEquipeRoleHint(this.value)">
                         ${roleOptions.map((roleOption) => `
                             <option
                                 value="${escapeHTML(roleOption.value)}"
@@ -459,6 +530,12 @@ function openEquipeUserModal(userId = '') {
                         `).join('')}
                     </select>
                 </div>
+            </div>
+            <div id="equipe-role-hint" style="margin-top:2px; padding:14px 16px; border-radius:12px; background:rgba(59,130,246,0.08); border:1px solid rgba(59,130,246,0.18); color:var(--text-primary, #1f2937);">
+                <div style="font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:0.6px; margin-bottom:6px;">Responsabilidade do perfil</div>
+                <div style="font-size:13px; font-weight:700; margin-bottom:4px;">${escapeHTML(roleGuide.summary)}</div>
+                <div style="font-size:12px; color:var(--muted); line-height:1.45; margin-bottom:8px;">${escapeHTML(roleGuide.scope)}</div>
+                <div style="font-size:11px; color:#92400e;">${escapeHTML(roleGuide.caution)}</div>
             </div>
             ${isEdit ? '' : `
                 <div class="form-group">
@@ -474,6 +551,19 @@ function openEquipeUserModal(userId = '') {
             </button>
         </div>
     `);
+}
+
+function updateEquipeRoleHint(role) {
+    const hintEl = document.getElementById('equipe-role-hint');
+    if (!hintEl) return;
+
+    const guide = getEquipeRoleResponsibility(role);
+    hintEl.innerHTML = `
+        <div style="font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:0.6px; margin-bottom:6px;">Responsabilidade do perfil</div>
+        <div style="font-size:13px; font-weight:700; margin-bottom:4px;">${escapeHTML(guide.summary)}</div>
+        <div style="font-size:12px; color:var(--muted); line-height:1.45; margin-bottom:8px;">${escapeHTML(guide.scope)}</div>
+        <div style="font-size:11px; color:#92400e;">${escapeHTML(guide.caution)}</div>
+    `;
 }
 
 async function saveEquipeUser(userId = '') {
@@ -505,7 +595,7 @@ async function saveEquipeUser(userId = '') {
             name: name.trim(),
             email: email.trim(),
             phone: phone.trim(),
-            role: role.trim(),
+            role: normalizeTenantUserRole(role),
         };
 
         if (isEdit) {
