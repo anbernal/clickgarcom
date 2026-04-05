@@ -1674,8 +1674,9 @@ export class TablesService {
                 throw new NotFoundException('Comanda não encontrada');
             }
 
-            const total = Number.parseFloat(String(tab.total ?? '0')) || 0;
-            const paidAmount = Number.parseFloat(String(tab.paid_amount ?? '0')) || 0;
+            const financialSnapshot = await this.reconcileTabFinancialSnapshot(tabId, tenantId, queryRunner);
+            const total = financialSnapshot.total;
+            const paidAmount = financialSnapshot.paidAmount;
             const alreadyClosed = String(tab.status || '').trim().toUpperCase() === 'CLOSED';
             const nextPaidAmount = this.roundMoney(Math.max(total, paidAmount));
 
@@ -2249,13 +2250,17 @@ export class TablesService {
             throw new UnauthorizedException('Link de pagamento inválido ou expirado');
         }
 
+        const financialSnapshot = await this.reconcileTabFinancialSnapshot(tabId, String(row.tenant_id));
+
         return {
             id: String(row.id),
             tenantId: String(row.tenant_id),
             tableId: row.table_id ? String(row.table_id) : null,
             userPhone: String(row.user_phone || ''),
-            total: Number.parseFloat(String(row.total ?? '0')) || 0,
-            paidAmount: Number.parseFloat(String(row.paid_amount ?? '0')) || 0,
+            subtotal: financialSnapshot.subtotal,
+            serviceFee: financialSnapshot.serviceFee,
+            total: financialSnapshot.total,
+            paidAmount: financialSnapshot.paidAmount,
             status: String(row.status || 'OPEN'),
             openedAt: row.opened_at,
             closedAt: row.closed_at,
@@ -2379,6 +2384,95 @@ export class TablesService {
             ? `Mesa ${String(tab.tableNumber).trim()}`
             : 'Comanda';
         return `${tableLabel} - ${String(tab.tenantName || 'ClickGarcom').trim()}`;
+    }
+
+    private async reconcileTabFinancialSnapshot(
+        tabId: string,
+        tenantId: string,
+        executor: { query: (query: string, parameters?: any[]) => Promise<any> } = this.dataSource,
+    ) {
+        const rows = await executor.query(
+            `SELECT tb.id,
+                    tb.status,
+                    tb.subtotal AS stored_subtotal,
+                    tb.service_fee AS stored_service_fee,
+                    tb.total AS stored_total,
+                    tb.paid_amount AS stored_paid_amount,
+                    COALESCE(items.subtotal, 0) AS calculated_subtotal,
+                    COALESCE((items.subtotal * fee.service_fee_percent / 100.0), 0) AS calculated_service_fee,
+                    COALESCE(items.subtotal, 0) + COALESCE((items.subtotal * fee.service_fee_percent / 100.0), 0) AS calculated_total,
+                    COALESCE(pay.confirmed_total, 0) AS confirmed_payments_total
+               FROM tabs tb
+               CROSS JOIN LATERAL (
+                    SELECT COALESCE((tn.settings->>'service_fee_percent')::numeric, 10) AS service_fee_percent
+                      FROM tenants tn
+                     WHERE tn.id = tb.tenant_id
+                     LIMIT 1
+               ) fee
+               LEFT JOIN LATERAL (
+                    SELECT COALESCE(SUM(oi.quantity * oi.unit_price), 0) AS subtotal
+                      FROM orders o
+                      JOIN order_items oi
+                        ON oi.order_id = o.id
+                     WHERE o.tab_id = tb.id
+                       AND o.tenant_id = tb.tenant_id
+                       AND o.status <> 'CANCELED'
+               ) items ON TRUE
+               LEFT JOIN LATERAL (
+                    SELECT COALESCE(SUM(p.amount), 0) AS confirmed_total
+                      FROM payments p
+                     WHERE p.tab_id = tb.id
+                       AND p.tenant_id = tb.tenant_id
+                       AND p.status = 'CONFIRMED'
+               ) pay ON TRUE
+              WHERE tb.id = $1
+                AND tb.tenant_id = $2
+              LIMIT 1`,
+            [tabId, tenantId],
+        );
+
+        const row = rows?.[0];
+        if (!row) {
+            throw new NotFoundException('Comanda não encontrada');
+        }
+
+        const subtotal = this.roundMoney(Number.parseFloat(String(row.calculated_subtotal ?? '0')) || 0);
+        const serviceFee = this.roundMoney(Number.parseFloat(String(row.calculated_service_fee ?? '0')) || 0);
+        const total = this.roundMoney(Number.parseFloat(String(row.calculated_total ?? '0')) || 0);
+        const storedPaidAmount = this.roundMoney(Number.parseFloat(String(row.stored_paid_amount ?? '0')) || 0);
+        const confirmedPaymentsAmount = this.roundMoney(Number.parseFloat(String(row.confirmed_payments_total ?? '0')) || 0);
+        const paidAmount = this.roundMoney(Math.max(storedPaidAmount, confirmedPaymentsAmount));
+
+        const storedSubtotal = this.roundMoney(Number.parseFloat(String(row.stored_subtotal ?? '0')) || 0);
+        const storedServiceFee = this.roundMoney(Number.parseFloat(String(row.stored_service_fee ?? '0')) || 0);
+        const storedTotal = this.roundMoney(Number.parseFloat(String(row.stored_total ?? '0')) || 0);
+
+        if (
+            storedSubtotal !== subtotal
+            || storedServiceFee !== serviceFee
+            || storedTotal !== total
+            || storedPaidAmount !== paidAmount
+        ) {
+            await executor.query(
+                `UPDATE tabs
+                    SET subtotal = $1,
+                        service_fee = $2,
+                        total = $3,
+                        paid_amount = $4
+                  WHERE id = $5
+                    AND tenant_id = $6`,
+                [subtotal, serviceFee, total, paidAmount, tabId, tenantId],
+            );
+        }
+
+        return {
+            status: String(row.status || 'OPEN'),
+            subtotal,
+            serviceFee,
+            total,
+            paidAmount,
+            confirmedPaymentsAmount,
+        };
     }
 
     private resolvePayerField(value: unknown, fallback: string) {

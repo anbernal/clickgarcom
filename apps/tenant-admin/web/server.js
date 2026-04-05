@@ -57,12 +57,16 @@ server.listen(PORT, () => {
 });
 
 function sendRuntimeConfig(req, res) {
-  const apiBaseUrl = resolveAdminApiBaseUrl(req);
+  const requestOrigin = getRequestOrigin(req);
+  const isPublicProxyRequest = detectPublicProxyRequest(req);
+  const apiBaseUrl = resolveAdminApiBaseUrl(req, { isPublicProxyRequest });
   const publicTablesApiBaseUrl = normalizeBaseUrl(
     process.env.ADMIN_PUBLIC_API_BASE_URL,
-    `${apiBaseUrl}/public/tables`,
+    isPublicProxyRequest
+      ? new URL('/admin/api/public/tables', requestOrigin).toString()
+      : `${apiBaseUrl}/public/tables`,
   );
-  const kdsWsUrl = resolveKdsWebSocketUrl(req);
+  const kdsWsUrl = resolveKdsWebSocketUrl(req, { isPublicProxyRequest });
   const payload = {
     apiBaseUrl,
     publicTablesApiBaseUrl,
@@ -159,10 +163,14 @@ function normalizeBaseUrl(rawValue, fallback) {
   return (value || fallback).replace(/\/+$/, '');
 }
 
-function resolveAdminApiBaseUrl(req) {
+function resolveAdminApiBaseUrl(req, options = {}) {
   const configuredValue = String(process.env.ADMIN_API_BASE_URL || '').trim();
   if (configuredValue) {
     return normalizeBaseUrl(configuredValue, '');
+  }
+
+  if (options.isPublicProxyRequest) {
+    return new URL('/admin/api', getRequestOrigin(req)).toString().replace(/\/+$/, '');
   }
 
   return buildBrowserServiceUrl(req, {
@@ -171,10 +179,17 @@ function resolveAdminApiBaseUrl(req) {
   });
 }
 
-function resolveKdsWebSocketUrl(req) {
+function resolveKdsWebSocketUrl(req, options = {}) {
   const configuredValue = String(process.env.KDS_WS_URL || '').trim();
   if (configuredValue) {
     return configuredValue.replace(/\/+$/, '');
+  }
+
+  if (options.isPublicProxyRequest) {
+    const origin = getRequestOrigin(req);
+    const targetUrl = new URL('/ws/kds', origin);
+    targetUrl.protocol = origin.protocol === 'https:' ? 'wss:' : 'ws:';
+    return targetUrl.toString().replace(/\/+$/, '');
   }
 
   const origin = getRequestOrigin(req);
@@ -216,4 +231,10 @@ function getRequestOrigin(req) {
 function getForwardedHeader(value) {
   const normalized = Array.isArray(value) ? value[0] : value;
   return String(normalized || '').split(',')[0].trim();
+}
+
+function detectPublicProxyRequest(req) {
+  const forwardedHost = getForwardedHeader(req.headers['x-forwarded-host']);
+  const forwardedProto = getForwardedHeader(req.headers['x-forwarded-proto']);
+  return Boolean(forwardedHost || forwardedProto);
 }
