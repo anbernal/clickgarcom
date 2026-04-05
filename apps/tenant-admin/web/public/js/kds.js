@@ -234,15 +234,21 @@ function buildKdsAccess() {
   const role = getCurrentKdsRole();
   const requestedPanel = resolveRequestedPanel(new URLSearchParams(window.location.search).get('panel'));
   const rolePanels = getPanelsAllowedForRole(role);
-  const availablePanels = requestedPanel && rolePanels.includes(requestedPanel)
-    ? [requestedPanel]
-    : rolePanels;
+  const hasFullKdsAccess = ['ADMIN', 'MANAGER'].includes(role);
+  const availablePanels = hasFullKdsAccess
+    ? rolePanels
+    : (requestedPanel && rolePanels.includes(requestedPanel)
+      ? [requestedPanel]
+      : rolePanels);
+  const defaultPanel = requestedPanel && rolePanels.includes(requestedPanel)
+    ? requestedPanel
+    : (availablePanels[0] || 'kitchen');
 
   return {
     role,
     requestedPanel,
     availablePanels,
-    defaultPanel: availablePanels[0] || 'kitchen',
+    defaultPanel,
     canViewSalao: rolePanels.includes('salao'),
     canLoadTables: ['ADMIN', 'MANAGER', 'WAITER'].includes(role),
   };
