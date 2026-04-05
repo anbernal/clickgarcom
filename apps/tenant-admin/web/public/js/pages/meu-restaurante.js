@@ -8,6 +8,7 @@ async function loadMeuRestaurante() {
 
     try {
         const profile = await api.get('/auth/tenant-profile');
+        const showBillingInfo = getCurrentUserRole() !== 'WAITER';
 
         const planLabel = profile.billing_plan === 'pre_paid' ? 'Pré-pago (Recarga)' : 'Pós-pago (Fatura)';
 
@@ -54,7 +55,7 @@ async function loadMeuRestaurante() {
                     </div>
                 </div>
                 <div style="padding: 20px 22px;">
-                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px;">
+                    <div style="display: grid; grid-template-columns: repeat(${showBillingInfo ? 3 : 2}, 1fr); gap: 14px;">
                         <div style="border: 1px solid var(--border); border-radius: 14px; padding: 16px; background: var(--bg);">
                             <div style="font-size: 11px; text-transform: uppercase; font-weight: 800; color: var(--muted); letter-spacing: 0.6px; margin-bottom: 6px;">Identificador (Slug)</div>
                             <div style="font-size: 15px; font-weight: 700; color: var(--dark); font-family: 'JetBrains Mono', monospace;">${escapeHTML(profile.slug || '—')}</div>
@@ -63,6 +64,7 @@ async function loadMeuRestaurante() {
                             <div style="font-size: 11px; text-transform: uppercase; font-weight: 800; color: var(--muted); letter-spacing: 0.6px; margin-bottom: 6px;">WhatsApp</div>
                             <div style="font-size: 15px; font-weight: 700; color: var(--dark);">${escapeHTML(profile.whatsapp_number || '—')}</div>
                         </div>
+                        ${showBillingInfo ? `
                         <div style="border: 1px solid var(--border); border-radius: 14px; padding: 16px; background: var(--bg);">
                             <div style="font-size: 11px; text-transform: uppercase; font-weight: 800; color: var(--muted); letter-spacing: 0.6px; margin-bottom: 6px;">Plano</div>
                             <div style="font-size: 15px; font-weight: 700; color: var(--dark); display: flex; align-items: center; gap: 8px;">
@@ -70,6 +72,7 @@ async function loadMeuRestaurante() {
                                 <span class="status-pill status-done" style="font-size: 10px;">Ativo</span>
                             </div>
                         </div>
+                        ` : ''}
                     </div>
                 </div>
             </div>

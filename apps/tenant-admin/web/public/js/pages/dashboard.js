@@ -4,9 +4,10 @@ async function loadDashboard() {
     container.innerHTML = renderSkeletonDashboard();
 
     try {
+        const isWaiterView = getCurrentUserRole() === 'WAITER';
         const [stats, weekly, orders] = await Promise.all([
-            api.get('/reports/stats'),
-            api.get('/reports/weekly'),
+            isWaiterView ? Promise.resolve({}) : api.get('/reports/stats'),
+            isWaiterView ? Promise.resolve([]) : api.get('/reports/weekly'),
             api.get('/orders'),
         ]);
 
@@ -14,11 +15,17 @@ async function loadDashboard() {
         let tablesData = [];
         let topItems = [];
         try { tablesData = await api.get('/tables'); } catch (e) { }
-        try { topItems = await api.get('/reports/top-items?limit=3'); } catch (e) { }
+        if (!isWaiterView) {
+            try { topItems = await api.get('/reports/top-items?limit=3'); } catch (e) { }
+        }
 
         const tableNumbersByTabId = buildTableNumbersByTabId(tablesData);
         const recentOrders = (orders || []).slice(0, 4);
         const pendingCount = (orders || []).filter(o => o.status === 'PENDING').length;
+        const acceptedCount = (orders || []).filter(o => o.status === 'ACCEPTED').length;
+        const readyCount = (orders || []).filter(o => o.status === 'READY').length;
+        const deliveredCount = (orders || []).filter(o => o.status === 'DELIVERED').length;
+        const openOrdersCount = pendingCount + acceptedCount + readyCount;
 
         // Update badge
         const badge = document.getElementById('badge-pedidos');
@@ -45,28 +52,44 @@ async function loadDashboard() {
 
       <!-- STAT CARDS -->
       <div class="stats-grid">
+        ${isWaiterView ? `
+        <div class="stat-card animate-slide-up delay-1">
+          <div class="stat-icon">🛎️</div>
+          <div class="stat-label">Pedidos Abertos</div>
+          <div class="stat-value" data-anim-value="${openOrdersCount}">${openOrdersCount}</div>
+          <div class="stat-change" style="color:var(--muted)">${deliveredCount} concluídos</div>
+        </div>
+        ` : `
         <div class="stat-card animate-slide-up delay-1">
           <div class="stat-icon">💰</div>
           <div class="stat-label">Faturamento Hoje</div>
           <div class="stat-value" data-anim-value="${stats.revenue || 0}" data-anim-currency="true">R$ 0,00</div>
           <div class="stat-change change-up">📈 ${stats.ordersCount || 0} pedidos</div>
         </div>
+        `}
         <div class="stat-card animate-slide-up delay-2">
           <div class="stat-icon">🛒</div>
-          <div class="stat-label">Pedidos Hoje</div>
-          <div class="stat-value" data-anim-value="${stats.ordersCount || 0}">${stats.ordersCount || 0}</div>
-          <div class="stat-change" style="color:var(--muted)">${pendingCount} pendentes</div>
+          <div class="stat-label">${isWaiterView ? 'Pendentes' : 'Pedidos Hoje'}</div>
+          <div class="stat-value" data-anim-value="${isWaiterView ? pendingCount : (stats.ordersCount || 0)}">${isWaiterView ? pendingCount : (stats.ordersCount || 0)}</div>
+          <div class="stat-change" style="color:var(--muted)">${isWaiterView ? `${acceptedCount} em preparo` : `${pendingCount} pendentes`}</div>
         </div>
         <div class="stat-card animate-slide-up delay-3">
-          <div class="stat-icon">🪑</div>
-          <div class="stat-label">Mesas Ocupadas</div>
-          <div class="stat-value"><span data-anim-value="${occupiedTables}">${occupiedTables}</span><span style="font-size:16px;color:var(--muted)">/${totalTables}</span></div>
-          <div class="stat-change" style="color:var(--muted)">${totalTables > 0 ? Math.round((occupiedTables / totalTables) * 100) : 0}% de ocupação</div>
+          <div class="stat-icon">${isWaiterView ? '👨‍🍳' : '🪑'}</div>
+          <div class="stat-label">${isWaiterView ? 'Em Preparo' : 'Mesas Ocupadas'}</div>
+          <div class="stat-value">${isWaiterView
+                ? `<span data-anim-value="${acceptedCount}">${acceptedCount}</span>`
+                : `<span data-anim-value="${occupiedTables}">${occupiedTables}</span><span style="font-size:16px;color:var(--muted)">/${totalTables}</span>`}</div>
+          <div class="stat-change" style="color:var(--muted)">${isWaiterView
+                ? `${readyCount} prontos para entrega`
+                : `${totalTables > 0 ? Math.round((occupiedTables / totalTables) * 100) : 0}% de ocupação`}</div>
         </div>
         <div class="stat-card teal-card animate-slide-up delay-4">
-          <div class="stat-icon" style="font-size:28px">⭐</div>
-          <div class="stat-label">Ticket Médio</div>
-          <div class="stat-value" data-anim-value="${stats.avgTicket || 0}" data-anim-currency="true">R$ 0,00</div>
+          <div class="stat-icon" style="font-size:28px">${isWaiterView ? '🪑' : '⭐'}</div>
+          <div class="stat-label">${isWaiterView ? 'Mesas Ocupadas' : 'Ticket Médio'}</div>
+          <div class="stat-value">${isWaiterView
+                ? `<span data-anim-value="${occupiedTables}">${occupiedTables}</span><span style="font-size:16px;color:rgba(255,255,255,0.75)">/${totalTables}</span>`
+                : `<span data-anim-value="${stats.avgTicket || 0}" data-anim-currency="true">R$ 0,00</span>`}</div>
+          ${isWaiterView ? `<div class="stat-change" style="color:rgba(255,255,255,0.85)">${totalTables > 0 ? Math.round((occupiedTables / totalTables) * 100) : 0}% de ocupação</div>` : ''}
         </div>
       </div>
 
@@ -92,7 +115,7 @@ async function loadDashboard() {
                   <div class="order-name">Pedido #${getOrderDisplayCode(order, tableNumbersByTabId)}</div>
                   <div class="order-meta">${formatTime(order.createdAt)} · ${order.destination}</div>
                 </div>
-                <div class="order-amount">${formatCurrency(total)}</div>
+                ${isWaiterView ? '' : `<div class="order-amount">${formatCurrency(total)}</div>`}
                 <div class="status-pill ${statusClass(order.status)}">${statusLabel(order.status)}</div>
               </div>`;
         }).join('')}
@@ -114,12 +137,14 @@ async function loadDashboard() {
             const statusMap = { AVAILABLE: 'free', OCCUPIED: 'occupied', RESERVED: 'reserved', CLEANING: 'closed' };
             const labelMap = { AVAILABLE: 'Livre', OCCUPIED: 'Ocupada', RESERVED: 'Reservada', CLEANING: 'Limpeza' };
             const cls = statusMap[table.status] || 'free';
-            const tabTotal = table.currentTab ? formatCurrency(table.currentTab.total) : '—';
+            const tableInfo = isWaiterView
+                ? (table.status === 'OCCUPIED' ? 'Em atendimento' : 'Sem comanda')
+                : (table.currentTab ? formatCurrency(table.currentTab.total) : '—');
             return `
               <div class="table-item ${cls}">
                 <div class="table-num">${table.number}</div>
                 <div class="table-status">${labelMap[table.status] || table.status}</div>
-                <div class="table-value">${tabTotal}</div>
+                <div class="table-value">${tableInfo}</div>
               </div>`;
         }).join('')}
           </div>
@@ -128,26 +153,15 @@ async function loadDashboard() {
 
       <!-- SALES CHART -->
       <div class="bottom-grid">
-        ${renderPerformanceCard(weekly, stats, topItems)}
-        <div class="card animate-slide-up delay-5">
-          <div class="card-header">
-            <div>
-              <div class="card-title">Vendas por Período</div>
-              <div class="card-subtitle">Últimos 7 dias</div>
-            </div>
-            <button class="btn-sm btn-outline" onclick="navigate('vendas')">Ver mais</button>
-          </div>
-          <div class="chart-bars" id="chart-bars-dashboard"></div>
-          <div class="chart-footer">
-            <span style="font-size:12px;color:var(--muted)">▼ Últimos 7 dias</span>
-            <span style="font-size:12px;color:var(--teal);font-weight:700" id="chart-total"></span>
-          </div>
-        </div>
+        ${isWaiterView ? renderWaiterOperationsCard({ pendingCount, acceptedCount, readyCount, deliveredCount, occupiedTables, totalTables }) : renderPerformanceCard(weekly, stats, topItems)}
+        ${isWaiterView ? renderWaiterFlowCard(recentOrders, tableNumbersByTabId) : renderSalesChartCard(weekly)}
       </div>
     `;
 
         // Build chart and animations
-        buildChart(weekly);
+        if (!isWaiterView) {
+            buildChart(weekly);
+        }
         animateAllDashboardValues();
     } catch (err) {
         container.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><h3>Erro ao carregar</h3><p>${err.message}</p></div>`;
@@ -209,6 +223,88 @@ function buildChart(data) {
       <div class="bar-label">${d.day}</div>
     </div>`;
     }).join('');
+}
+
+function renderSalesChartCard(weekly) {
+    return `
+        <div class="card animate-slide-up delay-5">
+          <div class="card-header">
+            <div>
+              <div class="card-title">Vendas por Período</div>
+              <div class="card-subtitle">Últimos 7 dias</div>
+            </div>
+            <button class="btn-sm btn-outline" onclick="navigate('vendas')">Ver mais</button>
+          </div>
+          <div class="chart-bars" id="chart-bars-dashboard"></div>
+          <div class="chart-footer">
+            <span style="font-size:12px;color:var(--muted)">▼ Últimos 7 dias</span>
+            <span style="font-size:12px;color:var(--teal);font-weight:700" id="chart-total"></span>
+          </div>
+        </div>
+    `;
+}
+
+function renderWaiterOperationsCard(summary) {
+    const occupancyRate = summary.totalTables > 0 ? Math.round((summary.occupiedTables / summary.totalTables) * 100) : 0;
+
+    return `
+    <div class="upgrade-card animate-slide-up delay-4">
+      <div style="font-size:22px; font-weight:700; margin-bottom:4px;">Resumo Operacional</div>
+      <div style="font-size:12px; opacity:0.7; margin-bottom:18px;">Indicadores do turno para o salão</div>
+
+      <div style="display:flex; gap:16px; margin-bottom:16px;">
+        <div style="flex:1; background:rgba(255,255,255,0.1); border-radius:10px; padding:12px;">
+          <div style="font-size:10px; text-transform:uppercase; letter-spacing:0.6px; opacity:0.6; margin-bottom:6px;">Fila ativa</div>
+          <div style="font-size:18px; font-weight:700;">${summary.pendingCount + summary.acceptedCount + summary.readyCount}</div>
+          <div style="font-size:12px; opacity:0.7; margin-top:4px;">${summary.readyCount} pedidos aguardando entrega</div>
+        </div>
+        <div style="flex:1; background:rgba(255,255,255,0.1); border-radius:10px; padding:12px;">
+          <div style="font-size:10px; text-transform:uppercase; letter-spacing:0.6px; opacity:0.6; margin-bottom:6px;">Mesas ocupadas</div>
+          <div style="font-size:18px; font-weight:700;">${summary.occupiedTables}/${summary.totalTables || 0}</div>
+          <div style="font-size:12px; opacity:0.7; margin-top:4px;">${occupancyRate}% de ocupação</div>
+        </div>
+      </div>
+
+      <div style="border-top:1px solid rgba(255,255,255,0.12); padding-top:12px; display:flex; flex-direction:column; gap:8px;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:16px;">⏳</span>
+          <span style="font-size:12px; opacity:0.9;">${summary.pendingCount} pedidos aguardando aceite</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:16px;">🍽️</span>
+          <span style="font-size:12px; opacity:0.9;">${summary.acceptedCount} pedidos em preparo e ${summary.deliveredCount} já concluídos</span>
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderWaiterFlowCard(orders, tableNumbersByTabId) {
+    const openOrders = (orders || []).filter((order) => ['PENDING', 'ACCEPTED', 'READY'].includes(order.status)).slice(0, 5);
+
+    return `
+        <div class="card animate-slide-up delay-5">
+          <div class="card-header">
+            <div>
+              <div class="card-title">Fluxo de Atendimento</div>
+              <div class="card-subtitle">Pedidos que ainda exigem ação</div>
+            </div>
+            <button class="btn-sm btn-outline" onclick="navigate('pedidos')">Abrir pedidos</button>
+          </div>
+          <div class="order-list">
+            ${openOrders.length === 0 ? '<div class="empty-state"><div class="icon">✅</div><p>Nenhum pedido pendente no momento</p></div>' : ''}
+            ${openOrders.map((order, index) => `
+              <div class="order-item">
+                <div class="order-avatar" style="background:${getGradient(index)}">#${getOrderTableCode(order, tableNumbersByTabId)}</div>
+                <div>
+                  <div class="order-name">Pedido #${getOrderDisplayCode(order, tableNumbersByTabId)}</div>
+                  <div class="order-meta">${formatTime(order.createdAt)} · ${order.destination}</div>
+                </div>
+                <div class="status-pill ${statusClass(order.status)}">${statusLabel(order.status)}</div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+    `;
 }
 
 window.updateDashboardExpediente = function() {

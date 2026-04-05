@@ -277,8 +277,20 @@ window.openRestaurantProfileModal = function(user, initials) {
     const overlay = document.getElementById('profile-drawer-overlay');
     if (!drawer || !overlay) return;
 
+    const normalizedRole = typeof normalizeTenantUserRole === 'function'
+        ? normalizeTenantUserRole(user.role)
+        : String(user.role || '').trim().toUpperCase();
+    const showBillingInfo = normalizedRole !== 'WAITER';
     const planLabel = user.billing_plan === 'pre_paid' ? 'Pré-pago' : 'Pós-pago';
     const planDesc = user.billing_plan === 'pre_paid' ? 'Recarga de créditos' : 'Faturamento mensal';
+    const roleLabel = {
+        ADMIN: 'Administrador',
+        MANAGER: 'Gerente',
+        WAITER: 'Garçom',
+        KITCHEN: 'Cozinha',
+        BAR: 'Bar',
+        CASHIER: 'Caixa',
+    }[normalizedRole] || user.role;
 
     drawer.innerHTML = `
         <!-- Cover -->
@@ -318,6 +330,7 @@ window.openRestaurantProfileModal = function(user, initials) {
                 </div>
             </div>
 
+            ${showBillingInfo ? `
             <div style="display: flex; align-items: center; gap: 14px; padding: 14px 16px; background: var(--bg); border: 1px solid var(--border); border-radius: 14px; transition: transform 0.15s; cursor: default;" onmouseenter="this.style.transform='translateX(4px)'" onmouseleave="this.style.transform='translateX(0)'">
                 <div style="width: 44px; height: 44px; border-radius: 12px; background: rgba(139,92,246,0.1); display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0;">💳</div>
                 <div style="min-width: 0;">
@@ -329,12 +342,13 @@ window.openRestaurantProfileModal = function(user, initials) {
                     <div style="font-size: 12px; color: var(--muted); margin-top: 2px;">${planDesc}</div>
                 </div>
             </div>
+            ` : ''}
 
             <div style="display: flex; align-items: center; gap: 14px; padding: 14px 16px; background: var(--bg); border: 1px solid var(--border); border-radius: 14px; transition: transform 0.15s; cursor: default;" onmouseenter="this.style.transform='translateX(4px)'" onmouseleave="this.style.transform='translateX(0)'">
                 <div style="width: 44px; height: 44px; border-radius: 12px; background: rgba(59,130,246,0.1); display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0;">🔑</div>
                 <div style="min-width: 0;">
                     <div style="font-size: 11px; text-transform: uppercase; font-weight: 800; color: var(--muted); letter-spacing: 0.6px;">Perfil de Acesso</div>
-                    <div style="font-size: 15px; font-weight: 700; color: var(--dark); margin-top: 2px;">${user.role === 'admin' ? 'Administrador' : user.role === 'manager' ? 'Gerente' : user.role}</div>
+                    <div style="font-size: 15px; font-weight: 700; color: var(--dark); margin-top: 2px;">${roleLabel}</div>
                 </div>
             </div>
         </div>
