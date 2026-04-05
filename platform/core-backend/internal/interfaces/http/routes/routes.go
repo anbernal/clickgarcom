@@ -15,6 +15,7 @@ import (
 
 	"github.com/anbernal/clickgarcom/internal/application"
 	"github.com/anbernal/clickgarcom/internal/application/auth"
+	"github.com/anbernal/clickgarcom/internal/domain/events"
 	sessiondomain "github.com/anbernal/clickgarcom/internal/domain/inbox/session"
 	"github.com/anbernal/clickgarcom/internal/domain/tenant"
 	whatsappDomain "github.com/anbernal/clickgarcom/internal/domain/whatsapp"
@@ -225,6 +226,31 @@ func SetupRoutes(
 			"cleared":   cleared,
 			"scanned":   scanned,
 		})
+	})
+
+	app.Post("/internal/kds/events/broadcast", func(c *fiber.Ctx) error {
+		if strings.TrimSpace(c.Get("X-Internal-Token")) != internalToken {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid internal token"})
+		}
+
+		var event events.OrderEvent
+		if err := c.BodyParser(&event); err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid body"})
+		}
+		if event.TenantID == uuid.Nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "tenant_id is required"})
+		}
+		if event.Data == nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "data is required"})
+		}
+
+		wsHub.BroadcastToTenant(event.TenantID, &event)
+		logger.Debug("internal kds event broadcast",
+			zap.String("tenant_id", event.TenantID.String()),
+			zap.String("event_type", string(event.Type)),
+		)
+
+		return c.JSON(fiber.Map{"status": "ok"})
 	})
 
 	// Menu routes

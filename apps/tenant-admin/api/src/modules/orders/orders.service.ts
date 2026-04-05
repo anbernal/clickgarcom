@@ -1163,48 +1163,57 @@ export class OrdersService {
     }
 
     private async publishOrderStatusChanged(order: Order) {
+        const payload = this.buildOrderStatusChangedEventPayload(order);
+
         try {
-            await this.amqpService.publishKDSEvent(
-                {
-                    type: 'order.status_changed',
-                    timestamp: new Date().toISOString(),
-                    tenant_id: order.tenantId,
-                    data: {
-                        id: order.id,
-                        tenant_id: order.tenantId,
-                        tab_id: order.tabId,
-                        batch_id: order.batchId,
-                        batch_display_code: this.resolveOrderMessageCode(order),
-                        destination: order.destination,
-                        status: order.status,
-                        notes: order.notes,
-                        created_at: order.createdAt,
-                        accepted_at: order.acceptedAt,
-                        ready_at: order.readyAt,
-                        delivered_at: order.deliveredAt,
-                        canceled_at: order.canceledAt,
-                        cancel_reason: order.cancelReason,
-                        cancel_reason_code: order.cancelReasonCode,
-                        cancel_category: order.cancelCategory,
-                        canceled_by_user_id: order.canceledByUserId,
-                        canceled_by_user_name: order.canceledByUserName,
-                        items: (order.items || []).map((item) => ({
-                            id: item.id,
-                            order_id: item.orderId,
-                            menu_item_id: item.menuItemId,
-                            quantity: item.quantity,
-                            unit_price: item.unitPrice,
-                            observations: item.observations,
-                            selected_options: item.selectedOptions,
-                            created_at: item.createdAt,
-                        })),
-                    },
-                },
-                'order.status_changed',
-            );
+            await this.broadcastKDSEventToGoCore(payload);
+        } catch (error) {
+            this.logger.warn(`Failed to relay order.status_changed to go-core for ${order.id}: ${(error as Error).message}`);
+        }
+
+        try {
+            await this.amqpService.publishKDSEvent(payload, 'order.status_changed');
         } catch (error) {
             this.logger.warn(`Failed to publish order.status_changed for ${order.id}: ${(error as Error).message}`);
         }
+    }
+
+    private buildOrderStatusChangedEventPayload(order: Order) {
+        return {
+            type: 'order.status_changed',
+            timestamp: new Date().toISOString(),
+            tenant_id: order.tenantId,
+            data: {
+                id: order.id,
+                tenant_id: order.tenantId,
+                tab_id: order.tabId,
+                batch_id: order.batchId,
+                batch_display_code: this.resolveOrderMessageCode(order),
+                destination: order.destination,
+                status: order.status,
+                notes: order.notes,
+                created_at: order.createdAt,
+                accepted_at: order.acceptedAt,
+                ready_at: order.readyAt,
+                delivered_at: order.deliveredAt,
+                canceled_at: order.canceledAt,
+                cancel_reason: order.cancelReason,
+                cancel_reason_code: order.cancelReasonCode,
+                cancel_category: order.cancelCategory,
+                canceled_by_user_id: order.canceledByUserId,
+                canceled_by_user_name: order.canceledByUserName,
+                items: (order.items || []).map((item) => ({
+                    id: item.id,
+                    order_id: item.orderId,
+                    menu_item_id: item.menuItemId,
+                    quantity: Number(item.quantity || 0),
+                    unit_price: this.normalizeMoneyValue(item.unitPrice),
+                    observations: item.observations,
+                    selected_options: this.normalizeOrderItemSelectedOptions(item.selectedOptions),
+                    created_at: item.createdAt,
+                })),
+            },
+        };
     }
 
     private async recordOrderStatusAuditEvent(input: {
@@ -1286,5 +1295,73 @@ export class OrdersService {
         }
 
         return metadata;
+    }
+
+    private async broadcastKDSEventToGoCore(payload: Record<string, unknown>) {
+        const token = String(process.env.INTERNAL_SERVICE_TOKEN || 'clickgarcom-internal-token').trim()
+            || 'clickgarcom-internal-token';
+        let lastError: Error | null = null;
+
+        for (const baseUrl of this.getGoCoreBaseUrls()) {
+            try {
+                const response = await fetch(`${baseUrl}/internal/kds/events/broadcast`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Internal-Token': token,
+                    },
+                    body: JSON.stringify(payload),
+                    signal: AbortSignal.timeout(5000),
+                });
+
+                if (response.ok) {
+                    return;
+                }
+
+                const body = await response.text().catch(() => '');
+                lastError = new Error(`go-core kds relay returned status ${response.status}: ${body || response.statusText}`);
+            } catch (error) {
+                lastError = error as Error;
+            }
+        }
+
+        if (lastError) {
+            throw lastError;
+        }
+    }
+
+    private getGoCoreBaseUrls() {
+        const configured = (process.env.GO_CORE_BASE_URL || '').trim();
+        return [...new Set([configured, 'http://go-api:8080', 'http://localhost:8080'].filter(Boolean))];
+    }
+
+    private normalizeMoneyValue(value: unknown) {
+        const parsed = Number.parseFloat(String(value ?? '0'));
+        return Number.isFinite(parsed) ? parsed : 0;
+    }
+
+    private normalizeOrderItemSelectedOptions(value: unknown) {
+        if (!Array.isArray(value)) {
+            return [];
+        }
+
+        return value
+            .map((option) => {
+                const groupName = String((option as any)?.group_name || (option as any)?.groupName || '').trim();
+                const optionName = String((option as any)?.option_name || (option as any)?.optionName || '').trim();
+                const priceDeltaRaw = (option as any)?.price_delta ?? (option as any)?.priceDelta ?? 0;
+                const priceDelta = this.normalizeMoneyValue(priceDeltaRaw);
+
+                if (!groupName || !optionName) {
+                    return null;
+                }
+
+                return {
+                    group_name: groupName,
+                    option_name: optionName,
+                    price_delta: priceDelta,
+                };
+            })
+            .filter(Boolean);
     }
 }

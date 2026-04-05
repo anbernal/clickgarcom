@@ -120,6 +120,7 @@ let wsReconnectDelay = 1000;
 let wsReconnectTimer = null;
 let pollTimer = null;
 let timerInterval = null;
+let recentWSEventKeys = new Map();
 let menuItemNameById = new Map();
 let menuItemMetaById = new Map();
 let pendingRequests = [];
@@ -177,14 +178,76 @@ const SALAO_STATS_CARD_DEFINITIONS = [
   },
 ];
 const STATION_STATS_CARD_KEYS = ['pending', 'accepted', 'ready', 'total', 'delayed', 'avgPreparation', 'bottleneck'];
+const KDS_SYNC_CHANNEL_NAME = 'clickgarcom-kds-sync';
+const KDS_SYNC_STORAGE_KEY = 'clickgarcom_kds_sync_event';
+const KDS_SYNC_SOURCE_ID = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+  ? crypto.randomUUID()
+  : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+let kdsSyncChannel = null;
 
 function resolveInitialPanel() {
   const panel = new URLSearchParams(window.location.search).get('panel');
   return PANEL_ORDER.includes(panel) ? panel : 'kitchen';
 }
 
+function initKdsRealtimeSync() {
+  if ('BroadcastChannel' in window) {
+    kdsSyncChannel = new BroadcastChannel(KDS_SYNC_CHANNEL_NAME);
+    kdsSyncChannel.onmessage = (message) => handleKdsSyncEvent(message?.data);
+  }
+
+  window.addEventListener('storage', (event) => {
+    if (event.key !== KDS_SYNC_STORAGE_KEY || !event.newValue) return;
+    try {
+      handleKdsSyncEvent(JSON.parse(event.newValue));
+    } catch (error) {
+      console.warn('KDS sync storage parse error:', error);
+    }
+  });
+}
+
+function broadcastKdsSync(reason) {
+  const tenantId = String(CONFIG.TENANT_ID || '').trim();
+  if (!tenantId) return;
+
+  const payload = {
+    type: 'refresh',
+    tenantId,
+    reason: String(reason || 'kds.action'),
+    sourceId: KDS_SYNC_SOURCE_ID,
+    timestamp: new Date().toISOString(),
+  };
+
+  if (kdsSyncChannel) {
+    kdsSyncChannel.postMessage(payload);
+  }
+
+  try {
+    localStorage.setItem(KDS_SYNC_STORAGE_KEY, JSON.stringify(payload));
+    localStorage.removeItem(KDS_SYNC_STORAGE_KEY);
+  } catch (error) {
+    console.warn('KDS sync storage write error:', error);
+  }
+}
+
+function handleKdsSyncEvent(event) {
+  if (!event || event.type !== 'refresh') return;
+  if (String(event.sourceId || '') === KDS_SYNC_SOURCE_ID) return;
+  if (String(event.tenantId || '').trim() !== String(CONFIG.TENANT_ID || '').trim()) return;
+  refreshKdsRealtimeState();
+}
+
+function refreshKdsRealtimeState() {
+  loadOrders();
+  loadPendingRequests();
+  loadTableState();
+  loadWaiterChats();
+  loadCloseRequests();
+}
+
 // ─── INIT ──────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+  initKdsRealtimeSync();
   switchPanel(resolveInitialPanel());
   applySidebarTenantName();
   startClock();
@@ -428,8 +491,37 @@ function setConnectionStatus(online) {
   }
 }
 
+function shouldHandleWSEvent(event) {
+  const type = String(event?.type || '').trim();
+  if (!type || type === 'connected') return true;
+
+  const eventKey = [
+    type,
+    String(event?.tenant_id || ''),
+    String(event?.timestamp || ''),
+    String(event?.data?.id || ''),
+    String(event?.data?.status || ''),
+  ].join('|');
+
+  const now = Date.now();
+  for (const [key, expiresAt] of recentWSEventKeys.entries()) {
+    if (expiresAt <= now) {
+      recentWSEventKeys.delete(key);
+    }
+  }
+
+  const existing = recentWSEventKeys.get(eventKey);
+  if (existing && existing > now) {
+    return false;
+  }
+
+  recentWSEventKeys.set(eventKey, now + 10000);
+  return true;
+}
+
 function handleWSEvent(event) {
   if (event.type === 'connected') return;
+  if (!shouldHandleWSEvent(event)) return;
 
   if (event.type === 'order.created') {
     const order = normalizeOrder(event.data);
@@ -979,6 +1071,7 @@ async function updateStatus(orderId, newStatus, cancelReason, prepMinutes, cance
     }
     await refreshOperationsSummary(false);
     renderAll();
+    broadcastKdsSync(`order.status_changed:${newStatus}`);
 
     const labels = { ACCEPTED: 'aceito', READY: 'pronto', DELIVERED: 'entregue', CANCELED: 'cancelado' };
     toast('t-success', `✅ Pedido ${labels[newStatus]}!`, `#${displayCode}`);
@@ -1621,6 +1714,7 @@ async function sendWaiterChatMessage() {
     await apiPost(`/tables/waiter/chats/${activeWaiterChatId}/messages`, { message });
     input.value = '';
     await Promise.all([loadWaiterChats(), loadWaiterChatMessages(activeWaiterChatId)]);
+    broadcastKdsSync('waiter.chat.message_sent');
     toast('t-success', '✅ Mensagem enviada', 'Cliente notificado no WhatsApp');
   } catch (e) {
     toast('t-error', '❌ Erro', e.message);
@@ -1635,6 +1729,7 @@ async function closeWaiterChat(chatId) {
       closeWaiterChatModal();
     }
     await loadWaiterChats();
+    broadcastKdsSync('waiter.chat.closed');
     toast('t-success', '✅ Conversa encerrada', 'Atendimento finalizado com sucesso');
   } catch (e) {
     toast('t-error', '❌ Erro', e.message);
@@ -1650,6 +1745,7 @@ async function finalizeCloseBillRequest(requestId) {
   try {
     await apiPost(`/tables/waiter/close-requests/${requestId}/finalize`, {});
     await Promise.all([loadCloseRequests(), loadTableState()]);
+    broadcastKdsSync('waiter.close_request.finalized');
     toast('t-success', 'Conta finalizada', 'Comanda encerrada com sucesso');
   } catch (e) {
     toast('t-error', 'Erro ao finalizar', e.message);
@@ -1726,6 +1822,7 @@ async function confirmAssignTable() {
     playNotificationSound();
     toast('t-success', '✅ Cliente alocado!', 'Mesa atribuída com sucesso');
     await Promise.all([loadPendingRequests(), loadTableState()]);
+    broadcastKdsSync('table.request.approved');
   } catch (e) {
     toast('t-error', '❌ Erro', e.message);
   }
