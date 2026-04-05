@@ -765,6 +765,7 @@ export class AuthService {
         if (routeGroups.includes('order_read_write')) pages.push('pedidos');
         if (routeGroups.includes('menu_read')) pages.push('cardapio', 'categorias');
         if (routeGroups.includes('table_read')) pages.push('mesas');
+        if (routeGroups.includes('settlement')) pages.push('pagamentos');
         if (routeGroups.includes('reports')) pages.push('vendas');
         if (routeGroups.includes('full_access')) pages.push('meuRestaurante', 'configuracoes', 'equipe');
 
