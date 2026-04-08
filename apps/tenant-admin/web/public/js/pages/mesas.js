@@ -775,14 +775,22 @@ function renderComandaCard(detail, idx, tableId, tableNumber) {
             </button>
           ` : '<span style="font-size:12px; color:var(--text-light);">Fechamento disponivel apenas para perfis de caixa/gestão.</span>'}
         ` : `
-          <button
-            class="btn-sm ${permissions.canReopen ? 'btn-outline' : 'btn-danger'}"
-            ${permissions.canReopen && canPerformAction('manageSettlement') ? '' : 'disabled'}
-            title="${escapeHTML(permissions.reason || '')}"
-            onclick="reopenTabFromModal('${escapeHTML(String(detail.id))}', '${escapeHTML(String(tableId))}', '${escapeHTML(String(tableNumber))}')"
-          >
-            Reabrir comanda
-          </button>
+          <div style="display:flex; flex-direction:column; align-items:flex-end; gap:8px;">
+            <button
+              class="btn-sm ${permissions.canReopen ? 'btn-outline' : 'btn-danger'}"
+              ${permissions.canReopen && canPerformAction('manageClosedTabs') ? '' : 'disabled'}
+              title="${escapeHTML(permissions.reason || '')}"
+              onclick="reopenTabFromModal('${escapeHTML(String(detail.id))}', '${escapeHTML(String(tableId))}', '${escapeHTML(String(tableNumber))}')"
+            >
+              Reabrir comanda
+            </button>
+            <span style="max-width:320px; font-size:12px; line-height:1.4; color:var(--text-light); text-align:right;">
+              ${escapeHTML(
+                permissions.reason ||
+                'Somente administrador ou gerente pode alterar uma comanda fechada. Toda reabertura exige motivo e auditoria.',
+              )}
+            </span>
+          </div>
         `}
       </div>
     </div>
@@ -835,11 +843,15 @@ async function viewComandas(tableId, tableNumber) {
 }
 
 async function reopenTabFromModal(tabId, tableId, tableNumber) {
-  if (!canPerformAction('manageSettlement')) {
-    showToast('Seu perfil nao pode reabrir comandas.', 'error');
+  if (!canPerformAction('manageClosedTabs')) {
+    showToast('Somente administrador ou gerente pode alterar comandas fechadas.', 'error');
     return;
   }
-  const reason = window.prompt('Motivo da reabertura da comanda:') || '';
+  const reason = (window.prompt('Informe o motivo da alteracao. A auditoria vai registrar o antes e o depois da reabertura:') || '').trim();
+  if (!reason) {
+    showToast('Informe um motivo para registrar a reabertura da comanda.', 'error');
+    return;
+  }
   try {
     await api.post(`/tables/tabs/${tabId}/reopen`, { reason });
     await loadMesas();
@@ -855,7 +867,11 @@ async function finalizeTabFromModal(tabId, tableId, tableNumber) {
     showToast('Seu perfil nao pode finalizar comandas.', 'error');
     return;
   }
-  const confirmed = window.confirm('Confirmar que o pagamento foi recebido e finalizar esta comanda?');
+  const confirmed = window.confirm(
+    'Confirmar que o pagamento foi recebido e finalizar esta comanda?\n\n' +
+    'Depois de fechada e paga, qualquer alteracao corretiva exige perfil administrador ou gerente, motivo obrigatorio e trilha de auditoria. ' +
+    'Se o cliente voltar a consumir, o correto e abrir uma nova comanda.'
+  );
   if (!confirmed) return;
 
   try {

@@ -9,6 +9,69 @@ let pixPollingTimer = null;
 let pendingCardReconciliation = false;
 let checkoutExpiryTimer = null;
 
+function isMercadoPagoTestEnvironment(publicKey) {
+    return normalizeCheckoutText(publicKey).toUpperCase().startsWith('TEST-');
+}
+
+function showCardAlert(message, variant = 'error') {
+    const alertEl = document.getElementById('checkout-card-alert');
+    if (!alertEl) return;
+
+    const text = normalizeCheckoutText(message);
+    alertEl.style.display = text ? 'block' : 'none';
+    alertEl.textContent = text;
+    alertEl.style.borderColor = variant === 'warning' ? 'rgba(245, 158, 11, 0.35)' : 'rgba(239, 68, 68, 0.3)';
+    alertEl.style.background = variant === 'warning' ? 'rgba(245, 158, 11, 0.12)' : 'rgba(239, 68, 68, 0.12)';
+    alertEl.style.color = variant === 'warning' ? '#fcd34d' : '#fecaca';
+}
+
+function clearCardAlert() {
+    showCardAlert('');
+}
+
+function fillSandboxBuyerData() {
+    const nameEl = document.getElementById('form-checkout__cardholderName');
+    const emailEl = document.getElementById('form-checkout__cardholderEmail');
+    const documentEl = document.getElementById('form-checkout__identificationNumber');
+
+    if (nameEl) nameEl.value = 'APRO';
+    if (documentEl) documentEl.value = '12345678909';
+    if (emailEl) {
+        emailEl.value = 'test@testuser.com';
+    }
+
+    clearCardAlert();
+}
+
+function configureSandboxHelper(tab) {
+    const helperEl = document.getElementById('checkout-card-sandbox-helper');
+    if (!helperEl) return;
+
+    if (!isMercadoPagoTestEnvironment(tab?.mpPublicKey)) {
+        helperEl.style.display = 'none';
+        helperEl.innerHTML = '';
+        return;
+    }
+
+    helperEl.style.display = 'block';
+    helperEl.style.borderColor = 'rgba(59, 130, 246, 0.3)';
+    helperEl.style.background = 'rgba(59, 130, 246, 0.12)';
+    helperEl.style.color = '#dbeafe';
+    helperEl.innerHTML = `
+        <div style="font-weight:700; margin-bottom:8px;">Modo teste Mercado Pago</div>
+        <div style="line-height:1.5; margin-bottom:10px;">
+            Para forçar aprovação, use titular <strong>APRO</strong>, CPF <strong>12345678909</strong>,
+            cartão <strong>5031 4332 1540 6351</strong>, CVV <strong>123</strong>, validade <strong>11/30</strong>
+            e e-mail <strong>test@testuser.com</strong>, que é o único permitido para testes segundo a documentação do Mercado Pago.
+        </div>
+        <button type="button" id="checkout-fill-sandbox-approved" style="border:none; border-radius:12px; padding:10px 14px; font-weight:700; cursor:pointer; background:#2563eb; color:white;">
+            Preencher dados de aprovação
+        </button>
+    `;
+
+    document.getElementById('checkout-fill-sandbox-approved')?.addEventListener('click', fillSandboxBuyerData);
+}
+
 function buildPublicApiHeaders() {
     if (!currentAccessToken) {
         return {};
@@ -238,9 +301,30 @@ function configureCardCheckoutAvailability(tab) {
 
 async function fetchJson(url, options = {}) {
     const response = await fetch(url, options);
+    const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+
+    if (!contentType.includes('application/json')) {
+        const body = await response.text().catch(() => '');
+        if (!response.ok) {
+            throw new Error('Falha ao processar a requisicao no checkout.');
+        }
+
+        const trimmedBody = String(body || '').trim();
+        if (trimmedBody.startsWith('<!DOCTYPE') || trimmedBody.startsWith('<html')) {
+            throw new Error('O checkout recebeu uma pagina HTML no lugar da API. Verifique a configuracao do proxy publico.');
+        }
+
+        throw new Error('A resposta da API de checkout veio em formato invalido.');
+    }
+
     if (!response.ok) {
         const payload = await response.json().catch(() => ({}));
-        throw new Error(payload?.message || payload?.error || 'Falha ao processar a requisicao');
+        const providerMessage = normalizeCheckoutText(payload?.provider_message);
+        const userMessage = normalizeCheckoutText(payload?.message || payload?.error || 'Falha ao processar a requisicao');
+        const composedMessage = providerMessage
+            ? `${userMessage} Detalhe Mercado Pago: ${providerMessage}`
+            : userMessage;
+        throw new Error(composedMessage);
     }
     return response.json();
 }
@@ -404,6 +488,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         fillInstallments();
         const cardEnabled = configureCardCheckoutAvailability(tab);
+        configureSandboxHelper(tab);
 
         document.getElementById('btn-generate-pix').addEventListener('click', async () => {
             const btn = document.getElementById('btn-generate-pix');
@@ -481,8 +566,17 @@ document.addEventListener('DOMContentLoaded', async () => {
             submitBtn.innerHTML = 'Processando pagamento...';
             submitBtn.disabled = true;
             pendingCardReconciliation = false;
+            clearCardAlert();
 
             try {
+                if (isMercadoPagoTestEnvironment(mpPublicKey)) {
+                    const sandboxEmail = normalizeCheckoutText(document.getElementById('form-checkout__cardholderEmail')?.value).toLowerCase();
+                    if (sandboxEmail !== 'test@testuser.com') {
+                        showCardAlert('No ambiente de teste do Mercado Pago, o e-mail precisa ser exatamente test@testuser.com.');
+                        return;
+                    }
+                }
+
                 const tokenResp = await mp.fields.createCardToken({
                     cardholderName: document.getElementById('form-checkout__cardholderName').value,
                     identificationType: document.getElementById('form-checkout__identificationType').value,
@@ -497,7 +591,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     payer_email: document.getElementById('form-checkout__cardholderEmail').value,
                     payer_cpf: document.getElementById('form-checkout__identificationNumber').value,
                 };
-                if (cardMetadata.issuerId) {
+                if (!isMercadoPagoTestEnvironment(mpPublicKey) && cardMetadata.issuerId) {
                     paymentPayload.issuer_id = cardMetadata.issuerId;
                 }
 
@@ -528,15 +622,15 @@ document.addEventListener('DOMContentLoaded', async () => {
                         onFailed: (status) => {
                             submitBtn.disabled = false;
                             submitBtn.innerHTML = 'Pagar com Cartao 💳';
-                            alert(`Pagamento retornou status: ${status?.status || 'desconhecido'}`);
+                            showCardAlert(`Pagamento retornou status ${status?.status || 'desconhecido'}${status?.status_detail ? ` (${status.status_detail})` : ''}.`, 'warning');
                         },
                     });
                     return;
                 }
 
-                alert(`Pagamento retornou status: ${response?.status || 'desconhecido'}`);
+                showCardAlert(`Pagamento retornou status ${response?.status || 'desconhecido'}.`, 'warning');
             } catch (error) {
-                alert(error.message || 'Falha ao processar o pagamento');
+                showCardAlert(error?.message || 'Falha ao processar o pagamento');
             } finally {
                 if (!pendingCardReconciliation) {
                     submitBtn.innerHTML = 'Pagar com Cartao 💳';

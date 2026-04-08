@@ -123,6 +123,7 @@ function buildFallbackPermissions(role) {
             cancelOrders: routeGroups.includes('order_cancel'),
             manageTables: routeGroups.includes('table_write'),
             manageSettlement: routeGroups.includes('settlement'),
+            manageClosedTabs: routeGroups.includes('full_access'),
             viewReports: routeGroups.includes('reports'),
             viewWallet: routeGroups.includes('wallet'),
         },

@@ -90,6 +90,8 @@ export const TENANT_SETTLEMENT_ROLES = [
     TenantUserRole.Cashier,
 ] as const;
 
+export const TENANT_CLOSED_TAB_MUTATION_ROLES = [...TENANT_FULL_ACCESS_ROLES] as const;
+
 export const TENANT_REPORT_ROLES = [
     TenantUserRole.Admin,
     TenantUserRole.Manager,

@@ -1198,6 +1198,8 @@ export class TablesService {
                 ...this.buildTabReopenPolicy(
                     {
                         status: String(tab.status || 'OPEN'),
+                        total: Number.parseFloat(String(tab.total ?? '0')) || 0,
+                        paidAmount: Number.parseFloat(String(tab.paid_amount ?? '0')) || 0,
                         approvedPaymentsAmount,
                         approvedAttemptAmount,
                     },
@@ -1213,6 +1215,15 @@ export class TablesService {
         await queryRunner.startTransaction();
 
         try {
+            const actorRole = String(actor.userRole || '').trim().toUpperCase();
+            const reason = this.normalizeTextOrNull(actor.reason);
+            if (!this.isManagerRole(actorRole)) {
+                throw new BadRequestException('Somente administrador ou gerente pode alterar comandas fechadas');
+            }
+            if (!reason) {
+                throw new BadRequestException('Informe o motivo da alteração para reabrir a comanda');
+            }
+
             const tabRows = await queryRunner.query(
                 `SELECT id,
                         tenant_id,
@@ -1220,7 +1231,8 @@ export class TablesService {
                         total,
                         paid_amount,
                         status,
-                        closed_at
+                        closed_at,
+                        reopened_at
                    FROM tabs
                   WHERE id = $1
                     AND tenant_id = $2
@@ -1258,21 +1270,41 @@ export class TablesService {
             const reopenPolicy = this.buildTabReopenPolicy(
                 {
                     status: 'CLOSED',
+                    total: Number.parseFloat(String(tab.total ?? '0')) || 0,
+                    paidAmount: Number.parseFloat(String(tab.paid_amount ?? '0')) || 0,
                     approvedPaymentsAmount: confirmedTotal,
                     approvedAttemptAmount: approvedAttempts > 0 ? confirmedTotal : 0,
                 },
-                actor.userRole,
+                actorRole,
             );
 
             if (!reopenPolicy.canReopen) {
                 throw new BadRequestException(reopenPolicy.reason || 'Reabertura não permitida para esta comanda');
             }
 
+            const reopenedAt = new Date();
+            const changeAudit = this.buildTabMutationAudit({
+                before: {
+                    status: String(tab.status || 'CLOSED'),
+                    closed_at: tab.closed_at || null,
+                    reopened_at: tab.reopened_at || null,
+                    total: this.roundMoney(Number.parseFloat(String(tab.total ?? '0')) || 0),
+                    paid_amount: this.roundMoney(Number.parseFloat(String(tab.paid_amount ?? '0')) || 0),
+                },
+                after: {
+                    status: 'OPEN',
+                    closed_at: null,
+                    reopened_at: reopenedAt.toISOString(),
+                    total: this.roundMoney(Number.parseFloat(String(tab.total ?? '0')) || 0),
+                    paid_amount: this.roundMoney(Number.parseFloat(String(tab.paid_amount ?? '0')) || 0),
+                },
+            });
+
             await queryRunner.query(
                 `UPDATE tabs
                     SET status = 'OPEN',
                         closed_at = NULL,
-                        reopened_at = NOW(),
+                        reopened_at = $5,
                         reopened_by_user_id = COALESCE($3::uuid, reopened_by_user_id),
                         reopened_by_user_name = COALESCE($4, reopened_by_user_name)
                   WHERE id = $1
@@ -1282,6 +1314,7 @@ export class TablesService {
                     tenantId,
                     this.normalizeUuidOrNull(actor.userId),
                     this.normalizeTextOrNull(actor.userName),
+                    reopenedAt,
                 ],
             );
 
@@ -1299,9 +1332,13 @@ export class TablesService {
                 actorUserId: actor.userId,
                 actorName: actor.userName,
                 details: {
-                    reason: this.normalizeTextOrNull(actor.reason),
+                    reason,
+                    actor_role: actorRole || null,
                     confirmed_payments_amount: confirmedTotal,
                     approved_attempts: approvedAttempts,
+                    fields_changed: changeAudit.fieldsChanged,
+                    before: changeAudit.before,
+                    after: changeAudit.after,
                 },
             });
 
@@ -1976,7 +2013,7 @@ export class TablesService {
     }
 
     private buildTabReopenPolicy(
-        input: { status: string; approvedPaymentsAmount: number; approvedAttemptAmount: number },
+        input: { status: string; total: number; paidAmount: number; approvedPaymentsAmount: number; approvedAttemptAmount: number },
         currentUserRole?: string,
     ) {
         const closed = String(input.status || '').trim().toUpperCase() === 'CLOSED';
@@ -1988,20 +2025,33 @@ export class TablesService {
             };
         }
 
-        const requiresManagerApproval = input.approvedPaymentsAmount > 0 || input.approvedAttemptAmount > 0;
         const privileged = this.isManagerRole(currentUserRole);
-
-        if (requiresManagerApproval && !privileged) {
+        if (!privileged) {
             return {
                 canReopen: false,
-                requiresManagerApproval: true,
-                reason: 'Comanda com pagamento liquidado só pode ser reaberta por gerente ou admin',
+                requiresManagerApproval: false,
+                reason: 'Somente administrador ou gerente pode alterar uma comanda fechada',
+            };
+        }
+
+        const total = this.roundMoney(Number(input.total || 0));
+        const paidAmount = this.roundMoney(Number(input.paidAmount || 0));
+        const approvedPaymentsAmount = this.roundMoney(Number(input.approvedPaymentsAmount || 0));
+        const approvedAttemptAmount = this.roundMoney(Number(input.approvedAttemptAmount || 0));
+        const liquidatedAmount = Math.max(paidAmount, approvedPaymentsAmount, approvedAttemptAmount);
+        const fullyLiquidated = total > 0 && liquidatedAmount >= total;
+
+        if (fullyLiquidated) {
+            return {
+                canReopen: false,
+                requiresManagerApproval: false,
+                reason: 'Comanda fechada e liquidada não pode ser reaberta. Será necessário abrir uma nova comanda',
             };
         }
 
         return {
             canReopen: true,
-            requiresManagerApproval,
+            requiresManagerApproval: false,
             reason: '',
         };
     }
@@ -2049,11 +2099,21 @@ export class TablesService {
             if (source === 'CLOSE_REQUEST') {
                 return 'Fechamento concluído a partir de uma solicitação do salão';
             }
+            if (source === 'SHIFT_CLOSE_AUTO_SETTLEMENT') {
+                return 'Comanda encerrada automaticamente no fechamento do expediente por estar sem saldo pendente';
+            }
             return 'Fechamento manual registrado pela equipe';
         }
         if (eventType === 'TAB_REOPENED') {
             const reason = String(details?.reason || '').trim();
-            return reason ? `Reabertura registrada: ${reason}` : 'Comanda reaberta para continuar o atendimento';
+            const summary = this.buildTabMutationSummary(details);
+            if (reason && summary) {
+                return `Reabertura registrada: ${reason}. Alterações: ${summary}`;
+            }
+            if (reason) {
+                return `Reabertura registrada: ${reason}`;
+            }
+            return summary ? `Comanda reaberta com auditoria: ${summary}` : 'Comanda reaberta para continuar o atendimento';
         }
         if (eventType === 'PAYMENT_RETRY_CREATED') {
             const amountDue = this.roundMoney(Number(details?.amount_due || 0));
@@ -2067,6 +2127,63 @@ export class TablesService {
                 : `Preparação de estorno de ${requestedAmount.toFixed(2)} registrada`;
         }
         return 'Evento registrado na trilha de auditoria';
+    }
+
+    private buildTabMutationAudit(input: { before: Record<string, unknown>; after: Record<string, unknown> }) {
+        const before = this.normalizeAuditSnapshot(input.before);
+        const after = this.normalizeAuditSnapshot(input.after);
+        const keys = Array.from(new Set([...Object.keys(before), ...Object.keys(after)]));
+        const fieldsChanged = keys
+            .filter((key) => JSON.stringify(before[key] ?? null) !== JSON.stringify(after[key] ?? null))
+            .map((field) => ({
+                field,
+                before: before[field] ?? null,
+                after: after[field] ?? null,
+            }));
+
+        return {
+            before,
+            after,
+            fieldsChanged,
+        };
+    }
+
+    private normalizeAuditSnapshot(snapshot: Record<string, unknown>) {
+        return Object.entries(snapshot || {}).reduce<Record<string, unknown>>((acc, [key, value]) => {
+            acc[key] = value ?? null;
+            return acc;
+        }, {});
+    }
+
+    private buildTabMutationSummary(details: Record<string, any>) {
+        const fields = Array.isArray(details?.fields_changed) ? details.fields_changed : [];
+        const labels: Record<string, string> = {
+            status: 'status',
+            closed_at: 'fechamento',
+            reopened_at: 'reabertura',
+            total: 'total',
+            paid_amount: 'valor pago',
+        };
+
+        const fragments = fields
+            .map((item: any) => {
+                const field = String(item?.field || '').trim();
+                if (!field) return '';
+                return `${labels[field] || field}: ${this.formatAuditValue(item?.before)} -> ${this.formatAuditValue(item?.after)}`;
+            })
+            .filter(Boolean);
+
+        return fragments.join('; ');
+    }
+
+    private formatAuditValue(value: unknown) {
+        if (value === null || value === undefined || value === '') {
+            return 'vazio';
+        }
+        if (typeof value === 'number') {
+            return this.roundMoney(value).toFixed(2);
+        }
+        return String(value).trim() || 'vazio';
     }
 
     private parseRefundPreparation(metadata: unknown) {

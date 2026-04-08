@@ -1,4 +1,5 @@
 const http = require('http');
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
 
@@ -38,6 +39,10 @@ const server = http.createServer((req, res) => {
 
   if (pathname === '/_config.js') {
     return sendRuntimeConfig(req, res);
+  }
+
+  if (pathname === '/admin/api' || pathname.startsWith('/admin/api/')) {
+    return proxyHttpRequest(req, res, resolveAdminApiProxyTarget(), requestUrl);
   }
 
   if (req.method !== 'GET' && req.method !== 'HEAD') {
@@ -142,6 +147,39 @@ function sendJson(res, statusCode, payload) {
   res.end(JSON.stringify(payload));
 }
 
+function proxyHttpRequest(clientReq, clientRes, targetBaseUrl, requestUrl) {
+  const targetUrl = new URL(requestUrl.pathname + requestUrl.search, targetBaseUrl);
+  const transport = targetUrl.protocol === 'https:' ? https : http;
+  const proxyReq = transport.request(targetUrl, {
+    method: clientReq.method,
+    headers: buildProxyHeaders(clientReq.headers, targetUrl),
+  }, (proxyRes) => {
+    const headers = { ...proxyRes.headers };
+    delete headers['content-length'];
+    delete headers['transfer-encoding'];
+    headers['cache-control'] = 'no-store, no-cache, must-revalidate, proxy-revalidate';
+    clientRes.writeHead(proxyRes.statusCode || 502, headers);
+    proxyRes.pipe(clientRes);
+  });
+
+  proxyReq.on('error', (error) => {
+    sendJson(clientRes, 502, {
+      message: 'Falha ao encaminhar requisicao para a API administrativa.',
+      error: error.message,
+    });
+  });
+
+  clientReq.pipe(proxyReq);
+}
+
+function buildProxyHeaders(headers, targetUrl) {
+  const nextHeaders = { ...headers };
+  nextHeaders.host = targetUrl.host;
+  nextHeaders['x-forwarded-host'] = headers.host || targetUrl.host;
+  nextHeaders['x-forwarded-proto'] = getRequestProtocolFromHeaders(headers);
+  return nextHeaders;
+}
+
 function safeJoin(rootDir, requestPath) {
   const resolved = path.resolve(rootDir, `.${requestPath}`);
   if (!resolved.startsWith(rootDir)) {
@@ -161,6 +199,15 @@ function fileExists(filename) {
 function normalizeBaseUrl(rawValue, fallback) {
   const value = String(rawValue || '').trim();
   return (value || fallback).replace(/\/+$/, '');
+}
+
+function resolveAdminApiProxyTarget() {
+  const configuredValue = String(process.env.ADMIN_API_PROXY_TARGET || '').trim();
+  if (configuredValue) {
+    return normalizeBaseUrl(configuredValue, '');
+  }
+
+  return 'http://node-admin:3002';
 }
 
 function resolveAdminApiBaseUrl(req, options = {}) {
@@ -216,7 +263,7 @@ function buildBrowserServiceUrl(req, { pathname, port, protocol }) {
 }
 
 function getRequestOrigin(req) {
-  const forwardedProto = getForwardedHeader(req.headers['x-forwarded-proto']);
+  const forwardedProto = getRequestProtocolFromHeaders(req.headers);
   const forwardedHost = getForwardedHeader(req.headers['x-forwarded-host']);
   const host = forwardedHost || req.headers.host || `localhost:${PORT}`;
   const protocol = forwardedProto || 'http';
@@ -231,6 +278,10 @@ function getRequestOrigin(req) {
 function getForwardedHeader(value) {
   const normalized = Array.isArray(value) ? value[0] : value;
   return String(normalized || '').split(',')[0].trim();
+}
+
+function getRequestProtocolFromHeaders(headers) {
+  return getForwardedHeader(headers['x-forwarded-proto']) || '';
 }
 
 function detectPublicProxyRequest(req) {

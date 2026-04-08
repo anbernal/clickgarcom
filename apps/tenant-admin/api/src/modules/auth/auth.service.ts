@@ -16,6 +16,7 @@ import { UpdateTenantUserStatusDto } from './dto/update-tenant-user-status.dto';
 import {
     SUPPORTED_TENANT_ROLES,
     TENANT_BOT_CONFIG_ROLES,
+    TENANT_CLOSED_TAB_MUTATION_ROLES,
     TENANT_FLOOR_ROLES,
     TENANT_FULL_ACCESS_ROLES,
     TENANT_ORDER_CANCEL_ROLES,
@@ -71,6 +72,8 @@ type ShiftCloseSessionSweepResult = {
     eligibleTabs: number;
     processedTabs: number;
     releasedSessions: number;
+    autoClosedTabs: number;
+    releasedTables: number;
     failedTabs: number;
     failedTabIds: string[];
 };
@@ -797,6 +800,7 @@ export class AuthService {
                 cancelOrders: this.isRoleAllowed(normalizedRole, TENANT_ORDER_CANCEL_ROLES),
                 manageTables: this.isRoleAllowed(normalizedRole, TENANT_TABLE_WRITE_ROLES),
                 manageSettlement: this.isRoleAllowed(normalizedRole, TENANT_SETTLEMENT_ROLES),
+                manageClosedTabs: this.isRoleAllowed(normalizedRole, TENANT_CLOSED_TAB_MUTATION_ROLES),
                 viewReports: this.isRoleAllowed(normalizedRole, TENANT_REPORT_ROLES),
                 viewWallet: this.isRoleAllowed(normalizedRole, TENANT_WALLET_ROLES),
             },
@@ -956,7 +960,12 @@ export class AuthService {
 
     private async releaseEligibleSessionsOnShiftClose(tenantId: string): Promise<ShiftCloseSessionSweepResult> {
         const eligibleTabs = await this.dataSource.query(
-            `SELECT id, user_phone
+            `SELECT id,
+                    user_phone,
+                    table_id,
+                    status,
+                    total,
+                    paid_amount
                FROM tabs
               WHERE tenant_id = $1
                 AND (
@@ -971,6 +980,8 @@ export class AuthService {
             eligibleTabs: eligibleTabs.length,
             processedTabs: 0,
             releasedSessions: 0,
+            autoClosedTabs: 0,
+            releasedTables: 0,
             failedTabs: 0,
             failedTabIds: [],
         };
@@ -981,24 +992,168 @@ export class AuthService {
                 continue;
             }
 
+            let processed = false;
+            let failed = false;
+
             try {
                 const cleared = await this.releaseGoCoreSessions(
                     tenantId,
                     tabId,
                     String(row?.user_phone || '').trim(),
                 );
-                result.processedTabs += 1;
                 result.releasedSessions += cleared;
+                processed = true;
             } catch (error) {
-                result.failedTabs += 1;
-                result.failedTabIds.push(tabId);
+                failed = true;
                 this.logger.warn(
                     `Falha ao liberar sessão vinculada ao fechamento do expediente para tenant=${tenantId} tab=${tabId}: ${(error as Error)?.message || error}`,
                 );
             }
+
+            if (this.shouldAutoCloseTabOnShiftClose(row)) {
+                try {
+                    const cleanup = await this.autoCloseTabOnShiftClose(tenantId, tabId);
+                    result.autoClosedTabs += cleanup.closed ? 1 : 0;
+                    result.releasedTables += cleanup.releasedTable ? 1 : 0;
+                    processed = processed || cleanup.closed;
+                } catch (error) {
+                    failed = true;
+                    this.logger.warn(
+                        `Falha ao fechar comanda zerada no fechamento do expediente para tenant=${tenantId} tab=${tabId}: ${(error as Error)?.message || error}`,
+                    );
+                }
+            }
+
+            if (processed) {
+                result.processedTabs += 1;
+            }
+            if (failed) {
+                result.failedTabs += 1;
+                result.failedTabIds.push(tabId);
+            }
         }
 
         return result;
+    }
+
+    private shouldAutoCloseTabOnShiftClose(row: Record<string, unknown>) {
+        const status = String(row?.status || '').trim().toUpperCase();
+        if (status === 'CLOSED') {
+            return false;
+        }
+
+        const total = Number.parseFloat(String(row?.total ?? '0')) || 0;
+        const paidAmount = Number.parseFloat(String(row?.paid_amount ?? '0')) || 0;
+        return Math.round((total - paidAmount) * 100) <= 0;
+    }
+
+    private async autoCloseTabOnShiftClose(tenantId: string, tabId: string) {
+        const queryRunner = this.dataSource.createQueryRunner();
+        await queryRunner.connect();
+        await queryRunner.startTransaction();
+
+        try {
+            const rows = await queryRunner.query(
+                `SELECT id,
+                        tenant_id,
+                        table_id,
+                        total,
+                        paid_amount,
+                        status,
+                        closed_at
+                   FROM tabs
+                  WHERE id = $1
+                    AND tenant_id = $2
+                  LIMIT 1
+                  FOR UPDATE`,
+                [tabId, tenantId],
+            );
+            const tab = rows?.[0];
+            if (!tab) {
+                throw new HttpException('Comanda não encontrada para fechamento do expediente.', HttpStatus.NOT_FOUND);
+            }
+
+            const status = String(tab.status || '').trim().toUpperCase();
+            const total = this.roundMoney(Number.parseFloat(String(tab.total ?? '0')) || 0);
+            const paidAmount = this.roundMoney(Number.parseFloat(String(tab.paid_amount ?? '0')) || 0);
+            if (status === 'CLOSED' || Math.round((total - paidAmount) * 100) > 0) {
+                await queryRunner.rollbackTransaction();
+                return { closed: false, releasedTable: false };
+            }
+
+            const nextPaidAmount = this.roundMoney(Math.max(total, paidAmount));
+            const actorName = 'Sistema / Fechamento de Expediente';
+
+            await queryRunner.query(
+                `UPDATE tabs
+                    SET status = 'CLOSED',
+                        paid_amount = $1,
+                        closed_at = COALESCE(closed_at, NOW()),
+                        closed_by_user_name = COALESCE(closed_by_user_name, $4)
+                  WHERE id = $2
+                    AND tenant_id = $3`,
+                [nextPaidAmount, tabId, tenantId, actorName],
+            );
+
+            await queryRunner.query(
+                `INSERT INTO tab_events
+                    (id, tenant_id, tab_id, event_type, actor_user_id, actor_name, details, created_at)
+                 VALUES (gen_random_uuid(), $1, $2, 'TAB_CLOSED', NULL, $3, $4::jsonb, NOW())`,
+                [
+                    tenantId,
+                    tabId,
+                    actorName,
+                    JSON.stringify({
+                        source: 'SHIFT_CLOSE_AUTO_SETTLEMENT',
+                        total,
+                        paid_amount: nextPaidAmount,
+                    }),
+                ],
+            );
+
+            await queryRunner.query(
+                `UPDATE service_requests
+                    SET status = 'RESOLVED',
+                        resolved_at = COALESCE(resolved_at, NOW())
+                  WHERE tenant_id = $1
+                    AND tab_id = $2
+                    AND request_type = 'CLOSE_BILL'
+                    AND status IN ('PENDING', 'IN_PROGRESS')`,
+                [tenantId, tabId],
+            );
+
+            let releasedTable = false;
+            if (tab.table_id) {
+                const otherOpenRows = await queryRunner.query(
+                    `SELECT COUNT(*)::int AS total
+                       FROM tabs
+                      WHERE tenant_id = $1
+                        AND table_id = $2
+                        AND status <> 'CLOSED'
+                        AND id <> $3`,
+                    [tenantId, tab.table_id, tabId],
+                );
+                const otherOpenTabs = Number(otherOpenRows?.[0]?.total || 0);
+                if (otherOpenTabs === 0) {
+                    await queryRunner.query(
+                        `UPDATE tables
+                            SET status = 'AVAILABLE'
+                          WHERE id = $1
+                            AND tenant_id = $2`,
+                        [tab.table_id, tenantId],
+                    );
+                    releasedTable = true;
+                }
+            }
+
+            await queryRunner.commitTransaction();
+            return { closed: true, releasedTable };
+        } catch (error) {
+            await queryRunner.rollbackTransaction();
+            throw error;
+        } finally {
+            await queryRunner.release();
+        }
     }
 
     private async releaseGoCoreSessions(tenantId: string, tabId: string, userPhone?: string) {
@@ -1079,5 +1234,9 @@ export class AuthService {
     private normalizeUuidOrNull(value?: string | null) {
         const normalized = String(value || '').trim();
         return normalized || null;
+    }
+
+    private roundMoney(value: number) {
+        return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
     }
 }

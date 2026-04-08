@@ -224,6 +224,10 @@ func (uc *HandleWhatsAppMessageUseCase) Execute(ctx context.Context, input Handl
 	}
 
 	if response != "" {
+		if sess.State == session.StateClosingTab || newState == session.StateClosingTab {
+			response = uc.decorateClosedTenantClosingTabMessage(ctx, input.TenantID, response)
+		}
+
 		sendMessage := uc.sendTenantMessage
 		if sess.State == session.StateWelcome {
 			t, tenantErr := uc.tenantRepo.FindByID(ctx, input.TenantID)

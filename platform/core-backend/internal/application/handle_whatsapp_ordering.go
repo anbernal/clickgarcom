@@ -2348,7 +2348,7 @@ func (uc *HandleWhatsAppMessageUseCase) startClosingTabFlow(
 		return "", session.StateClosingTab, nil
 	}
 
-	return buildClosingTabTextFallback(message), session.StateClosingTab, nil
+	return uc.buildClosingTabTextFallback(ctx, sess.TenantID, message), session.StateClosingTab, nil
 }
 
 func (uc *HandleWhatsAppMessageUseCase) handleClosingTab(
@@ -2418,7 +2418,7 @@ func (uc *HandleWhatsAppMessageUseCase) sendClosingTabOptions(
 	restaurantName string,
 	tabSummary string,
 ) error {
-	body := "💰 *Fechar Conta*\n\n" + tabSummary + "\n\nComo você prefere finalizar?"
+	body := uc.buildClosingTabPromptBody(ctx, tenantID, tabSummary)
 	decoratedBody := whatsapp.WithRestaurantHeader(restaurantName, body)
 
 	_, err := uc.sender.SendInteractiveButtons(
@@ -2435,6 +2435,25 @@ func (uc *HandleWhatsAppMessageUseCase) sendClosingTabOptions(
 		)
 	}
 	return err
+}
+
+func (uc *HandleWhatsAppMessageUseCase) buildClosingTabPromptBody(
+	ctx context.Context,
+	tenantID uuid.UUID,
+	tabSummary string,
+) string {
+	var body strings.Builder
+	body.WriteString("💰 *Fechar Conta*\n\n")
+
+	if notice := uc.closedTenantClosingTabNotice(ctx, tenantID); notice != "" {
+		body.WriteString(notice)
+		body.WriteString("\n\n")
+	}
+
+	body.WriteString(strings.TrimSpace(tabSummary))
+	body.WriteString("\n\nComo você prefere finalizar?")
+
+	return body.String()
 }
 
 func buildClosingTabButtons() []whatsapp.InteractiveButton {
@@ -2463,12 +2482,56 @@ func buildClosingTabButtons() []whatsapp.InteractiveButton {
 	}
 }
 
-func buildClosingTabTextFallback(tabSummary string) string {
-	return "💰 *Fechar Conta*\n\n" + tabSummary + "\n\n" +
-		"Como você prefere finalizar?\n" +
+func (uc *HandleWhatsAppMessageUseCase) buildClosingTabTextFallback(
+	ctx context.Context,
+	tenantID uuid.UUID,
+	tabSummary string,
+) string {
+	return uc.buildClosingTabPromptBody(ctx, tenantID, tabSummary) + "\n" +
 		"*1* - 💳 Pagar agora pelo celular\n" +
 		"*2* - 🙋 Pedir para a equipe fechar na mesa\n\n" +
 		"_Digite 0 para voltar ao menu_"
+}
+
+func (uc *HandleWhatsAppMessageUseCase) closedTenantClosingTabNotice(
+	ctx context.Context,
+	tenantID uuid.UUID,
+) string {
+	if uc == nil || uc.tenantRepo == nil {
+		return ""
+	}
+
+	tenantObj, err := uc.tenantRepo.FindByID(ctx, tenantID)
+	if err != nil || tenantObj == nil || tenantObj.IsOpen {
+		return ""
+	}
+
+	closedMessage := strings.TrimSpace(whatsapp.RestaurantClosedMessage(tenantObj.Settings.Messages))
+	openTabLabel := "📋 *Sua Comanda (aberta)*"
+
+	if closedMessage == "" {
+		return openTabLabel
+	}
+
+	return closedMessage + "\n\n" + openTabLabel
+}
+
+func (uc *HandleWhatsAppMessageUseCase) decorateClosedTenantClosingTabMessage(
+	ctx context.Context,
+	tenantID uuid.UUID,
+	body string,
+) string {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return ""
+	}
+
+	notice := uc.closedTenantClosingTabNotice(ctx, tenantID)
+	if notice == "" || strings.Contains(body, notice) {
+		return body
+	}
+
+	return notice + "\n\n" + body
 }
 
 func buildClosingTabOwnerOnlyMessage() string {
@@ -2973,6 +3036,9 @@ func (uc *HandleWhatsAppMessageUseCase) findSessionOpenTab(
 
 		normalizedPhone := normalizePhoneDigits(sess.UserPhone)
 		for _, openTab := range openTabs {
+			if !uc.isCustomerVisibleTab(openTab) {
+				continue
+			}
 			if normalizePhoneDigits(openTab.UserPhone) == normalizedPhone {
 				candidate = openTab
 				break
@@ -3042,6 +3108,9 @@ func (uc *HandleWhatsAppMessageUseCase) findUnauthorizedOpenTabByTable(
 		if openTab == nil || openTab.Status != tab.StatusOpen {
 			continue
 		}
+		if !uc.isCustomerVisibleTab(openTab) {
+			continue
+		}
 		if normalizePhoneDigits(openTab.UserPhone) == "" {
 			continue
 		}
@@ -3070,6 +3139,9 @@ func (uc *HandleWhatsAppMessageUseCase) findAccessibleOpenTabByTable(
 		if openTab == nil || openTab.Status != tab.StatusOpen {
 			continue
 		}
+		if !uc.isCustomerVisibleTab(openTab) {
+			continue
+		}
 		if uc.isTabOwnedBySessionPhone(openTab, sess.UserPhone) {
 			return openTab
 		}
@@ -3094,6 +3166,9 @@ func (uc *HandleWhatsAppMessageUseCase) canSessionAccessTab(
 	userTab *tab.Tab,
 ) bool {
 	if userTab == nil {
+		return false
+	}
+	if !uc.isCustomerVisibleTab(userTab) {
 		return false
 	}
 
@@ -3146,6 +3221,18 @@ func (uc *HandleWhatsAppMessageUseCase) isTabOwnedBySessionPhone(
 	ownerPhone := normalizePhoneDigits(userTab.UserPhone)
 	requestPhone := normalizePhoneDigits(userPhone)
 	return ownerPhone != "" && ownerPhone == requestPhone
+}
+
+func (uc *HandleWhatsAppMessageUseCase) isCustomerVisibleTab(userTab *tab.Tab) bool {
+	if userTab == nil {
+		return false
+	}
+
+	if userTab.ReopenedAt != nil {
+		return false
+	}
+
+	return userTab.PaidAmount < userTab.Total
 }
 
 func (uc *HandleWhatsAppMessageUseCase) reconcileOpenTabMetadata(
@@ -3435,7 +3522,7 @@ func buildClosingTabPaymentUnavailableTextFallback(body string) string {
 
 func (uc *HandleWhatsAppMessageUseCase) isClosingTabPaymentUnavailableMessage(message string) bool {
 	body := strings.TrimSpace(message)
-	if !strings.HasPrefix(body, "💳 *Pagamento pelo celular*") {
+	if !strings.Contains(body, "💳 *Pagamento pelo celular*") {
 		return false
 	}
 

@@ -2471,6 +2471,94 @@ func TestFindSessionOpenTabAllowsApprovedSharedParticipantButBlocksClosing(t *te
 	}
 }
 
+func TestFindSessionOpenTabSkipsReopenedTabByPhone(t *testing.T) {
+	ctx := context.Background()
+	tenantID := uuid.New()
+	tabID := uuid.New()
+	userPhone := "5511975062841"
+	reopenedAt := time.Now().Add(-1 * time.Hour)
+
+	sess := session.NewSession(userPhone, tenantID)
+
+	tabRepo := &testTabRepo{
+		byID: map[uuid.UUID]*tab.Tab{
+			tabID: {
+				ID:         tabID,
+				TenantID:   tenantID,
+				UserPhone:  userPhone,
+				Status:     tab.StatusOpen,
+				Subtotal:   59.5,
+				ServiceFee: 5.95,
+				Total:      65.45,
+				PaidAmount: 0,
+				ReopenedAt: &reopenedAt,
+			},
+		},
+	}
+
+	uc := NewHandleWhatsAppMessageUseCase(
+		nil,
+		nil,
+		nil,
+		nil,
+		tabRepo,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		"",
+		zap.NewNop(),
+	)
+
+	if got := uc.findSessionOpenTab(ctx, sess); got != nil {
+		t.Fatalf("expected reopened tab to stay hidden from whatsapp, got %+v", got)
+	}
+}
+
+func TestFindSessionOpenTabSkipsFullyPaidOpenTabByPhone(t *testing.T) {
+	ctx := context.Background()
+	tenantID := uuid.New()
+	tabID := uuid.New()
+	userPhone := "5511975062841"
+
+	sess := session.NewSession(userPhone, tenantID)
+
+	tabRepo := &testTabRepo{
+		byID: map[uuid.UUID]*tab.Tab{
+			tabID: {
+				ID:         tabID,
+				TenantID:   tenantID,
+				UserPhone:  userPhone,
+				Status:     tab.StatusOpen,
+				Subtotal:   59.5,
+				ServiceFee: 5.95,
+				Total:      65.45,
+				PaidAmount: 65.45,
+			},
+		},
+	}
+
+	uc := NewHandleWhatsAppMessageUseCase(
+		nil,
+		nil,
+		nil,
+		nil,
+		tabRepo,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		"",
+		zap.NewNop(),
+	)
+
+	if got := uc.findSessionOpenTab(ctx, sess); got != nil {
+		t.Fatalf("expected fully-paid open tab to stay hidden from whatsapp, got %+v", got)
+	}
+}
+
 func TestHandleClosingTabUsesNgrokPublicURLDiscoveredAtRuntime(t *testing.T) {
 	ctx := context.Background()
 	tenantID := uuid.New()

@@ -4,6 +4,7 @@ import { TablesService } from './tables.service';
 import { CreateManualRequestDto } from './dto/create-manual-request.dto';
 import { CreateTableDto } from './dto/create-table.dto';
 import {
+    TENANT_CLOSED_TAB_MUTATION_ROLES,
     TENANT_FLOOR_ROLES,
     TENANT_SETTLEMENT_ROLES,
     TENANT_TABLE_READ_ROLES,
@@ -164,7 +165,7 @@ export class TablesController {
     }
 
     @Post('tabs/:tabId/reopen')
-    @Roles(...TENANT_SETTLEMENT_ROLES)
+    @Roles(...TENANT_CLOSED_TAB_MUTATION_ROLES)
     async reopenTab(@Request() req, @Param('tabId') tabId: string, @Body('reason') reason?: string) {
         return this.tablesService.reopenTab(tabId, req.user.tenantId, {
             userId: req.user?.id,

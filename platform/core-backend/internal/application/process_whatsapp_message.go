@@ -10,6 +10,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/anbernal/clickgarcom/internal/domain/inbox"
+	"github.com/anbernal/clickgarcom/internal/domain/inbox/session"
 	"github.com/anbernal/clickgarcom/internal/domain/tab"
 	"github.com/anbernal/clickgarcom/internal/domain/tenant"
 	"github.com/anbernal/clickgarcom/internal/domain/whatsapp"
@@ -136,6 +137,17 @@ func (uc *ProcessWhatsAppMessageUseCase) Execute(ctx context.Context, inboxID uu
 				userText := extractSupportedInput(msg)
 				if userText != "" {
 					uc.sendNativeReadAndTyping(ctx, msg)
+					if handled, handleErr := uc.tryHandleClosedTenantOpenTab(ctx, tenant, msg.From, userText); handled {
+						if handleErr != nil {
+							uc.logger.Warn("failed to handle closed-tenant open-tab flow",
+								zap.Error(handleErr),
+								zap.String("tenant_id", tenant.ID.String()),
+								zap.String("to", msg.From),
+							)
+						} else {
+							continue
+						}
+					}
 					closedResponse := uc.buildClosedTenantResponse(ctx, tenant, msg.From, userText)
 					if err := uc.handleMsgUseCase.sendTenantMessage(ctx, msg.From, tenant.ID, closedResponse); err != nil {
 						uc.logger.Warn("failed to send closed-tenant response",
@@ -252,13 +264,79 @@ func (uc *ProcessWhatsAppMessageUseCase) buildClosedTenantResponse(
 	)
 
 	instruction := "Como estamos fora do expediente, não recebemos novos pedidos agora.\n" +
-		"Para encerrar a conta, fale com nossa equipe e utilize a opção *2 - Ver minha comanda* no menu quando necessário."
-
-	if userText == "2" || userText == "5" {
-		return base + "\n\n" + summary + "\n\n" + instruction
-	}
+		"Se quiser finalizar sua comanda, fale com nossa equipe para seguir com o pagamento."
 
 	return base + "\n\n" + summary + "\n\n" + instruction
+}
+
+func (uc *ProcessWhatsAppMessageUseCase) tryHandleClosedTenantOpenTab(
+	ctx context.Context,
+	tenantObj *tenant.Tenant,
+	userPhone string,
+	userText string,
+) (bool, error) {
+	if tenantObj == nil || uc.handleMsgUseCase == nil || uc.handleMsgUseCase.sessionRepo == nil {
+		return false, nil
+	}
+
+	if uc.findOpenTabForPhone(ctx, tenantObj.ID, userPhone) == nil {
+		return false, nil
+	}
+
+	sess, err := uc.handleMsgUseCase.sessionRepo.Find(ctx, userPhone, tenantObj.ID.String())
+	if err != nil {
+		return true, err
+	}
+
+	if sess != nil && sess.State == session.StateClosingTab {
+		return true, uc.handleMsgUseCase.Execute(ctx, HandleMessageInput{
+			From:     userPhone,
+			Text:     userText,
+			TenantID: tenantObj.ID,
+		})
+	}
+
+	if sess == nil {
+		sess = session.NewSession(userPhone, tenantObj.ID)
+	}
+
+	response, newState, err := uc.handleMsgUseCase.startClosingTabFlow(ctx, sess)
+	if err != nil {
+		return true, err
+	}
+
+	if err := uc.sendClosedTenantClosingResponse(ctx, tenantObj.ID, userPhone, response, newState); err != nil {
+		return true, err
+	}
+
+	if newState != "" {
+		sess.TransitionTo(newState)
+	}
+
+	if err := uc.handleMsgUseCase.sessionRepo.Save(ctx, sess); err != nil {
+		return true, err
+	}
+
+	return true, nil
+}
+
+func (uc *ProcessWhatsAppMessageUseCase) sendClosedTenantClosingResponse(
+	ctx context.Context,
+	tenantID uuid.UUID,
+	userPhone string,
+	response string,
+	newState session.ConversationState,
+) error {
+	response = uc.handleMsgUseCase.decorateClosedTenantClosingTabMessage(ctx, tenantID, response)
+	if strings.TrimSpace(response) == "" {
+		return nil
+	}
+
+	if newState == session.StateMainMenu && uc.handleMsgUseCase.isClosingTabPaymentUnavailableMessage(response) {
+		return uc.handleMsgUseCase.sendClosingTabPaymentUnavailableMenu(ctx, userPhone, tenantID, response)
+	}
+
+	return uc.handleMsgUseCase.sendTenantMessage(ctx, userPhone, tenantID, response)
 }
 
 func (uc *ProcessWhatsAppMessageUseCase) findOpenTabForPhone(
@@ -273,7 +351,7 @@ func (uc *ProcessWhatsAppMessageUseCase) findOpenTabForPhone(
 	sess, err := uc.handleMsgUseCase.sessionRepo.Find(ctx, userPhone, tenantID.String())
 	if err == nil && sess != nil && sess.TabID != nil {
 		t, tabErr := uc.handleMsgUseCase.tabRepo.FindByID(ctx, *sess.TabID, tenantID)
-		if tabErr == nil && t != nil && t.Status == tab.StatusOpen {
+		if tabErr == nil && t != nil && t.Status == tab.StatusOpen && uc.handleMsgUseCase.isCustomerVisibleTab(t) {
 			return t
 		}
 	}
@@ -285,6 +363,9 @@ func (uc *ProcessWhatsAppMessageUseCase) findOpenTabForPhone(
 
 	normalizedPhone := normalizePhoneDigits(userPhone)
 	for _, candidate := range openTabs {
+		if !uc.handleMsgUseCase.isCustomerVisibleTab(candidate) {
+			continue
+		}
 		if normalizePhoneDigits(candidate.UserPhone) == normalizedPhone {
 			return candidate
 		}

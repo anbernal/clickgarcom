@@ -33,8 +33,9 @@ type Tab struct {
 
 	Status Status `json:"status" gorm:"type:varchar(20);default:OPEN"`
 
-	OpenedAt time.Time  `json:"opened_at"`
-	ClosedAt *time.Time `json:"closed_at,omitempty"`
+	OpenedAt   time.Time  `json:"opened_at"`
+	ClosedAt   *time.Time `json:"closed_at,omitempty"`
+	ReopenedAt *time.Time `json:"reopened_at,omitempty" gorm:"column:reopened_at"`
 }
 
 func (Tab) TableName() string {
