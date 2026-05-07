@@ -169,6 +169,12 @@ http://localhost:9090
 # Targets: Status > Targets
 ```
 
+## Deploy em servidor (Traefik, sem ngrok)
+
+- Compose de servidor: `deploy/docker-compose.server.yml`
+- Exemplo de variáveis: `deploy/.env.server.example`
+- Passo a passo completo: `docs/deploy_server_traefik.md`
+
 ## Observabilidade
 
 - `Prometheus` coleta automaticamente `prometheus`, `go-api` e `rabbitmq`.

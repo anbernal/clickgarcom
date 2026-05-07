@@ -1,0 +1,399 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-clickgarcom_db}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres123}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../infra/docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - clickgarcom-network
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - clickgarcom-network
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-clickgarcom}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-clickgarcom123}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - ../infra/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q ping && rabbitmq-diagnostics -q check_port_listener 5672"]
+      interval: 10s
+      timeout: 30s
+      retries: 12
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - clickgarcom-network
+
+  go-migrate:
+    build:
+      context: ../platform/core-backend
+      dockerfile: Dockerfile
+    env_file:
+      - ../platform/core-backend/.env
+    environment:
+      APP_ENV: docker
+      DATABASE_HOST: postgres
+      REDIS_HOST: redis
+      RABBITMQ_HOST: rabbitmq
+    command: ["./bin/migrate", "-direction", "up"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - clickgarcom-network
+
+  go-setup-rabbitmq:
+    build:
+      context: ../platform/core-backend
+      dockerfile: Dockerfile
+    env_file:
+      - ../platform/core-backend/.env
+    environment:
+      APP_ENV: docker
+      DATABASE_HOST: postgres
+      REDIS_HOST: redis
+      RABBITMQ_HOST: rabbitmq
+    command: ["./bin/setup-rabbitmq"]
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - clickgarcom-network
+
+  go-api:
+    build:
+      context: ../platform/core-backend
+      dockerfile: Dockerfile
+    env_file:
+      - ../platform/core-backend/.env
+    environment:
+      APP_ENV: docker
+      DATABASE_HOST: postgres
+      REDIS_HOST: redis
+      RABBITMQ_HOST: rabbitmq
+      PUBLIC_ADMIN_BASE_URL: ${PUBLIC_ADMIN_BASE_URL:-https://${TRAEFIK_PUBLIC_HOST}}
+      PUBLIC_WEB_INTERNAL_BASE_URL: http://web-admin:3004
+      PUBLIC_ADMIN_INTERNAL_BASE_URL: http://node-admin:3002
+      PUBLIC_WEBHOOK_BASE_URL: ${PUBLIC_WEBHOOK_BASE_URL:-https://${TRAEFIK_PUBLIC_HOST}}
+      NGROK_API_URL: ""
+      NGROK_PUBLIC_URL: ""
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      go-migrate:
+        condition: service_completed_successfully
+      go-setup-rabbitmq:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "/app/bin/healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+    networks:
+      - clickgarcom-network
+      - easypanel
+    deploy:
+      replicas: 1
+      labels:
+        - "traefik.enable=true"
+        - "traefik.docker.network=easypanel"
+        - "traefik.http.routers.clickgarcom-go.rule=Host(`${TRAEFIK_PUBLIC_HOST}`) && (PathPrefix(`/webhooks`) || PathPrefix(`/ws`) || PathPrefix(`/menu`) || PathPrefix(`/orders`) || PathPrefix(`/metrics`) || Path(`/health`))"
+        - "traefik.http.routers.clickgarcom-go.entrypoints=https"
+        - "traefik.http.routers.clickgarcom-go.tls=true"
+        - "traefik.http.routers.clickgarcom-go.priority=130"
+        - "traefik.http.routers.clickgarcom-go.service=clickgarcom-go"
+        - "traefik.http.services.clickgarcom-go.loadbalancer.server.port=8080"
+
+  go-worker:
+    build:
+      context: ../platform/core-backend
+      dockerfile: Dockerfile
+    env_file:
+      - ../platform/core-backend/.env
+    environment:
+      APP_ENV: docker
+      DATABASE_HOST: postgres
+      REDIS_HOST: redis
+      RABBITMQ_HOST: rabbitmq
+      METRICS_ENABLED: "true"
+      METRICS_PORT: 8081
+      PUBLIC_ADMIN_BASE_URL: ${PUBLIC_ADMIN_BASE_URL:-https://${TRAEFIK_PUBLIC_HOST}}
+      ADMIN_INTERNAL_BASE_URL: http://node-admin:3002
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-clickgarcom-internal-token}
+      PUBLIC_WEBHOOK_BASE_URL: ${PUBLIC_WEBHOOK_BASE_URL:-https://${TRAEFIK_PUBLIC_HOST}}
+      NGROK_API_URL: ""
+      NGROK_PUBLIC_URL: ""
+    command: ["./bin/worker"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      go-migrate:
+        condition: service_completed_successfully
+      go-setup-rabbitmq:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "HEALTHCHECK_URL=http://127.0.0.1:8081/health /app/bin/healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+    networks:
+      - clickgarcom-network
+
+  go-outbox:
+    build:
+      context: ../platform/core-backend
+      dockerfile: Dockerfile
+    env_file:
+      - ../platform/core-backend/.env
+    environment:
+      APP_ENV: docker
+      DATABASE_HOST: postgres
+      REDIS_HOST: redis
+      RABBITMQ_HOST: rabbitmq
+      METRICS_ENABLED: "true"
+      METRICS_PORT: 8082
+    command: ["./bin/outbox-worker"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      go-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "HEALTHCHECK_URL=http://127.0.0.1:8082/health /app/bin/healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+    networks:
+      - clickgarcom-network
+
+  node-admin:
+    build:
+      context: ../apps/tenant-admin/api
+      dockerfile: Dockerfile
+    env_file:
+      - ../apps/tenant-admin/api/.env
+    environment:
+      APP_PORT: 3002
+      ADMIN_WEB_ENABLED: ${ADMIN_WEB_ENABLED:-false}
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_USER: ${POSTGRES_USER:-postgres}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-postgres123}
+      DATABASE_NAME: ${POSTGRES_DB:-clickgarcom_db}
+      DEFAULT_TENANT_ID: ${DEFAULT_TENANT_ID:-550e8400-e29b-41d4-a716-446655440000}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-clickgarcom}:${RABBITMQ_PASSWORD:-clickgarcom123}@rabbitmq:5672/
+      NGROK_API_URL: ""
+      NGROK_PUBLIC_URL: ""
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-clickgarcom-internal-token}
+      ADMIN_API_WATCH_MODE: "false"
+    command: ["node", "dist/main"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      go-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3002/admin/api/health', (res) => process.exit(res.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - clickgarcom-network
+      - easypanel
+    deploy:
+      replicas: 1
+      labels:
+        - "traefik.enable=true"
+        - "traefik.docker.network=easypanel"
+        - "traefik.http.routers.clickgarcom-admin.rule=Host(`${TRAEFIK_PUBLIC_HOST}`) && PathPrefix(`/admin/api`)"
+        - "traefik.http.routers.clickgarcom-admin.entrypoints=https"
+        - "traefik.http.routers.clickgarcom-admin.tls=true"
+        - "traefik.http.routers.clickgarcom-admin.priority=120"
+        - "traefik.http.routers.clickgarcom-admin.service=clickgarcom-admin"
+        - "traefik.http.services.clickgarcom-admin.loadbalancer.server.port=3002"
+
+  web-admin:
+    build:
+      context: ../apps/tenant-admin/web
+      dockerfile: Dockerfile
+    environment:
+      PORT: 3004
+      ADMIN_API_BASE_URL: https://${TRAEFIK_PUBLIC_HOST}/admin/api
+      ADMIN_PUBLIC_API_BASE_URL: https://${TRAEFIK_PUBLIC_HOST}/admin/api/public/tables
+      KDS_WS_URL: wss://${TRAEFIK_PUBLIC_HOST}/ws/kds
+      ADMIN_WEB_DISABLE_TEXT_ASSET_CACHE: "true"
+    depends_on:
+      node-admin:
+        condition: service_started
+      go-api:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3004/health', (res) => process.exit(res.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - clickgarcom-network
+      - easypanel
+    deploy:
+      replicas: 1
+      labels:
+        - "traefik.enable=true"
+        - "traefik.docker.network=easypanel"
+        - "traefik.http.routers.clickgarcom-web.rule=Host(`${TRAEFIK_PUBLIC_HOST}`)"
+        - "traefik.http.routers.clickgarcom-web.entrypoints=https"
+        - "traefik.http.routers.clickgarcom-web.tls=true"
+        - "traefik.http.routers.clickgarcom-web.priority=10"
+        - "traefik.http.routers.clickgarcom-web.service=clickgarcom-web"
+        - "traefik.http.services.clickgarcom-web.loadbalancer.server.port=3004"
+
+  super-admin-api:
+    build:
+      context: ../apps/super-admin/api
+      dockerfile: Dockerfile
+    environment:
+      APP_PORT: 3005
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_USER: ${POSTGRES_USER:-postgres}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-postgres123}
+      DATABASE_NAME: ${POSTGRES_DB:-clickgarcom_db}
+      NGROK_API_URL: ""
+      NGROK_PUBLIC_URL: ""
+      PUBLIC_WEBHOOK_BASE_URL: ${PUBLIC_WEBHOOK_BASE_URL:-https://${TRAEFIK_PUBLIC_HOST}}
+      SUPER_ADMIN_KEY: ${SUPER_ADMIN_KEY:-}
+      SUPER_ADMIN_AUTH_PASSWORD: ${SUPER_ADMIN_AUTH_PASSWORD:-}
+      SUPER_ADMIN_AUTH_PASSWORD_HASH: ${SUPER_ADMIN_AUTH_PASSWORD_HASH:-}
+      SUPER_ADMIN_AUTH_PASSWORD_HASHES: ${SUPER_ADMIN_AUTH_PASSWORD_HASHES:-}
+      SUPER_ADMIN_SESSION_SECRET: ${SUPER_ADMIN_SESSION_SECRET:-}
+      SUPER_ADMIN_SESSION_SECRETS: ${SUPER_ADMIN_SESSION_SECRETS:-}
+      SUPER_ADMIN_SESSION_TTL_HOURS: ${SUPER_ADMIN_SESSION_TTL_HOURS:-12}
+      SUPER_ADMIN_MUTATION_IP_ALLOWLIST: ${SUPER_ADMIN_MUTATION_IP_ALLOWLIST:-}
+      RABBITMQ_MANAGEMENT_URL: ${RABBITMQ_MANAGEMENT_URL:-http://rabbitmq:15672/api}
+      RABBITMQ_USER: ${RABBITMQ_USER:-clickgarcom}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-clickgarcom123}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/}
+      SUPER_ADMIN_API_WATCH_MODE: "false"
+    command: ["node", "dist/main"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      go-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3005/admin/api/health', (res) => process.exit(res.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - clickgarcom-network
+      - easypanel
+    deploy:
+      replicas: 1
+      labels:
+        - "traefik.enable=true"
+        - "traefik.docker.network=easypanel"
+        - "traefik.http.routers.clickgarcom-super-api.rule=Host(`${TRAEFIK_SUPER_ADMIN_HOST}`) && PathPrefix(`/admin/api/super-admin`)"
+        - "traefik.http.routers.clickgarcom-super-api.entrypoints=https"
+        - "traefik.http.routers.clickgarcom-super-api.tls=true"
+        - "traefik.http.routers.clickgarcom-super-api.priority=120"
+        - "traefik.http.routers.clickgarcom-super-api.service=clickgarcom-super-api"
+        - "traefik.http.services.clickgarcom-super-api.loadbalancer.server.port=3005"
+
+  super-admin:
+    build:
+      context: ../apps/super-admin/web
+      dockerfile: Dockerfile
+    environment:
+      PORT: 3003
+      SUPER_ADMIN_API_BASE_URL: http://super-admin-api:3005/admin/api/super-admin
+      SUPER_ADMIN_BROWSER_API_BASE_URL: /admin/api/super-admin
+      SUPER_ADMIN_WEB_DISABLE_TEXT_ASSET_CACHE: "true"
+    depends_on:
+      super-admin-api:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3003/health', (res) => process.exit(res.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - clickgarcom-network
+      - easypanel
+    deploy:
+      replicas: 1
+      labels:
+        - "traefik.enable=true"
+        - "traefik.docker.network=easypanel"
+        - "traefik.http.routers.clickgarcom-super-web.rule=Host(`${TRAEFIK_SUPER_ADMIN_HOST}`)"
+        - "traefik.http.routers.clickgarcom-super-web.entrypoints=https"
+        - "traefik.http.routers.clickgarcom-super-web.tls=true"
+        - "traefik.http.routers.clickgarcom-super-web.priority=10"
+        - "traefik.http.routers.clickgarcom-super-web.service=clickgarcom-super-web"
+        - "traefik.http.services.clickgarcom-super-web.loadbalancer.server.port=3003"
+
+volumes:
+  postgres_data:
+  redis_data:
+  rabbitmq_data:
+
+networks:
+  clickgarcom-network:
+    driver: bridge
+  easypanel:
+    external: true
