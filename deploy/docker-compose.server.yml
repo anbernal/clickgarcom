@@ -129,6 +129,15 @@ services:
     networks:
       - clickgarcom-network
       - easypanel
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=easypanel"
+      - "traefik.http.routers.clickgarcom-go.rule=Host(`${TRAEFIK_PUBLIC_HOST}`) && (PathPrefix(`/webhooks`) || PathPrefix(`/ws`) || PathPrefix(`/menu`) || PathPrefix(`/orders`) || PathPrefix(`/metrics`) || Path(`/health`))"
+      - "traefik.http.routers.clickgarcom-go.entrypoints=https"
+      - "traefik.http.routers.clickgarcom-go.tls=true"
+      - "traefik.http.routers.clickgarcom-go.priority=130"
+      - "traefik.http.routers.clickgarcom-go.service=clickgarcom-go"
+      - "traefik.http.services.clickgarcom-go.loadbalancer.server.port=8080"
     deploy:
       replicas: 1
       labels:
@@ -249,6 +258,15 @@ services:
     networks:
       - clickgarcom-network
       - easypanel
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=easypanel"
+      - "traefik.http.routers.clickgarcom-admin.rule=Host(`${TRAEFIK_PUBLIC_HOST}`) && PathPrefix(`/admin/api`)"
+      - "traefik.http.routers.clickgarcom-admin.entrypoints=https"
+      - "traefik.http.routers.clickgarcom-admin.tls=true"
+      - "traefik.http.routers.clickgarcom-admin.priority=120"
+      - "traefik.http.routers.clickgarcom-admin.service=clickgarcom-admin"
+      - "traefik.http.services.clickgarcom-admin.loadbalancer.server.port=3002"
     deploy:
       replicas: 1
       labels:
@@ -286,6 +304,15 @@ services:
     networks:
       - clickgarcom-network
       - easypanel
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=easypanel"
+      - "traefik.http.routers.clickgarcom-web.rule=Host(`${TRAEFIK_PUBLIC_HOST}`)"
+      - "traefik.http.routers.clickgarcom-web.entrypoints=https"
+      - "traefik.http.routers.clickgarcom-web.tls=true"
+      - "traefik.http.routers.clickgarcom-web.priority=10"
+      - "traefik.http.routers.clickgarcom-web.service=clickgarcom-web"
+      - "traefik.http.services.clickgarcom-web.loadbalancer.server.port=3004"
     deploy:
       replicas: 1
       labels:
@@ -341,12 +368,21 @@ services:
     networks:
       - clickgarcom-network
       - easypanel
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=easypanel"
+      - "traefik.http.routers.clickgarcom-super-api.rule=Host(`${TRAEFIK_SUPER_ADMIN_HOST}`) && PathPrefix(`/admin/api`)"
+      - "traefik.http.routers.clickgarcom-super-api.entrypoints=https"
+      - "traefik.http.routers.clickgarcom-super-api.tls=true"
+      - "traefik.http.routers.clickgarcom-super-api.priority=120"
+      - "traefik.http.routers.clickgarcom-super-api.service=clickgarcom-super-api"
+      - "traefik.http.services.clickgarcom-super-api.loadbalancer.server.port=3005"
     deploy:
       replicas: 1
       labels:
         - "traefik.enable=true"
         - "traefik.docker.network=easypanel"
-        - "traefik.http.routers.clickgarcom-super-api.rule=Host(`${TRAEFIK_SUPER_ADMIN_HOST}`) && PathPrefix(`/admin/api/super-admin`)"
+        - "traefik.http.routers.clickgarcom-super-api.rule=Host(`${TRAEFIK_SUPER_ADMIN_HOST}`) && PathPrefix(`/admin/api`)"
         - "traefik.http.routers.clickgarcom-super-api.entrypoints=https"
         - "traefik.http.routers.clickgarcom-super-api.tls=true"
         - "traefik.http.routers.clickgarcom-super-api.priority=120"
@@ -375,6 +411,15 @@ services:
     networks:
       - clickgarcom-network
       - easypanel
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=easypanel"
+      - "traefik.http.routers.clickgarcom-super-web.rule=Host(`${TRAEFIK_SUPER_ADMIN_HOST}`)"
+      - "traefik.http.routers.clickgarcom-super-web.entrypoints=https"
+      - "traefik.http.routers.clickgarcom-super-web.tls=true"
+      - "traefik.http.routers.clickgarcom-super-web.priority=10"
+      - "traefik.http.routers.clickgarcom-super-web.service=clickgarcom-super-web"
+      - "traefik.http.services.clickgarcom-super-web.loadbalancer.server.port=3003"
     deploy:
       replicas: 1
       labels:
