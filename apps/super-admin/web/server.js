@@ -18,6 +18,7 @@ const BROWSER_API_BASE_URL = normalizeBaseUrl(
 const DISABLE_TEXT_ASSET_CACHE = String(
   process.env.SUPER_ADMIN_WEB_DISABLE_TEXT_ASSET_CACHE || 'true',
 ).trim().toLowerCase() !== 'false';
+const CONFIGURED_BASE_PATH = normalizePathPrefix(process.env.SUPER_ADMIN_WEB_BASE_PATH || '');
 const API_PROXY_PREFIX = '/admin/api/super-admin';
 const CONTENT_TYPES = {
   '.css': 'text/css; charset=UTF-8',
@@ -35,8 +36,14 @@ const CONTENT_TYPES = {
 const server = http.createServer(async (req, res) => {
   const requestUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
   const pathname = decodeURIComponent(requestUrl.pathname);
+  const requestBasePath = resolveRequestBasePath(req);
+  const appPath = stripBasePath(pathname, requestBasePath);
 
-  if (pathname === '/health') {
+  if (appPath === null) {
+    return sendJson(res, 404, { message: 'Not Found' });
+  }
+
+  if (appPath === '/health') {
     return sendJson(res, 200, {
       status: 'ok',
       service: 'super-admin-web',
@@ -44,35 +51,38 @@ const server = http.createServer(async (req, res) => {
     });
   }
 
-  if (pathname === '/_config.js') {
-    return sendRuntimeConfig(res);
+  if (appPath === '/_config.js') {
+    return sendRuntimeConfig(res, requestBasePath);
   }
 
-  if (pathname.startsWith(API_PROXY_PREFIX)) {
-    return proxyApi(req, res, requestUrl);
+  if (appPath.startsWith(API_PROXY_PREFIX)) {
+    const appRequestUrl = new URL(appPath + requestUrl.search, requestUrl.origin);
+    return proxyApi(req, res, appRequestUrl);
   }
 
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     return sendJson(res, 405, { message: 'Method Not Allowed' });
   }
 
-  const routeFile = resolveRouteFile(pathname);
+  const routeFile = resolveRouteFile(appPath);
   if (!routeFile) {
     return sendJson(res, 404, { message: 'Not Found' });
   }
 
-  return sendFile(res, routeFile, req.method === 'HEAD');
+  return sendFile(res, routeFile, req.method === 'HEAD', requestBasePath);
 });
 
 server.listen(PORT, () => {
   console.log(`ClickGarcom Super Admin Web running on http://localhost:${PORT}`);
 });
 
-function sendRuntimeConfig(res) {
+function sendRuntimeConfig(res, requestBasePath) {
+  const browserApiBaseUrl = buildPathWithBase(requestBasePath, BROWSER_API_BASE_URL);
   const payload = {
-    apiBaseUrl: BROWSER_API_BASE_URL,
-    loginPagePath: '/login.html',
-    appHomePath: '/',
+    apiBaseUrl: browserApiBaseUrl,
+    appBasePath: requestBasePath,
+    loginPagePath: buildPathWithBase(requestBasePath, '/login.html'),
+    appHomePath: buildPathWithBase(requestBasePath, '/'),
   };
 
   res.writeHead(200, {
@@ -145,7 +155,7 @@ function resolveRouteFile(pathname) {
   return null;
 }
 
-function sendFile(res, filename, headOnly) {
+function sendFile(res, filename, headOnly, requestBasePath) {
   fs.readFile(filename, (error, data) => {
     if (error) {
       sendJson(res, 404, { message: 'Not Found' });
@@ -160,6 +170,11 @@ function sendFile(res, filename, headOnly) {
 
     if (headOnly) {
       res.end();
+      return;
+    }
+
+    if (path.extname(filename).toLowerCase() === '.html') {
+      res.end(rewriteHtmlRootPaths(data.toString('utf8'), requestBasePath));
       return;
     }
 
@@ -203,6 +218,68 @@ function fileExists(filename) {
 function normalizeBaseUrl(rawValue, fallback) {
   const value = String(rawValue || '').trim();
   return (value || fallback).replace(/\/+$/, '');
+}
+
+function normalizePathPrefix(rawValue) {
+  const raw = String(rawValue || '').trim();
+  if (!raw) return '';
+  const prefixed = raw.startsWith('/') ? raw : `/${raw}`;
+  return prefixed.replace(/\/+$/, '');
+}
+
+function resolveRequestBasePath(req) {
+  const forwardedPrefix = normalizePathPrefix(getForwardedHeader(req.headers['x-forwarded-prefix']));
+  if (forwardedPrefix) {
+    return forwardedPrefix;
+  }
+
+  if (CONFIGURED_BASE_PATH && detectPublicProxyRequest(req)) {
+    return CONFIGURED_BASE_PATH;
+  }
+
+  return '';
+}
+
+function stripBasePath(pathname, basePath) {
+  if (!basePath) return pathname;
+  if (pathname === basePath) return '/';
+  if (pathname.startsWith(`${basePath}/`)) {
+    return pathname.slice(basePath.length);
+  }
+  return pathname;
+}
+
+function buildPathWithBase(basePath, pathname) {
+  if (/^https?:\/\//i.test(String(pathname || ''))) {
+    return String(pathname).replace(/\/+$/, '');
+  }
+
+  const normalizedPath = pathname.startsWith('/') ? pathname : `/${pathname}`;
+  if (!basePath) return normalizedPath;
+  if (normalizedPath === basePath || normalizedPath.startsWith(`${basePath}/`)) {
+    return normalizedPath;
+  }
+  if (normalizedPath === '/') return `${basePath}/`;
+  return `${basePath}${normalizedPath}`;
+}
+
+function rewriteHtmlRootPaths(html, basePath) {
+  if (!basePath) return html;
+  return html.replace(
+    /(href|src|action)=("|')\/(?!\/)/g,
+    `$1=$2${basePath}/`,
+  );
+}
+
+function getForwardedHeader(value) {
+  const normalized = Array.isArray(value) ? value[0] : value;
+  return String(normalized || '').split(',')[0].trim();
+}
+
+function detectPublicProxyRequest(req) {
+  const forwardedHost = getForwardedHeader(req.headers['x-forwarded-host']);
+  const forwardedProto = getForwardedHeader(req.headers['x-forwarded-proto']);
+  return Boolean(forwardedHost || forwardedProto);
 }
 
 function isHopByHopHeader(name) {

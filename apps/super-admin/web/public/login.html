@@ -203,6 +203,7 @@
             font-weight: 500;
         }
     </style>
+    <script src="/_config.js"></script>
 </head>
 
 <body>
@@ -238,11 +239,13 @@
     </div>
 
     <script>
-        if (sessionStorage.getItem('super_admin_access_token')) {
-            window.location.href = '/';
-        }
+        const runtimeConfig = window.CLICKGARCOM_SUPER_ADMIN_CONFIG || {};
+        const APP_HOME_PATH = String(runtimeConfig.appHomePath || '/').trim() || '/';
+        const API_BASE = String(runtimeConfig.apiBaseUrl || '/admin/api/super-admin').trim().replace(/\/+$/, '');
 
-        const API_BASE = '/admin/api/super-admin';
+        if (sessionStorage.getItem('super_admin_access_token')) {
+            window.location.href = APP_HOME_PATH;
+        }
 
         document.getElementById('login-form').addEventListener('submit', async function (e) {
             e.preventDefault();
@@ -274,7 +277,7 @@
 
                 sessionStorage.setItem('super_admin_access_token', body.accessToken || '');
                 sessionStorage.setItem('super_admin_operator_name', body?.session?.operatorName || user);
-                window.location.href = '/';
+                window.location.href = APP_HOME_PATH;
             } catch (error) {
                 errorAlert.classList.add('visible');
                 errorAlert.textContent = error.message || 'Credenciais inválidas. Tente novamente.';

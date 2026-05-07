@@ -17,6 +17,16 @@ const pages = {
     equipe: { title: 'Equipe & Acessos', sub: 'Gerencie usuários internos, papéis e credenciais de acesso', loader: loadEquipePage },
     configuracoes: { title: 'Configurações de Mensagens', sub: 'Personalize as mensagens do bot', loader: loadConfiguracoesPage },
 };
+const appRuntimeConfig = window.CLICKGARCOM_RUNTIME_CONFIG || {};
+const APP_BASE_PATH = String(appRuntimeConfig.appBasePath || '').trim().replace(/\/+$/, '');
+const APP_LOGIN_PAGE_PATH = String(appRuntimeConfig.loginPagePath || '/login.html').trim() || '/login.html';
+
+function buildAppPath(pathname) {
+    const normalized = pathname.startsWith('/') ? pathname : `/${pathname}`;
+    if (!APP_BASE_PATH) return normalized;
+    if (normalized === '/') return `${APP_BASE_PATH}/`;
+    return `${APP_BASE_PATH}${normalized}`;
+}
 
 function getDefaultPageId() {
     return Object.keys(pages).find((pageId) => canAccessPage(pageId)) || 'dashboard';
@@ -69,7 +79,10 @@ function configureKdsNavigation() {
 
     if (role === 'BAR') {
         kdsLink.style.display = '';
-        kdsLink.href = '/kds.html?panel=bar';
+        kdsLink.href = buildAppPath('/kds.html?panel=bar');
+        if (atendimentoLink) {
+            atendimentoLink.href = buildAppPath('/kds.html?panel=salao');
+        }
         kdsIcon.textContent = '🍹';
         kdsLabel.textContent = 'KDS (Bar)';
         return;
@@ -77,14 +90,20 @@ function configureKdsNavigation() {
 
     if (role === 'KITCHEN') {
         kdsLink.style.display = '';
-        kdsLink.href = '/kds.html?panel=kitchen';
+        kdsLink.href = buildAppPath('/kds.html?panel=kitchen');
+        if (atendimentoLink) {
+            atendimentoLink.href = buildAppPath('/kds.html?panel=salao');
+        }
         kdsIcon.textContent = '🍳';
         kdsLabel.textContent = 'KDS (Cozinha)';
         return;
     }
 
     kdsLink.style.display = '';
-    kdsLink.href = '/kds.html';
+    kdsLink.href = buildAppPath('/kds.html');
+    if (atendimentoLink) {
+        atendimentoLink.href = buildAppPath('/kds.html?panel=salao');
+    }
     kdsIcon.textContent = '🍳';
     kdsLabel.textContent = 'KDS (Operação)';
 }
@@ -207,7 +226,7 @@ function closeModal() {
 function logout() {
     localStorage.removeItem('clickgarcom_auth');
     sessionStorage.removeItem('clickgarcom_auth');
-    window.location.href = '/login.html';
+    window.location.href = APP_LOGIN_PAGE_PATH;
 }
 
 // Expediente timer interval

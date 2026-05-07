@@ -11,6 +11,7 @@ const PUBLIC_DIR = path.resolve(
 const DISABLE_TEXT_ASSET_CACHE = String(
   process.env.ADMIN_WEB_DISABLE_TEXT_ASSET_CACHE || 'true',
 ).trim().toLowerCase() !== 'false';
+const CONFIGURED_BASE_PATH = normalizePathPrefix(process.env.ADMIN_WEB_BASE_PATH || '');
 
 const CONTENT_TYPES = {
   '.css': 'text/css; charset=UTF-8',
@@ -28,8 +29,14 @@ const CONTENT_TYPES = {
 const server = http.createServer((req, res) => {
   const requestUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
   const pathname = decodeURIComponent(requestUrl.pathname);
+  const requestBasePath = resolveRequestBasePath(req);
+  const appPath = stripBasePath(pathname, requestBasePath);
 
-  if (pathname === '/health') {
+  if (appPath === null) {
+    return sendJson(res, 404, { message: 'Not Found' });
+  }
+
+  if (appPath === '/health') {
     return sendJson(res, 200, {
       status: 'ok',
       service: 'web-admin',
@@ -37,38 +44,39 @@ const server = http.createServer((req, res) => {
     });
   }
 
-  if (pathname === '/_config.js') {
-    return sendRuntimeConfig(req, res);
+  if (appPath === '/_config.js') {
+    return sendRuntimeConfig(req, res, requestBasePath);
   }
 
-  if (pathname === '/admin/api' || pathname.startsWith('/admin/api/')) {
-    return proxyHttpRequest(req, res, resolveAdminApiProxyTarget(), requestUrl);
+  if (appPath === '/admin/api' || appPath.startsWith('/admin/api/')) {
+    const appRequestUrl = new URL(appPath + requestUrl.search, requestUrl.origin);
+    return proxyHttpRequest(req, res, resolveAdminApiProxyTarget(), appRequestUrl);
   }
 
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     return sendJson(res, 405, { message: 'Method Not Allowed' });
   }
 
-  const routeFile = resolveRouteFile(pathname);
+  const routeFile = resolveRouteFile(appPath);
   if (!routeFile) {
     return sendJson(res, 404, { message: 'Not Found' });
   }
 
-  return sendFile(res, routeFile, req.method === 'HEAD');
+  return sendFile(req, res, routeFile, req.method === 'HEAD', requestBasePath);
 });
 
 server.listen(PORT, () => {
   console.log(`ClickGarcom Web Admin running on http://localhost:${PORT}`);
 });
 
-function sendRuntimeConfig(req, res) {
+function sendRuntimeConfig(req, res, requestBasePath) {
   const requestOrigin = getRequestOrigin(req);
   const isPublicProxyRequest = detectPublicProxyRequest(req);
-  const apiBaseUrl = resolveAdminApiBaseUrl(req, { isPublicProxyRequest });
+  const apiBaseUrl = resolveAdminApiBaseUrl(req, { isPublicProxyRequest, requestBasePath });
   const publicTablesApiBaseUrl = normalizeBaseUrl(
     process.env.ADMIN_PUBLIC_API_BASE_URL,
     isPublicProxyRequest
-      ? new URL('/admin/api/public/tables', requestOrigin).toString()
+      ? new URL(buildPathWithBase(requestBasePath, '/admin/api/public/tables'), requestOrigin).toString()
       : `${apiBaseUrl}/public/tables`,
   );
   const kdsWsUrl = resolveKdsWebSocketUrl(req, { isPublicProxyRequest });
@@ -76,8 +84,9 @@ function sendRuntimeConfig(req, res) {
     apiBaseUrl,
     publicTablesApiBaseUrl,
     kdsWsUrl,
-    loginPagePath: '/login.html',
-    appHomePath: '/',
+    appBasePath: requestBasePath,
+    loginPagePath: buildPathWithBase(requestBasePath, '/login.html'),
+    appHomePath: buildPathWithBase(requestBasePath, '/'),
   };
 
   res.writeHead(200, {
@@ -108,7 +117,7 @@ function resolveRouteFile(pathname) {
   return null;
 }
 
-function sendFile(res, filename, headOnly) {
+function sendFile(req, res, filename, headOnly, requestBasePath) {
   fs.readFile(filename, (error, data) => {
     if (error) {
       sendJson(res, 404, { message: 'Not Found' });
@@ -123,6 +132,11 @@ function sendFile(res, filename, headOnly) {
 
     if (headOnly) {
       res.end();
+      return;
+    }
+
+    if (path.extname(filename).toLowerCase() === '.html') {
+      res.end(rewriteHtmlRootPaths(data.toString('utf8'), requestBasePath));
       return;
     }
 
@@ -217,7 +231,10 @@ function resolveAdminApiBaseUrl(req, options = {}) {
   }
 
   if (options.isPublicProxyRequest) {
-    return new URL('/admin/api', getRequestOrigin(req)).toString().replace(/\/+$/, '');
+    return new URL(
+      buildPathWithBase(options.requestBasePath || '', '/admin/api'),
+      getRequestOrigin(req),
+    ).toString().replace(/\/+$/, '');
   }
 
   return buildBrowserServiceUrl(req, {
@@ -288,4 +305,48 @@ function detectPublicProxyRequest(req) {
   const forwardedHost = getForwardedHeader(req.headers['x-forwarded-host']);
   const forwardedProto = getForwardedHeader(req.headers['x-forwarded-proto']);
   return Boolean(forwardedHost || forwardedProto);
+}
+
+function normalizePathPrefix(rawValue) {
+  const raw = String(rawValue || '').trim();
+  if (!raw) return '';
+  const prefixed = raw.startsWith('/') ? raw : `/${raw}`;
+  return prefixed.replace(/\/+$/, '');
+}
+
+function resolveRequestBasePath(req) {
+  const forwardedPrefix = normalizePathPrefix(getForwardedHeader(req.headers['x-forwarded-prefix']));
+  if (forwardedPrefix) {
+    return forwardedPrefix;
+  }
+
+  if (CONFIGURED_BASE_PATH && detectPublicProxyRequest(req)) {
+    return CONFIGURED_BASE_PATH;
+  }
+
+  return '';
+}
+
+function stripBasePath(pathname, basePath) {
+  if (!basePath) return pathname;
+  if (pathname === basePath) return '/';
+  if (pathname.startsWith(`${basePath}/`)) {
+    return pathname.slice(basePath.length);
+  }
+  return pathname;
+}
+
+function buildPathWithBase(basePath, pathname) {
+  const normalizedPath = pathname.startsWith('/') ? pathname : `/${pathname}`;
+  if (!basePath) return normalizedPath;
+  if (normalizedPath === '/') return `${basePath}/`;
+  return `${basePath}${normalizedPath}`;
+}
+
+function rewriteHtmlRootPaths(html, basePath) {
+  if (!basePath) return html;
+  return html.replace(
+    /(href|src|action)=("|')\/(?!\/)/g,
+    `$1=$2${basePath}/`,
+  );
 }

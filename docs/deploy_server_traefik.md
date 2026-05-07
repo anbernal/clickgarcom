@@ -6,7 +6,6 @@ Este guia cria um ambiente do `clickgarcom` em servidor com Traefik/EasyPanel, u
 
 - DNS apontando para o servidor:
   - `TRAEFIK_PUBLIC_HOST`
-  - `TRAEFIK_SUPER_ADMIN_HOST`
 - Rede Docker externa já existente: `easypanel`
 - Arquivos de ambiente:
   - `platform/core-backend/.env`
@@ -22,7 +21,7 @@ nano deploy/.env.server
 ```
 
 Obrigatório:
-- `PUBLIC_WEBHOOK_BASE_URL=https://<TRAEFIK_PUBLIC_HOST>`
+- `PUBLIC_WEBHOOK_BASE_URL=https://<TRAEFIK_PUBLIC_HOST>/clickgarcom-whatsapp`
 - senhas de `POSTGRES_PASSWORD`, `RABBITMQ_PASSWORD`
 - segredos de `SUPER_ADMIN_*`
 
@@ -47,15 +46,15 @@ docker compose \
 ```
 
 Valide externamente:
-- `https://<TRAEFIK_PUBLIC_HOST>/health`
-- `https://<TRAEFIK_PUBLIC_HOST>/admin/api/health`
-- `https://<TRAEFIK_SUPER_ADMIN_HOST>/health`
-- `https://<TRAEFIK_SUPER_ADMIN_HOST>/admin/api/health`
+- `https://<TRAEFIK_PUBLIC_HOST>/clickgarcom-whatsapp/health`
+- `https://<TRAEFIK_PUBLIC_HOST>/clickgarcom/admin/api/health`
+- `https://<TRAEFIK_PUBLIC_HOST>/super-admin/health`
+- `https://<TRAEFIK_PUBLIC_HOST>/super-admin/admin/api/health`
 
 ## 5) Trocar webhook da Meta para URL fixa
 
 Use:
-- `https://<TRAEFIK_PUBLIC_HOST>/webhooks/whatsapp`
+- `https://<TRAEFIK_PUBLIC_HOST>/clickgarcom-whatsapp/webhooks/whatsapp`
 
 A partir daqui não precisa `ngrok`.
 

@@ -102,10 +102,11 @@ services:
       DATABASE_HOST: postgres
       REDIS_HOST: redis
       RABBITMQ_HOST: rabbitmq
-      PUBLIC_ADMIN_BASE_URL: ${PUBLIC_ADMIN_BASE_URL:-https://${TRAEFIK_PUBLIC_HOST}}
+      PUBLIC_ADMIN_BASE_URL: ${PUBLIC_ADMIN_BASE_URL:-https://${TRAEFIK_PUBLIC_HOST}${TRAEFIK_CLICKGARCOM_PATH_PREFIX:-/clickgarcom}}
+      PUBLIC_WEB_BASE_URL: ${PUBLIC_WEB_BASE_URL:-https://${TRAEFIK_PUBLIC_HOST}${TRAEFIK_CLICKGARCOM_PATH_PREFIX:-/clickgarcom}}
       PUBLIC_WEB_INTERNAL_BASE_URL: http://web-admin:3004
       PUBLIC_ADMIN_INTERNAL_BASE_URL: http://node-admin:3002
-      PUBLIC_WEBHOOK_BASE_URL: ${PUBLIC_WEBHOOK_BASE_URL:-https://${TRAEFIK_PUBLIC_HOST}}
+      PUBLIC_WEBHOOK_BASE_URL: ${PUBLIC_WEBHOOK_BASE_URL:-https://${TRAEFIK_PUBLIC_HOST}${TRAEFIK_WHATSAPP_PATH_PREFIX:-/clickgarcom-whatsapp}}
       NGROK_API_URL: ""
       NGROK_PUBLIC_URL: ""
     depends_on:
@@ -132,10 +133,12 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=easypanel"
-      - "traefik.http.routers.clickgarcom-go.rule=Host(`${TRAEFIK_PUBLIC_HOST}`) && (PathPrefix(`/webhooks`) || PathPrefix(`/ws`) || PathPrefix(`/menu`) || PathPrefix(`/orders`) || PathPrefix(`/metrics`) || Path(`/health`))"
+      - "traefik.http.middlewares.clickgarcom-whatsapp-strip.stripprefix.prefixes=${TRAEFIK_WHATSAPP_PATH_PREFIX:-/clickgarcom-whatsapp}"
+      - "traefik.http.routers.clickgarcom-go.rule=Host(`${TRAEFIK_PUBLIC_HOST}`) && PathPrefix(`${TRAEFIK_WHATSAPP_PATH_PREFIX:-/clickgarcom-whatsapp}`)"
       - "traefik.http.routers.clickgarcom-go.entrypoints=https"
       - "traefik.http.routers.clickgarcom-go.tls=true"
       - "traefik.http.routers.clickgarcom-go.priority=130"
+      - "traefik.http.routers.clickgarcom-go.middlewares=clickgarcom-whatsapp-strip"
       - "traefik.http.routers.clickgarcom-go.service=clickgarcom-go"
       - "traefik.http.services.clickgarcom-go.loadbalancer.server.port=8080"
     deploy:
@@ -143,10 +146,12 @@ services:
       labels:
         - "traefik.enable=true"
         - "traefik.docker.network=easypanel"
-        - "traefik.http.routers.clickgarcom-go.rule=Host(`${TRAEFIK_PUBLIC_HOST}`) && (PathPrefix(`/webhooks`) || PathPrefix(`/ws`) || PathPrefix(`/menu`) || PathPrefix(`/orders`) || PathPrefix(`/metrics`) || Path(`/health`))"
+        - "traefik.http.middlewares.clickgarcom-whatsapp-strip.stripprefix.prefixes=${TRAEFIK_WHATSAPP_PATH_PREFIX:-/clickgarcom-whatsapp}"
+        - "traefik.http.routers.clickgarcom-go.rule=Host(`${TRAEFIK_PUBLIC_HOST}`) && PathPrefix(`${TRAEFIK_WHATSAPP_PATH_PREFIX:-/clickgarcom-whatsapp}`)"
         - "traefik.http.routers.clickgarcom-go.entrypoints=https"
         - "traefik.http.routers.clickgarcom-go.tls=true"
         - "traefik.http.routers.clickgarcom-go.priority=130"
+        - "traefik.http.routers.clickgarcom-go.middlewares=clickgarcom-whatsapp-strip"
         - "traefik.http.routers.clickgarcom-go.service=clickgarcom-go"
         - "traefik.http.services.clickgarcom-go.loadbalancer.server.port=8080"
 
@@ -163,10 +168,10 @@ services:
       RABBITMQ_HOST: rabbitmq
       METRICS_ENABLED: "true"
       METRICS_PORT: 8081
-      PUBLIC_ADMIN_BASE_URL: ${PUBLIC_ADMIN_BASE_URL:-https://${TRAEFIK_PUBLIC_HOST}}
+      PUBLIC_ADMIN_BASE_URL: ${PUBLIC_ADMIN_BASE_URL:-https://${TRAEFIK_PUBLIC_HOST}${TRAEFIK_CLICKGARCOM_PATH_PREFIX:-/clickgarcom}}
       ADMIN_INTERNAL_BASE_URL: http://node-admin:3002
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-clickgarcom-internal-token}
-      PUBLIC_WEBHOOK_BASE_URL: ${PUBLIC_WEBHOOK_BASE_URL:-https://${TRAEFIK_PUBLIC_HOST}}
+      PUBLIC_WEBHOOK_BASE_URL: ${PUBLIC_WEBHOOK_BASE_URL:-https://${TRAEFIK_PUBLIC_HOST}${TRAEFIK_WHATSAPP_PATH_PREFIX:-/clickgarcom-whatsapp}}
       NGROK_API_URL: ""
       NGROK_PUBLIC_URL: ""
     command: ["./bin/worker"]
@@ -261,10 +266,12 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=easypanel"
-      - "traefik.http.routers.clickgarcom-admin.rule=Host(`${TRAEFIK_PUBLIC_HOST}`) && PathPrefix(`/admin/api`)"
+      - "traefik.http.middlewares.clickgarcom-admin-strip.stripprefix.prefixes=${TRAEFIK_CLICKGARCOM_PATH_PREFIX:-/clickgarcom}"
+      - "traefik.http.routers.clickgarcom-admin.rule=Host(`${TRAEFIK_PUBLIC_HOST}`) && PathPrefix(`${TRAEFIK_CLICKGARCOM_PATH_PREFIX:-/clickgarcom}/admin/api`)"
       - "traefik.http.routers.clickgarcom-admin.entrypoints=https"
       - "traefik.http.routers.clickgarcom-admin.tls=true"
       - "traefik.http.routers.clickgarcom-admin.priority=120"
+      - "traefik.http.routers.clickgarcom-admin.middlewares=clickgarcom-admin-strip"
       - "traefik.http.routers.clickgarcom-admin.service=clickgarcom-admin"
       - "traefik.http.services.clickgarcom-admin.loadbalancer.server.port=3002"
     deploy:
@@ -272,10 +279,12 @@ services:
       labels:
         - "traefik.enable=true"
         - "traefik.docker.network=easypanel"
-        - "traefik.http.routers.clickgarcom-admin.rule=Host(`${TRAEFIK_PUBLIC_HOST}`) && PathPrefix(`/admin/api`)"
+        - "traefik.http.middlewares.clickgarcom-admin-strip.stripprefix.prefixes=${TRAEFIK_CLICKGARCOM_PATH_PREFIX:-/clickgarcom}"
+        - "traefik.http.routers.clickgarcom-admin.rule=Host(`${TRAEFIK_PUBLIC_HOST}`) && PathPrefix(`${TRAEFIK_CLICKGARCOM_PATH_PREFIX:-/clickgarcom}/admin/api`)"
         - "traefik.http.routers.clickgarcom-admin.entrypoints=https"
         - "traefik.http.routers.clickgarcom-admin.tls=true"
         - "traefik.http.routers.clickgarcom-admin.priority=120"
+        - "traefik.http.routers.clickgarcom-admin.middlewares=clickgarcom-admin-strip"
         - "traefik.http.routers.clickgarcom-admin.service=clickgarcom-admin"
         - "traefik.http.services.clickgarcom-admin.loadbalancer.server.port=3002"
 
@@ -285,9 +294,10 @@ services:
       dockerfile: Dockerfile
     environment:
       PORT: 3004
-      ADMIN_API_BASE_URL: https://${TRAEFIK_PUBLIC_HOST}/admin/api
-      ADMIN_PUBLIC_API_BASE_URL: https://${TRAEFIK_PUBLIC_HOST}/admin/api/public/tables
-      KDS_WS_URL: wss://${TRAEFIK_PUBLIC_HOST}/ws/kds
+      ADMIN_WEB_BASE_PATH: ${TRAEFIK_CLICKGARCOM_PATH_PREFIX:-/clickgarcom}
+      ADMIN_API_BASE_URL: https://${TRAEFIK_PUBLIC_HOST}${TRAEFIK_CLICKGARCOM_PATH_PREFIX:-/clickgarcom}/admin/api
+      ADMIN_PUBLIC_API_BASE_URL: https://${TRAEFIK_PUBLIC_HOST}${TRAEFIK_CLICKGARCOM_PATH_PREFIX:-/clickgarcom}/admin/api/public/tables
+      KDS_WS_URL: wss://${TRAEFIK_PUBLIC_HOST}${TRAEFIK_WHATSAPP_PATH_PREFIX:-/clickgarcom-whatsapp}/ws/kds
       ADMIN_WEB_DISABLE_TEXT_ASSET_CACHE: "true"
     depends_on:
       node-admin:
@@ -307,10 +317,12 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=easypanel"
-      - "traefik.http.routers.clickgarcom-web.rule=Host(`${TRAEFIK_PUBLIC_HOST}`)"
+      - "traefik.http.middlewares.clickgarcom-web-strip.stripprefix.prefixes=${TRAEFIK_CLICKGARCOM_PATH_PREFIX:-/clickgarcom}"
+      - "traefik.http.routers.clickgarcom-web.rule=Host(`${TRAEFIK_PUBLIC_HOST}`) && PathPrefix(`${TRAEFIK_CLICKGARCOM_PATH_PREFIX:-/clickgarcom}`)"
       - "traefik.http.routers.clickgarcom-web.entrypoints=https"
       - "traefik.http.routers.clickgarcom-web.tls=true"
       - "traefik.http.routers.clickgarcom-web.priority=10"
+      - "traefik.http.routers.clickgarcom-web.middlewares=clickgarcom-web-strip"
       - "traefik.http.routers.clickgarcom-web.service=clickgarcom-web"
       - "traefik.http.services.clickgarcom-web.loadbalancer.server.port=3004"
     deploy:
@@ -318,10 +330,12 @@ services:
       labels:
         - "traefik.enable=true"
         - "traefik.docker.network=easypanel"
-        - "traefik.http.routers.clickgarcom-web.rule=Host(`${TRAEFIK_PUBLIC_HOST}`)"
+        - "traefik.http.middlewares.clickgarcom-web-strip.stripprefix.prefixes=${TRAEFIK_CLICKGARCOM_PATH_PREFIX:-/clickgarcom}"
+        - "traefik.http.routers.clickgarcom-web.rule=Host(`${TRAEFIK_PUBLIC_HOST}`) && PathPrefix(`${TRAEFIK_CLICKGARCOM_PATH_PREFIX:-/clickgarcom}`)"
         - "traefik.http.routers.clickgarcom-web.entrypoints=https"
         - "traefik.http.routers.clickgarcom-web.tls=true"
         - "traefik.http.routers.clickgarcom-web.priority=10"
+        - "traefik.http.routers.clickgarcom-web.middlewares=clickgarcom-web-strip"
         - "traefik.http.routers.clickgarcom-web.service=clickgarcom-web"
         - "traefik.http.services.clickgarcom-web.loadbalancer.server.port=3004"
 
@@ -338,7 +352,7 @@ services:
       DATABASE_NAME: ${POSTGRES_DB:-clickgarcom_db}
       NGROK_API_URL: ""
       NGROK_PUBLIC_URL: ""
-      PUBLIC_WEBHOOK_BASE_URL: ${PUBLIC_WEBHOOK_BASE_URL:-https://${TRAEFIK_PUBLIC_HOST}}
+      PUBLIC_WEBHOOK_BASE_URL: ${PUBLIC_WEBHOOK_BASE_URL:-https://${TRAEFIK_PUBLIC_HOST}${TRAEFIK_WHATSAPP_PATH_PREFIX:-/clickgarcom-whatsapp}}
       SUPER_ADMIN_KEY: ${SUPER_ADMIN_KEY:-}
       SUPER_ADMIN_AUTH_PASSWORD: ${SUPER_ADMIN_AUTH_PASSWORD:-}
       SUPER_ADMIN_AUTH_PASSWORD_HASH: ${SUPER_ADMIN_AUTH_PASSWORD_HASH:-}
@@ -371,10 +385,12 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=easypanel"
-      - "traefik.http.routers.clickgarcom-super-api.rule=Host(`${TRAEFIK_SUPER_ADMIN_HOST}`) && PathPrefix(`/admin/api`)"
+      - "traefik.http.middlewares.clickgarcom-super-strip.stripprefix.prefixes=${TRAEFIK_SUPER_ADMIN_PATH_PREFIX:-/super-admin}"
+      - "traefik.http.routers.clickgarcom-super-api.rule=Host(`${TRAEFIK_PUBLIC_HOST}`) && PathPrefix(`${TRAEFIK_SUPER_ADMIN_PATH_PREFIX:-/super-admin}/admin/api`)"
       - "traefik.http.routers.clickgarcom-super-api.entrypoints=https"
       - "traefik.http.routers.clickgarcom-super-api.tls=true"
       - "traefik.http.routers.clickgarcom-super-api.priority=120"
+      - "traefik.http.routers.clickgarcom-super-api.middlewares=clickgarcom-super-strip"
       - "traefik.http.routers.clickgarcom-super-api.service=clickgarcom-super-api"
       - "traefik.http.services.clickgarcom-super-api.loadbalancer.server.port=3005"
     deploy:
@@ -382,10 +398,12 @@ services:
       labels:
         - "traefik.enable=true"
         - "traefik.docker.network=easypanel"
-        - "traefik.http.routers.clickgarcom-super-api.rule=Host(`${TRAEFIK_SUPER_ADMIN_HOST}`) && PathPrefix(`/admin/api`)"
+        - "traefik.http.middlewares.clickgarcom-super-strip.stripprefix.prefixes=${TRAEFIK_SUPER_ADMIN_PATH_PREFIX:-/super-admin}"
+        - "traefik.http.routers.clickgarcom-super-api.rule=Host(`${TRAEFIK_PUBLIC_HOST}`) && PathPrefix(`${TRAEFIK_SUPER_ADMIN_PATH_PREFIX:-/super-admin}/admin/api`)"
         - "traefik.http.routers.clickgarcom-super-api.entrypoints=https"
         - "traefik.http.routers.clickgarcom-super-api.tls=true"
         - "traefik.http.routers.clickgarcom-super-api.priority=120"
+        - "traefik.http.routers.clickgarcom-super-api.middlewares=clickgarcom-super-strip"
         - "traefik.http.routers.clickgarcom-super-api.service=clickgarcom-super-api"
         - "traefik.http.services.clickgarcom-super-api.loadbalancer.server.port=3005"
 
@@ -395,8 +413,9 @@ services:
       dockerfile: Dockerfile
     environment:
       PORT: 3003
+      SUPER_ADMIN_WEB_BASE_PATH: ${TRAEFIK_SUPER_ADMIN_PATH_PREFIX:-/super-admin}
       SUPER_ADMIN_API_BASE_URL: http://super-admin-api:3005/admin/api/super-admin
-      SUPER_ADMIN_BROWSER_API_BASE_URL: /admin/api/super-admin
+      SUPER_ADMIN_BROWSER_API_BASE_URL: ${TRAEFIK_SUPER_ADMIN_PATH_PREFIX:-/super-admin}/admin/api/super-admin
       SUPER_ADMIN_WEB_DISABLE_TEXT_ASSET_CACHE: "true"
     depends_on:
       super-admin-api:
@@ -414,10 +433,12 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=easypanel"
-      - "traefik.http.routers.clickgarcom-super-web.rule=Host(`${TRAEFIK_SUPER_ADMIN_HOST}`)"
+      - "traefik.http.middlewares.clickgarcom-super-web-strip.stripprefix.prefixes=${TRAEFIK_SUPER_ADMIN_PATH_PREFIX:-/super-admin}"
+      - "traefik.http.routers.clickgarcom-super-web.rule=Host(`${TRAEFIK_PUBLIC_HOST}`) && PathPrefix(`${TRAEFIK_SUPER_ADMIN_PATH_PREFIX:-/super-admin}`)"
       - "traefik.http.routers.clickgarcom-super-web.entrypoints=https"
       - "traefik.http.routers.clickgarcom-super-web.tls=true"
       - "traefik.http.routers.clickgarcom-super-web.priority=10"
+      - "traefik.http.routers.clickgarcom-super-web.middlewares=clickgarcom-super-web-strip"
       - "traefik.http.routers.clickgarcom-super-web.service=clickgarcom-super-web"
       - "traefik.http.services.clickgarcom-super-web.loadbalancer.server.port=3003"
     deploy:
@@ -425,10 +446,12 @@ services:
       labels:
         - "traefik.enable=true"
         - "traefik.docker.network=easypanel"
-        - "traefik.http.routers.clickgarcom-super-web.rule=Host(`${TRAEFIK_SUPER_ADMIN_HOST}`)"
+        - "traefik.http.middlewares.clickgarcom-super-web-strip.stripprefix.prefixes=${TRAEFIK_SUPER_ADMIN_PATH_PREFIX:-/super-admin}"
+        - "traefik.http.routers.clickgarcom-super-web.rule=Host(`${TRAEFIK_PUBLIC_HOST}`) && PathPrefix(`${TRAEFIK_SUPER_ADMIN_PATH_PREFIX:-/super-admin}`)"
         - "traefik.http.routers.clickgarcom-super-web.entrypoints=https"
         - "traefik.http.routers.clickgarcom-super-web.tls=true"
         - "traefik.http.routers.clickgarcom-super-web.priority=10"
+        - "traefik.http.routers.clickgarcom-super-web.middlewares=clickgarcom-super-web-strip"
         - "traefik.http.routers.clickgarcom-super-web.service=clickgarcom-super-web"
         - "traefik.http.services.clickgarcom-super-web.loadbalancer.server.port=3003"
 

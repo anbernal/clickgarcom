@@ -1,7 +1,9 @@
 // Super Admin - Application Logic
+const runtimeConfig = window.CLICKGARCOM_SUPER_ADMIN_CONFIG || {};
+const LOGIN_PAGE_PATH = String(runtimeConfig.loginPagePath || '/login').trim() || '/login';
 
 if (!sessionStorage.getItem('super_admin_access_token')) {
-    window.location.href = '/login';
+    window.location.href = LOGIN_PAGE_PATH;
 }
 
 const state = {
@@ -17,7 +19,6 @@ function resolveApiBase() {
     const custom = (localStorage.getItem('clickgarcom_super_admin_api_base') || '').trim();
     if (custom) return custom.replace(/\/+$/, '');
 
-    const runtimeConfig = window.CLICKGARCOM_SUPER_ADMIN_CONFIG || {};
     if (String(runtimeConfig.apiBaseUrl || '').trim()) {
         return String(runtimeConfig.apiBaseUrl).trim().replace(/\/+$/, '');
     }
@@ -52,7 +53,7 @@ async function request(path, options = {}) {
             : body.message || body.error || `Erro HTTP ${response.status}`;
         if (response.status === 401 && path !== '/auth/login') {
             clearSession();
-            window.location.href = '/login';
+            window.location.href = LOGIN_PAGE_PATH;
         }
         throw new Error(message);
     }
@@ -995,7 +996,7 @@ async function logout() {
         // The client still clears the local session if the token is already invalid.
     }
     clearSession();
-    window.location.href = '/login';
+    window.location.href = LOGIN_PAGE_PATH;
 }
 
 async function bootstrap() {
@@ -1008,7 +1009,7 @@ async function bootstrap() {
     } catch (error) {
         console.error(error);
         clearSession();
-        window.location.href = '/login';
+        window.location.href = LOGIN_PAGE_PATH;
     }
 }
 
