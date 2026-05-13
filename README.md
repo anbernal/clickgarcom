@@ -174,6 +174,7 @@ http://localhost:9090
 - Compose de servidor: `deploy/docker-compose.server.yml`
 - Exemplo de variáveis: `deploy/.env.server.example`
 - Passo a passo completo: `docs/deploy_server_traefik.md`
+- Runbook de migracao entre servidores: `docs/server_migration_runbook.md`
 
 ## Observabilidade
 
