@@ -214,8 +214,13 @@ async function submitOwnPasswordChange() {
 }
 
 // Modal helpers
-function openModal(html) {
-    document.getElementById('modal-content').innerHTML = html;
+function openModal(html, options) {
+    const modal = document.getElementById('modal-content');
+    modal.className = 'modal';
+    if (options && options.size === 'lg') {
+        modal.classList.add('modal--lg');
+    }
+    modal.innerHTML = html;
     document.getElementById('modal-overlay').classList.add('active');
 }
 

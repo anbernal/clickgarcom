@@ -201,94 +201,173 @@ function openMenuItemModal(itemId) {
 
   openModal(`
     <div class="modal-header">
-      <h3>${isEdit ? 'Editar Item' : 'Novo Item'}</h3>
+      <div>
+        <h3>${isEdit ? 'Editar Item' : 'Novo Item do Cardápio'}</h3>
+        <div class="modal-header-subtitle">${isEdit ? 'Atualize as informações abaixo. Campos marcados como obrigatórios precisam estar preenchidos.' : 'Preencha as informações do produto. Você pode ajustar tudo depois — comece pelo essencial.'}</div>
+      </div>
       <button class="modal-close" onclick="closeModal()">✕</button>
     </div>
     <div class="modal-body">
-      <div class="form-group">
-        <label>Nome do Item</label>
-        <input type="text" id="mi-name" value="${item ? escapeHTML(item.name) : ''}" placeholder="Ex: Pizza Margherita">
-      </div>
-      <div class="form-group">
-        <label>Descricao</label>
-        <textarea id="mi-description" placeholder="Descricao do item">${item ? escapeHTML(item.description) || '' : ''}</textarea>
-      </div>
-      <div class="form-group">
-        <label>Imagem do Item</label>
-        <input type="url" id="mi-image-url" value="${item ? escapeHTML(item.imageUrl || '') : ''}" placeholder="https://...">
-        <div style="font-size:12px;color:var(--muted);margin-top:6px">Usada no preview ilustrativo do item no WhatsApp.</div>
-      </div>
-      <div class="form-row-2">
-        <div class="form-group">
-          <label>Preco (R$)</label>
-          <input type="number" step="0.01" id="mi-price" value="${item ? item.price : ''}" placeholder="0.00">
+
+      <div class="form-section">
+        <div class="form-section-head">
+          <div class="form-section-head-text">
+            <div class="form-section-title">1 · Identificação</div>
+            <div class="form-section-subtitle">Como o item aparece para o cliente e para a equipe.</div>
+          </div>
         </div>
         <div class="form-group">
-          <label>Custo Base (R$)</label>
-          <input type="number" step="0.01" id="mi-cost-price" value="${item && item.costPrice !== null && item.costPrice !== undefined ? item.costPrice : ''}" placeholder="Opcional">
-          <div style="font-size:12px;color:var(--muted);margin-top:6px">Usado nos relatorios de margem e ranking gerencial.</div>
-        </div>
-      </div>
-      <div class="form-row-2">
-        <div class="form-group">
-          <label>Categoria</label>
-          <select id="mi-category">
-            <option value="">Sem categoria</option>
-            ${cardapioCategories.map((category) => `<option value="${category.id}" ${item && item.categoryId === category.id ? 'selected' : ''}>${escapeHTML(category.name)}</option>`).join('')}
-          </select>
+          <div class="field-label-row">
+            <label>Nome do item</label>
+            <span class="field-badge field-badge--required">Obrigatório</span>
+          </div>
+          <input type="text" id="mi-name" value="${item ? escapeHTML(item.name) : ''}" placeholder="Ex: Pizza Margherita">
+          <div class="field-hint">Use o nome completo, como o cliente verá no menu impresso ou digital.</div>
         </div>
         <div class="form-group">
-          <label>Ordem de Exibicao</label>
-          <input type="number" id="mi-display-order" value="${item?.displayOrder ?? 0}" min="0">
-        </div>
-      </div>
-      <div class="form-row-2">
-        <div class="form-group">
-          <label>Destino</label>
-          <select id="mi-destination">
-            <option value="KITCHEN" ${item && item.destination === 'KITCHEN' ? 'selected' : ''}>${CARDAPIO_ICONS.kitchen} Cozinha</option>
-            <option value="BAR" ${item && item.destination === 'BAR' ? 'selected' : ''}>${CARDAPIO_ICONS.bar} Bar</option>
-          </select>
+          <div class="field-label-row">
+            <label>Descrição</label>
+            <span class="field-badge field-badge--optional">Opcional</span>
+          </div>
+          <textarea id="mi-description" placeholder="Ex: Massa fina, molho de tomate italiano, mussarela de búfala e manjericão fresco.">${item ? escapeHTML(item.description) || '' : ''}</textarea>
+          <div class="field-hint">Texto mais longo, exibido em telas com mais espaço.</div>
         </div>
         <div class="form-group">
-          <label>Tempo Preparo (min)</label>
-          <input type="number" id="mi-prep" value="${item ? item.prepTimeMinutes : 15}" min="0">
+          <div class="field-label-row">
+            <label>Imagem do item (URL)</label>
+            <span class="field-badge field-badge--optional">Opcional</span>
+          </div>
+          <input type="url" id="mi-image-url" value="${item ? escapeHTML(item.imageUrl || '') : ''}" placeholder="https://exemplo.com/foto-do-item.jpg">
+          <div class="field-hint">Aparece no preview ilustrativo enviado pelo WhatsApp. Use links públicos (não funciona com arquivos locais).</div>
         </div>
-      </div>
-      <div class="form-row-2">
-        <div class="form-group">
-          <label>Tipo do Item</label>
-          <select id="mi-item-type">
-            <option value="STANDARD" ${itemType === 'STANDARD' ? 'selected' : ''}>Item simples</option>
-            <option value="COMBO" ${itemType === 'COMBO' ? 'selected' : ''}>Combo</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Nome Curto para WhatsApp</label>
-          <input type="text" id="mi-whatsapp-short-name" value="${item ? escapeHTML(item.whatsappShortName || '') : ''}" placeholder="Ex: Burger Grande">
-        </div>
-      </div>
-      <div class="form-group">
-        <label>Descricao Curta para WhatsApp</label>
-        <input type="text" id="mi-whatsapp-short-description" value="${item ? escapeHTML(item.whatsappShortDescription || '') : ''}" placeholder="Ex: R$ 35,00 · Pao brioche, carne 180g">
       </div>
 
-      <div style="margin-top:20px;padding:16px;border:1px solid var(--border);border-radius:16px;background:rgba(15,23,42,0.02)">
-        <div style="font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:12px">Disponibilidade Operacional</div>
-        <div class="form-group" style="margin-bottom:12px">
-          <label style="display:flex;align-items:center;gap:10px;font-weight:600">
-            <input type="checkbox" id="mi-available" ${item ? (item.available ? 'checked' : '') : 'checked'}>
-            Item liberado no cardapio
-          </label>
-          <div style="font-size:12px;color:var(--muted);margin-top:6px">Desligue aqui apenas quando quiser tirar o item de circulacao manualmente.</div>
+      <div class="form-section">
+        <div class="form-section-head">
+          <div class="form-section-head-text">
+            <div class="form-section-title">2 · Preço e categorização</div>
+            <div class="form-section-subtitle">Quanto custa para o cliente, o seu custo e onde o item aparece no cardápio.</div>
+          </div>
         </div>
-        <div class="form-group" style="margin-bottom:12px">
-          <label style="display:flex;align-items:center;gap:10px;font-weight:600">
-            <input type="checkbox" id="mi-track-stock" ${stockTracked ? 'checked' : ''}>
-            Controlar estoque simples
-          </label>
+        <div class="form-row-2">
+          <div class="form-group">
+            <div class="field-label-row">
+              <label>Preço de venda (R$)</label>
+              <span class="field-badge field-badge--required">Obrigatório</span>
+            </div>
+            <input type="number" step="0.01" id="mi-price" value="${item ? item.price : ''}" placeholder="0,00">
+            <div class="field-hint">Valor cobrado do cliente, sem desconto.</div>
+          </div>
+          <div class="form-group">
+            <div class="field-label-row">
+              <label>Custo base (R$)</label>
+              <span class="field-badge field-badge--optional">Opcional</span>
+            </div>
+            <input type="number" step="0.01" id="mi-cost-price" value="${item && item.costPrice !== null && item.costPrice !== undefined ? item.costPrice : ''}" placeholder="0,00">
+            <div class="field-hint">Quanto o item custa para você. Usado nos relatórios de margem e no ranking gerencial.</div>
+          </div>
         </div>
-        <div id="mi-stock-fields" style="${stockTracked ? '' : 'display:none;'}">
+        <div class="form-row-2">
+          <div class="form-group">
+            <label>Categoria</label>
+            <select id="mi-category">
+              <option value="">Sem categoria</option>
+              ${cardapioCategories.map((category) => `<option value="${category.id}" ${item && item.categoryId === category.id ? 'selected' : ''}>${escapeHTML(category.name)}</option>`).join('')}
+            </select>
+            <div class="field-hint">Agrupa o item no cardápio. Itens sem categoria aparecem no final.</div>
+          </div>
+          <div class="form-group">
+            <label>Ordem de exibição</label>
+            <input type="number" id="mi-display-order" value="${item?.displayOrder ?? 0}" min="0">
+            <div class="field-hint">Menores aparecem antes. Use 0 para deixar o sistema decidir.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-section">
+        <div class="form-section-head">
+          <div class="form-section-head-text">
+            <div class="form-section-title">3 · Operação na cozinha / bar</div>
+            <div class="form-section-subtitle">Define para onde o pedido é roteado e o que esperar do preparo.</div>
+          </div>
+        </div>
+        <div class="form-row-3">
+          <div class="form-group">
+            <label>Destino do pedido</label>
+            <select id="mi-destination">
+              <option value="KITCHEN" ${item && item.destination === 'KITCHEN' ? 'selected' : ''}>Cozinha</option>
+              <option value="BAR" ${item && item.destination === 'BAR' ? 'selected' : ''}>Bar</option>
+            </select>
+            <div class="field-hint">Define em qual KDS o pedido aparece.</div>
+          </div>
+          <div class="form-group">
+            <label>Tempo de preparo (min)</label>
+            <input type="number" id="mi-prep" value="${item ? item.prepTimeMinutes : 15}" min="0">
+            <div class="field-hint">Tempo médio estimado. Aparece no KDS e nos avisos ao cliente.</div>
+          </div>
+          <div class="form-group">
+            <label>Tipo do item</label>
+            <select id="mi-item-type">
+              <option value="STANDARD" ${itemType === 'STANDARD' ? 'selected' : ''}>Item simples</option>
+              <option value="COMBO" ${itemType === 'COMBO' ? 'selected' : ''}>Combo (vários itens)</option>
+            </select>
+            <div class="field-hint">Combos permitem agrupar outros itens em um único pedido.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-section">
+        <div class="form-section-head">
+          <div class="form-section-head-text">
+            <div class="form-section-title">4 · Apresentação no WhatsApp</div>
+            <div class="form-section-subtitle">Versões curtas usadas no atendimento automatizado e listagens rápidas.</div>
+          </div>
+        </div>
+        <div class="form-row-2">
+          <div class="form-group">
+            <div class="field-label-row">
+              <label>Nome curto</label>
+              <span class="field-badge field-badge--optional">Opcional</span>
+            </div>
+            <input type="text" id="mi-whatsapp-short-name" value="${item ? escapeHTML(item.whatsappShortName || '') : ''}" placeholder="Ex: Burger Grande">
+            <div class="field-hint">Versão enxuta do nome, ideal para listas.</div>
+          </div>
+          <div class="form-group">
+            <div class="field-label-row">
+              <label>Descrição curta</label>
+              <span class="field-badge field-badge--optional">Opcional</span>
+            </div>
+            <input type="text" id="mi-whatsapp-short-description" value="${item ? escapeHTML(item.whatsappShortDescription || '') : ''}" placeholder="Ex: R$ 35,00 · Pão brioche, carne 180g">
+            <div class="field-hint">Aparece junto ao nome no WhatsApp. Use até 1 linha.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-section form-section--soft">
+        <div class="form-section-head">
+          <div class="form-section-head-text">
+            <div class="form-section-title">5 · Disponibilidade operacional</div>
+            <div class="form-section-subtitle">Controle se o item está liberado, com estoque ou apenas em determinados horários.</div>
+          </div>
+        </div>
+
+        <label class="toggle-row" for="mi-available">
+          <input type="checkbox" id="mi-available" ${item ? (item.available ? 'checked' : '') : 'checked'}>
+          <span class="toggle-row-text">
+            <span class="toggle-row-title">Item liberado no cardápio</span>
+            <span class="toggle-row-hint">Desligue apenas quando quiser tirar o item de circulação manualmente (ex: acabou o ingrediente).</span>
+          </span>
+        </label>
+
+        <label class="toggle-row" for="mi-track-stock">
+          <input type="checkbox" id="mi-track-stock" ${stockTracked ? 'checked' : ''}>
+          <span class="toggle-row-text">
+            <span class="toggle-row-title">Controlar estoque simples</span>
+            <span class="toggle-row-hint">Quando ativo, o sistema desconta automaticamente o estoque a cada venda.</span>
+          </span>
+        </label>
+
+        <div id="mi-stock-fields" style="${stockTracked ? '' : 'display:none;'};margin-top:6px">
           <div class="form-row-2">
             <div class="form-group">
               <label>Quantidade em estoque</label>
@@ -297,27 +376,29 @@ function openMenuItemModal(itemId) {
             <div class="form-group">
               <label>Alerta de estoque baixo</label>
               <input type="number" id="mi-low-stock-threshold" min="0" value="${stockTracked && item?.lowStockThreshold !== null && item?.lowStockThreshold !== undefined ? item.lowStockThreshold : 3}">
+              <div class="field-hint">Você recebe um alerta quando o estoque cair abaixo desse valor.</div>
             </div>
           </div>
         </div>
-        <div class="form-group" style="margin-bottom:12px">
+
+        <div class="form-group" style="margin-top:10px;margin-bottom:0">
           <label>Janela de venda</label>
           <select id="mi-schedule-mode">
-            <option value="ALWAYS" ${scheduleEnabled ? '' : 'selected'}>Sempre disponivel</option>
-            <option value="CUSTOM" ${scheduleEnabled ? 'selected' : ''}>Somente em horarios especificos</option>
+            <option value="ALWAYS" ${scheduleEnabled ? '' : 'selected'}>Sempre disponível</option>
+            <option value="CUSTOM" ${scheduleEnabled ? 'selected' : ''}>Somente em horários específicos</option>
           </select>
+          <div class="field-hint">Use horários específicos para itens vendidos apenas em certas faixas (almoço, happy hour). Horários que cruzam a meia-noite são aceitos.</div>
         </div>
-        <div id="mi-schedule-fields" style="${scheduleEnabled ? '' : 'display:none;'}">
-          <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Use horarios especificos quando o item so pode ser vendido em determinadas faixas. Horarios que cruzam meia-noite sao aceitos.</div>
+        <div id="mi-schedule-fields" style="${scheduleEnabled ? '' : 'display:none;'};margin-top:12px">
           ${renderCardapioScheduleRows(scheduleWindows)}
         </div>
       </div>
 
-      <div style="margin-top:18px;padding:16px;border:1px solid var(--border);border-radius:16px;background:#fff">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px">
-          <div>
-            <div style="font-size:14px;font-weight:700;color:var(--text-primary)">Opcionais e Complementos</div>
-            <div style="font-size:12px;color:var(--muted)">Monte grupos como tamanho, ponto da carne, molhos ou acompanhamentos.</div>
+      <div class="form-section">
+        <div class="form-section-head">
+          <div class="form-section-head-text">
+            <div class="form-section-title">6 · Opcionais e complementos</div>
+            <div class="form-section-subtitle">Monte grupos como tamanho, ponto da carne, molhos ou acompanhamentos. Útil quando o cliente personaliza o pedido.</div>
           </div>
           <button class="btn-sm btn-outline" type="button" onclick="addCardapioOptionGroup()">+ Grupo</button>
         </div>
@@ -326,11 +407,11 @@ function openMenuItemModal(itemId) {
         </div>
       </div>
 
-      <div id="mi-combo-components-wrap" style="margin-top:18px;padding:16px;border:1px solid var(--border);border-radius:16px;background:#fff;${itemType === 'COMBO' ? '' : 'display:none;'}">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px">
-          <div>
-            <div style="font-size:14px;font-weight:700;color:var(--text-primary)">Componentes do Combo</div>
-            <div style="font-size:12px;color:var(--muted)">Defina quais itens compoem o combo e em que quantidade.</div>
+      <div id="mi-combo-components-wrap" class="form-section" style="${itemType === 'COMBO' ? '' : 'display:none;'}">
+        <div class="form-section-head">
+          <div class="form-section-head-text">
+            <div class="form-section-title">7 · Componentes do combo</div>
+            <div class="form-section-subtitle">Defina quais itens compõem o combo e em que quantidade. Os componentes seguem o estoque dos itens originais.</div>
           </div>
           <button class="btn-sm btn-outline" type="button" onclick="addCardapioComboComponent()">+ Componente</button>
         </div>
@@ -341,9 +422,9 @@ function openMenuItemModal(itemId) {
     </div>
     <div class="modal-footer">
       <button class="btn-sm btn-outline" onclick="closeModal()">Cancelar</button>
-      <button class="btn-sm btn-primary" onclick="saveMenuItem('${itemId || ''}')">${isEdit ? 'Salvar' : 'Criar Item'}</button>
+      <button class="btn-sm btn-primary" onclick="saveMenuItem('${itemId || ''}')">${isEdit ? 'Salvar alterações' : 'Criar item'}</button>
     </div>
-  `);
+  `, { size: 'lg' });
 
   bindCardapioModalInteractions(item?.id || '');
 }
