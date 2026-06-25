@@ -17,6 +17,7 @@ import { MessageLog } from './entities/message-log.entity';
 import { BotFlowDefinition } from './entities/bot-flow-definition.entity';
 import { UserAccessAuditLog } from './entities/user-access-audit-log.entity';
 import { WalletBillingCycle } from './entities/wallet-billing-cycle.entity';
+import { PurchaseEntry } from './entities/purchase-entry.entity';
 
 import { MenuModule } from './modules/menu/menu.module';
 import { CategoriesModule } from './modules/categories/categories.module';
@@ -27,6 +28,7 @@ import { AmqpModule } from './modules/amqp/amqp.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { WalletModule } from './modules/wallet/wallet.module';
 import { BotConfigModule } from './modules/bot-config/bot-config.module';
+import { PurchasesModule } from './modules/purchases/purchases.module';
 import { RolesGuard } from './modules/auth/roles.guard';
 import { AppController } from './app.controller';
 
@@ -40,7 +42,7 @@ import { AppController } from './app.controller';
             username: process.env.DATABASE_USER || 'postgres',
             password: process.env.DATABASE_PASSWORD || 'postgres123',
             database: process.env.DATABASE_NAME || 'clickgarcom_db',
-            entities: [MenuCategory, MenuItem, Order, OrderItem, OrderBatch, Table, Tab, TableRequest, User, Tenant, MessageLog, BotFlowDefinition, UserAccessAuditLog, WalletBillingCycle],
+            entities: [MenuCategory, MenuItem, Order, OrderItem, OrderBatch, Table, Tab, TableRequest, User, Tenant, MessageLog, BotFlowDefinition, UserAccessAuditLog, WalletBillingCycle, PurchaseEntry],
             synchronize: false,
         }),
         AmqpModule,
@@ -52,6 +54,7 @@ import { AppController } from './app.controller';
         AuthModule,
         WalletModule,
         BotConfigModule,
+        PurchasesModule,
     ],
     controllers: [AppController],
     providers: [

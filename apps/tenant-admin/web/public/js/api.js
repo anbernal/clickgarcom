@@ -60,6 +60,7 @@ const TENANT_ROUTE_GROUPS = {
     reports: ['ADMIN', 'MANAGER'],
     wallet: ['ADMIN', 'MANAGER'],
     bot_config: ['ADMIN', 'MANAGER'],
+    purchases: ['ADMIN', 'MANAGER'],
 };
 
 const TENANT_PAGE_ACCESS = {
@@ -72,6 +73,7 @@ const TENANT_PAGE_ACCESS = {
     mesas: TENANT_ROUTE_GROUPS.table_read,
     pagamentos: TENANT_ROUTE_GROUPS.settlement,
     vendas: TENANT_ROUTE_GROUPS.reports,
+    compras: TENANT_ROUTE_GROUPS.purchases,
     configuracoes: TENANT_ROUTE_GROUPS.full_access,
     equipe: TENANT_ROUTE_GROUPS.full_access,
 };
@@ -126,6 +128,7 @@ function buildFallbackPermissions(role) {
             manageClosedTabs: routeGroups.includes('full_access'),
             viewReports: routeGroups.includes('reports'),
             viewWallet: routeGroups.includes('wallet'),
+            managePurchases: routeGroups.includes('purchases'),
         },
     };
 }

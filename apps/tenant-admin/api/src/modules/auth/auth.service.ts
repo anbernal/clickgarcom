@@ -24,6 +24,7 @@ import {
     TENANT_MENU_WRITE_ROLES,
     TENANT_ORDER_WRITE_ROLES,
     TENANT_REPORT_ROLES,
+    TENANT_PURCHASE_ROLES,
     TENANT_SETTLEMENT_ROLES,
     TENANT_TABLE_READ_ROLES,
     TENANT_TABLE_WRITE_ROLES,
@@ -146,7 +147,6 @@ export class AuthService {
 
         const user = await this.userRepository.findOne({
             where: { email },
-            relations: ['tenant']
         });
 
         if (!user || !user.active) {
@@ -161,25 +161,31 @@ export class AuthService {
         // Update last login
         user.lastLoginAt = new Date();
         await this.userRepository.save(user);
-        await this.recordAuditEvent(user.tenantId, {
-            actorUserId: user.id,
-            actorName: user.name,
-            actorRole: user.role,
-            targetUserId: user.id,
-            targetUserName: user.name,
-            eventType: 'LOGIN_SUCCESS',
-            description: 'Login efetuado com sucesso no tenant admin.',
-            metadata: {
-                email: user.email,
-            },
-        });
+        try {
+            await this.recordAuditEvent(user.tenantId, {
+                actorUserId: user.id,
+                actorName: user.name,
+                actorRole: user.role,
+                targetUserId: user.id,
+                targetUserName: user.name,
+                eventType: 'LOGIN_SUCCESS',
+                description: 'Login efetuado com sucesso no tenant admin.',
+                metadata: {
+                    email: user.email,
+                },
+            });
+        } catch (error) {
+            this.logger.warn(
+                `Falha ao registrar auditoria de login para tenant=${user.tenantId} user=${user.id}: ${(error as Error)?.message || error}`,
+            );
+        }
 
         const payload = {
             sub: user.id,
             email: user.email,
             role: normalizeTenantRole(user.role),
             tenant_id: user.tenantId,
-            tenant_name: user.tenant?.name
+            tenant_name: null,
         };
 
         return {
@@ -191,7 +197,6 @@ export class AuthService {
     async getProfile(userId: string, tenantId: string) {
         const user = await this.userRepository.findOne({
             where: { id: userId, tenantId },
-            relations: ['tenant'],
         });
 
         if (!user || !user.active) {
@@ -774,6 +779,7 @@ export class AuthService {
             { key: 'reports', roles: TENANT_REPORT_ROLES },
             { key: 'wallet', roles: TENANT_WALLET_ROLES },
             { key: 'bot_config', roles: TENANT_BOT_CONFIG_ROLES },
+            { key: 'purchases', roles: TENANT_PURCHASE_ROLES },
         ];
         const routeGroups = routeGroupAccessors
             .filter((group) => this.isRoleAllowed(normalizedRole, group.roles))
@@ -786,6 +792,7 @@ export class AuthService {
         if (routeGroups.includes('table_read')) pages.push('mesas');
         if (routeGroups.includes('settlement')) pages.push('pagamentos');
         if (routeGroups.includes('reports')) pages.push('vendas');
+        if (routeGroups.includes('purchases')) pages.push('compras');
         if (routeGroups.includes('full_access')) pages.push('meuRestaurante', 'configuracoes', 'equipe');
 
         return {
@@ -803,6 +810,7 @@ export class AuthService {
                 manageClosedTabs: this.isRoleAllowed(normalizedRole, TENANT_CLOSED_TAB_MUTATION_ROLES),
                 viewReports: this.isRoleAllowed(normalizedRole, TENANT_REPORT_ROLES),
                 viewWallet: this.isRoleAllowed(normalizedRole, TENANT_WALLET_ROLES),
+                managePurchases: this.isRoleAllowed(normalizedRole, TENANT_PURCHASE_ROLES),
             },
         };
     }

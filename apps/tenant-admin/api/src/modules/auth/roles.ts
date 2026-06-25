@@ -100,6 +100,7 @@ export const TENANT_REPORT_ROLES = [
 export const TENANT_WALLET_ROLES = [...TENANT_REPORT_ROLES] as const;
 
 export const TENANT_BOT_CONFIG_ROLES = [...TENANT_FULL_ACCESS_ROLES] as const;
+export const TENANT_PURCHASE_ROLES = [...TENANT_FULL_ACCESS_ROLES] as const;
 
 export function normalizeTenantRole(role: unknown): string {
     const rawRole = String(role || '')
@@ -138,6 +139,7 @@ export function buildTenantRoleMetadata() {
             reports: [...TENANT_REPORT_ROLES],
             wallet: [...TENANT_WALLET_ROLES],
             bot_config: [...TENANT_BOT_CONFIG_ROLES],
+            purchases: [...TENANT_PURCHASE_ROLES],
         },
     };
 }

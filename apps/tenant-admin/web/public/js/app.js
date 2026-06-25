@@ -12,6 +12,7 @@ const pages = {
     categorias: { title: 'Categorias', sub: 'Organize o cardápio em categorias', loader: loadCategorias },
     mesas: { title: 'Mesas & Comandas', sub: 'Gerencie as mesas e comandas do restaurante', loader: loadMesas },
     pagamentos: { title: 'Pagamentos & Conciliação', sub: 'Acompanhe pagamentos, divergências e baixas operacionais', loader: loadPagamentos },
+    compras: { title: 'Compras & Fornecedores', sub: 'Lançamento de notas e histórico de compras', loader: loadComprasPage },
     vendas: { title: 'Vendas', sub: 'Relatório completo de vendas', loader: loadVendas },
     meuRestaurante: { title: 'Meu Restaurante', sub: 'Gerencie os dados cadastrais do seu estabelecimento', loader: loadMeuRestaurante },
     equipe: { title: 'Equipe & Acessos', sub: 'Gerencie usuários internos, papéis e credenciais de acesso', loader: loadEquipePage },
