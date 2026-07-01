@@ -4,6 +4,17 @@
 -- ---------------------------------------------------------------------------
 -- Column defaults and nullability
 -- ---------------------------------------------------------------------------
+ALTER TABLE tables
+    ADD COLUMN IF NOT EXISTS capacity INTEGER DEFAULT 4;
+
+ALTER TABLE tenants
+    ADD COLUMN IF NOT EXISTS waba_id TEXT,
+    ADD COLUMN IF NOT EXISTS meta_token TEXT,
+    ADD COLUMN IF NOT EXISTS wallet_balance NUMERIC(10,2) DEFAULT 0.00,
+    ADD COLUMN IF NOT EXISTS billing_plan VARCHAR(20) DEFAULT 'pre_paid',
+    ADD COLUMN IF NOT EXISTS message_price NUMERIC(10,2) DEFAULT 0.02,
+    ADD COLUMN IF NOT EXISTS is_open BOOLEAN DEFAULT false;
+
 ALTER TABLE menu_categories
     ALTER COLUMN id SET DEFAULT gen_random_uuid(),
     ALTER COLUMN display_order DROP NOT NULL,

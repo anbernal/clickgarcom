@@ -1,3 +1,17 @@
+CREATE TABLE IF NOT EXISTS table_requests (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    table_id UUID REFERENCES tables(id) ON DELETE SET NULL,
+    user_phone VARCHAR(30) NOT NULL,
+    pax_count INT NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+    approved_by_user_id UUID,
+    approved_by_user_name VARCHAR(255),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT valid_table_request_status CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED'))
+);
+
 ALTER TABLE table_requests
 ADD COLUMN IF NOT EXISTS approved_by_user_id UUID,
 ADD COLUMN IF NOT EXISTS approved_by_user_name VARCHAR(255);

@@ -1,0 +1,2 @@
+-- Inicializacao intencionalmente vazia.
+-- O banco ja e criado pelo POSTGRES_DB no docker-compose.
