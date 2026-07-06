@@ -84,6 +84,8 @@ type HandleMessageInput struct {
 const (
 	welcomeMenuFlowKey       = "welcome_menu"
 	requestTableActionID     = "request_table"
+	welcomeMenuOrderActionID = "order_now"
+	welcomeMenuWaiterActionID = "call_waiter"
 	defaultWelcomeMenuAction = "btn_request_table"
 	mainMenuListButtonText   = "Abrir menu"
 	mainMenuOpenActionID     = "0"
@@ -598,30 +600,28 @@ func (uc *HandleWhatsAppMessageUseCase) handleWelcomeMenu(
 		return "", "", fmt.Errorf("failed to find tenant: %w", err)
 	}
 
+	normalizedText := strings.ToLower(strings.TrimSpace(text))
+
+	if actionID := uc.resolvePublishedWelcomeActionID(ctx, sess.TenantID, text); actionID != "" {
+		switch actionID {
+		case requestTableActionID:
+			return uc.handleInitialTableRequest(ctx, sess, t)
+		case welcomeMenuOrderActionID:
+			return uc.startOrderingFlow(ctx, sess)
+		case welcomeMenuWaiterActionID:
+			return uc.handleCallWaiter(ctx, sess)
+		}
+	}
+
+	switch normalizedText {
+	case "2", welcomeMenuOrderActionID, "fazer pedido", "pedido", "cardapio", "cardápio":
+		return uc.startOrderingFlow(ctx, sess)
+	case "3", welcomeMenuWaiterActionID, "chamar garçom", "chamar garcom", "ajuda", "atendente":
+		return uc.handleCallWaiter(ctx, sess)
+	}
+
 	if uc.isInitialTableRequestChoice(ctx, sess.TenantID, text) {
-		existingReq, err := uc.tableRepo.FindPendingRequestByPhone(ctx, sess.UserPhone, sess.TenantID)
-		if err != nil {
-			return "", "", fmt.Errorf("failed to find pending request by phone: %w", err)
-		}
-		if existingReq != nil {
-			return whatsapp.AlreadyInQueueMessage(), session.StateWaitingAdminApproval, nil
-		}
-
-		req := &table.TableRequest{
-			ID:        uuid.New(),
-			TenantID:  sess.TenantID,
-			TableID:   nil,
-			UserPhone: sess.UserPhone,
-			PaxCount:  1,
-			Status:    table.RequestStatusPending,
-		}
-
-		if err := uc.tableRepo.CreateRequest(ctx, req); err != nil {
-			uc.logger.Error("failed to create initial table request", zap.Error(err))
-			return "⚠️ Tivemos uma instabilidade ao solicitar sua mesa agora. Pode tentar novamente em alguns segundos.", session.StateWelcome, nil
-		}
-
-		return whatsapp.TableRequestPendingMessage(t.Settings.Messages), session.StateWaitingAdminApproval, nil
+		return uc.handleInitialTableRequest(ctx, sess, t)
 	}
 
 	if isWelcomeGreeting(text) {
@@ -657,10 +657,6 @@ func (uc *HandleWhatsAppMessageUseCase) isInitialTableRequestChoice(
 		return false
 	}
 
-	if uc.matchesPublishedBotFlowActionInput(ctx, tenantID, welcomeMenuFlowKey, requestTableActionID, text) {
-		return true
-	}
-
 	switch normalized {
 	case "1", defaultWelcomeMenuAction, "sim", "quero", "solicitar mesa", "quero mesa", "quero uma mesa":
 		return true
@@ -672,6 +668,85 @@ func (uc *HandleWhatsAppMessageUseCase) isInitialTableRequestChoice(
 		strings.Contains(normalized, "quero")
 
 	return hasMesa && hasIntent
+}
+
+func (uc *HandleWhatsAppMessageUseCase) resolvePublishedWelcomeActionID(
+	ctx context.Context,
+	tenantID uuid.UUID,
+	text string,
+) string {
+	normalizedInput := normalizeBotFlowInput(text)
+	if normalizedInput == "" || uc.botConfigRepo == nil {
+		return ""
+	}
+
+	flow := uc.findPublishedBotFlow(ctx, tenantID, welcomeMenuFlowKey)
+	if flow == nil {
+		return ""
+	}
+
+	definition, err := uc.decodeBotFlowDefinition(flow)
+	if err != nil {
+		uc.logger.Warn("failed to decode bot flow definition while resolving welcome action",
+			zap.Error(err),
+			zap.String("tenant_id", tenantID.String()),
+			zap.String("flow_key", flow.Key),
+		)
+		return ""
+	}
+
+	for _, action := range definition.Actions {
+		actionID := strings.TrimSpace(action.ID)
+		if actionID == "" {
+			continue
+		}
+
+		if normalizeBotFlowInput(action.ID) == normalizedInput {
+			return actionID
+		}
+
+		if normalizeBotFlowInput(action.Label) == normalizedInput {
+			return actionID
+		}
+
+		for _, acceptedInput := range action.AcceptedInputs {
+			if normalizeBotFlowInput(acceptedInput) == normalizedInput {
+				return actionID
+			}
+		}
+	}
+
+	return ""
+}
+
+func (uc *HandleWhatsAppMessageUseCase) handleInitialTableRequest(
+	ctx context.Context,
+	sess *session.Session,
+	t *tenant.Tenant,
+) (string, session.ConversationState, error) {
+	existingReq, err := uc.tableRepo.FindPendingRequestByPhone(ctx, sess.UserPhone, sess.TenantID)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to find pending request by phone: %w", err)
+	}
+	if existingReq != nil {
+		return whatsapp.AlreadyInQueueMessage(), session.StateWaitingAdminApproval, nil
+	}
+
+	req := &table.TableRequest{
+		ID:        uuid.New(),
+		TenantID:  sess.TenantID,
+		TableID:   nil,
+		UserPhone: sess.UserPhone,
+		PaxCount:  1,
+		Status:    table.RequestStatusPending,
+	}
+
+	if err := uc.tableRepo.CreateRequest(ctx, req); err != nil {
+		uc.logger.Error("failed to create initial table request", zap.Error(err))
+		return "⚠️ Tivemos uma instabilidade ao solicitar sua mesa agora. Pode tentar novamente em alguns segundos.", session.StateWelcome, nil
+	}
+
+	return whatsapp.TableRequestPendingMessage(t.Settings.Messages), session.StateWaitingAdminApproval, nil
 }
 
 func (uc *HandleWhatsAppMessageUseCase) resolveWelcomeMenuMessage(
@@ -985,7 +1060,20 @@ func (uc *HandleWhatsAppMessageUseCase) buildInteractiveButtons(
 }
 
 func buildDefaultWelcomeButtons() []whatsapp.InteractiveButton {
-	return buildSingleReplyButtons(defaultWelcomeMenuAction, "🙋 Solicitar mesa")
+	return []whatsapp.InteractiveButton{
+		{Type: "reply", Reply: struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+		}{ID: defaultWelcomeMenuAction, Title: "🙋 Solicitar mesa"}},
+		{Type: "reply", Reply: struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+		}{ID: welcomeMenuOrderActionID, Title: "🍽️ Fazer pedido"}},
+		{Type: "reply", Reply: struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+		}{ID: welcomeMenuWaiterActionID, Title: "🧑‍🍳 Chamar garçom"}},
+	}
 }
 
 func (uc *HandleWhatsAppMessageUseCase) shouldSendInteractiveWelcome(

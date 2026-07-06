@@ -24,14 +24,24 @@ export const DEFAULT_BOT_FLOW_DEFINITIONS: Record<string, BotFlowDefinitionPaylo
         channel: 'whatsapp',
         title: 'Boas-vindas',
         presentation: 'reply_buttons',
-        use_welcome_template: true,
-        body: '',
+        use_welcome_template: false,
+        body: '🍽️ Olá! Seja bem-vindo ao *{nome_restaurante}*.\n\nEscolha uma opção para começar:',
         placeholders: [],
         actions: [
             {
                 id: 'request_table',
                 label: 'Solicitar mesa',
-                accepted_inputs: ['1', 'request_table', 'sim', 'quero mesa', 'solicitar mesa'],
+                accepted_inputs: ['1', 'request_table', 'sim', 'quero mesa', 'solicitar mesa', 'mesa'],
+            },
+            {
+                id: 'order_now',
+                label: 'Fazer pedido',
+                accepted_inputs: ['2', 'order_now', 'fazer pedido', 'pedido', 'cardapio', 'cardápio'],
+            },
+            {
+                id: 'call_waiter',
+                label: 'Chamar garçom',
+                accepted_inputs: ['3', 'call_waiter', 'chamar garçom', 'chamar garcom', 'ajuda', 'atendente'],
             },
         ],
         fallback: {

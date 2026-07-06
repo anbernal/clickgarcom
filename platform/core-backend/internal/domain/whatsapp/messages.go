@@ -57,6 +57,8 @@ para que você viva uma experiência única. ✨🍽️
 Posso te ajudar a começar?`
 
 const defaultWelcomeMenu = `*1* - 🙋 Solicitar mesa
+*2* - 🍽️ Fazer pedido
+*3* - 🧑‍🍳 Chamar garçom
 
 _Digite o número da opção_`
 

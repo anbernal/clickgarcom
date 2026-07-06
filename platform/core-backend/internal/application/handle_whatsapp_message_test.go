@@ -71,11 +71,17 @@ func TestHandleWhatsAppMessageFirstContactShowsWelcomeMenu(t *testing.T) {
 	if !strings.Contains(message.Body, "Que bom ter você aqui") {
 		t.Fatalf("expected welcome message, got %q", message.Body)
 	}
-	if len(message.Buttons) != 1 {
-		t.Fatalf("expected 1 welcome button, got %d", len(message.Buttons))
+	if len(message.Buttons) != 3 {
+		t.Fatalf("expected 3 welcome buttons, got %d", len(message.Buttons))
 	}
 	if message.Buttons[0].Reply.ID != defaultWelcomeMenuAction {
 		t.Fatalf("expected welcome button id %q, got %q", defaultWelcomeMenuAction, message.Buttons[0].Reply.ID)
+	}
+	if message.Buttons[1].Reply.ID != welcomeMenuOrderActionID {
+		t.Fatalf("expected second welcome button id %q, got %q", welcomeMenuOrderActionID, message.Buttons[1].Reply.ID)
+	}
+	if message.Buttons[2].Reply.ID != welcomeMenuWaiterActionID {
+		t.Fatalf("expected third welcome button id %q, got %q", welcomeMenuWaiterActionID, message.Buttons[2].Reply.ID)
 	}
 
 	sess, err := sessionRepo.Find(ctx, phone, tenantID.String())
@@ -511,20 +517,30 @@ func TestHandleWhatsAppMessageUsesPublishedWelcomeFlow(t *testing.T) {
 				Channel:  botconfig.ChannelWhatsApp,
 				Status:   botconfig.StatusPublished,
 				Version:  1,
-				Definition: botconfig.Definition{
-					"presentation": "reply_buttons",
-					"body":         "Fluxo customizado para *{nome_restaurante}*.",
-					"actions": []map[string]interface{}{
-						{
-							"id":              requestTableActionID,
-							"label":           "Solicitar mesa",
-							"accepted_inputs": []string{"pedir mesa custom"},
+					Definition: botconfig.Definition{
+						"presentation": "reply_buttons",
+						"body":         "Fluxo customizado para *{nome_restaurante}*.",
+						"actions": []map[string]interface{}{
+							{
+								"id":              requestTableActionID,
+								"label":           "Solicitar mesa",
+								"accepted_inputs": []string{"pedir mesa custom"},
+							},
+							{
+								"id":              welcomeMenuOrderActionID,
+								"label":           "Fazer pedido",
+								"accepted_inputs": []string{"pedido"},
+							},
+							{
+								"id":              welcomeMenuWaiterActionID,
+								"label":           "Chamar garçom",
+								"accepted_inputs": []string{"ajuda"},
+							},
 						},
 					},
 				},
 			},
-		},
-	}
+		}
 
 	uc := NewHandleWhatsAppMessageUseCase(
 		sessionRepo,
@@ -559,11 +575,17 @@ func TestHandleWhatsAppMessageUsesPublishedWelcomeFlow(t *testing.T) {
 	if !strings.Contains(sender.interactiveMessages[0].Body, "Fluxo customizado para *Anderson's Restaurant*") {
 		t.Fatalf("expected custom published flow body, got %q", sender.interactiveMessages[0].Body)
 	}
-	if len(sender.interactiveMessages[0].Buttons) != 1 {
-		t.Fatalf("expected 1 button, got %d", len(sender.interactiveMessages[0].Buttons))
+	if len(sender.interactiveMessages[0].Buttons) != 3 {
+		t.Fatalf("expected 3 buttons, got %d", len(sender.interactiveMessages[0].Buttons))
 	}
 	if sender.interactiveMessages[0].Buttons[0].Reply.ID != requestTableActionID {
 		t.Fatalf("expected button id %q, got %q", requestTableActionID, sender.interactiveMessages[0].Buttons[0].Reply.ID)
+	}
+	if sender.interactiveMessages[0].Buttons[1].Reply.ID != welcomeMenuOrderActionID {
+		t.Fatalf("expected button id %q, got %q", welcomeMenuOrderActionID, sender.interactiveMessages[0].Buttons[1].Reply.ID)
+	}
+	if sender.interactiveMessages[0].Buttons[2].Reply.ID != welcomeMenuWaiterActionID {
+		t.Fatalf("expected button id %q, got %q", welcomeMenuWaiterActionID, sender.interactiveMessages[0].Buttons[2].Reply.ID)
 	}
 }
 
@@ -588,20 +610,30 @@ func TestHandleWhatsAppMessageUsesPublishedWelcomeActionInputs(t *testing.T) {
 				Channel:  botconfig.ChannelWhatsApp,
 				Status:   botconfig.StatusPublished,
 				Version:  1,
-				Definition: botconfig.Definition{
-					"presentation": "reply_buttons",
-					"body":         "Flow custom",
-					"actions": []map[string]interface{}{
-						{
-							"id":              requestTableActionID,
-							"label":           "Solicitar mesa",
-							"accepted_inputs": []string{"pedir mesa custom"},
+					Definition: botconfig.Definition{
+						"presentation": "reply_buttons",
+						"body":         "Flow custom",
+						"actions": []map[string]interface{}{
+							{
+								"id":              requestTableActionID,
+								"label":           "Solicitar mesa",
+								"accepted_inputs": []string{"pedir mesa custom"},
+							},
+							{
+								"id":              welcomeMenuOrderActionID,
+								"label":           "Fazer pedido",
+								"accepted_inputs": []string{"pedido"},
+							},
+							{
+								"id":              welcomeMenuWaiterActionID,
+								"label":           "Chamar garçom",
+								"accepted_inputs": []string{"ajuda"},
+							},
 						},
 					},
 				},
 			},
-		},
-	}
+		}
 
 	uc := NewHandleWhatsAppMessageUseCase(
 		sessionRepo,
@@ -629,6 +661,119 @@ func TestHandleWhatsAppMessageUsesPublishedWelcomeActionInputs(t *testing.T) {
 
 	if got := len(tableRepo.createdRequests); got != 1 {
 		t.Fatalf("expected 1 table request, got %d", got)
+	}
+}
+
+func TestHandleWhatsAppMessageRoutesWelcomeActionsFromPublishedFlow(t *testing.T) {
+	ctx := context.Background()
+	tenantID := uuid.New()
+	phone := "5511977777777"
+
+	cases := []struct {
+		name        string
+		input       string
+		wantMessage  string
+		wantState    session.ConversationState
+	}{
+		{
+			name:       "order now",
+			input:      "pedido",
+			wantMessage: "Ainda não consegui carregar o cardápio",
+			wantState:   session.StateMainMenu,
+		},
+		{
+			name:       "call waiter",
+			input:      "ajuda",
+			wantMessage: "Não consegui iniciar o atendimento",
+			wantState:   session.StateMainMenu,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sessionRepo := newTestSessionRepo()
+			sess := session.NewSession(phone, tenantID)
+			sess.TransitionTo(session.StateWelcome)
+			if err := sessionRepo.Save(ctx, sess); err != nil {
+				t.Fatalf("Save() error = %v", err)
+			}
+
+			sender := &testWhatsAppSender{}
+			botConfigRepo := &testBotConfigRepo{
+				publishedByKey: map[string]*botconfig.FlowDefinition{
+					testBotFlowKey(tenantID, welcomeMenuFlowKey): {
+						ID:       uuid.New(),
+						TenantID: tenantID,
+						Key:      welcomeMenuFlowKey,
+						Channel:  botconfig.ChannelWhatsApp,
+						Status:   botconfig.StatusPublished,
+						Version:  1,
+						Definition: botconfig.Definition{
+							"presentation": "reply_buttons",
+							"body":         "Flow custom",
+							"actions": []map[string]interface{}{
+								{
+									"id":              requestTableActionID,
+									"label":           "Solicitar mesa",
+									"accepted_inputs": []string{"1"},
+								},
+								{
+									"id":              welcomeMenuOrderActionID,
+									"label":           "Fazer pedido",
+									"accepted_inputs": []string{"pedido"},
+								},
+								{
+									"id":              welcomeMenuWaiterActionID,
+									"label":           "Chamar garçom",
+									"accepted_inputs": []string{"ajuda"},
+								},
+							},
+						},
+					},
+				},
+			}
+
+			uc := NewHandleWhatsAppMessageUseCase(
+				sessionRepo,
+				&testTenantRepo{tenant: testTenant(tenantID)},
+				botConfigRepo,
+				nil,
+				nil,
+				nil,
+				nil,
+				nil,
+				nil,
+				sender,
+				"",
+				zap.NewNop(),
+			)
+
+			if err := uc.Execute(ctx, HandleMessageInput{
+				From:     phone,
+				Text:     tc.input,
+				TenantID: tenantID,
+			}); err != nil {
+				t.Fatalf("Execute() error = %v", err)
+			}
+
+			if got := len(sender.textMessages); got != 1 {
+				t.Fatalf("expected 1 plain text message, got %d", got)
+			}
+			if !strings.Contains(sender.textMessages[0], tc.wantMessage) {
+				t.Fatalf("expected %q in response, got %q", tc.wantMessage, sender.textMessages[0])
+			}
+
+			updatedSession, err := sessionRepo.Find(ctx, phone, tenantID.String())
+			if err != nil {
+				t.Fatalf("Find() error = %v", err)
+			}
+			if updatedSession == nil {
+				t.Fatal("expected session to be saved")
+			}
+			if updatedSession.State != tc.wantState {
+				t.Fatalf("expected session state %s, got %s", tc.wantState, updatedSession.State)
+			}
+		})
 	}
 }
 
