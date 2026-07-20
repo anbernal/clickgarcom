@@ -17,6 +17,10 @@ CREATE INDEX IF NOT EXISTS idx_table_requests_tenant_id ON table_requests(tenant
 CREATE INDEX IF NOT EXISTS idx_table_requests_table_id ON table_requests(table_id);
 CREATE INDEX IF NOT EXISTS idx_table_requests_status ON table_requests(status);
 
+-- This column was created by a legacy migration path that is not part of the
+-- cmd/migrate sequence used by the container image.
+ALTER TABLE tables ADD COLUMN IF NOT EXISTS capacity INT DEFAULT 4;
+
 ALTER TABLE table_requests
 ADD COLUMN IF NOT EXISTS approved_by_user_id UUID,
 ADD COLUMN IF NOT EXISTS approved_by_user_name VARCHAR(255);
