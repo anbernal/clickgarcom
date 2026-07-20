@@ -12,7 +12,9 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
-      - clickgarcom-internal
+      clickgarcom-internal:
+        aliases:
+          - clickgarcom-postgres
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
@@ -36,7 +38,9 @@ services:
     volumes:
       - redis_data:/data
     networks:
-      - clickgarcom-internal
+      clickgarcom-internal:
+        aliases:
+          - clickgarcom-redis
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -64,7 +68,9 @@ services:
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
     networks:
-      - clickgarcom-internal
+      clickgarcom-internal:
+        aliases:
+          - clickgarcom-rabbitmq
     healthcheck:
       test: ["CMD-SHELL", "rabbitmq-diagnostics -q ping && rabbitmq-diagnostics -q check_port_listener 5672"]
       interval: 15s
@@ -88,12 +94,12 @@ services:
       - /opt/clickgarcom/.env.production
     environment:
       APP_ENV: docker
-      DATABASE_HOST: postgres
+      DATABASE_HOST: clickgarcom-postgres
       DATABASE_PORT: "5432"
       DATABASE_SSL_MODE: disable
-      REDIS_HOST: redis
+      REDIS_HOST: clickgarcom-redis
       REDIS_PORT: "6379"
-      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_HOST: clickgarcom-rabbitmq
       RABBITMQ_PORT: "5672"
     command: ["/bin/sh", "-c", "sleep 15; ./bin/migrate -direction up"]
     networks:
@@ -115,12 +121,12 @@ services:
       - /opt/clickgarcom/.env.production
     environment:
       APP_ENV: docker
-      DATABASE_HOST: postgres
+      DATABASE_HOST: clickgarcom-postgres
       DATABASE_PORT: "5432"
       DATABASE_SSL_MODE: disable
-      REDIS_HOST: redis
+      REDIS_HOST: clickgarcom-redis
       REDIS_PORT: "6379"
-      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_HOST: clickgarcom-rabbitmq
       RABBITMQ_PORT: "5672"
     command: ["./bin/setup-rabbitmq"]
     networks:
@@ -143,19 +149,19 @@ services:
     environment:
       APP_ENV: docker
       APP_PORT: "8080"
-      DATABASE_HOST: postgres
+      DATABASE_HOST: clickgarcom-postgres
       DATABASE_PORT: "5432"
       DATABASE_SSL_MODE: disable
-      REDIS_HOST: redis
+      REDIS_HOST: clickgarcom-redis
       REDIS_PORT: "6379"
-      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_HOST: clickgarcom-rabbitmq
       RABBITMQ_PORT: "5672"
       PUBLIC_ADMIN_BASE_URL: https://clickgarcom.servicoswebia.com.br
       PUBLIC_WEB_BASE_URL: https://clickgarcom.servicoswebia.com.br
       PUBLIC_WEBHOOK_BASE_URL: https://clickgarcom.servicoswebia.com.br
-      PUBLIC_WEB_INTERNAL_BASE_URL: http://web-admin:3004
-      PUBLIC_ADMIN_INTERNAL_BASE_URL: http://node-admin:3002
-      ADMIN_INTERNAL_BASE_URL: http://node-admin:3002
+      PUBLIC_WEB_INTERNAL_BASE_URL: http://clickgarcom-web-admin:3004
+      PUBLIC_ADMIN_INTERNAL_BASE_URL: http://clickgarcom-node-admin:3002
+      ADMIN_INTERNAL_BASE_URL: http://clickgarcom-node-admin:3002
       NGROK_API_URL: ""
       NGROK_PUBLIC_URL: ""
     networks:
@@ -194,19 +200,19 @@ services:
       - /opt/clickgarcom/.env.production
     environment:
       APP_ENV: docker
-      DATABASE_HOST: postgres
+      DATABASE_HOST: clickgarcom-postgres
       DATABASE_PORT: "5432"
       DATABASE_SSL_MODE: disable
-      REDIS_HOST: redis
+      REDIS_HOST: clickgarcom-redis
       REDIS_PORT: "6379"
-      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_HOST: clickgarcom-rabbitmq
       RABBITMQ_PORT: "5672"
       METRICS_ENABLED: "true"
       METRICS_PORT: "8081"
       PUBLIC_ADMIN_BASE_URL: https://clickgarcom.servicoswebia.com.br
       PUBLIC_WEB_BASE_URL: https://clickgarcom.servicoswebia.com.br
       PUBLIC_WEBHOOK_BASE_URL: https://clickgarcom.servicoswebia.com.br
-      ADMIN_INTERNAL_BASE_URL: http://node-admin:3002
+      ADMIN_INTERNAL_BASE_URL: http://clickgarcom-node-admin:3002
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
       NGROK_API_URL: ""
       NGROK_PUBLIC_URL: ""
@@ -236,12 +242,12 @@ services:
       - /opt/clickgarcom/.env.production
     environment:
       APP_ENV: docker
-      DATABASE_HOST: postgres
+      DATABASE_HOST: clickgarcom-postgres
       DATABASE_PORT: "5432"
       DATABASE_SSL_MODE: disable
-      REDIS_HOST: redis
+      REDIS_HOST: clickgarcom-redis
       REDIS_PORT: "6379"
-      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_HOST: clickgarcom-rabbitmq
       RABBITMQ_PORT: "5672"
       METRICS_ENABLED: "true"
       METRICS_PORT: "8082"
@@ -272,21 +278,23 @@ services:
     environment:
       APP_PORT: "3002"
       ADMIN_WEB_ENABLED: "false"
-      DATABASE_HOST: postgres
+      DATABASE_HOST: clickgarcom-postgres
       DATABASE_PORT: "5432"
       DATABASE_USER: ${POSTGRES_USER}
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
       DATABASE_NAME: ${POSTGRES_DB}
       DEFAULT_TENANT_ID: ${DEFAULT_TENANT_ID}
-      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
-      GO_CORE_BASE_URL: http://go-api:8080
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@clickgarcom-rabbitmq:5672/
+      GO_CORE_BASE_URL: http://clickgarcom-go-api:8080
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
       ADMIN_API_WATCH_MODE: "false"
       NGROK_API_URL: ""
       NGROK_PUBLIC_URL: ""
     networks:
-      - clickgarcom-internal
-      - easypanel
+      clickgarcom-internal:
+        aliases:
+          - clickgarcom-node-admin
+      easypanel: {}
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3002/admin/api/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
       interval: 15s
@@ -319,14 +327,16 @@ services:
     environment:
       PORT: "3004"
       ADMIN_WEB_BASE_PATH: ""
-      ADMIN_API_PROXY_TARGET: http://node-admin:3002
+      ADMIN_API_PROXY_TARGET: http://clickgarcom-node-admin:3002
       ADMIN_API_BASE_URL: https://clickgarcom.servicoswebia.com.br/admin/api
       ADMIN_PUBLIC_API_BASE_URL: https://clickgarcom.servicoswebia.com.br/admin/api/public/tables
       KDS_WS_URL: wss://clickgarcom.servicoswebia.com.br/ws/kds
       ADMIN_WEB_DISABLE_TEXT_ASSET_CACHE: "true"
     networks:
-      - clickgarcom-internal
-      - easypanel
+      clickgarcom-internal:
+        aliases:
+          - clickgarcom-web-admin
+      easypanel: {}
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3004/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
       interval: 15s
@@ -360,7 +370,7 @@ services:
       - /opt/clickgarcom/.env.production
     environment:
       APP_PORT: "3005"
-      DATABASE_HOST: postgres
+      DATABASE_HOST: clickgarcom-postgres
       DATABASE_PORT: "5432"
       DATABASE_USER: ${POSTGRES_USER}
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
@@ -370,7 +380,7 @@ services:
       SUPER_ADMIN_AUTH_PASSWORD: ${SUPER_ADMIN_AUTH_PASSWORD}
       SUPER_ADMIN_SESSION_SECRET: ${SUPER_ADMIN_SESSION_SECRET}
       SUPER_ADMIN_SESSION_TTL_HOURS: "12"
-      RABBITMQ_MANAGEMENT_URL: http://rabbitmq:15672/api
+      RABBITMQ_MANAGEMENT_URL: http://clickgarcom-rabbitmq:15672/api
       RABBITMQ_USER: ${RABBITMQ_USER}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
       RABBITMQ_VHOST: ${RABBITMQ_VHOST}
@@ -378,8 +388,10 @@ services:
       NGROK_API_URL: ""
       NGROK_PUBLIC_URL: ""
     networks:
-      - clickgarcom-internal
-      - easypanel
+      clickgarcom-internal:
+        aliases:
+          - clickgarcom-super-admin-api
+      easypanel: {}
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3005/admin/api/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
       interval: 15s
@@ -414,12 +426,14 @@ services:
     environment:
       PORT: "3003"
       SUPER_ADMIN_WEB_BASE_PATH: /super-admin
-      SUPER_ADMIN_API_BASE_URL: http://super-admin-api:3005/admin/api/super-admin
+      SUPER_ADMIN_API_BASE_URL: http://clickgarcom-super-admin-api:3005/admin/api/super-admin
       SUPER_ADMIN_BROWSER_API_BASE_URL: /super-admin/admin/api/super-admin
       SUPER_ADMIN_WEB_DISABLE_TEXT_ASSET_CACHE: "true"
     networks:
-      - clickgarcom-internal
-      - easypanel
+      clickgarcom-internal:
+        aliases:
+          - clickgarcom-super-admin
+      easypanel: {}
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3003/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
       interval: 15s
