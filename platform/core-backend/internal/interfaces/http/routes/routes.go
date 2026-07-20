@@ -77,6 +77,9 @@ func SetupRoutes(
 		internalToken = "clickgarcom-internal-token"
 	}
 
+	// Tenant-scoped routes must derive scope from the authenticated JWT.
+	jwtAuth := middleware.JWTAuth(authService)
+
 	registerPublicCheckoutProxyRoutes(app, logger)
 
 	// Auth routes
@@ -95,7 +98,7 @@ func SetupRoutes(
 	}
 
 	// Payments routes
-	payments := app.Group("/payments")
+	payments := app.Group("/payments", jwtAuth, middleware.TenantScope)
 	{
 		payments.Post("/pix", paymentHandler.CreatePixPayment)
 		payments.Post("/card", paymentHandler.CreateCardPayment)
@@ -104,7 +107,7 @@ func SetupRoutes(
 	}
 
 	// Wallet routes (Phase 13)
-	wallet := app.Group("/wallet")
+	wallet := app.Group("/wallet", jwtAuth, middleware.TenantScope)
 	{
 		wallet.Get("/balance", paymentHandler.GetWalletBalance)
 	}
@@ -114,6 +117,9 @@ func SetupRoutes(
 
 	// Meta API Testing route (Super Admin)
 	app.Post("/admin/test-whatsapp", func(c *fiber.Ctx) error {
+		if strings.TrimSpace(c.Get("X-Internal-Token")) != internalToken {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid internal token"})
+		}
 		var req struct {
 			Phone string `json:"phone"`
 		}
@@ -133,6 +139,9 @@ func SetupRoutes(
 
 	// Debug route to clear WhatsApp sessions
 	app.Post("/admin/api/debug/clear-sessions", func(c *fiber.Ctx) error {
+		if strings.TrimSpace(c.Get("X-Internal-Token")) != internalToken {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid internal token"})
+		}
 		ctx := c.Context()
 		iter := redisClient.Client.Scan(ctx, 0, "session:*", 0).Iterator()
 		count := 0
@@ -263,7 +272,7 @@ func SetupRoutes(
 
 	// ─── Fase 16: Customizable Message Templates ───
 
-	app.Get("/api/tenants/:id/messages", func(c *fiber.Ctx) error {
+	app.Get("/api/tenants/:id/messages", jwtAuth, middleware.TenantParamScope("id"), func(c *fiber.Ctx) error {
 		tenantID, err := uuid.Parse(c.Params("id"))
 		if err != nil {
 			return c.Status(400).JSON(fiber.Map{"error": "invalid tenant id"})
@@ -326,7 +335,7 @@ func SetupRoutes(
 		})
 	})
 
-	app.Put("/api/tenants/:id/messages", func(c *fiber.Ctx) error {
+	app.Put("/api/tenants/:id/messages", jwtAuth, middleware.TenantParamScope("id"), func(c *fiber.Ctx) error {
 		tenantID, err := uuid.Parse(c.Params("id"))
 		if err != nil {
 			return c.Status(400).JSON(fiber.Map{"error": "invalid tenant id"})
@@ -360,11 +369,8 @@ func SetupRoutes(
 	receiptHandler := handlers.NewReceiptHandler(db.DB, logger)
 	app.Get("/api/receipt/:tabId/image.png", receiptHandler.GetReceiptImage)
 
-	// Middleware JWT
-	jwtAuth := middleware.JWTAuth(authService)
-
 	// Order routes (Protected)
-	orders := app.Group("/orders", jwtAuth)
+	orders := app.Group("/orders", jwtAuth, middleware.TenantScope)
 	{
 		orders.Get("/", listOrdersHandler.ListOrders)
 		orders.Patch("/:id/status", orderHandler.UpdateOrderStatus)
@@ -375,7 +381,7 @@ func SetupRoutes(
 	wsHandler := handlers.NewWebSocketHandler(wsHub, logger)
 	{
 		// Upgrade middleware para WebSocket com validação JWT
-		ws.Use("/kds", jwtAuth, func(c *fiber.Ctx) error {
+		ws.Use("/kds", jwtAuth, middleware.TenantScope, func(c *fiber.Ctx) error {
 			if fiberws.IsWebSocketUpgrade(c) {
 				return c.Next()
 			}

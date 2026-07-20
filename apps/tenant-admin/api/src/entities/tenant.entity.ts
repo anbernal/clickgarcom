@@ -47,7 +47,7 @@ export class Tenant {
     @Column({ name: 'whatsapp_number', type: 'varchar', length: 20, unique: true })
     whatsappNumber: string;
 
-    @Column({ name: 'waba_id', type: 'varchar', length: 255, nullable: true })
+    @Column({ name: 'waba_id', type: 'varchar', length: 255, nullable: true, unique: true })
     wabaId: string | null;
 
     @Column({ name: 'meta_token', type: 'text', nullable: true })

@@ -827,16 +827,9 @@ func mapProviderStatusToAttemptStatus(status string) payment.AttemptStatus {
 
 // extractTenantID is a helper to get the tenant ID from context or headers
 func extractTenantID(c *fiber.Ctx) (uuid.UUID, error) {
-	headerVal := c.Get("X-Tenant-Id")
-	if headerVal != "" {
-		if u, err := uuid.Parse(headerVal); err == nil {
-			return u, nil
-		}
-	}
-
 	val := c.Locals("tenantID")
 	if val == nil {
-		return uuid.Nil, fmt.Errorf("missing tenantID from headers or locals")
+		val = c.Locals("tenant_id")
 	}
 	if str, ok := val.(string); ok {
 		return uuid.Parse(str)

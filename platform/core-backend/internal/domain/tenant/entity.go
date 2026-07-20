@@ -14,7 +14,7 @@ type Tenant struct {
 	Name           string         `json:"name" gorm:"not null"`
 	Slug           string         `json:"slug" gorm:"uniqueIndex;not null"`
 	WhatsAppNumber string         `json:"whatsapp_number" gorm:"uniqueIndex;not null"`
-	WabaID         string         `json:"waba_id" gorm:"column:waba_id"`                           // WhatsApp Business Account Phone ID
+	WabaID         string         `json:"waba_id" gorm:"column:waba_id;uniqueIndex"`               // WhatsApp Business Account Phone ID
 	MetaToken      string         `json:"meta_token" gorm:"column:meta_token"`                     // Cloud API Bearer Token
 	WalletBalance  float64        `json:"wallet_balance" gorm:"type:numeric(10,2);default:0.00"`   // FASE 13
 	BillingPlan    string         `json:"billing_plan" gorm:"type:varchar(20);default:'pre_paid'"` // FASE 13
