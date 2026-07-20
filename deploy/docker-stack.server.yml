@@ -1,0 +1,463 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    env_file:
+      - /opt/clickgarcom/.env.production
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - clickgarcom-internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: "1.50"
+          memory: 1536M
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    networks:
+      - clickgarcom-internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 256M
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    env_file:
+      - /opt/clickgarcom/.env.production
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - clickgarcom-internal
+    healthcheck:
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q ping && rabbitmq-diagnostics -q check_port_listener 5672"]
+      interval: 15s
+      timeout: 30s
+      retries: 12
+      start_period: 60s
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 768M
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+
+  go-migrate:
+    image: clickgarcom-core:${CLICKGARCOM_IMAGE_TAG}
+    env_file:
+      - /opt/clickgarcom/.env.production
+    environment:
+      APP_ENV: docker
+      DATABASE_HOST: postgres
+      DATABASE_PORT: "5432"
+      DATABASE_SSL_MODE: disable
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+    command: ["/bin/sh", "-c", "sleep 15; ./bin/migrate -direction up"]
+    networks:
+      - clickgarcom-internal
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 10
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 512M
+
+  go-setup-rabbitmq:
+    image: clickgarcom-core:${CLICKGARCOM_IMAGE_TAG}
+    env_file:
+      - /opt/clickgarcom/.env.production
+    environment:
+      APP_ENV: docker
+      DATABASE_HOST: postgres
+      DATABASE_PORT: "5432"
+      DATABASE_SSL_MODE: disable
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+    command: ["./bin/setup-rabbitmq"]
+    networks:
+      - clickgarcom-internal
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 10
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 512M
+
+  go-api:
+    image: clickgarcom-core:${CLICKGARCOM_IMAGE_TAG}
+    env_file:
+      - /opt/clickgarcom/.env.production
+    environment:
+      APP_ENV: docker
+      APP_PORT: "8080"
+      DATABASE_HOST: postgres
+      DATABASE_PORT: "5432"
+      DATABASE_SSL_MODE: disable
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      PUBLIC_ADMIN_BASE_URL: https://clickgarcom.servicoswebia.com.br
+      PUBLIC_WEB_BASE_URL: https://clickgarcom.servicoswebia.com.br
+      PUBLIC_WEBHOOK_BASE_URL: https://clickgarcom.servicoswebia.com.br
+      PUBLIC_WEB_INTERNAL_BASE_URL: http://web-admin:3004
+      PUBLIC_ADMIN_INTERNAL_BASE_URL: http://node-admin:3002
+      ADMIN_INTERNAL_BASE_URL: http://node-admin:3002
+      NGROK_API_URL: ""
+      NGROK_PUBLIC_URL: ""
+    networks:
+      - clickgarcom-internal
+      - easypanel
+    healthcheck:
+      test: ["CMD", "/app/bin/healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 30s
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 768M
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 10
+      labels:
+        - "traefik.enable=true"
+        - "traefik.docker.network=easypanel"
+        - "traefik.http.routers.clickgarcom-go.rule=Host(`clickgarcom.servicoswebia.com.br`) && (PathPrefix(`/webhooks`) || PathPrefix(`/ws`) || PathPrefix(`/menu`) || PathPrefix(`/auth`) || PathPrefix(`/payments`) || PathPrefix(`/wallet`) || PathPrefix(`/api/receipt`) || PathPrefix(`/health`) || Path(`/`))"
+        - "traefik.http.routers.clickgarcom-go.entrypoints=https"
+        - "traefik.http.routers.clickgarcom-go.tls=true"
+        - "traefik.http.routers.clickgarcom-go.tls.certresolver=letsencrypt"
+        - "traefik.http.routers.clickgarcom-go.priority=130"
+        - "traefik.http.routers.clickgarcom-go.service=clickgarcom-go"
+        - "traefik.http.services.clickgarcom-go.loadbalancer.server.port=8080"
+
+  go-worker:
+    image: clickgarcom-core:${CLICKGARCOM_IMAGE_TAG}
+    env_file:
+      - /opt/clickgarcom/.env.production
+    environment:
+      APP_ENV: docker
+      DATABASE_HOST: postgres
+      DATABASE_PORT: "5432"
+      DATABASE_SSL_MODE: disable
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      METRICS_ENABLED: "true"
+      METRICS_PORT: "8081"
+      PUBLIC_ADMIN_BASE_URL: https://clickgarcom.servicoswebia.com.br
+      PUBLIC_WEB_BASE_URL: https://clickgarcom.servicoswebia.com.br
+      PUBLIC_WEBHOOK_BASE_URL: https://clickgarcom.servicoswebia.com.br
+      ADMIN_INTERNAL_BASE_URL: http://node-admin:3002
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
+      NGROK_API_URL: ""
+      NGROK_PUBLIC_URL: ""
+    command: ["./bin/worker"]
+    networks:
+      - clickgarcom-internal
+    healthcheck:
+      test: ["CMD-SHELL", "HEALTHCHECK_URL=http://127.0.0.1:8081/health /app/bin/healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 30s
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 768M
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 10
+
+  go-outbox:
+    image: clickgarcom-core:${CLICKGARCOM_IMAGE_TAG}
+    env_file:
+      - /opt/clickgarcom/.env.production
+    environment:
+      APP_ENV: docker
+      DATABASE_HOST: postgres
+      DATABASE_PORT: "5432"
+      DATABASE_SSL_MODE: disable
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      METRICS_ENABLED: "true"
+      METRICS_PORT: "8082"
+    command: ["./bin/outbox-worker"]
+    networks:
+      - clickgarcom-internal
+    healthcheck:
+      test: ["CMD-SHELL", "HEALTHCHECK_URL=http://127.0.0.1:8082/health /app/bin/healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 30s
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: "0.75"
+          memory: 512M
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 10
+
+  node-admin:
+    image: clickgarcom-admin:${CLICKGARCOM_IMAGE_TAG}
+    env_file:
+      - /opt/clickgarcom/.env.production
+    environment:
+      APP_PORT: "3002"
+      ADMIN_WEB_ENABLED: "false"
+      DATABASE_HOST: postgres
+      DATABASE_PORT: "5432"
+      DATABASE_USER: ${POSTGRES_USER}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+      DATABASE_NAME: ${POSTGRES_DB}
+      DEFAULT_TENANT_ID: ${DEFAULT_TENANT_ID}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+      GO_CORE_BASE_URL: http://go-api:8080
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
+      ADMIN_API_WATCH_MODE: "false"
+      NGROK_API_URL: ""
+      NGROK_PUBLIC_URL: ""
+    networks:
+      - clickgarcom-internal
+      - easypanel
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3002/admin/api/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 30s
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 768M
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 10
+      labels:
+        - "traefik.enable=true"
+        - "traefik.docker.network=easypanel"
+        - "traefik.http.routers.clickgarcom-admin.rule=Host(`clickgarcom.servicoswebia.com.br`) && PathPrefix(`/admin/api`)"
+        - "traefik.http.routers.clickgarcom-admin.entrypoints=https"
+        - "traefik.http.routers.clickgarcom-admin.tls=true"
+        - "traefik.http.routers.clickgarcom-admin.tls.certresolver=letsencrypt"
+        - "traefik.http.routers.clickgarcom-admin.priority=120"
+        - "traefik.http.routers.clickgarcom-admin.service=clickgarcom-admin"
+        - "traefik.http.services.clickgarcom-admin.loadbalancer.server.port=3002"
+
+  web-admin:
+    image: clickgarcom-web:${CLICKGARCOM_IMAGE_TAG}
+    environment:
+      PORT: "3004"
+      ADMIN_WEB_BASE_PATH: ""
+      ADMIN_API_PROXY_TARGET: http://node-admin:3002
+      ADMIN_API_BASE_URL: https://clickgarcom.servicoswebia.com.br/admin/api
+      ADMIN_PUBLIC_API_BASE_URL: https://clickgarcom.servicoswebia.com.br/admin/api/public/tables
+      KDS_WS_URL: wss://clickgarcom.servicoswebia.com.br/ws/kds
+      ADMIN_WEB_DISABLE_TEXT_ASSET_CACHE: "true"
+    networks:
+      - clickgarcom-internal
+      - easypanel
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3004/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 20s
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 256M
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 10
+      labels:
+        - "traefik.enable=true"
+        - "traefik.docker.network=easypanel"
+        - "traefik.http.routers.clickgarcom-web.rule=Host(`clickgarcom.servicoswebia.com.br`)"
+        - "traefik.http.routers.clickgarcom-web.entrypoints=https"
+        - "traefik.http.routers.clickgarcom-web.tls=true"
+        - "traefik.http.routers.clickgarcom-web.tls.certresolver=letsencrypt"
+        - "traefik.http.routers.clickgarcom-web.priority=1"
+        - "traefik.http.routers.clickgarcom-web.service=clickgarcom-web"
+        - "traefik.http.services.clickgarcom-web.loadbalancer.server.port=3004"
+
+  super-admin-api:
+    image: clickgarcom-super-admin-api:${CLICKGARCOM_IMAGE_TAG}
+    env_file:
+      - /opt/clickgarcom/.env.production
+    environment:
+      APP_PORT: "3005"
+      DATABASE_HOST: postgres
+      DATABASE_PORT: "5432"
+      DATABASE_USER: ${POSTGRES_USER}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+      DATABASE_NAME: ${POSTGRES_DB}
+      PUBLIC_WEBHOOK_BASE_URL: https://clickgarcom.servicoswebia.com.br
+      SUPER_ADMIN_KEY: ${SUPER_ADMIN_KEY}
+      SUPER_ADMIN_AUTH_PASSWORD: ${SUPER_ADMIN_AUTH_PASSWORD}
+      SUPER_ADMIN_SESSION_SECRET: ${SUPER_ADMIN_SESSION_SECRET}
+      SUPER_ADMIN_SESSION_TTL_HOURS: "12"
+      RABBITMQ_MANAGEMENT_URL: http://rabbitmq:15672/api
+      RABBITMQ_USER: ${RABBITMQ_USER}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST}
+      SUPER_ADMIN_API_WATCH_MODE: "false"
+      NGROK_API_URL: ""
+      NGROK_PUBLIC_URL: ""
+    networks:
+      - clickgarcom-internal
+      - easypanel
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3005/admin/api/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 30s
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: "0.75"
+          memory: 768M
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 10
+      labels:
+        - "traefik.enable=true"
+        - "traefik.docker.network=easypanel"
+        - "traefik.http.middlewares.clickgarcom-super-strip.stripprefix.prefixes=/super-admin"
+        - "traefik.http.routers.clickgarcom-super-api.rule=Host(`clickgarcom.servicoswebia.com.br`) && PathPrefix(`/super-admin/admin/api`)"
+        - "traefik.http.routers.clickgarcom-super-api.entrypoints=https"
+        - "traefik.http.routers.clickgarcom-super-api.tls=true"
+        - "traefik.http.routers.clickgarcom-super-api.tls.certresolver=letsencrypt"
+        - "traefik.http.routers.clickgarcom-super-api.priority=120"
+        - "traefik.http.routers.clickgarcom-super-api.middlewares=clickgarcom-super-strip"
+        - "traefik.http.routers.clickgarcom-super-api.service=clickgarcom-super-api"
+        - "traefik.http.services.clickgarcom-super-api.loadbalancer.server.port=3005"
+
+  super-admin:
+    image: clickgarcom-super-admin-web:${CLICKGARCOM_IMAGE_TAG}
+    environment:
+      PORT: "3003"
+      SUPER_ADMIN_WEB_BASE_PATH: /super-admin
+      SUPER_ADMIN_API_BASE_URL: http://super-admin-api:3005/admin/api/super-admin
+      SUPER_ADMIN_BROWSER_API_BASE_URL: /super-admin/admin/api/super-admin
+      SUPER_ADMIN_WEB_DISABLE_TEXT_ASSET_CACHE: "true"
+    networks:
+      - clickgarcom-internal
+      - easypanel
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3003/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 20s
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 256M
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 10
+      labels:
+        - "traefik.enable=true"
+        - "traefik.docker.network=easypanel"
+        - "traefik.http.middlewares.clickgarcom-super-web-strip.stripprefix.prefixes=/super-admin"
+        - "traefik.http.routers.clickgarcom-super-web.rule=Host(`clickgarcom.servicoswebia.com.br`) && PathPrefix(`/super-admin`)"
+        - "traefik.http.routers.clickgarcom-super-web.entrypoints=https"
+        - "traefik.http.routers.clickgarcom-super-web.tls=true"
+        - "traefik.http.routers.clickgarcom-super-web.tls.certresolver=letsencrypt"
+        - "traefik.http.routers.clickgarcom-super-web.priority=110"
+        - "traefik.http.routers.clickgarcom-super-web.middlewares=clickgarcom-super-web-strip"
+        - "traefik.http.routers.clickgarcom-super-web.service=clickgarcom-super-web"
+        - "traefik.http.services.clickgarcom-super-web.loadbalancer.server.port=3003"
+
+volumes:
+  postgres_data:
+  redis_data:
+  rabbitmq_data:
+
+networks:
+  clickgarcom-internal:
+    driver: overlay
+    attachable: true
+    internal: true
+  easypanel:
+    external: true
