@@ -164,6 +164,16 @@ services:
       ADMIN_INTERNAL_BASE_URL: http://clickgarcom-node-admin:3002
       NGROK_API_URL: ""
       NGROK_PUBLIC_URL: ""
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=easypanel"
+      - "traefik.http.routers.clickgarcom-go.rule=Host(`clickgarcom.servicoswebia.com.br`) && (PathPrefix(`/webhooks`) || PathPrefix(`/ws`) || PathPrefix(`/menu`) || PathPrefix(`/auth`) || PathPrefix(`/payments`) || PathPrefix(`/wallet`) || PathPrefix(`/api/receipt`) || PathPrefix(`/health`) || Path(`/`))"
+      - "traefik.http.routers.clickgarcom-go.entrypoints=https"
+      - "traefik.http.routers.clickgarcom-go.tls=true"
+      - "traefik.http.routers.clickgarcom-go.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.clickgarcom-go.priority=130"
+      - "traefik.http.routers.clickgarcom-go.service=clickgarcom-go"
+      - "traefik.http.services.clickgarcom-go.loadbalancer.server.port=8080"
     networks:
       - clickgarcom-internal
       - easypanel
@@ -290,6 +300,16 @@ services:
       ADMIN_API_WATCH_MODE: "false"
       NGROK_API_URL: ""
       NGROK_PUBLIC_URL: ""
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=easypanel"
+      - "traefik.http.routers.clickgarcom-admin.rule=Host(`clickgarcom.servicoswebia.com.br`) && PathPrefix(`/admin/api`)"
+      - "traefik.http.routers.clickgarcom-admin.entrypoints=https"
+      - "traefik.http.routers.clickgarcom-admin.tls=true"
+      - "traefik.http.routers.clickgarcom-admin.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.clickgarcom-admin.priority=120"
+      - "traefik.http.routers.clickgarcom-admin.service=clickgarcom-admin"
+      - "traefik.http.services.clickgarcom-admin.loadbalancer.server.port=3002"
     networks:
       clickgarcom-internal:
         aliases:
@@ -332,6 +352,16 @@ services:
       ADMIN_PUBLIC_API_BASE_URL: https://clickgarcom.servicoswebia.com.br/admin/api/public/tables
       KDS_WS_URL: wss://clickgarcom.servicoswebia.com.br/ws/kds
       ADMIN_WEB_DISABLE_TEXT_ASSET_CACHE: "true"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=easypanel"
+      - "traefik.http.routers.clickgarcom-web.rule=Host(`clickgarcom.servicoswebia.com.br`)"
+      - "traefik.http.routers.clickgarcom-web.entrypoints=https"
+      - "traefik.http.routers.clickgarcom-web.tls=true"
+      - "traefik.http.routers.clickgarcom-web.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.clickgarcom-web.priority=1"
+      - "traefik.http.routers.clickgarcom-web.service=clickgarcom-web"
+      - "traefik.http.services.clickgarcom-web.loadbalancer.server.port=3004"
     networks:
       clickgarcom-internal:
         aliases:
@@ -387,6 +417,18 @@ services:
       SUPER_ADMIN_API_WATCH_MODE: "false"
       NGROK_API_URL: ""
       NGROK_PUBLIC_URL: ""
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=easypanel"
+      - "traefik.http.middlewares.clickgarcom-super-strip.stripprefix.prefixes=/super-admin"
+      - "traefik.http.routers.clickgarcom-super-api.rule=Host(`clickgarcom.servicoswebia.com.br`) && PathPrefix(`/super-admin/admin/api`)"
+      - "traefik.http.routers.clickgarcom-super-api.entrypoints=https"
+      - "traefik.http.routers.clickgarcom-super-api.tls=true"
+      - "traefik.http.routers.clickgarcom-super-api.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.clickgarcom-super-api.priority=120"
+      - "traefik.http.routers.clickgarcom-super-api.middlewares=clickgarcom-super-strip"
+      - "traefik.http.routers.clickgarcom-super-api.service=clickgarcom-super-api"
+      - "traefik.http.services.clickgarcom-super-api.loadbalancer.server.port=3005"
     networks:
       clickgarcom-internal:
         aliases:
@@ -429,6 +471,18 @@ services:
       SUPER_ADMIN_API_BASE_URL: http://clickgarcom-super-admin-api:3005/admin/api/super-admin
       SUPER_ADMIN_BROWSER_API_BASE_URL: /super-admin/admin/api/super-admin
       SUPER_ADMIN_WEB_DISABLE_TEXT_ASSET_CACHE: "true"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=easypanel"
+      - "traefik.http.middlewares.clickgarcom-super-web-strip.stripprefix.prefixes=/super-admin"
+      - "traefik.http.routers.clickgarcom-super-web.rule=Host(`clickgarcom.servicoswebia.com.br`) && PathPrefix(`/super-admin`)"
+      - "traefik.http.routers.clickgarcom-super-web.entrypoints=https"
+      - "traefik.http.routers.clickgarcom-super-web.tls=true"
+      - "traefik.http.routers.clickgarcom-super-web.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.clickgarcom-super-web.priority=110"
+      - "traefik.http.routers.clickgarcom-super-web.middlewares=clickgarcom-super-web-strip"
+      - "traefik.http.routers.clickgarcom-super-web.service=clickgarcom-super-web"
+      - "traefik.http.services.clickgarcom-super-web.loadbalancer.server.port=3003"
     networks:
       clickgarcom-internal:
         aliases:
