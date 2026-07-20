@@ -359,7 +359,7 @@ services:
       - "traefik.http.routers.clickgarcom-web.entrypoints=https"
       - "traefik.http.routers.clickgarcom-web.tls=true"
       - "traefik.http.routers.clickgarcom-web.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.clickgarcom-web.priority=1"
+      - "traefik.http.routers.clickgarcom-web.priority=100"
       - "traefik.http.routers.clickgarcom-web.service=clickgarcom-web"
       - "traefik.http.services.clickgarcom-web.loadbalancer.server.port=3004"
     networks:
@@ -390,7 +390,7 @@ services:
         - "traefik.http.routers.clickgarcom-web.entrypoints=https"
         - "traefik.http.routers.clickgarcom-web.tls=true"
         - "traefik.http.routers.clickgarcom-web.tls.certresolver=letsencrypt"
-        - "traefik.http.routers.clickgarcom-web.priority=1"
+        - "traefik.http.routers.clickgarcom-web.priority=100"
         - "traefik.http.routers.clickgarcom-web.service=clickgarcom-web"
         - "traefik.http.services.clickgarcom-web.loadbalancer.server.port=3004"
 
