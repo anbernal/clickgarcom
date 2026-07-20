@@ -66,7 +66,7 @@ var orderingPreviewDelay = 1200 * time.Millisecond
 type checkoutAccessClaims struct {
 	Scope      string `json:"scope"`
 	TabID      string `json:"tab_id"`
-	OwnerPhone string `json:"owner_phone"`
+	OwnerPhone string `json:"owner_phone,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -290,11 +290,18 @@ func (uc *HandleWhatsAppMessageUseCase) getOrCreateTab(
 
 	// Criar nova tab
 	newTab := &tab.Tab{
-		ID:        uuid.New(),
-		TenantID:  sess.TenantID,
-		TableID:   sess.TableID,
-		UserPhone: sess.UserPhone,
-		Status:    tab.StatusOpen,
+		ID:          uuid.New(),
+		TenantID:    sess.TenantID,
+		TableID:     sess.TableID,
+		UserPhone:   sess.UserPhone,
+		ServiceMode: "COM_MESA",
+		Status:      tab.StatusOpen,
+	}
+	newTab.PublicCode = tab.BuildPublicCode(newTab.ID)
+	if tenantObj, tenantErr := uc.tenantRepo.FindByID(ctx, sess.TenantID); tenantErr == nil && tenantObj != nil {
+		if strings.EqualFold(strings.TrimSpace(tenantObj.Settings.ServiceMode), "SEM_MESA") {
+			newTab.ServiceMode = "SEM_MESA"
+		}
 	}
 
 	if err := uc.tabRepo.Create(ctx, newTab); err != nil {
@@ -2384,7 +2391,8 @@ func (uc *HandleWhatsAppMessageUseCase) handleClosingTab(
 				session.StateMainMenu, nil
 		}
 
-		accessToken, ttl, err := buildCheckoutAccessToken(userTab.ID.String(), userTab.UserPhone)
+		// A comanda owns the checkout credential; WhatsApp phone is only a contact channel.
+		accessToken, ttl, err := buildCheckoutAccessToken(userTab.ID.String(), "")
 		if err != nil {
 			uc.logger.Error("failed to sign checkout access token",
 				zap.Error(err),
@@ -3427,9 +3435,6 @@ func buildCheckoutAccessToken(tabID string, ownerPhone string) (string, time.Dur
 		return "", 0, fmt.Errorf("empty tab id")
 	}
 	ownerPhone = normalizePhoneDigits(ownerPhone)
-	if ownerPhone == "" {
-		return "", 0, fmt.Errorf("empty owner phone")
-	}
 
 	ttl := resolveCheckoutAccessTTL()
 	now := time.Now()

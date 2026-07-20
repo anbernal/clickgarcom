@@ -45,6 +45,7 @@ type MessageTemplates struct {
 	InvalidOption    string `json:"msg_invalid_option,omitempty"`
 	OrderConfirmed   string `json:"msg_order_confirmed,omitempty"`
 	OrderReady       string `json:"msg_order_ready,omitempty"`
+	OrderDelivered   string `json:"msg_order_delivered,omitempty"`
 	TabSummary       string `json:"msg_tab_summary,omitempty"`
 	ServiceRequest   string `json:"msg_service_request,omitempty"`
 	PaymentPending   string `json:"msg_payment_pending,omitempty"`
@@ -52,6 +53,7 @@ type MessageTemplates struct {
 }
 
 type TenantSettings struct {
+	ServiceMode       string           `json:"service_mode"`
 	ServiceFeePercent float64          `json:"service_fee_percent"`
 	SplitEnabled      bool             `json:"split_enabled"`
 	AutoAcceptOrders  bool             `json:"auto_accept_orders"`

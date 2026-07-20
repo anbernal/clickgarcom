@@ -11,6 +11,7 @@ const pages = {
     cardapio: { title: 'Cardápio', sub: 'Gerencie os itens do seu menu', loader: loadCardapio },
     categorias: { title: 'Categorias', sub: 'Organize o cardápio em categorias', loader: loadCategorias },
     mesas: { title: 'Mesas & Comandas', sub: 'Gerencie as mesas e comandas do restaurante', loader: loadMesas },
+    consultaComanda: { title: 'Consultar Comanda', sub: 'Leia o QR Code ou informe o código da comanda', loader: loadConsultaComanda },
     pagamentos: { title: 'Pagamentos & Conciliação', sub: 'Acompanhe pagamentos, divergências e baixas operacionais', loader: loadPagamentos },
     compras: { title: 'Compras & Fornecedores', sub: 'Lançamento de notas e histórico de compras', loader: loadComprasPage },
     vendas: { title: 'Vendas', sub: 'Relatório completo de vendas', loader: loadVendas },
@@ -122,6 +123,10 @@ function navigate(pageId, options = {}) {
 
     const page = pages[authorizedPageId];
     if (!page) return;
+
+    if (authorizedPageId !== 'consultaComanda' && typeof window.stopConsultaScanner === 'function') {
+        window.stopConsultaScanner().catch(() => {});
+    }
 
     // Update pages
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
@@ -308,6 +313,13 @@ window.confirmAndToggleExpediente = function() {
             <p style="font-size: 15px; color: var(--text); line-height: 1.5; margin-bottom: 10px;">
                 ${message}
             </p>
+            ${nextState ? `
+                <label for="expediente-service-mode" style="display:block; font-size:13px; font-weight:700; margin-top:16px; margin-bottom:7px;">Modo de atendimento desta abertura</label>
+                <select id="expediente-service-mode" style="width:100%; padding:10px; border:1px solid var(--border); border-radius:9px;">
+                    <option value="COM_MESA" ${getCurrentUser()?.service_mode !== 'SEM_MESA' ? 'selected' : ''}>Com mesa obrigatória</option>
+                    <option value="SEM_MESA" ${getCurrentUser()?.service_mode === 'SEM_MESA' ? 'selected' : ''}>Pedido sem mesa</option>
+                </select>
+            ` : ''}
         </div>
         <div class="modal-footer">
             <button class="btn-sm btn-outline" onclick="closeModal()">Cancelar</button>
@@ -326,7 +338,10 @@ window.executeToggleExpediente = async function(nextState) {
     }
 
     try {
-        const res = await api.patch('/auth/status', { is_open: nextState });
+        const payload = { is_open: nextState };
+        if (nextState) payload.service_mode = document.getElementById('expediente-service-mode')?.value || 'COM_MESA';
+        const res = await api.patch('/auth/status', payload);
+        setAuthSessionUser({ service_mode: res.service_mode || payload.service_mode || 'COM_MESA' });
         setExpedienteButtonState(!!res.is_open, res.opened_at, res.opened_by);
         
         if (typeof window.updateDashboardExpediente === 'function') {

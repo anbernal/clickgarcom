@@ -10,6 +10,7 @@ export interface MessageTemplates {
     msg_invalid_option?: string;
     msg_order_confirmed?: string;
     msg_order_ready?: string;
+    msg_order_delivered?: string;
     msg_tab_summary?: string;
     msg_service_request?: string;
     msg_payment_pending?: string;
@@ -17,6 +18,7 @@ export interface MessageTemplates {
 }
 
 export interface TenantSettings {
+    service_mode?: 'COM_MESA' | 'SEM_MESA';
     service_fee_percent?: number;
     split_enabled?: boolean;
     auto_accept_orders?: boolean;

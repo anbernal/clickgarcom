@@ -929,6 +929,10 @@ export class TablesService {
                         tb.table_id,
                         tb.user_phone,
                         tb.payment_notifier_phone,
+                        tb.public_code,
+                        tb.service_mode,
+                        tb.exit_validated_at,
+                        tb.exit_validation_method,
                         tb.subtotal,
                         tb.service_fee,
                         tb.total,
@@ -1171,6 +1175,10 @@ export class TablesService {
             tenantId: String(tab.tenant_id),
             tableId: tab.table_id ? String(tab.table_id) : null,
             tableNumber: tab.table_number || null,
+            publicCode: String(tab.public_code || '').trim() || null,
+            serviceMode: String(tab.service_mode || 'COM_MESA').trim() || 'COM_MESA',
+            exitValidatedAt: tab.exit_validated_at || null,
+            exitValidationMethod: String(tab.exit_validation_method || '').trim() || null,
             userPhone: String(tab.user_phone || '').trim() || null,
             paymentNotifierPhone: String(tab.payment_notifier_phone || '').trim() || null,
             status: String(tab.status || 'OPEN'),
@@ -1207,6 +1215,62 @@ export class TablesService {
                 ),
             },
         };
+    }
+
+    async lookupTabForStaff(tenantId: string, rawValue?: string, currentUserRole?: string) {
+        const lookup = this.normalizeStaffTabLookup(rawValue);
+        if (!lookup.value) {
+            throw new BadRequestException('Informe o número da comanda ou escaneie um QR Code.');
+        }
+
+        const rows = await this.dataSource.query(
+            `SELECT id, public_code
+               FROM tabs
+              WHERE tenant_id = $1
+                AND (
+                    UPPER(TRIM(COALESCE(public_code, ''))) = UPPER($2)
+                    OR LOWER(id::text) = LOWER($2)
+                )
+              ORDER BY opened_at DESC
+              LIMIT 1`,
+            [tenantId, lookup.value],
+        );
+        const tab = rows?.[0];
+        if (!tab) {
+            throw new NotFoundException(`Não encontrei a comanda ${lookup.value}.`);
+        }
+
+        const details = await this.getTabDetails(String(tab.id), tenantId, currentUserRole);
+        return {
+            ...details,
+            lookup: {
+                value: lookup.value,
+                source: lookup.source,
+                matchedBy: String(tab.public_code || '').toUpperCase() === lookup.value.toUpperCase() ? 'PUBLIC_CODE' : 'TAB_ID',
+            },
+        };
+    }
+
+    private normalizeStaffTabLookup(rawValue?: string) {
+        const original = String(rawValue || '').trim();
+        if (!original) return { value: '', source: 'manual' };
+
+        try {
+            const url = new URL(original);
+            const query = new URLSearchParams(url.search);
+            const hash = new URLSearchParams(url.hash.replace(/^#/, ''));
+            const tabId = query.get('tab_id') || hash.get('tab_id');
+            if (tabId) return { value: tabId.trim(), source: 'qr' };
+        } catch (_error) {
+            // Manual input is not required to be a URL.
+        }
+
+        const value = original
+            .replace(/^\s*#\s*/, '')
+            .replace(/^\s*(comanda|cmd)\s*[:#.-]?\s*/i, '')
+            .trim()
+            .toUpperCase();
+        return { value, source: 'manual' };
     }
 
     async reopenTab(tabId: string, tenantId: string, actor: TabActorContext) {
@@ -1372,6 +1436,97 @@ export class TablesService {
         }
 
         return this.buildPublicTabPayload(tab);
+    }
+
+    async validatePublicExit(tabId: string, accessToken?: string) {
+        const tab = await this.loadPublicTabContext(tabId, accessToken);
+        if (!tab) {
+            throw new NotFoundException('Comanda não encontrada');
+        }
+
+        const [orderRows, paymentRows, tabRows] = await Promise.all([
+            this.dataSource.query(
+                `SELECT COUNT(*)::int AS active_orders
+                   FROM orders
+                  WHERE tenant_id = $1
+                    AND tab_id = $2
+                    AND status NOT IN ('DELIVERED', 'CANCELED')`,
+                [tab.tenantId, tabId],
+            ),
+            this.dataSource.query(
+                `SELECT COUNT(*)::int AS open_payments
+                   FROM payments p
+                  WHERE p.tenant_id = $1
+                    AND p.tab_id = $2
+                    AND (
+                        p.status = 'PENDING'
+                        OR EXISTS (
+                            SELECT 1
+                              FROM payment_attempts pa
+                             WHERE pa.payment_id = p.id
+                               AND pa.status IN ('PENDING', 'IN_PROCESS')
+                        )
+                    )`,
+                [tab.tenantId, tabId],
+            ),
+            this.dataSource.query(
+                `SELECT exit_validated_at, public_code
+                   FROM tabs
+                  WHERE id = $1
+                    AND tenant_id = $2
+                  LIMIT 1`,
+                [tabId, tab.tenantId],
+            ),
+        ]);
+
+        const activeOrders = Number(orderRows?.[0]?.active_orders || 0);
+        const openPayments = Number(paymentRows?.[0]?.open_payments || 0);
+        const alreadyValidatedAt = tabRows?.[0]?.exit_validated_at || null;
+
+        if (alreadyValidatedAt) {
+            return {
+                ok: true,
+                allowed: true,
+                alreadyValidated: true,
+                tabId,
+                publicCode: String(tabRows?.[0]?.public_code || ''),
+                validatedAt: alreadyValidatedAt,
+            };
+        }
+
+        if (activeOrders > 0) {
+            throw new BadRequestException('Ainda existem pedidos em preparo ou aguardando entrega.');
+        }
+        if (openPayments > 0) {
+            throw new BadRequestException('Existe um pagamento em aberto ou em processamento.');
+        }
+        if (tab.amountDue > 0) {
+            throw new BadRequestException(`Existe saldo pendente de R$ ${tab.amountDue.toFixed(2).replace('.', ',')}.`);
+        }
+
+        if (String(tab.status || '').toUpperCase() !== 'CLOSED') {
+            await this.finalizeTabInternal(tabId, tab.tenantId, { closureSource: 'EXIT_QR' });
+        }
+
+        const validatedAt = new Date();
+        await this.dataSource.query(
+            `UPDATE tabs
+                SET exit_validated_at = $1,
+                    exit_validation_method = 'PUBLIC_QR'
+              WHERE id = $2
+                AND tenant_id = $3
+                AND exit_validated_at IS NULL`,
+            [validatedAt, tabId, tab.tenantId],
+        );
+
+        return {
+            ok: true,
+            allowed: true,
+            alreadyValidated: false,
+            tabId,
+            publicCode: String(tabRows?.[0]?.public_code || ''),
+            validatedAt,
+        };
     }
 
     async createPublicPixPayment(tabId: string, accessToken: string | undefined, payload: Record<string, unknown>) {
@@ -2320,7 +2475,7 @@ export class TablesService {
             const scope = String(decoded?.scope || '').trim();
             const ownerPhone = this.normalizePhoneDigits(decoded?.owner_phone);
 
-            if (scope !== 'checkout_public' || tokenTabId !== String(tabId || '').trim() || !ownerPhone) {
+            if (scope !== 'checkout_public' || tokenTabId !== String(tabId || '').trim()) {
                 throw new UnauthorizedException('Link de pagamento inválido ou expirado');
             }
 
@@ -2341,6 +2496,9 @@ export class TablesService {
                     tb.tenant_id,
                     tb.table_id,
                     tb.user_phone,
+                    tb.public_code,
+                    tb.service_mode,
+                    tb.exit_validated_at,
                     tb.total,
                     tb.paid_amount,
                     tb.status,
@@ -2363,7 +2521,7 @@ export class TablesService {
         if (!row) return null;
 
         const ownerPhone = this.normalizePhoneDigits(row.user_phone);
-        if (!ownerPhone || ownerPhone !== access.ownerPhone) {
+        if (access.ownerPhone && (!ownerPhone || ownerPhone !== access.ownerPhone)) {
             throw new UnauthorizedException('Link de pagamento inválido ou expirado');
         }
 
@@ -2373,11 +2531,15 @@ export class TablesService {
             id: String(row.id),
             tenantId: String(row.tenant_id),
             tableId: row.table_id ? String(row.table_id) : null,
+            publicCode: String(row.public_code || '').trim() || null,
+            serviceMode: String(row.service_mode || 'COM_MESA').trim() || 'COM_MESA',
+            exitValidatedAt: row.exit_validated_at || null,
             userPhone: String(row.user_phone || ''),
             subtotal: financialSnapshot.subtotal,
             serviceFee: financialSnapshot.serviceFee,
             total: financialSnapshot.total,
             paidAmount: financialSnapshot.paidAmount,
+            amountDue: this.getAmountDue(financialSnapshot.total, financialSnapshot.paidAmount, String(row.status || 'OPEN')),
             status: String(row.status || 'OPEN'),
             openedAt: row.opened_at,
             closedAt: row.closed_at,
@@ -2465,6 +2627,9 @@ export class TablesService {
             id: tab.id,
             tenantName: tab.tenantName,
             tableNumber: tab.tableNumber,
+            publicCode: tab.publicCode,
+            serviceMode: tab.serviceMode,
+            exitValidatedAt: tab.exitValidatedAt,
             status: tab.status,
             total: amountDue,
             fullTotal: this.roundMoney(tab.total),

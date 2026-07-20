@@ -56,6 +56,21 @@ export class Tab {
     @Column({ type: 'varchar', length: 20, default: 'OPEN' })
     status!: string;
 
+    @Column({ name: 'service_mode', type: 'varchar', length: 20, default: 'COM_MESA' })
+    serviceMode!: 'COM_MESA' | 'SEM_MESA';
+
+    @Column({ name: 'public_code', type: 'varchar', length: 12, nullable: true })
+    publicCode!: string | null;
+
+    @Column({ name: 'exit_validated_at', nullable: true })
+    exitValidatedAt!: Date | null;
+
+    @Column('uuid', { name: 'exit_validated_by', nullable: true })
+    exitValidatedBy!: string | null;
+
+    @Column({ name: 'exit_validation_method', type: 'varchar', length: 30, nullable: true })
+    exitValidationMethod!: string | null;
+
     @Column({ name: 'opened_at' })
     openedAt!: Date;
 

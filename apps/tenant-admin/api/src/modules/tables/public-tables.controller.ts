@@ -57,6 +57,18 @@ export class PublicTablesController {
         );
     }
 
+    @Post('tabs/:tabId/exit/validate')
+    validatePublicExit(
+        @Param('tabId') tabId: string,
+        @Headers('authorization') authorization: string | undefined,
+        @Query('access_token') accessToken: string | undefined,
+    ) {
+        return this.tablesService.validatePublicExit(
+            tabId,
+            this.resolveAccessToken(authorization, accessToken),
+        );
+    }
+
     private resolveAccessToken(authorization?: string, accessToken?: string) {
         const bearer = String(authorization || '').trim();
         if (bearer.toLowerCase().startsWith('bearer ')) {

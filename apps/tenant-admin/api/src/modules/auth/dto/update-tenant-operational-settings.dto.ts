@@ -1,7 +1,11 @@
 import { Type } from 'class-transformer';
-import { IsBoolean, IsOptional, Max, Min } from 'class-validator';
+import { IsBoolean, IsIn, IsOptional, Max, Min } from 'class-validator';
 
 export class UpdateTenantOperationalSettingsDto {
+    @IsOptional()
+    @IsIn(['COM_MESA', 'SEM_MESA'])
+    service_mode?: 'COM_MESA' | 'SEM_MESA';
+
     @IsOptional()
     @Type(() => Number)
     @Min(0)

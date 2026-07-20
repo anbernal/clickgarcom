@@ -152,6 +152,12 @@ export class TablesController {
         return this.tablesService.closeWaiterChat(chatId, req.user.tenantId, req.user?.name);
     }
 
+    @Get('tabs/lookup')
+    @Roles(...TENANT_TABLE_READ_ROLES)
+    async lookupTab(@Request() req, @Query('value') value?: string) {
+        return this.tablesService.lookupTabForStaff(req.user.tenantId, value, req.user?.role);
+    }
+
     @Post('tabs/:tabId/finalize')
     @Roles(...TENANT_SETTLEMENT_ROLES)
     async finalizeTab(@Request() req, @Param('tabId') tabId: string) {

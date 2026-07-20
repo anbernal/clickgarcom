@@ -116,20 +116,22 @@ func (uc *ProcessTableEventUseCase) Execute(ctx context.Context, payloadBytes []
 	activeTab, _ := uc.tabRepo.FindOpenByTable(ctx, t.ID, t.TenantID)
 	var tabID uuid.UUID
 
-		if activeTab == nil {
-			newTab := &tab.Tab{
-				ID:        uuid.New(),
-				TenantID:  t.TenantID,
-				TableID:   &t.ID,
-				SourceRequestID: &req.ID,
-				UserPhone: req.UserPhone,
-				OpenedByUserID: req.ApprovedByUserID,
-				OpenedByUserName: req.ApprovedByUserName,
-				Status:    tab.StatusOpen,
-			}
-			if err := uc.tabRepo.Create(ctx, newTab); err != nil {
-				return fmt.Errorf("failed to create tab: %w", err)
-			}
+	if activeTab == nil {
+		newTab := &tab.Tab{
+			ID:               uuid.New(),
+			TenantID:         t.TenantID,
+			TableID:          &t.ID,
+			SourceRequestID:  &req.ID,
+			UserPhone:        req.UserPhone,
+			ServiceMode:      "COM_MESA",
+			OpenedByUserID:   req.ApprovedByUserID,
+			OpenedByUserName: req.ApprovedByUserName,
+			Status:           tab.StatusOpen,
+		}
+		newTab.PublicCode = tab.BuildPublicCode(newTab.ID)
+		if err := uc.tabRepo.Create(ctx, newTab); err != nil {
+			return fmt.Errorf("failed to create tab: %w", err)
+		}
 		tabID = newTab.ID
 	} else {
 		tabID = activeTab.ID

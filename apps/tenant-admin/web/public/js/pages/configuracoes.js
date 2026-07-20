@@ -39,6 +39,7 @@ const MessageGroups = [
         templates: [
             { key: 'msg_order_confirmed', label: 'Pedido Confirmado', desc: 'Enviada quando o pedido é criado com sucesso.', vars: ['{numero_pedido}'] },
             { key: 'msg_order_ready', label: 'Pedido Pronto', desc: 'Quando a cozinha finaliza o preparo e o pedido entra na fila de entrega.', vars: ['{numero_pedido}'] },
+            { key: 'msg_order_delivered', label: 'Pedido Entregue', desc: 'Enviada quando a equipe confirma a entrega do pedido ao cliente.', vars: ['{numero_pedido}'] },
             { key: 'msg_tab_summary', label: 'Resumo da Comanda', desc: 'Quando o cliente pede o extrato ou conta parcial.', vars: ['{nome_restaurante}', '{mesa_label}', '{itens}', '{subtotal}', '{taxa}', '{total}', '{percentual_taxa}'] },
             { key: 'msg_service_request', label: 'Chamada de Garçom', desc: 'Confirmação ao solicitar atendimento na mesa.', vars: ['{servico}'] },
         ],
@@ -776,6 +777,15 @@ function renderConfiguracoesUI(container) {
             </div>
             <div style="padding: 20px 22px;">
                 <form id="form-operational-settings" style="display:flex; flex-direction:column; gap:18px;">
+                    <div style="border:1px solid var(--border); border-radius:14px; padding:18px; background:var(--card-bg);">
+                        <div style="font-size:13px; font-weight:700; color:var(--text); margin-bottom:6px;">Modo de atendimento</div>
+                        <div style="font-size:12px; color:var(--muted); margin-bottom:12px;">Defina se novas comandas precisam estar vinculadas a uma mesa.</div>
+                        <select id="operational-service_mode" style="max-width:320px;">
+                            <option value="COM_MESA" ${((configuracoesOperacionais.service_mode || configuracoesOperacionaisDefaults.service_mode || 'COM_MESA') === 'COM_MESA') ? 'selected' : ''}>Com mesa obrigatória</option>
+                            <option value="SEM_MESA" ${((configuracoesOperacionais.service_mode || configuracoesOperacionaisDefaults.service_mode || 'COM_MESA') === 'SEM_MESA') ? 'selected' : ''}>Pedido sem mesa</option>
+                        </select>
+                        <div style="font-size:11px; color:var(--muted); margin-top:8px;">A alteração vale para novas comandas. As comandas abertas mantêm o modo em que foram criadas.</div>
+                    </div>
                     <div style="display:grid; grid-template-columns:1.1fr 0.9fr; gap:18px;">
                         <div style="border:1px solid var(--border); border-radius:14px; padding:18px; background:var(--card-bg);">
                             <div style="font-size:13px; font-weight:700; color:var(--text); margin-bottom:12px;">Taxa de serviço padrão</div>
@@ -984,6 +994,7 @@ async function handleSaveMessages(e) {
 }
 
 function resetOperationalSettingsForm() {
+    document.getElementById('operational-service_mode').value = configuracoesOperacionaisDefaults.service_mode || 'COM_MESA';
     document.getElementById('operational-service-fee').value = String(configuracoesOperacionaisDefaults.service_fee_percent ?? 10);
     ['split_enabled', 'auto_accept_orders', 'nps_enabled', 'voucher_enabled'].forEach((key) => {
         const checkbox = document.getElementById(`operational-${key}`);
@@ -1000,6 +1011,7 @@ async function handleSaveOperationalSettings(e) {
     btnSave.disabled = true;
 
     const payload = {
+        service_mode: document.getElementById('operational-service_mode').value,
         service_fee_percent: Number(document.getElementById('operational-service-fee').value || 0),
         split_enabled: !!document.getElementById('operational-split_enabled').checked,
         auto_accept_orders: !!document.getElementById('operational-auto_accept_orders').checked,
@@ -1017,6 +1029,7 @@ async function handleSaveOperationalSettings(e) {
     try {
         const res = await api.put('/auth/settings/operational', payload);
         configuracoesOperacionais = res.settings || payload;
+        setAuthSessionUser({ service_mode: configuracoesOperacionais.service_mode || payload.service_mode });
         showToast('Regras operacionais salvas com sucesso!', 'success');
         loadConfiguracoesPage();
     } catch (err) {

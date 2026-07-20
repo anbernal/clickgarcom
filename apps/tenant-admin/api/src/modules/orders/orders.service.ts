@@ -268,14 +268,15 @@ export class OrdersService {
             : null;
 
         if (newStatus === 'ACCEPTED') {
-            if (!saved.batchId || !batchSync || batchSync.acceptedMilestoneReached) {
-                await this.enqueueAcceptedMessage(saved, tenantId, prepMinutes, batchSync?.orders || undefined);
-            }
+            await this.enqueueAcceptedMessage(saved, tenantId, prepMinutes);
         }
         if (newStatus === 'READY') {
             if (!saved.batchId || !batchSync || batchSync.readyMilestoneReached) {
                 await this.enqueueReadyMessage(saved, tenantId);
             }
+        }
+        if (newStatus === 'DELIVERED') {
+            await this.enqueueDeliveredMessage(saved, tenantId);
         }
         if (newStatus === 'CANCELED') {
             await this.recalculateTabTotals(saved.tabId, tenantId);
@@ -309,21 +310,14 @@ export class OrdersService {
         }
     }
 
-    private async enqueueAcceptedMessage(order: Order, tenantId: string, prepMinutes?: number, batchOrders?: Order[]) {
+    private async enqueueAcceptedMessage(order: Order, tenantId: string, prepMinutes?: number) {
         const recipient = await this.resolveOrderRecipient(order, tenantId);
         if (!recipient) return;
 
-        const activeOrders = (batchOrders || [order]).filter((current) => current.status !== 'CANCELED');
-        const itemsSummary = order.batchId
-            ? await this.buildBatchItemsSummary(order.batchId, tenantId)
-            : await this.buildAcceptedItemsSummary(order, tenantId);
+        const itemsSummary = await this.buildAcceptedItemsSummary(order, tenantId);
         const tenantName = await this.resolveTenantName(tenantId);
-
-        let prepCopy = `Seu pedido foi aceito e já está sendo preparado.\n\n`;
-        if (activeOrders.length <= 1) {
-            const eta = this.normalizePrepMinutes(prepMinutes);
-            prepCopy = `Seu pedido foi aceito e será entregue em *${eta} minutos*.\n\n`;
-        }
+        const eta = this.normalizePrepMinutes(prepMinutes);
+        const prepCopy = `Seu pedido foi aceito e será entregue em *${eta} minutos*.\n\n`;
 
         const messageBody =
             `✅ *Pedido aceito!*\n\n` +
@@ -362,6 +356,32 @@ export class OrdersService {
         const message = resolveMessageTemplate(
             tenant?.settings?.messages?.msg_order_ready,
             DEFAULT_MESSAGE_TEMPLATES.msg_order_ready || '',
+            {
+                '{numero_pedido}': orderCode,
+                '{codigo_pedido}': orderCode,
+                '{nome_restaurante}': String(tenant?.name || '').trim(),
+            },
+        ).replace(/\n{3,}/g, '\n\n');
+
+        if (!message) return;
+
+        await this.enqueueWhatsAppMessage(
+            tenantId,
+            recipient,
+            message,
+            OUTBOX_TEMPLATE_INTERACTIVE_MAIN_MENU,
+        );
+    }
+
+    private async enqueueDeliveredMessage(order: Order, tenantId: string) {
+        const recipient = await this.resolveOrderRecipient(order, tenantId);
+        if (!recipient) return;
+
+        const tenant = await this.tenantRepository.findOne({ where: { id: tenantId } });
+        const orderCode = this.resolveOrderMessageCode(order);
+        const message = resolveMessageTemplate(
+            tenant?.settings?.messages?.msg_order_delivered,
+            DEFAULT_MESSAGE_TEMPLATES.msg_order_delivered || '',
             {
                 '{numero_pedido}': orderCode,
                 '{codigo_pedido}': orderCode,

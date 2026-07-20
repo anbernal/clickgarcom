@@ -53,6 +53,11 @@ Escolha a opção que você deseja abrir:
 *5* - 💰 Fechar conta
 
 _Digite o número da opção_`,
+    msg_order_delivered: `✅ *Pedido entregue!*
+
+Seu pedido *{numero_pedido}* foi entregue.
+
+Bom apetite! 🍽️`,
     msg_tab_summary: `🧾 *Sua Comanda{mesa_label}*
 ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
 {itens}
@@ -88,6 +93,7 @@ export const MESSAGE_TEMPLATE_KEYS: Array<keyof MessageTemplates> = [
     'msg_invalid_option',
     'msg_order_confirmed',
     'msg_order_ready',
+    'msg_order_delivered',
     'msg_tab_summary',
     'msg_service_request',
     'msg_payment_pending',

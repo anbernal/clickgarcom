@@ -342,10 +342,31 @@ async function loadTabData(tabId) {
 function resolveCheckoutLabel(tab) {
     const tenantName = String(tab?.tenantName || 'ClickGarcom').trim();
     const tableNumber = String(tab?.tableNumber || '').trim();
-    if (tableNumber) {
-        return `${tenantName} · Mesa ${tableNumber}`;
+    const publicCode = String(tab?.publicCode || '').trim();
+    const location = tableNumber ? `Mesa ${tableNumber}` : 'Comanda digital';
+    return `${tenantName} · ${location}${publicCode ? ` · ${publicCode}` : ''}`;
+}
+
+function buildExitValidationUrl() {
+    const url = new URL('/exit.html', window.location.origin);
+    url.hash = new URLSearchParams({ tab_id: currentTabId || '', access_token: currentAccessToken || '' }).toString();
+    return url.toString();
+}
+
+function renderExitValidationQr(tab) {
+    const container = document.getElementById('exit-validation-card');
+    const link = document.getElementById('exit-validation-link');
+    const canvas = document.getElementById('exit-qr-canvas');
+    if (!container || !link || !canvas || !currentTabId || !currentAccessToken) return;
+
+    const exitUrl = buildExitValidationUrl();
+    link.href = exitUrl;
+    container.style.display = 'block';
+    if (window.QRCode?.toCanvas) {
+        window.QRCode.toCanvas(canvas, exitUrl, { width: 160, margin: 1, color: { dark: '#10202d', light: '#ffffff' } }, (error) => {
+            if (error) console.warn('Falha ao gerar QR Code de saída:', error);
+        });
     }
-    return `${tenantName} · Comanda digital`;
 }
 
 function setCheckoutState(tab) {
@@ -376,6 +397,7 @@ function setCheckoutState(tab) {
             successEl.style.display = 'block';
             successEl.textContent = '✅ Conta finalizada com sucesso.';
         }
+        renderExitValidationQr(tab);
     }
 }
 

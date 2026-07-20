@@ -60,8 +60,9 @@ type ManagedTenantUser = {
 
 const DEFAULT_OPERATIONAL_SETTINGS: Required<Pick<
     TenantSettings,
-    'service_fee_percent' | 'split_enabled' | 'auto_accept_orders' | 'nps_enabled' | 'voucher_enabled'
+    'service_mode' | 'service_fee_percent' | 'split_enabled' | 'auto_accept_orders' | 'nps_enabled' | 'voucher_enabled'
 >> = {
+    service_mode: 'COM_MESA',
     service_fee_percent: 10,
     split_enabled: true,
     auto_accept_orders: false,
@@ -544,7 +545,7 @@ export class AuthService {
         return this.setTenantStatus(tenantId, !currentStatus, actor);
     }
 
-    async setTenantStatus(tenantId: string, isOpen: boolean, actor?: TenantActorContext): Promise<any> {
+    async setTenantStatus(tenantId: string, isOpen: boolean, actor?: TenantActorContext, serviceMode?: 'COM_MESA' | 'SEM_MESA'): Promise<any> {
         const tenant = await this.tenantRepository.findOne({ where: { id: tenantId } });
         if (!tenant) {
             throw new HttpException('Restaurante não encontrado.', HttpStatus.NOT_FOUND);
@@ -554,6 +555,9 @@ export class AuthService {
 
         // Track who opened/closed and when
         const currentSettings = tenant.settings || {};
+        if (serviceMode === 'COM_MESA' || serviceMode === 'SEM_MESA') {
+            currentSettings.service_mode = serviceMode;
+        }
         if (isOpen) {
             currentSettings.opened_at = new Date().toISOString();
             currentSettings.opened_by = actor?.userName || 'Sistema';
@@ -584,6 +588,7 @@ export class AuthService {
             is_open: tenant.isOpen,
             opened_at: currentSettings.opened_at || null,
             opened_by: currentSettings.opened_by || null,
+            service_mode: currentSettings.service_mode || 'COM_MESA',
             message: tenant.isOpen ? 'Expediente Aberto!' : 'Expediente Fechado',
             session_sweep: sessionSweep,
         };
@@ -721,6 +726,7 @@ export class AuthService {
             billing_plan: user.tenant?.billingPlan || 'pre_paid',
             active: !!user.active,
             isOpen: !!user.tenant?.isOpen,
+            service_mode: settings.service_mode || 'COM_MESA',
             opened_at: settings.opened_at || null,
             opened_by: settings.opened_by || null,
             last_login_at: user.lastLoginAt ? new Date(user.lastLoginAt).toISOString() : null,
@@ -948,6 +954,7 @@ export class AuthService {
 
     private mergeOperationalSettings(settings: TenantSettings) {
         return {
+            service_mode: settings?.service_mode === 'SEM_MESA' ? 'SEM_MESA' : DEFAULT_OPERATIONAL_SETTINGS.service_mode,
             service_fee_percent: Number.isFinite(Number(settings?.service_fee_percent))
                 ? Number(settings?.service_fee_percent)
                 : DEFAULT_OPERATIONAL_SETTINGS.service_fee_percent,

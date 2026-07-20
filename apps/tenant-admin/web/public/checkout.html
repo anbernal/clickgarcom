@@ -629,6 +629,13 @@
                         <div id="pix-success-msg">✅ Pagamento Recebido! Pedido liberado na cozinha.</div>
                     </div>
 
+                    <div id="exit-validation-card" style="display:none; margin-top:18px; padding:18px; border:1px solid rgba(34,197,94,.35); border-radius:16px; background:rgba(34,197,94,.10); text-align:center;">
+                        <div style="font-weight:800; color:#bbf7d0; margin-bottom:8px;">QR Code de saída</div>
+                        <div style="font-size:12px; color:rgba(255,255,255,.72); margin-bottom:12px;">Apresente este código na saída para confirmar que a conta está regularizada.</div>
+                        <canvas id="exit-qr-canvas" style="background:#fff; padding:10px; border-radius:10px; max-width:180px;"></canvas>
+                        <div><a id="exit-validation-link" href="#" target="_blank" rel="noopener" style="display:inline-block; margin-top:12px; color:#bbf7d0; font-size:12px;">Abrir validação de saída</a></div>
+                    </div>
+
                     <div class="pix-info">
                         <div class="pix-info-icon">🔒</div>
                         <div class="pix-info-text">
@@ -707,6 +714,7 @@
         </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
     <script src="/js/checkout.js"></script>
     <script>
         function copyPix() {

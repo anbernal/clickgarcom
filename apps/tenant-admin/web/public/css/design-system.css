@@ -81,6 +81,23 @@
 .skeleton-bar.short { width: 40%; }
 .skeleton-bar.title { height: 28px; width: 60%; margin-bottom: 8px; }
 
+.consulta-layout-grid,
+.consulta-metrics-grid,
+.consulta-detail-grid {
+  min-width: 0;
+}
+
+@media (max-width: 768px) {
+  .consulta-layout-grid,
+  .consulta-detail-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .consulta-metrics-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
 * {
   margin: 0;
   padding: 0;

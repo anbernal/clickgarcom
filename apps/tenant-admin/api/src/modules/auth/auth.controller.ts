@@ -37,13 +37,13 @@ export class AuthController {
     @UseGuards(JwtAuthGuard)
     @Patch('status')
     @Roles(...TENANT_FULL_ACCESS_ROLES)
-    async toggleStatus(@Request() req, @Body() data: { currentStatus?: boolean; is_open?: boolean }) {
+    async toggleStatus(@Request() req, @Body() data: { currentStatus?: boolean; is_open?: boolean; service_mode?: 'COM_MESA' | 'SEM_MESA' }) {
         if (typeof data.is_open === 'boolean') {
             return this.authService.setTenantStatus(req.user.tenantId, data.is_open, {
                 userId: req.user.id,
                 userName: req.user.name,
                 userRole: req.user.role,
-            });
+            }, data.service_mode);
         }
         return this.authService.toggleTenantStatus(req.user.tenantId, !!data.currentStatus, undefined, {
             userId: req.user.id,
