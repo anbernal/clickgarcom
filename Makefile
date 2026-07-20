@@ -1,4 +1,4 @@
-.PHONY: help deploy-check deploy-sync deploy-remote redeploy validate-migration-baseline validate-layout-paths validate-compose validate-tenant-admin-api validate-tenant-admin-web validate-super-admin-api validate-super-admin-web validate-core-backend stress-check stress-tenant-read stress-webhook stress-kds stress-super-admin stress-combined
+.PHONY: help seed-qa deploy-check deploy-sync deploy-remote redeploy validate-migration-baseline validate-layout-paths validate-compose validate-tenant-admin-api validate-tenant-admin-web validate-super-admin-api validate-super-admin-web validate-core-backend stress-check stress-tenant-read stress-webhook stress-kds stress-super-admin stress-combined
 
 -include .deploy.env
 
@@ -112,6 +112,9 @@ ngrok-url: ## Mostra a URL publica do ngrok para o webhook
 	@curl -fsS http://localhost:4040/api/tunnels | node -e "let data='';process.stdin.on('data',c=>data+=c);process.stdin.on('end',()=>{const parsed=JSON.parse(data);const tunnels=Array.isArray(parsed.tunnels)?parsed.tunnels:[];const tunnel=tunnels.find(t=>String(t.public_url||'').startsWith('https://'))||tunnels[0];if(!tunnel){process.exit(1)}console.log(String(tunnel.public_url).replace(/\\/+$$/,'') + '/webhooks/whatsapp');})"
 
 # ============ DATABASE ============
+seed-qa: ## Recria apenas o tenant e a massa de homologacao QA
+	cd $(TENANT_ADMIN_API_DIR) && npm run seed:qa
+
 migrate-up: ## Executa migrations
 	cd $(CORE_BACKEND_DIR) && go run cmd/migrate/main.go -direction up
 

@@ -2040,6 +2040,7 @@ func (uc *HandleWhatsAppMessageUseCase) sendOrderingItemImagePreview(
 		)
 		return false
 	}
+	imageURL = uc.resolvePublicImageURL(imageURL)
 
 	caption := fmt.Sprintf("%s\nR$ %s", item.Name, formatBRLCurrency(item.Price))
 	if description := parseOrderingOptionalString(item.WhatsAppShortDescription); description != "" {
@@ -2107,6 +2108,7 @@ func (uc *HandleWhatsAppMessageUseCase) sendOrderingCategoryImagePreview(
 		)
 		return false
 	}
+	imageURL = uc.resolvePublicImageURL(imageURL)
 
 	categoryName := "Cardápio"
 	if category != nil && strings.TrimSpace(category.Name) != "" {
@@ -3564,6 +3566,25 @@ func (uc *HandleWhatsAppMessageUseCase) resolveCurrentPublicCheckoutBaseURL() st
 	}
 
 	return ""
+}
+
+func (uc *HandleWhatsAppMessageUseCase) resolvePublicImageURL(raw string) string {
+	imageURL := strings.TrimSpace(raw)
+	if imageURL == "" {
+		return ""
+	}
+
+	parsed, err := url.Parse(imageURL)
+	if err == nil && parsed.IsAbs() && parsed.Host != "" {
+		return imageURL
+	}
+
+	baseURL := strings.TrimRight(uc.resolveCurrentPublicCheckoutBaseURL(), "/")
+	if baseURL == "" {
+		return imageURL
+	}
+
+	return baseURL + "/" + strings.TrimLeft(imageURL, "/")
 }
 
 func resolveNgrokPublicCheckoutBaseURL() string {

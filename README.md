@@ -132,6 +132,9 @@ make db-seed
 # Subir tudo em Docker
 make rebuild
 
+# Criar/recriar a base completa de homologacao
+make seed-qa
+
 # Rodar algum serviço fora do Docker (quando necessário)
 make run-api
 make run-worker
@@ -168,6 +171,15 @@ http://localhost:3001
 http://localhost:9090
 # Targets: Status > Targets
 ```
+
+### Base de homologacao QA
+
+O comando `make seed-qa` recria somente o tenant `Anderson Restaurant`; os demais tenants nao sao alterados. Se o ngrok estiver ativo, as imagens autorais do cardapio recebem automaticamente a URL publica do tunnel.
+
+- Tenant Admin: `http://localhost:3004/login.html`
+- Login: `admin.qa@clickgarcom.local`
+- Senha: `Teste@123`
+- Catalogo de cenarios: [`docs/qa_test_database.md`](docs/qa_test_database.md)
 
 ## Deploy em servidor (Traefik, sem ngrok)
 
