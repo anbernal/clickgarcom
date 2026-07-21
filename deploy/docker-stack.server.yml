@@ -229,6 +229,8 @@ services:
     command: ["./bin/worker"]
     networks:
       - clickgarcom-internal
+      # Keep outbound Meta traffic off the shared Traefik network.
+      clickgarcom-egress: {}
     healthcheck:
       test: ["CMD-SHELL", "HEALTHCHECK_URL=http://127.0.0.1:8081/health /app/bin/healthcheck"]
       interval: 15s
@@ -264,6 +266,8 @@ services:
     command: ["./bin/outbox-worker"]
     networks:
       - clickgarcom-internal
+      # Keep outbound Meta traffic off the shared Traefik network.
+      clickgarcom-egress: {}
     healthcheck:
       test: ["CMD-SHELL", "HEALTHCHECK_URL=http://127.0.0.1:8082/health /app/bin/healthcheck"]
       interval: 15s
@@ -527,5 +531,8 @@ networks:
     driver: overlay
     attachable: true
     internal: true
+  clickgarcom-egress:
+    driver: overlay
+    attachable: true
   easypanel:
     external: true
