@@ -446,7 +446,7 @@ func (uc *HandleWhatsAppMessageUseCase) sendOrderingCategoryMenu(
 	_, err := uc.sender.SendInteractiveList(
 		whatsapp.WithTenantID(ctx, tenantID),
 		to,
-		body,
+		appendMainMenuBackOption(body),
 		"Ver categorias",
 		[]whatsapp.InteractiveListSection{{Title: "Categorias", Rows: rows}},
 	)
@@ -488,7 +488,7 @@ func (uc *HandleWhatsAppMessageUseCase) sendOrderingItemsMenu(
 	_, err := uc.sender.SendInteractiveList(
 		whatsapp.WithTenantID(ctx, tenantID),
 		to,
-		body,
+		appendMainMenuBackOption(body),
 		"Ver itens",
 		[]whatsapp.InteractiveListSection{{Title: truncateInteractiveTitle(categoryName), Rows: rows}},
 	)
@@ -518,7 +518,7 @@ func (uc *HandleWhatsAppMessageUseCase) sendQuantityMenu(
 	_, err := uc.sender.SendInteractiveButtons(
 		whatsapp.WithTenantID(ctx, tenantID),
 		to,
-		body,
+		appendMainMenuBackOption(body),
 		buildQuantityButtons(),
 	)
 	return err
@@ -561,7 +561,7 @@ func (uc *HandleWhatsAppMessageUseCase) sendOrderingOptionGroupMenu(
 	_, err := uc.sender.SendInteractiveList(
 		whatsapp.WithTenantID(ctx, tenantID),
 		to,
-		body,
+		appendMainMenuBackOption(body),
 		"Ver opcoes",
 		[]whatsapp.InteractiveListSection{{Title: truncateInteractiveTitle(group.Name), Rows: rows}},
 	)
@@ -650,7 +650,7 @@ func (uc *HandleWhatsAppMessageUseCase) sendCartConfirmationMenu(
 	_, err := uc.sender.SendInteractiveButtons(
 		whatsapp.WithTenantID(ctx, tenantID),
 		to,
-		body,
+		appendMainMenuBackOption(body),
 		buildOrderConfirmationButtons(),
 	)
 	return err
@@ -1691,7 +1691,7 @@ func (uc *HandleWhatsAppMessageUseCase) sendCartRemovalMenu(
 	_, err := uc.sender.SendInteractiveList(
 		whatsapp.WithTenantID(ctx, tenantID),
 		to,
-		body,
+		appendMainMenuBackOption(body),
 		"Escolher item",
 		[]whatsapp.InteractiveListSection{{Title: "Itens no carrinho", Rows: rows}},
 	)
@@ -1721,7 +1721,7 @@ func (uc *HandleWhatsAppMessageUseCase) buildOrderingCartRemovalFallback(
 	}
 
 	return fmt.Sprintf(
-		"🛠 *Ajustar item do pedido*\n\n%s\n\nResponda com o número do item que deseja ajustar.\n\n_Digite 0 para voltar ao carrinho_",
+		"🛠 *Ajustar item do pedido*\n\n%s\n\nResponda com o número do item que deseja ajustar.\n\nDigite *0* para voltar ao menu principal.",
 		strings.Join(lines, "\n"),
 	)
 }
@@ -1750,7 +1750,7 @@ func (uc *HandleWhatsAppMessageUseCase) sendCartRemovalActionMenu(
 	_, err := uc.sender.SendInteractiveList(
 		whatsapp.WithTenantID(ctx, tenantID),
 		to,
-		body,
+		appendMainMenuBackOption(body),
 		"Ver ações",
 		[]whatsapp.InteractiveListSection{{Title: "Ações disponíveis", Rows: rows}},
 	)
@@ -1775,7 +1775,7 @@ func (uc *HandleWhatsAppMessageUseCase) buildCartRemovalActionFallback(entry ord
 		lines = append(lines, "*3* - 🗑 Excluir item")
 	}
 
-	lines = append(lines, "*0* - ◂ Voltar ao carrinho")
+	lines = append(lines, mainMenuBackOptionText)
 	return strings.Join(lines, "\n\n")
 }
 
@@ -1802,7 +1802,7 @@ func (uc *HandleWhatsAppMessageUseCase) sendCartQuantitySelectionMenu(
 	_, err := uc.sender.SendInteractiveList(
 		whatsapp.WithTenantID(ctx, tenantID),
 		to,
-		body,
+		appendMainMenuBackOption(body),
 		"Escolher quantidade",
 		[]whatsapp.InteractiveListSection{{Title: "Quantidades", Rows: rows}},
 	)
@@ -1827,7 +1827,7 @@ func (uc *HandleWhatsAppMessageUseCase) buildCartQuantitySelectionFallback(entry
 		"*10* - 10 unidades",
 		"",
 		"Digite um número entre *1* e *20* para definir a nova quantidade.",
-		"_Digite 0 para voltar ao ajuste do item_",
+		mainMenuBackOptionText,
 	}
 
 	return strings.Join(lines, "\n")
@@ -2488,7 +2488,7 @@ func (uc *HandleWhatsAppMessageUseCase) sendClosingTabOptions(
 	tabSummary string,
 ) error {
 	body := uc.buildClosingTabPromptBody(ctx, tenantID, tabSummary)
-	decoratedBody := whatsapp.WithRestaurantHeader(restaurantName, body)
+	decoratedBody := whatsapp.WithRestaurantHeader(restaurantName, appendMainMenuBackOption(body))
 
 	_, err := uc.sender.SendInteractiveButtons(
 		whatsapp.WithTenantID(ctx, tenantID),

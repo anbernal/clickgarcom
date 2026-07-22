@@ -166,9 +166,9 @@ func (uc *ProcessTableEventUseCase) Execute(ctx context.Context, payloadBytes []
 		}
 
 		ctx = whatsapp.WithTenantID(ctx, req.TenantID)
-		if _, err := uc.sender.SendInteractiveButtons(ctx, sess.UserPhone, msgBody, buildTableApprovedButtons()); err != nil {
+		if _, err := uc.sender.SendInteractiveButtons(ctx, sess.UserPhone, appendMainMenuBackOption(msgBody), buildTableApprovedButtons()); err != nil {
 			uc.logger.Warn("failed to send interactive table approval, falling back to text", zap.Error(err))
-			if err := uc.sender.SendText(ctx, sess.UserPhone, msgFallback); err != nil {
+			if err := uc.sender.SendText(ctx, sess.UserPhone, appendMainMenuBackOption(msgFallback)); err != nil {
 				uc.logger.Error("failed to send wa approval message", zap.Error(err))
 			}
 		}

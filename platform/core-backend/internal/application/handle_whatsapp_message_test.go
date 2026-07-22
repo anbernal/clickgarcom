@@ -24,6 +24,18 @@ import (
 	"github.com/anbernal/clickgarcom/internal/domain/whatsapp"
 )
 
+func TestAppendMainMenuBackOption(t *testing.T) {
+	message := "Escolha uma quantidade."
+	if got := appendMainMenuBackOption(message); !strings.Contains(got, mainMenuBackOptionText) {
+		t.Fatalf("expected back option in %q", got)
+	}
+
+	withMenu := "Mensagem\n\n*0* · ◂ Menu principal"
+	if got := appendMainMenuBackOption(withMenu); got != withMenu {
+		t.Fatalf("expected existing menu option to be preserved, got %q", got)
+	}
+}
+
 func TestHandleWhatsAppMessageFirstContactShowsWelcomeMenu(t *testing.T) {
 	ctx := context.Background()
 	tenantID := uuid.New()

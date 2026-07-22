@@ -58,6 +58,8 @@ Posso te ajudar a começar?`
 
 const defaultWelcomeMenu = `*1* - 🙋 Solicitar mesa
 
+*0* - 📱 Abrir menu principal
+
 _Digite o número da opção_`
 
 const defaultRestaurantClosed = `🚪 *O restaurante ainda não está aberto.*
@@ -107,6 +109,7 @@ Escolha como deseja começar:`
 const defaultTableApprovedMenuOptions = `*1* - 🛒 Fazer pedido
 *2* - 📋 Ver minha comanda
 *4* - 🙋 Chamar garçom
+*0* - ◂ Voltar ao menu principal
 
 _Digite o número da opção_`
 
@@ -147,6 +150,8 @@ Escolha a opção que você deseja abrir:
 *3* - 🔄 Repetir última rodada
 *4* - 🙋 Chamar garçom
 *5* - 💰 Fechar conta
+*6* - 🔐 QR Code de saída
+*0* - ◂ Voltar ao menu principal
 
 _Digite o número da opção_`
 
