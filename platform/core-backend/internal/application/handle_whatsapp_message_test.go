@@ -83,14 +83,11 @@ func TestHandleWhatsAppMessageFirstContactShowsWelcomeMenu(t *testing.T) {
 	if !strings.Contains(message.Body, "Que bom ter você aqui") {
 		t.Fatalf("expected welcome message, got %q", message.Body)
 	}
-	if len(message.Buttons) != 2 {
-		t.Fatalf("expected 2 welcome buttons, got %d", len(message.Buttons))
+	if len(message.Buttons) != 1 {
+		t.Fatalf("expected 1 welcome button, got %d", len(message.Buttons))
 	}
 	if message.Buttons[0].Reply.ID != defaultWelcomeMenuAction {
 		t.Fatalf("expected welcome button id %q, got %q", defaultWelcomeMenuAction, message.Buttons[0].Reply.ID)
-	}
-	if message.Buttons[1].Reply.ID != "0" {
-		t.Fatalf("expected final back button, got %+v", message.Buttons[1])
 	}
 
 	sess, err := sessionRepo.Find(ctx, phone, tenantID.String())
@@ -102,6 +99,16 @@ func TestHandleWhatsAppMessageFirstContactShowsWelcomeMenu(t *testing.T) {
 	}
 	if sess.State != session.StateWelcome {
 		t.Fatalf("expected session state %s, got %s", session.StateWelcome, sess.State)
+	}
+
+	if err := uc.Execute(ctx, HandleMessageInput{From: phone, Text: "0", TenantID: tenantID}); err != nil {
+		t.Fatalf("Execute(0) error = %v", err)
+	}
+	if got := len(sender.interactiveMessages); got != 2 {
+		t.Fatalf("expected welcome to be resent without opening the main menu, got %d messages", got)
+	}
+	if got := len(sender.interactiveMessages[1].Buttons); got != 1 {
+		t.Fatalf("expected no back button before comanda, got %d buttons", got)
 	}
 }
 
@@ -574,8 +581,8 @@ func TestHandleWhatsAppMessageUsesPublishedWelcomeFlow(t *testing.T) {
 	if !strings.Contains(sender.interactiveMessages[0].Body, "Fluxo customizado para *Anderson's Restaurant*") {
 		t.Fatalf("expected custom published flow body, got %q", sender.interactiveMessages[0].Body)
 	}
-	if len(sender.interactiveMessages[0].Buttons) != 2 {
-		t.Fatalf("expected 2 buttons, got %d", len(sender.interactiveMessages[0].Buttons))
+	if len(sender.interactiveMessages[0].Buttons) != 1 {
+		t.Fatalf("expected 1 button, got %d", len(sender.interactiveMessages[0].Buttons))
 	}
 	if sender.interactiveMessages[0].Buttons[0].Reply.ID != requestTableActionID {
 		t.Fatalf("expected button id %q, got %q", requestTableActionID, sender.interactiveMessages[0].Buttons[0].Reply.ID)

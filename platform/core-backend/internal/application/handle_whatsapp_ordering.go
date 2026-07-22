@@ -124,6 +124,17 @@ func (uc *HandleWhatsAppMessageUseCase) startOrderingFlow(
 	ctx context.Context,
 	sess *session.Session,
 ) (string, session.ConversationState, error) {
+	if uc.tabRepo != nil {
+		if _, err := uc.getOrCreateTab(ctx, sess); err != nil {
+			uc.logger.Info("ordering blocked until a comanda is available",
+				zap.Error(err),
+				zap.String("tenant_id", sess.TenantID.String()),
+				zap.String("user_phone", sess.UserPhone),
+			)
+			return whatsapp.MenuAccessUnavailableMessage(), session.StateWelcome, nil
+		}
+	}
+
 	if uc.menuRepo == nil {
 		return "📋 Ainda não consegui carregar o cardápio agora. Tente novamente em instantes.\n\n" + whatsapp.MainMenuMessage(),
 			session.StateMainMenu, nil
@@ -288,7 +299,17 @@ func (uc *HandleWhatsAppMessageUseCase) getOrCreateTab(
 		return existingTab, nil
 	}
 
-	// Criar nova tab
+	tenantObj, err := uc.tenantRepo.FindByID(ctx, sess.TenantID)
+	if err != nil || tenantObj == nil {
+		return nil, fmt.Errorf("failed to load tenant before opening tab")
+	}
+
+	serviceMode := strings.TrimSpace(tenantObj.Settings.ServiceMode)
+	if sess.TableID == nil && !strings.EqualFold(serviceMode, "SEM_MESA") {
+		return nil, fmt.Errorf("cannot open tab without an approved table")
+	}
+
+	// Create a tab only after table approval or in no-table service mode.
 	newTab := &tab.Tab{
 		ID:          uuid.New(),
 		TenantID:    sess.TenantID,
@@ -298,10 +319,8 @@ func (uc *HandleWhatsAppMessageUseCase) getOrCreateTab(
 		Status:      tab.StatusOpen,
 	}
 	newTab.PublicCode = tab.BuildPublicCode(newTab.ID)
-	if tenantObj, tenantErr := uc.tenantRepo.FindByID(ctx, sess.TenantID); tenantErr == nil && tenantObj != nil {
-		if strings.EqualFold(strings.TrimSpace(tenantObj.Settings.ServiceMode), "SEM_MESA") {
-			newTab.ServiceMode = "SEM_MESA"
-		}
+	if strings.EqualFold(serviceMode, "SEM_MESA") {
+		newTab.ServiceMode = "SEM_MESA"
 	}
 
 	if err := uc.tabRepo.Create(ctx, newTab); err != nil {
@@ -3089,6 +3108,10 @@ func (uc *HandleWhatsAppMessageUseCase) findSessionOpenTab(
 	ctx context.Context,
 	sess *session.Session,
 ) *tab.Tab {
+	if sess == nil || uc.tabRepo == nil {
+		return nil
+	}
+
 	var candidate *tab.Tab
 
 	if sess.TabID != nil {
@@ -3320,7 +3343,9 @@ func (uc *HandleWhatsAppMessageUseCase) isCustomerVisibleTab(userTab *tab.Tab) b
 		return false
 	}
 
-	return userTab.PaidAmount < userTab.Total
+	// A newly generated comanda has total zero and must remain visible so the
+	// customer can add the first order and keep the tab bound to the session.
+	return userTab.Status == tab.StatusOpen && (userTab.Total <= 0 || userTab.PaidAmount < userTab.Total)
 }
 
 func (uc *HandleWhatsAppMessageUseCase) reconcileOpenTabMetadata(

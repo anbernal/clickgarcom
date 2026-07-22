@@ -9,6 +9,16 @@ import (
 
 const mainMenuBackButtonTitle = "↩️ Voltar ao menu"
 
+func sendInteractiveButtonsWithoutBack(
+	sender WhatsAppSender,
+	ctx context.Context,
+	to string,
+	body string,
+	buttons []whatsapp.InteractiveButton,
+) (string, error) {
+	return sender.SendInteractiveButtons(ctx, to, strings.TrimSpace(body), buttons)
+}
+
 // sendInteractiveButtonsWithBack keeps the back action visible without exceeding
 // WhatsApp's three-button limit. Menus with three actions become a list.
 func sendInteractiveButtonsWithBack(

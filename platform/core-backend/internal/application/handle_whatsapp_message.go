@@ -173,7 +173,7 @@ func (uc *HandleWhatsAppMessageUseCase) Execute(ctx context.Context, input Handl
 							}
 
 							msg := fmt.Sprintf("Olá! 😊 Vimos que a *Mesa %s* já está em andamento.\n\nVocê deseja entrar na comanda com seus amigos ou criar uma conta só para você?", tTable.Number)
-							if _, err := sendInteractiveButtonsWithBack(uc.sender, whatsapp.WithTenantID(ctx, input.TenantID), input.From, msg, buttons); err != nil {
+							if _, err := sendInteractiveButtonsWithoutBack(uc.sender, whatsapp.WithTenantID(ctx, input.TenantID), input.From, msg, buttons); err != nil {
 								uc.logger.Error("failed to send interactive buttons", zap.Error(err))
 							}
 							return uc.sessionRepo.Save(ctx, sess)
@@ -624,7 +624,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleWelcomeMenu(
 	text string,
 ) (string, session.ConversationState, error) {
 	if strings.TrimSpace(text) == "0" {
-		return whatsapp.MainMenuMessage(), session.StateMainMenu, nil
+		return "", session.StateWelcome, nil
 	}
 
 	t, err := uc.tenantRepo.FindByID(ctx, sess.TenantID)
@@ -846,17 +846,17 @@ func (uc *HandleWhatsAppMessageUseCase) sendWelcomeMenu(
 
 	buttons := uc.buildInteractiveButtons(definition.Actions)
 	if !uc.shouldSendInteractiveWelcome(definition, buttons) {
-		return uc.sendTenantMessagePlain(ctx, to, tenantObj.ID, uc.composeWelcomeMenuText(ctx, tenantObj, prefix))
+		return uc.sender.SendText(whatsapp.WithTenantID(ctx, tenantObj.ID), to, uc.composeWelcomeMenuText(ctx, tenantObj, prefix))
 	}
 
 	body := uc.composeWelcomeMenuBody(tenantObj, definition, prefix)
-	if _, err := sendInteractiveButtonsWithBack(uc.sender, whatsapp.WithTenantID(ctx, tenantObj.ID), to, body, buttons); err != nil {
+	if _, err := sendInteractiveButtonsWithoutBack(uc.sender, whatsapp.WithTenantID(ctx, tenantObj.ID), to, body, buttons); err != nil {
 		uc.logger.Warn("failed to send interactive welcome menu, falling back to text",
 			zap.Error(err),
 			zap.String("tenant_id", tenantObj.ID.String()),
 			zap.String("to", to),
 		)
-		return uc.sendTenantMessagePlain(ctx, to, tenantObj.ID, uc.composeWelcomeMenuText(ctx, tenantObj, prefix))
+		return uc.sender.SendText(whatsapp.WithTenantID(ctx, tenantObj.ID), to, uc.composeWelcomeMenuText(ctx, tenantObj, prefix))
 	}
 
 	return nil
@@ -878,13 +878,13 @@ func (uc *HandleWhatsAppMessageUseCase) sendDefaultWelcomeMenu(
 	}
 
 	ctx = whatsapp.WithTenantID(ctx, tenantObj.ID)
-	if _, err := sendInteractiveButtonsWithBack(uc.sender, ctx, to, body, buttons); err != nil {
+	if _, err := sendInteractiveButtonsWithoutBack(uc.sender, ctx, to, body, buttons); err != nil {
 		uc.logger.Warn("failed to send default interactive welcome menu, falling back to text",
 			zap.Error(err),
 			zap.String("tenant_id", tenantObj.ID.String()),
 			zap.String("to", to),
 		)
-		return uc.sendTenantMessagePlain(ctx, to, tenantObj.ID, uc.composeWelcomeMenuText(ctx, tenantObj, prefix))
+		return uc.sender.SendText(whatsapp.WithTenantID(ctx, tenantObj.ID), to, uc.composeWelcomeMenuText(ctx, tenantObj, prefix))
 	}
 
 	return nil
@@ -1414,11 +1414,14 @@ func (uc *HandleWhatsAppMessageUseCase) handleOrderConfirmation(
 			session.StateMainMenu, nil
 	}
 
-	userTab, err := uc.getOrCreateTab(ctx, sess)
-	if err != nil {
-		uc.logger.Error("failed to get/create tab for whatsapp order", zap.Error(err))
-		return "❌ Não consegui abrir sua comanda agora. Tente novamente em instantes.\n\n" + whatsapp.MainMenuMessage(),
-			session.StateMainMenu, nil
+	userTab := uc.findSessionOpenTab(ctx, sess)
+	if userTab == nil {
+		uc.logger.Warn("refusing order confirmation without open tab",
+			zap.String("tenant_id", sess.TenantID.String()),
+			zap.String("user_phone", sess.UserPhone),
+		)
+		uc.clearOrderingContext(sess)
+		return whatsapp.MenuAccessUnavailableMessage(), session.StateWelcome, nil
 	}
 
 	orderInput := CreateOrderInput{
@@ -2294,9 +2297,9 @@ func (uc *HandleWhatsAppMessageUseCase) sendSingleActionMenu(
 	buttonTitle string,
 ) error {
 	decoratedBody := whatsapp.WithRestaurantHeader(uc.resolveTenantName(ctx, tenantID), body)
-	decoratedFallback := whatsapp.WithRestaurantHeader(uc.resolveTenantName(ctx, tenantID), appendMainMenuBackOption(fallback))
+	decoratedFallback := whatsapp.WithRestaurantHeader(uc.resolveTenantName(ctx, tenantID), fallback)
 	ctx = whatsapp.WithTenantID(ctx, tenantID)
-	if _, err := sendInteractiveButtonsWithBack(uc.sender, ctx, to, decoratedBody, buildSingleReplyButtons(buttonID, buttonTitle)); err != nil {
+	if _, err := sendInteractiveButtonsWithoutBack(uc.sender, ctx, to, decoratedBody, buildSingleReplyButtons(buttonID, buttonTitle)); err != nil {
 		uc.logger.Warn("failed to send single-action interactive menu, falling back to text",
 			zap.Error(err),
 			zap.String("tenant_id", tenantID.String()),
