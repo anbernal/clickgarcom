@@ -344,7 +344,7 @@ function resolveCheckoutLabel(tab) {
     const tableNumber = String(tab?.tableNumber || '').trim();
     const publicCode = String(tab?.publicCode || '').trim();
     const location = tableNumber ? `Mesa ${tableNumber}` : 'Comanda digital';
-    return `${tenantName} · ${location}${publicCode ? ` · ${publicCode}` : ''}`;
+    return `${tenantName} · ${location}${publicCode ? ` · CÓDIGO DA COMANDA: ${publicCode}` : ''}`;
 }
 
 function buildExitValidationUrl() {

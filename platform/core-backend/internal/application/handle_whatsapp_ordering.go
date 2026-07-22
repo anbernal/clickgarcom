@@ -2342,7 +2342,7 @@ func (uc *HandleWhatsAppMessageUseCase) startClosingTabFlow(
 		}
 	}
 	tableCode := uc.resolveTabTableCode(ctx, sess.TenantID, userTab)
-	message := whatsapp.TabSummaryMessage(
+	message := whatsapp.TabSummaryMessageWithCode(
 		restaurantName,
 		tableCode,
 		items,
@@ -2350,6 +2350,7 @@ func (uc *HandleWhatsAppMessageUseCase) startClosingTabFlow(
 		userTab.Subtotal,
 		userTab.ServiceFee,
 		userTab.Total,
+		userTab.PublicCode,
 		msgs,
 	)
 
@@ -2966,7 +2967,7 @@ func (uc *HandleWhatsAppMessageUseCase) buildTabSummaryResponse(
 
 	items := uc.buildTabItemsList(ctx, sess.TenantID, userTab.ID)
 	tableCode := uc.resolveTabTableCode(ctx, sess.TenantID, userTab)
-	bodyMessage := whatsapp.TabSummaryMessage(
+	bodyMessage := whatsapp.TabSummaryMessageWithCode(
 		restaurantName,
 		tableCode,
 		items,
@@ -2974,9 +2975,10 @@ func (uc *HandleWhatsAppMessageUseCase) buildTabSummaryResponse(
 		userTab.Subtotal,
 		userTab.ServiceFee,
 		userTab.Total,
+		userTab.PublicCode,
 		msgs,
 	)
-	message := whatsapp.TabSummaryMenuMessage(
+	message := whatsapp.TabSummaryMenuMessageWithCode(
 		restaurantName,
 		tableCode,
 		items,
@@ -2984,6 +2986,7 @@ func (uc *HandleWhatsAppMessageUseCase) buildTabSummaryResponse(
 		userTab.Subtotal,
 		userTab.ServiceFee,
 		userTab.Total,
+		userTab.PublicCode,
 		msgs,
 	)
 

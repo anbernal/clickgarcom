@@ -1423,9 +1423,9 @@ func (uc *HandleWhatsAppMessageUseCase) handleOrderConfirmation(
 	uc.clearOrderingContext(sess)
 
 	return fmt.Sprintf(
-		"✅ *Pedido enviado!*\n\n%s\n\n🧾 Código: *#%s*\n\nSeu pedido já foi encaminhado para a equipe. Vamos te avisar por aqui conforme o status avançar.\n\n%s",
+		"✅ *Pedido enviado!*\n\n%s\n\n%s\n\nSeu pedido já foi encaminhado para a equipe. Vamos te avisar por aqui conforme o status avançar.\n\n%s",
 		itemsSummary,
-		orderCode,
+		whatsapp.TabCodeNotice(userTab.PublicCode)+fmt.Sprintf("\n\n🧾 Código do pedido: *#%s*", orderCode),
 		whatsapp.MainMenuMessage(),
 	), session.StateMainMenu, nil
 }
@@ -2124,13 +2124,18 @@ func (uc *HandleWhatsAppMessageUseCase) handleOpenerDecision(
 		clientB, err := uc.sessionRepo.Find(ctx, joinReq.RequestorPhone, sess.TenantID.String())
 		if err == nil && clientB != nil {
 			if joinReq.JoinType == tab.JoinTypeShared {
+				mainTab, _ := uc.tabRepo.FindByID(ctx, joinReq.MainTabID, sess.TenantID)
+				codeNotice := ""
+				if mainTab != nil {
+					codeNotice = whatsapp.TabCodeNotice(mainTab.PublicCode)
+				}
 				clientB.TabID = &joinReq.MainTabID
 				clientB.TableID = &joinReq.TableID
 				clientB.Context = make(map[string]interface{})
 				clientB.TransitionTo(session.StateMainMenu)
 				uc.sessionRepo.Save(ctx, clientB)
 
-				uc.sendTenantMessage(ctx, clientB.UserPhone, sess.TenantID, "✅ *Sua entrada foi aprovada!*\n\n🤝 Você entrou na Comanda Compartilhada.\n\n"+whatsapp.MainMenuMessage())
+				uc.sendTenantMessage(ctx, clientB.UserPhone, sess.TenantID, "✅ *Sua entrada foi aprovada!*\n\n🤝 Você entrou na Comanda Compartilhada.\n\n"+codeNotice+"\n\n"+whatsapp.MainMenuMessage())
 			} else {
 				newTab := &tab.Tab{
 					ID:          uuid.New(),
@@ -2149,7 +2154,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleOpenerDecision(
 				clientB.TransitionTo(session.StateMainMenu)
 				uc.sessionRepo.Save(ctx, clientB)
 
-				uc.sendTenantMessage(ctx, clientB.UserPhone, sess.TenantID, "✅ *Sua entrada foi aprovada!*\n\n💳 Sua comanda individual foi criada.\n\n"+whatsapp.MainMenuMessage())
+				uc.sendTenantMessage(ctx, clientB.UserPhone, sess.TenantID, "✅ *Sua entrada foi aprovada!*\n\n💳 Sua comanda individual foi criada.\n\n"+whatsapp.TabCodeNotice(newTab.PublicCode)+"\n\n"+whatsapp.MainMenuMessage())
 			}
 		}
 
@@ -2446,15 +2451,17 @@ func (uc *HandleWhatsAppMessageUseCase) sendTabSummaryMenu(
 	subtotal := 0.0
 	serviceFee := 0.0
 	total := 0.0
+	publicCode := ""
 	if userTab != nil {
 		tableCode = uc.resolveTabTableCode(ctx, sess.TenantID, userTab)
+		publicCode = userTab.PublicCode
 		items = uc.buildTabItemsList(ctx, sess.TenantID, userTab.ID)
 		subtotal = userTab.Subtotal
 		serviceFee = userTab.ServiceFee
 		total = userTab.Total
 	}
 
-	body := whatsapp.TabSummaryMessage(
+	body := whatsapp.TabSummaryMessageWithCode(
 		restaurantName,
 		tableCode,
 		items,
@@ -2462,9 +2469,10 @@ func (uc *HandleWhatsAppMessageUseCase) sendTabSummaryMenu(
 		subtotal,
 		serviceFee,
 		total,
+		publicCode,
 		msgs,
 	)
-	fallback := whatsapp.TabSummaryMenuMessage(
+	fallback := whatsapp.TabSummaryMenuMessageWithCode(
 		restaurantName,
 		tableCode,
 		items,
@@ -2472,6 +2480,7 @@ func (uc *HandleWhatsAppMessageUseCase) sendTabSummaryMenu(
 		subtotal,
 		serviceFee,
 		total,
+		publicCode,
 		msgs,
 	)
 

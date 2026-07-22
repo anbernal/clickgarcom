@@ -279,6 +279,11 @@ func WelcomeAndTablePendingMessage(restaurantName string, msgs ...tenant.Message
 
 // TableRequestApprovedMessage mensagem quando mesa é liberada
 func TableRequestApprovedMessage(tableNumber string, msgs ...tenant.MessageTemplates) string {
+	return TableRequestApprovedMessageWithCode(tableNumber, "", msgs...)
+}
+
+// TableRequestApprovedMessageWithCode avisa a liberação da mesa e destaca a comanda.
+func TableRequestApprovedMessageWithCode(tableNumber, publicCode string, msgs ...tenant.MessageTemplates) string {
 	custom := ""
 	if len(msgs) > 0 {
 		custom = msgs[0].TableApproved
@@ -292,17 +297,22 @@ func TableRequestApprovedMessage(tableNumber string, msgs ...tenant.MessageTempl
 		injection := fmt.Sprintf("\nVocê está na *Mesa %s*.\n", tableNumber)
 		parts := strings.SplitN(msg, "\n\n", 2)
 		if len(parts) == 2 {
-			return parts[0] + "\n" + injection + "\n" + parts[1]
+			msg = parts[0] + "\n" + injection + "\n" + parts[1]
+		} else {
+			msg += injection
 		}
-		return msg + injection
 	}
 
-	return msg
+	return appendTabCodeNotice(msg, publicCode)
 }
 
 // TableRequestApprovedMenuMessage adiciona as opções em texto quando o canal não suporta interações.
 func TableRequestApprovedMenuMessage(tableNumber string, msgs ...tenant.MessageTemplates) string {
-	body := strings.TrimSpace(TableRequestApprovedMessage(tableNumber, msgs...))
+	return TableRequestApprovedMenuMessageWithCode(tableNumber, "", msgs...)
+}
+
+func TableRequestApprovedMenuMessageWithCode(tableNumber, publicCode string, msgs ...tenant.MessageTemplates) string {
+	body := strings.TrimSpace(TableRequestApprovedMessageWithCode(tableNumber, publicCode, msgs...))
 	menu := strings.TrimSpace(defaultTableApprovedMenuOptions)
 
 	switch {
@@ -379,6 +389,51 @@ func TabSummaryMessage(
 	subtotal, serviceFee, total float64,
 	msgs ...tenant.MessageTemplates,
 ) string {
+	return TabSummaryMessageWithCode(
+		restaurantName,
+		tableLabel,
+		items,
+		serviceFeePercent,
+		subtotal,
+		serviceFee,
+		total,
+		"",
+		msgs...,
+	)
+}
+
+// TabCodeNotice gera um destaque consistente para o identificador que o cliente
+// deve informar à equipe ou usar na consulta da comanda.
+func TabCodeNotice(publicCode string) string {
+	code := strings.TrimSpace(publicCode)
+	if code == "" {
+		return ""
+	}
+
+	return fmt.Sprintf("🔖 *CÓDIGO DA COMANDA*\n\n*%s*\n\n_Guarde este código para consultar sua conta._", code)
+}
+
+func appendTabCodeNotice(body, publicCode string) string {
+	notice := TabCodeNotice(publicCode)
+	if notice == "" || strings.Contains(body, publicCode) {
+		return body
+	}
+	if body == "" {
+		return notice
+	}
+	return notice + "\n\n" + body
+}
+
+// TabSummaryMessageWithCode resume a comanda e destaca seu código público.
+func TabSummaryMessageWithCode(
+	restaurantName string,
+	tableLabel string,
+	items []string,
+	serviceFeePercent float64,
+	subtotal, serviceFee, total float64,
+	publicCode string,
+	msgs ...tenant.MessageTemplates,
+) string {
 	custom := ""
 	if len(msgs) > 0 {
 		custom = msgs[0].TabSummary
@@ -399,7 +454,7 @@ func TabSummaryMessage(
 		mesaLabel = " · Mesa " + strings.TrimSpace(tableLabel)
 	}
 
-	return resolveTemplate(custom, defaultTabSummary, map[string]string{
+	body := resolveTemplate(custom, defaultTabSummary, map[string]string{
 		"{nome_restaurante}": restaurantName,
 		"{mesa_label}":       mesaLabel,
 		"{itens}":            itemsList,
@@ -407,7 +462,9 @@ func TabSummaryMessage(
 		"{taxa}":             formatCurrencyBR(serviceFee),
 		"{total}":            formatCurrencyBR(total),
 		"{percentual_taxa}":  formatPercentBR(serviceFeePercent),
+		"{codigo_comanda}":   strings.TrimSpace(publicCode),
 	})
+	return appendTabCodeNotice(body, strings.TrimSpace(publicCode))
 }
 
 func TabSummaryMenuMessage(
@@ -418,7 +475,7 @@ func TabSummaryMenuMessage(
 	subtotal, serviceFee, total float64,
 	msgs ...tenant.MessageTemplates,
 ) string {
-	body := strings.TrimSpace(TabSummaryMessage(
+	return TabSummaryMenuMessageWithCode(
 		restaurantName,
 		tableLabel,
 		items,
@@ -426,6 +483,29 @@ func TabSummaryMenuMessage(
 		subtotal,
 		serviceFee,
 		total,
+		"",
+		msgs...,
+	)
+}
+
+func TabSummaryMenuMessageWithCode(
+	restaurantName string,
+	tableLabel string,
+	items []string,
+	serviceFeePercent float64,
+	subtotal, serviceFee, total float64,
+	publicCode string,
+	msgs ...tenant.MessageTemplates,
+) string {
+	body := strings.TrimSpace(TabSummaryMessageWithCode(
+		restaurantName,
+		tableLabel,
+		items,
+		serviceFeePercent,
+		subtotal,
+		serviceFee,
+		total,
+		publicCode,
 		msgs...,
 	))
 	menu := strings.TrimSpace(defaultTabSummaryOptions)

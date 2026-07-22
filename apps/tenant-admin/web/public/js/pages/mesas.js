@@ -100,11 +100,18 @@ function renderTableCard(table) {
 
   if (table.activeTabs && table.activeTabs.length > 0) {
     const totalSum = table.activeTabs.reduce((acc, tab) => acc + parseFloat(tab.total || 0), 0);
+    const activeCodes = table.activeTabs
+      .map((tab) => String(tab.publicCode || '').trim())
+      .filter(Boolean);
     tabTotalDisplay = formatCurrency(totalSum);
 
     secondaryNote += table.activeTabs.length > 1
       ? `<div style="font-size:12px; color:var(--text-light); margin-top:4px;">${table.activeTabs.length} comandas ativas</div>`
       : `<div style="font-size:12px; color:var(--text-light); margin-top:4px;">1 comanda ativa</div>`;
+
+    if (activeCodes.length) {
+      secondaryNote += `<div style="margin-top:9px; padding:7px 9px; border-radius:8px; background:rgba(15,118,110,.08); border:1px solid rgba(15,118,110,.18); color:#0f766e; font-size:11px; font-weight:800; letter-spacing:.3px;">CÓDIGO: <span class="mono" style="font-size:14px;">${escapeHTML(activeCodes.join(' · '))}</span></div>`;
+    }
   } else if (table.status === 'RESERVED') {
     secondaryNote += '<div style="font-size:12px; color:var(--text-light); margin-top:4px;">Bloqueada para o Atendimento</div>';
   }
@@ -706,6 +713,7 @@ function renderComandaCard(detail, idx, tableId, tableNumber) {
   const permissions = detail?.permissions || {};
   const statusMeta = getComandaStatusMeta(detail?.status);
   const identifier = String(detail?.id || '').slice(0, 8) || '--------';
+  const publicCode = String(detail?.publicCode || '').trim();
   const closeRequests = Array.isArray(detail?.closeRequests) ? detail.closeRequests : [];
   const splitAmount = Number(split.splitEqual?.amount || 0) + Number(split.splitItems?.amount || 0);
 
@@ -716,7 +724,9 @@ function renderComandaCard(detail, idx, tableId, tableNumber) {
           <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
             <strong>Comanda ${idx + 1}</strong>
             <span class="status-pill ${statusMeta.cls}">${escapeHTML(statusMeta.label)}</span>
-            <span style="font-size:12px; color:var(--text-light);">#${escapeHTML(identifier)}</span>
+            ${publicCode
+              ? `<span style="font-size:15px; color:#0f766e; font-weight:900; letter-spacing:.6px; background:rgba(15,118,110,.10); border:1px solid rgba(15,118,110,.2); border-radius:8px; padding:5px 9px;">CÓDIGO ${escapeHTML(publicCode)}</span>`
+              : `<span style="font-size:12px; color:var(--text-light);">#${escapeHTML(identifier)}</span>`}
           </div>
           <div style="font-size:12px; color:var(--text-light); margin-top:8px;">
             Abertura: ${escapeHTML(formatDateTime(detail?.openedAt))}

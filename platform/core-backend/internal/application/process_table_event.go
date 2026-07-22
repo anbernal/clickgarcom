@@ -115,6 +115,7 @@ func (uc *ProcessTableEventUseCase) Execute(ctx context.Context, payloadBytes []
 	// Verificar se já tem comanda ativa (segurança)
 	activeTab, _ := uc.tabRepo.FindOpenByTable(ctx, t.ID, t.TenantID)
 	var tabID uuid.UUID
+	publicCode := ""
 
 	if activeTab == nil {
 		newTab := &tab.Tab{
@@ -133,8 +134,10 @@ func (uc *ProcessTableEventUseCase) Execute(ctx context.Context, payloadBytes []
 			return fmt.Errorf("failed to create tab: %w", err)
 		}
 		tabID = newTab.ID
+		publicCode = newTab.PublicCode
 	} else {
 		tabID = activeTab.ID
+		publicCode = activeTab.PublicCode
 	}
 
 	// 5. Atualizar Sessão do WhatsApp
@@ -153,11 +156,11 @@ func (uc *ProcessTableEventUseCase) Execute(ctx context.Context, payloadBytes []
 
 		// 6. Enviar Mensagem de Aprovação via WhatsApp
 		tenantObj, tenantErr := uc.tenantRepo.FindByID(ctx, req.TenantID)
-		msgBody := whatsapp.TableRequestApprovedMessage(t.Number)
-		msgFallback := whatsapp.TableRequestApprovedMenuMessage(t.Number)
+		msgBody := whatsapp.TableRequestApprovedMessageWithCode(t.Number, publicCode)
+		msgFallback := whatsapp.TableRequestApprovedMenuMessageWithCode(t.Number, publicCode)
 		if tenantErr == nil && tenantObj != nil {
-			msgBody = whatsapp.TableRequestApprovedMessage(t.Number, tenantObj.Settings.Messages)
-			msgFallback = whatsapp.TableRequestApprovedMenuMessage(t.Number, tenantObj.Settings.Messages)
+			msgBody = whatsapp.TableRequestApprovedMessageWithCode(t.Number, publicCode, tenantObj.Settings.Messages)
+			msgFallback = whatsapp.TableRequestApprovedMenuMessageWithCode(t.Number, publicCode, tenantObj.Settings.Messages)
 			msgBody = whatsapp.WithRestaurantHeader(tenantObj.Name, msgBody)
 			msgFallback = whatsapp.WithRestaurantHeader(tenantObj.Name, msgFallback)
 		}

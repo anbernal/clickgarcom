@@ -257,7 +257,8 @@ func (uc *ProcessWhatsAppMessageUseCase) buildClosedTenantResponse(
 	}
 
 	summary := fmt.Sprintf(
-		"📋 *Sua Comanda (aberta)*\n\nSubtotal: R$ %.2f\nTaxa de serviço: R$ %.2f\n*Total: R$ %.2f*",
+		"%s\n\n📋 *Sua Comanda (aberta)*\n\nSubtotal: R$ %.2f\nTaxa de serviço: R$ %.2f\n*Total: R$ %.2f*",
+		whatsapp.TabCodeNotice(openTab.PublicCode),
 		openTab.Subtotal,
 		openTab.ServiceFee,
 		openTab.Total,

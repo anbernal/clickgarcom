@@ -37,7 +37,7 @@
       if (!response.ok) throw new Error(payload.message || payload.error || 'A conta ainda não está liberada para saída.');
 
       setState('success', 'Saída liberada', 'A conta foi validada. Você pode deixar o restaurante.', 'Pagamento e pedidos conferidos com sucesso.', '✅');
-      if (payload.publicCode) code.textContent = `Comanda ${payload.publicCode}`;
+      if (payload.publicCode) code.textContent = `CÓDIGO DA COMANDA: ${payload.publicCode}`;
     } catch (error) {
       setState('error', 'Saída não liberada', 'Procure a equipe para regularizar a comanda.', error.message || 'A conta ainda possui pendências.', '⛔');
     }

@@ -34,13 +34,17 @@ function renderConsultaResult(detail) {
   const exitValidated = !!detail?.exitValidatedAt;
   const tableLabel = detail?.tableNumber ? `Mesa ${detail.tableNumber}` : 'Sem mesa';
   const pendingAmount = Number(financial.amountDue || 0);
+  const publicCode = String(detail?.publicCode || detail?.id || '').trim();
 
   return `
     <div class="full-card" style="margin-top:20px; padding:22px;">
       <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap;">
         <div>
           <div style="font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:1px; font-weight:800;">Comanda consultada</div>
-          <h2 style="margin:6px 0 0; font-size:25px; letter-spacing:-.6px;">${escapeHTML(detail.publicCode || detail.id)}</h2>
+          <div style="display:inline-flex; flex-direction:column; gap:3px; margin-top:8px; padding:10px 14px; border-radius:10px; background:rgba(15,118,110,.10); border:2px solid rgba(15,118,110,.25);">
+            <span style="font-size:11px; color:#0f766e; font-weight:900; letter-spacing:1px;">CÓDIGO DA COMANDA</span>
+            <strong class="mono" style="font-size:32px; line-height:1; letter-spacing:1.5px; color:#0f766e;">${escapeHTML(publicCode)}</strong>
+          </div>
           <div style="font-size:13px; color:var(--muted); margin-top:7px;">${escapeHTML(tableLabel)} · ${escapeHTML(consultaModeLabel(detail.serviceMode))} · aberta em ${escapeHTML(formatDateTime(detail.openedAt))}</div>
         </div>
         <div style="padding:9px 13px; border-radius:999px; background:${status.background}; color:${status.color}; font-size:12px; font-weight:800;">${escapeHTML(status.label)}</div>
