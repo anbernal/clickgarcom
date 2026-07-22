@@ -28,3 +28,16 @@ func TestBuildCheckoutAccessTokenDoesNotRequirePhone(t *testing.T) {
 		t.Fatalf("checkout token unexpectedly contains owner phone %q", claims.OwnerPhone)
 	}
 }
+
+func TestBuildPublicExitURLs(t *testing.T) {
+	baseURL := "https://clickgarcom.example"
+	tabID := "tab-test"
+	accessToken := "signed-token"
+
+	if got := buildPublicExitURL(baseURL, tabID, accessToken); got != "https://clickgarcom.example/exit.html#access_token=signed-token&tab_id=tab-test" {
+		t.Fatalf("buildPublicExitURL() = %q", got)
+	}
+	if got := buildPublicExitQRCodeURL(baseURL, tabID, accessToken); got != "https://clickgarcom.example/api/exit/tab-test/qr.png?access_token=signed-token" {
+		t.Fatalf("buildPublicExitQRCodeURL() = %q", got)
+	}
+}

@@ -369,6 +369,10 @@ func SetupRoutes(
 	receiptHandler := handlers.NewReceiptHandler(db.DB, logger)
 	app.Get("/api/receipt/:tabId/image.png", receiptHandler.GetReceiptImage)
 
+	// Exit QR image (public for Meta API, protected by the short-lived signed token)
+	exitQRCodeHandler := handlers.NewExitQRCodeHandler(logger)
+	app.Get("/api/exit/:tabId/qr.png", exitQRCodeHandler.GetExitQRCode)
+
 	// Order routes (Protected)
 	orders := app.Group("/orders", jwtAuth, middleware.TenantScope)
 	{

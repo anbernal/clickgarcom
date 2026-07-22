@@ -349,9 +349,67 @@ func (uc *HandleWhatsAppMessageUseCase) handleMainMenuSimplified(
 	case "5":
 		return uc.startClosingTabFlow(ctx, sess)
 
+	case "6":
+		return uc.handleExitQRCode(ctx, sess)
+
 	default:
 		return uc.repeatCurrentPrompt(ctx, sess)
 	}
+}
+
+func (uc *HandleWhatsAppMessageUseCase) handleExitQRCode(
+	ctx context.Context,
+	sess *session.Session,
+) (string, session.ConversationState, error) {
+	userTab := uc.findSessionExitTab(ctx, sess)
+	if userTab == nil {
+		return "🔐 *QR Code de saída*\n\nNão encontrei uma comanda aberta vinculada a este atendimento.\n\n" + whatsapp.MainMenuMessage(),
+			session.StateMainMenu, nil
+	}
+
+	if !uc.isTabOwnedBySessionPhone(userTab, sess.UserPhone) {
+		return buildClosingTabOwnerOnlyMessage(), session.StateMainMenu, nil
+	}
+
+	baseURL := uc.resolveCurrentPublicCheckoutBaseURL()
+	if baseURL == "" || isLocalCheckoutBase(baseURL) {
+		return "🔐 *QR Code de saída*\n\nAinda não consegui gerar um link público de saída para o seu celular. Peça apoio à equipe.\n\n" + whatsapp.MainMenuMessage(),
+			session.StateMainMenu, nil
+	}
+
+	accessToken, ttl, err := buildCheckoutAccessToken(userTab.ID.String(), "")
+	if err != nil {
+		uc.logger.Error("failed to sign exit QR access token",
+			zap.Error(err),
+			zap.String("tab_id", userTab.ID.String()),
+		)
+		return "🔐 *QR Code de saída*\n\nNão consegui gerar o QR Code agora. Peça apoio à equipe.\n\n" + whatsapp.MainMenuMessage(),
+			session.StateMainMenu, nil
+	}
+
+	exitURL := buildPublicExitURL(baseURL, userTab.ID.String(), accessToken)
+	qrURL := buildPublicExitQRCodeURL(baseURL, userTab.ID.String(), accessToken)
+	code := strings.TrimSpace(userTab.PublicCode)
+	if code == "" {
+		code = userTab.ID.String()
+	}
+
+	caption := fmt.Sprintf("QR CODE DE SAÍDA | COMANDA %s", code)
+	if _, err := uc.sender.SendImage(ctx, sess.UserPhone, qrURL, caption); err != nil {
+		uc.logger.Warn("failed to send exit QR image, falling back to secure link",
+			zap.Error(err),
+			zap.String("tab_id", userTab.ID.String()),
+			zap.String("qr_url", qrURL),
+		)
+	}
+
+	return fmt.Sprintf(
+		"🔐 *QR CODE DE SAÍDA*\n\n*CÓDIGO DA COMANDA: %s*\n\nEscaneie a imagem enviada acima. Ela abrirá uma tela externa para conferir pedidos, pagamentos e liberar a saída somente quando a comanda estiver regularizada.\n\nSe a imagem não aparecer, abra este link seguro:\n%s\n\n_Este acesso individual expira em %s._\n\n%s",
+		code,
+		exitURL,
+		formatCheckoutAccessTTL(ttl),
+		whatsapp.MainMenuMessage(),
+	), session.StateMainMenu, nil
 }
 
 func (uc *HandleWhatsAppMessageUseCase) sendOrderingCategoryMenu(
@@ -3074,6 +3132,20 @@ func (uc *HandleWhatsAppMessageUseCase) findSessionOpenTab(
 	return candidate
 }
 
+func (uc *HandleWhatsAppMessageUseCase) findSessionExitTab(
+	ctx context.Context,
+	sess *session.Session,
+) *tab.Tab {
+	if sess != nil && sess.TabID != nil && uc.tabRepo != nil {
+		candidate, err := uc.tabRepo.FindByID(ctx, *sess.TabID, sess.TenantID)
+		if err == nil && candidate != nil && uc.canSessionAccessTab(ctx, sess, candidate) && uc.isTabOwnedBySessionPhone(candidate, sess.UserPhone) {
+			return candidate
+		}
+	}
+
+	return uc.findSessionOpenTab(ctx, sess)
+}
+
 func (uc *HandleWhatsAppMessageUseCase) findUnauthorizedOpenTabForSession(
 	ctx context.Context,
 	sess *session.Session,
@@ -3485,6 +3557,19 @@ func buildPublicCheckoutURL(baseURL string, tabID string, accessToken string) st
 	query.Set("tab_id", strings.TrimSpace(tabID))
 	query.Set("access_token", strings.TrimSpace(accessToken))
 	return strings.TrimRight(strings.TrimSpace(baseURL), "/") + "/checkout.html#" + query.Encode()
+}
+
+func buildPublicExitURL(baseURL string, tabID string, accessToken string) string {
+	query := url.Values{}
+	query.Set("tab_id", strings.TrimSpace(tabID))
+	query.Set("access_token", strings.TrimSpace(accessToken))
+	return strings.TrimRight(strings.TrimSpace(baseURL), "/") + "/exit.html#" + query.Encode()
+}
+
+func buildPublicExitQRCodeURL(baseURL string, tabID string, accessToken string) string {
+	query := url.Values{}
+	query.Set("access_token", strings.TrimSpace(accessToken))
+	return strings.TrimRight(strings.TrimSpace(baseURL), "/") + "/api/exit/" + url.PathEscape(strings.TrimSpace(tabID)) + "/qr.png?" + query.Encode()
 }
 
 func formatCheckoutAccessTTL(ttl time.Duration) string {

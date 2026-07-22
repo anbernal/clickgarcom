@@ -802,11 +802,11 @@ func TestSendTenantMessageUsesInteractiveMainMenuList(t *testing.T) {
 	if len(message.Sections) != 1 {
 		t.Fatalf("expected 1 section, got %d", len(message.Sections))
 	}
-	if len(message.Sections[0].Rows) != 5 {
-		t.Fatalf("expected 5 rows, got %d", len(message.Sections[0].Rows))
+	if len(message.Sections[0].Rows) != 6 {
+		t.Fatalf("expected 6 rows, got %d", len(message.Sections[0].Rows))
 	}
-	if message.Sections[0].Rows[4].ID != "5" {
-		t.Fatalf("expected last row id %q, got %q", "5", message.Sections[0].Rows[4].ID)
+	if message.Sections[0].Rows[5].ID != "6" {
+		t.Fatalf("expected last row id %q, got %q", "6", message.Sections[0].Rows[5].ID)
 	}
 }
 

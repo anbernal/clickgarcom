@@ -284,6 +284,7 @@ func buildOutboxMainMenuSections() []domain.InteractiveListSection {
 				{ID: "3", Title: "Repetir última rodada", Description: "Refazer seu último pedido"},
 				{ID: "4", Title: "Chamar garçom", Description: "Falar com nossa equipe"},
 				{ID: "5", Title: "Fechar conta", Description: "Pagar ou pedir fechamento"},
+				{ID: "6", Title: "QR Code de saída", Description: "Conferir se a comanda está fechada"},
 			},
 		},
 	}
