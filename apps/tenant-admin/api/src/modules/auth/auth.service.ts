@@ -148,6 +148,7 @@ export class AuthService {
 
         const user = await this.userRepository.findOne({
             where: { email },
+            relations: ['tenant'],
         });
 
         if (!user || !user.active) {
@@ -198,6 +199,7 @@ export class AuthService {
     async getProfile(userId: string, tenantId: string) {
         const user = await this.userRepository.findOne({
             where: { id: userId, tenantId },
+            relations: ['tenant'],
         });
 
         if (!user || !user.active) {
