@@ -418,7 +418,7 @@ func (uc *HandleWhatsAppMessageUseCase) sendOrderingCategoryMenu(
 	tenantID uuid.UUID,
 	categories []*menu.Category,
 ) error {
-	if len(categories) == 0 || len(categories) > 10 {
+	if len(categories) == 0 || len(categories) > 9 {
 		return fmt.Errorf("interactive category menu unavailable for %d categories", len(categories))
 	}
 
@@ -446,9 +446,9 @@ func (uc *HandleWhatsAppMessageUseCase) sendOrderingCategoryMenu(
 	_, err := uc.sender.SendInteractiveList(
 		whatsapp.WithTenantID(ctx, tenantID),
 		to,
-		appendMainMenuBackOption(body),
+		body,
 		"Ver categorias",
-		[]whatsapp.InteractiveListSection{{Title: "Categorias", Rows: rows}},
+		[]whatsapp.InteractiveListSection{{Title: "Categorias", Rows: appendMainMenuBackRow(rows)}},
 	)
 	return err
 }
@@ -460,7 +460,7 @@ func (uc *HandleWhatsAppMessageUseCase) sendOrderingItemsMenu(
 	categoryName string,
 	items []*menu.Item,
 ) error {
-	if len(items) == 0 || len(items) > 10 {
+	if len(items) == 0 || len(items) > 9 {
 		return fmt.Errorf("interactive item menu unavailable for %d items", len(items))
 	}
 
@@ -488,9 +488,9 @@ func (uc *HandleWhatsAppMessageUseCase) sendOrderingItemsMenu(
 	_, err := uc.sender.SendInteractiveList(
 		whatsapp.WithTenantID(ctx, tenantID),
 		to,
-		appendMainMenuBackOption(body),
+		body,
 		"Ver itens",
-		[]whatsapp.InteractiveListSection{{Title: truncateInteractiveTitle(categoryName), Rows: rows}},
+		[]whatsapp.InteractiveListSection{{Title: truncateInteractiveTitle(categoryName), Rows: appendMainMenuBackRow(rows)}},
 	)
 	return err
 }
@@ -508,17 +508,18 @@ func (uc *HandleWhatsAppMessageUseCase) sendQuantityMenu(
 	body := whatsapp.WithRestaurantHeader(
 		uc.resolveTenantName(ctx, tenantID),
 		fmt.Sprintf(
-			"✨ *%s*\n%s\n\n💰 Valor unitário: *R$ %s*\n\nEscolha a quantidade ou responda com outro número.",
+			"✨ *%s*\n%s\n\n💰 Valor unitário: *R$ %s*\n\nEscolha a quantidade desejada.",
 			item.Name,
 			orderingItemDetail(item),
 			formatBRLCurrency(item.Price),
 		),
 	)
 
-	_, err := uc.sender.SendInteractiveButtons(
+	_, err := sendInteractiveButtonsWithBack(
+		uc.sender,
 		whatsapp.WithTenantID(ctx, tenantID),
 		to,
-		appendMainMenuBackOption(body),
+		body,
 		buildQuantityButtons(),
 	)
 	return err
@@ -533,7 +534,7 @@ func (uc *HandleWhatsAppMessageUseCase) sendOrderingOptionGroupMenu(
 	currentSelections []orderingSelectedOption,
 	notice string,
 ) error {
-	if len(group.Options) == 0 || len(group.Options) > 10 {
+	if len(group.Options) == 0 || len(group.Options) > 9 {
 		return fmt.Errorf("interactive option menu unavailable for %d options", len(group.Options))
 	}
 
@@ -561,9 +562,9 @@ func (uc *HandleWhatsAppMessageUseCase) sendOrderingOptionGroupMenu(
 	_, err := uc.sender.SendInteractiveList(
 		whatsapp.WithTenantID(ctx, tenantID),
 		to,
-		appendMainMenuBackOption(body),
+		body,
 		"Ver opcoes",
-		[]whatsapp.InteractiveListSection{{Title: truncateInteractiveTitle(group.Name), Rows: rows}},
+		[]whatsapp.InteractiveListSection{{Title: truncateInteractiveTitle(group.Name), Rows: appendMainMenuBackRow(rows)}},
 	)
 	return err
 }
@@ -647,10 +648,11 @@ func (uc *HandleWhatsAppMessageUseCase) sendCartConfirmationMenu(
 	}
 
 	body := whatsapp.WithRestaurantHeader(uc.resolveTenantName(ctx, tenantID), cartBody)
-	_, err := uc.sender.SendInteractiveButtons(
+	_, err := sendInteractiveButtonsWithBack(
+		uc.sender,
 		whatsapp.WithTenantID(ctx, tenantID),
 		to,
-		appendMainMenuBackOption(body),
+		body,
 		buildOrderConfirmationButtons(),
 	)
 	return err
@@ -1670,7 +1672,7 @@ func (uc *HandleWhatsAppMessageUseCase) sendCartRemovalMenu(
 	cart []orderingCartItem,
 ) error {
 	entries, _ := uc.resolveOrderingCartDisplayEntries(ctx, sess, cart)
-	if len(entries) == 0 || len(entries) > 10 {
+	if len(entries) == 0 || len(entries) > 9 {
 		return fmt.Errorf("interactive cart removal unavailable for %d items", len(entries))
 	}
 
@@ -1691,9 +1693,9 @@ func (uc *HandleWhatsAppMessageUseCase) sendCartRemovalMenu(
 	_, err := uc.sender.SendInteractiveList(
 		whatsapp.WithTenantID(ctx, tenantID),
 		to,
-		appendMainMenuBackOption(body),
+		body,
 		"Escolher item",
-		[]whatsapp.InteractiveListSection{{Title: "Itens no carrinho", Rows: rows}},
+		[]whatsapp.InteractiveListSection{{Title: "Itens no carrinho", Rows: appendMainMenuBackRow(rows)}},
 	)
 	return err
 }
@@ -1733,7 +1735,7 @@ func (uc *HandleWhatsAppMessageUseCase) sendCartRemovalActionMenu(
 	entry orderingCartDisplayEntry,
 ) error {
 	rows := buildCartRemovalActionRows(entry.Quantity)
-	if len(rows) == 0 || len(rows) > 10 {
+	if len(rows) == 0 || len(rows) > 9 {
 		return fmt.Errorf("interactive cart adjustment unavailable for %d actions", len(rows))
 	}
 
@@ -1750,9 +1752,9 @@ func (uc *HandleWhatsAppMessageUseCase) sendCartRemovalActionMenu(
 	_, err := uc.sender.SendInteractiveList(
 		whatsapp.WithTenantID(ctx, tenantID),
 		to,
-		appendMainMenuBackOption(body),
+		body,
 		"Ver ações",
-		[]whatsapp.InteractiveListSection{{Title: "Ações disponíveis", Rows: rows}},
+		[]whatsapp.InteractiveListSection{{Title: "Ações disponíveis", Rows: appendMainMenuBackRow(rows)}},
 	)
 	return err
 }
@@ -1793,7 +1795,7 @@ func (uc *HandleWhatsAppMessageUseCase) sendCartQuantitySelectionMenu(
 	body := whatsapp.WithRestaurantHeader(
 		uc.resolveTenantName(ctx, tenantID),
 		fmt.Sprintf(
-			"🔢 *Alterar quantidade*\n\n*%s*\nQuantidade atual: *%dx*\n\nEscolha uma quantidade na lista ou digite um número entre *1* e *20*.",
+			"🔢 *Alterar quantidade*\n\n*%s*\nQuantidade atual: *%dx*\n\nEscolha uma quantidade na lista.",
 			entry.ItemName,
 			entry.Quantity,
 		),
@@ -1802,9 +1804,9 @@ func (uc *HandleWhatsAppMessageUseCase) sendCartQuantitySelectionMenu(
 	_, err := uc.sender.SendInteractiveList(
 		whatsapp.WithTenantID(ctx, tenantID),
 		to,
-		appendMainMenuBackOption(body),
+		body,
 		"Escolher quantidade",
-		[]whatsapp.InteractiveListSection{{Title: "Quantidades", Rows: rows}},
+		[]whatsapp.InteractiveListSection{{Title: "Quantidades", Rows: appendMainMenuBackRow(rows)}},
 	)
 	return err
 }
@@ -2325,8 +2327,8 @@ func buildCartRemovalActionRows(quantity int) []whatsapp.InteractiveListRow {
 }
 
 func buildCartQuantitySelectionRows() []whatsapp.InteractiveListRow {
-	rows := make([]whatsapp.InteractiveListRow, 0, 10)
-	for quantity := 1; quantity <= 10; quantity++ {
+	rows := make([]whatsapp.InteractiveListRow, 0, 9)
+	for quantity := 1; quantity <= 9; quantity++ {
 		rows = append(rows, whatsapp.InteractiveListRow{
 			ID:          orderingCartQtyPrefix + strconv.Itoa(quantity),
 			Title:       fmt.Sprintf("%d unidade%s", quantity, pluralSuffix(quantity)),
@@ -2488,9 +2490,10 @@ func (uc *HandleWhatsAppMessageUseCase) sendClosingTabOptions(
 	tabSummary string,
 ) error {
 	body := uc.buildClosingTabPromptBody(ctx, tenantID, tabSummary)
-	decoratedBody := whatsapp.WithRestaurantHeader(restaurantName, appendMainMenuBackOption(body))
+	decoratedBody := whatsapp.WithRestaurantHeader(restaurantName, body)
 
-	_, err := uc.sender.SendInteractiveButtons(
+	_, err := sendInteractiveButtonsWithBack(
+		uc.sender,
 		whatsapp.WithTenantID(ctx, tenantID),
 		to,
 		decoratedBody,

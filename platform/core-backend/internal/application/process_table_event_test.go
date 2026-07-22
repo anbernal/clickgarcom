@@ -29,17 +29,17 @@ func TestProcessTableEventSendsInteractiveApprovalButtons(t *testing.T) {
 
 	tableRepo := &testProcessTableRepo{
 		requestsByID: map[uuid.UUID]*table.TableRequest{
-				requestID: {
-					ID:        requestID,
-					TenantID:  tenantID,
-					TableID:   &tableID,
-					UserPhone: phone,
-					PaxCount:  2,
-					Status:    table.RequestStatusPending,
-					ApprovedByUserID:   &approverID,
-					ApprovedByUserName: "Maria Gestora",
-				},
+			requestID: {
+				ID:                 requestID,
+				TenantID:           tenantID,
+				TableID:            &tableID,
+				UserPhone:          phone,
+				PaxCount:           2,
+				Status:             table.RequestStatusPending,
+				ApprovedByUserID:   &approverID,
+				ApprovedByUserName: "Maria Gestora",
 			},
+		},
 		tablesByID: map[uuid.UUID]*table.Table{
 			tableID: {
 				ID:       tableID,
@@ -86,8 +86,8 @@ func TestProcessTableEventSendsInteractiveApprovalButtons(t *testing.T) {
 	if !strings.Contains(message.Body, "Mesa 3") {
 		t.Fatalf("expected table number in body, got %q", message.Body)
 	}
-	if len(message.Buttons) != 3 {
-		t.Fatalf("expected 3 buttons, got %d", len(message.Buttons))
+	if len(message.Buttons) != 4 {
+		t.Fatalf("expected 4 actions including back, got %d", len(message.Buttons))
 	}
 	if message.Buttons[0].Reply.ID != mainMenuOrderOption {
 		t.Fatalf("expected first button id %q, got %q", mainMenuOrderOption, message.Buttons[0].Reply.ID)
@@ -97,6 +97,9 @@ func TestProcessTableEventSendsInteractiveApprovalButtons(t *testing.T) {
 	}
 	if message.Buttons[2].Reply.ID != mainMenuWaiterOption {
 		t.Fatalf("expected third button id %q, got %q", mainMenuWaiterOption, message.Buttons[2].Reply.ID)
+	}
+	if message.Buttons[3].Reply.ID != "0" {
+		t.Fatalf("expected final back action, got %q", message.Buttons[3].Reply.ID)
 	}
 
 	updatedReq := tableRepo.requestsByID[requestID]

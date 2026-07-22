@@ -83,11 +83,14 @@ func TestHandleWhatsAppMessageFirstContactShowsWelcomeMenu(t *testing.T) {
 	if !strings.Contains(message.Body, "Que bom ter você aqui") {
 		t.Fatalf("expected welcome message, got %q", message.Body)
 	}
-	if len(message.Buttons) != 1 {
-		t.Fatalf("expected 1 welcome button, got %d", len(message.Buttons))
+	if len(message.Buttons) != 2 {
+		t.Fatalf("expected 2 welcome buttons, got %d", len(message.Buttons))
 	}
 	if message.Buttons[0].Reply.ID != defaultWelcomeMenuAction {
 		t.Fatalf("expected welcome button id %q, got %q", defaultWelcomeMenuAction, message.Buttons[0].Reply.ID)
+	}
+	if message.Buttons[1].Reply.ID != "0" {
+		t.Fatalf("expected final back button, got %+v", message.Buttons[1])
 	}
 
 	sess, err := sessionRepo.Find(ctx, phone, tenantID.String())
@@ -571,8 +574,8 @@ func TestHandleWhatsAppMessageUsesPublishedWelcomeFlow(t *testing.T) {
 	if !strings.Contains(sender.interactiveMessages[0].Body, "Fluxo customizado para *Anderson's Restaurant*") {
 		t.Fatalf("expected custom published flow body, got %q", sender.interactiveMessages[0].Body)
 	}
-	if len(sender.interactiveMessages[0].Buttons) != 1 {
-		t.Fatalf("expected 1 button, got %d", len(sender.interactiveMessages[0].Buttons))
+	if len(sender.interactiveMessages[0].Buttons) != 2 {
+		t.Fatalf("expected 2 buttons, got %d", len(sender.interactiveMessages[0].Buttons))
 	}
 	if sender.interactiveMessages[0].Buttons[0].Reply.ID != requestTableActionID {
 		t.Fatalf("expected button id %q, got %q", requestTableActionID, sender.interactiveMessages[0].Buttons[0].Reply.ID)
@@ -757,14 +760,17 @@ func TestHandleWhatsAppMessageWaitingOpenerDecisionResendsButtonsOnInvalidInput(
 	if !strings.Contains(sender.interactiveMessages[0].Body, "Solicitação pendente") {
 		t.Fatalf("expected resend prompt, got %q", sender.interactiveMessages[0].Body)
 	}
-	if len(sender.interactiveMessages[0].Buttons) != 2 {
-		t.Fatalf("expected 2 decision buttons, got %d", len(sender.interactiveMessages[0].Buttons))
+	if len(sender.interactiveMessages[0].Buttons) != 3 {
+		t.Fatalf("expected 3 decision buttons, got %d", len(sender.interactiveMessages[0].Buttons))
 	}
 	if !strings.HasPrefix(sender.interactiveMessages[0].Buttons[0].Reply.ID, "btn_approve_") {
 		t.Fatalf("expected approve button id, got %q", sender.interactiveMessages[0].Buttons[0].Reply.ID)
 	}
 	if !strings.HasPrefix(sender.interactiveMessages[0].Buttons[1].Reply.ID, "btn_reject_") {
 		t.Fatalf("expected reject button id, got %q", sender.interactiveMessages[0].Buttons[1].Reply.ID)
+	}
+	if sender.interactiveMessages[0].Buttons[2].Reply.ID != "0" {
+		t.Fatalf("expected final back button, got %+v", sender.interactiveMessages[0].Buttons[2])
 	}
 }
 
@@ -996,8 +1002,8 @@ func TestHandleWhatsAppMessageMainMenuOptionShowsInteractiveCategoryMenu(t *test
 	if !strings.Contains(message.Body, "Cardápio Interativo") {
 		t.Fatalf("expected category menu body, got %q", message.Body)
 	}
-	if len(message.Sections) != 1 || len(message.Sections[0].Rows) != 2 {
-		t.Fatalf("expected 2 category rows, got %+v", message.Sections)
+	if len(message.Sections) != 1 || len(message.Sections[0].Rows) != 3 {
+		t.Fatalf("expected 3 category rows including back, got %+v", message.Sections)
 	}
 	if message.Sections[0].Rows[0].ID != orderingCategoryPrefix+categoryFoodID.String() {
 		t.Fatalf("expected first row id %q, got %q", orderingCategoryPrefix+categoryFoodID.String(), message.Sections[0].Rows[0].ID)
@@ -1348,8 +1354,11 @@ func TestHandleWhatsAppMessageCategorySelectionUsesVisualWhatsAppFields(t *testi
 	}
 
 	itemsList := sender.listMessages[1]
-	if len(itemsList.Sections) != 1 || len(itemsList.Sections[0].Rows) != 1 {
-		t.Fatalf("expected 1 item row, got %+v", itemsList.Sections)
+	if len(itemsList.Sections) != 1 || len(itemsList.Sections[0].Rows) != 2 {
+		t.Fatalf("expected 2 item rows including back, got %+v", itemsList.Sections)
+	}
+	if itemsList.Sections[0].Rows[1].ID != "0" {
+		t.Fatalf("expected final item back row, got %q", itemsList.Sections[0].Rows[1].ID)
 	}
 
 	row := itemsList.Sections[0].Rows[0]
@@ -1794,11 +1803,14 @@ func TestHandleWhatsAppMessageCanRemoveItemFromCartBeforeSendingOrder(t *testing
 		t.Fatalf("expected at least 5 interactive button messages, got %d", got)
 	}
 	confirmationMessage := sender.interactiveMessages[1]
-	if len(confirmationMessage.Buttons) != 3 {
-		t.Fatalf("expected 3 confirmation buttons, got %d", len(confirmationMessage.Buttons))
+	if len(confirmationMessage.Buttons) != 4 {
+		t.Fatalf("expected 4 confirmation actions including back, got %d", len(confirmationMessage.Buttons))
 	}
 	if got := confirmationMessage.Buttons[2].Reply.ID; got != orderingRemoveItemID {
-		t.Fatalf("expected remove-item button id %q, got %q", orderingRemoveItemID, got)
+		t.Fatalf("expected remove-item action id %q, got %q", orderingRemoveItemID, got)
+	}
+	if got := confirmationMessage.Buttons[3].Reply.ID; got != "0" {
+		t.Fatalf("expected final back action, got %q", got)
 	}
 
 	foundRemovalList := false
@@ -2729,11 +2741,11 @@ func TestExecuteSendsPaymentUnavailableMenuWithOpenMenuAndCallWaiterButtons(t *t
 	if len(message.Buttons) != 2 {
 		t.Fatalf("expected 2 buttons, got %d", len(message.Buttons))
 	}
-	if message.Buttons[0].Reply.ID != mainMenuOpenActionID || message.Buttons[0].Reply.Title != "Abrir menu" {
-		t.Fatalf("expected first button to open menu, got %+v", message.Buttons[0].Reply)
+	if message.Buttons[0].Reply.ID != "4" || message.Buttons[0].Reply.Title != "Chamar garçom" {
+		t.Fatalf("expected first button to call waiter, got %+v", message.Buttons[0].Reply)
 	}
-	if message.Buttons[1].Reply.ID != "4" || message.Buttons[1].Reply.Title != "Chamar garçom" {
-		t.Fatalf("expected second button to call waiter, got %+v", message.Buttons[1].Reply)
+	if message.Buttons[1].Reply.ID != "0" {
+		t.Fatalf("expected final button to open menu, got %+v", message.Buttons[1].Reply)
 	}
 
 	updated, err := sessionRepo.Find(ctx, ownerPhone, tenantID.String())
@@ -2970,6 +2982,25 @@ func (s *testWhatsAppSender) SendInteractiveList(_ context.Context, to, bodyText
 		ButtonText: buttonText,
 		Sections:   clonedSections,
 	})
+	// Menus with three actions are intentionally sent as lists in production.
+	// Mirror their rows here so legacy flow tests can inspect the selected IDs.
+	if buttonText == "Escolher opção" && len(clonedSections) > 0 {
+		buttons := make([]whatsapp.InteractiveButton, 0, len(clonedSections[0].Rows))
+		for _, row := range clonedSections[0].Rows {
+			buttons = append(buttons, whatsapp.InteractiveButton{
+				Type: "reply",
+				Reply: struct {
+					ID    string `json:"id"`
+					Title string `json:"title"`
+				}{ID: row.ID, Title: row.Title},
+			})
+		}
+		s.interactiveMessages = append(s.interactiveMessages, testInteractiveMessage{
+			To:      to,
+			Body:    bodyText,
+			Buttons: buttons,
+		})
+	}
 	return "", nil
 }
 
