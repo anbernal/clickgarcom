@@ -1831,6 +1831,12 @@ func (uc *HandleWhatsAppMessageUseCase) handleServiceRequest(
 	sess *session.Session,
 	text string,
 ) (string, session.ConversationState, error) {
+	// Legacy service-request sessions must not become a way around comanda
+	// validation. Only an open tab may expose the main-menu back action.
+	if uc.findSessionOpenTab(ctx, sess) == nil {
+		uc.resetSessionAccess(sess)
+		return whatsapp.MenuAccessUnavailableMessage(), session.StateWelcome, nil
+	}
 
 	if text == "0" {
 		if uc.waiterChatRepo != nil {
