@@ -532,7 +532,7 @@ networks:
     attachable: true
     internal: true
   clickgarcom-egress:
-    driver: overlay
-    attachable: true
+    external: true
+    name: clickgarcom_clickgarcom-egress
   easypanel:
     external: true
