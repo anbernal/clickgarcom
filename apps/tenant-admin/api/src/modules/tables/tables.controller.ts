@@ -179,6 +179,20 @@ export class TablesController {
         });
     }
 
+    @Patch('tabs/:tabId/customer')
+    @Roles(...TENANT_TAB_OPERATION_ROLES)
+    async updateTabCustomer(
+        @Request() req,
+        @Param('tabId') tabId: string,
+        @Body() body: { user_phone?: string; customer_instagram?: string },
+    ) {
+        return this.tablesService.updateTabCustomer(req.user.tenantId, tabId, body || {}, {
+            userId: req.user?.id,
+            userName: req.user?.name,
+            userRole: req.user?.role,
+        });
+    }
+
     @Post('tabs/:tabId/finalize')
     @Roles(...TENANT_SETTLEMENT_ROLES)
     async finalizeTab(@Request() req, @Param('tabId') tabId: string) {

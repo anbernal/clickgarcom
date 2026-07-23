@@ -273,6 +273,111 @@ export class TablesService {
         throw new BadRequestException('Não foi possível gerar um código único para a comanda. Tente novamente.');
     }
 
+    async updateTabCustomer(
+        tenantId: string,
+        tabId: string,
+        data: { user_phone?: string; customer_instagram?: string },
+        actor: TabActorContext,
+    ) {
+        const phone = this.normalizePhone(data?.user_phone);
+        const instagram = this.normalizeInstagram(data?.customer_instagram);
+        const queryRunner = this.dataSource.createQueryRunner();
+        await queryRunner.connect();
+        await queryRunner.startTransaction();
+
+        try {
+            const rows = await queryRunner.query(
+                `SELECT id, public_code, user_phone, customer_instagram, status
+                   FROM tabs
+                  WHERE id = $1
+                    AND tenant_id = $2
+                  LIMIT 1
+                  FOR UPDATE`,
+                [tabId, tenantId],
+            );
+            const tab = rows?.[0];
+            if (!tab) {
+                throw new NotFoundException('Comanda não encontrada para este restaurante.');
+            }
+            if (String(tab.status || '').toUpperCase() !== 'OPEN') {
+                throw new BadRequestException('Apenas comandas abertas podem ter os dados do cliente alterados.');
+            }
+
+            if (phone) {
+                const duplicatePhone = await queryRunner.query(
+                    `SELECT public_code
+                       FROM tabs
+                      WHERE tenant_id = $1
+                        AND id <> $2
+                        AND status = 'OPEN'
+                        AND user_phone = $3
+                      LIMIT 1`,
+                    [tenantId, tabId, phone],
+                );
+                if (duplicatePhone?.[0]) {
+                    throw new BadRequestException(
+                        `Já existe uma comanda aberta para o telefone informado (${duplicatePhone[0].public_code || 'sem código'}).`,
+                    );
+                }
+            }
+
+            if (instagram) {
+                const duplicateInstagram = await queryRunner.query(
+                    `SELECT public_code
+                       FROM tabs
+                      WHERE tenant_id = $1
+                        AND id <> $2
+                        AND status = 'OPEN'
+                        AND customer_instagram = $3
+                      LIMIT 1`,
+                    [tenantId, tabId, instagram],
+                );
+                if (duplicateInstagram?.[0]) {
+                    throw new BadRequestException(
+                        `Já existe uma comanda aberta para o Instagram informado (${duplicateInstagram[0].public_code || 'sem código'}).`,
+                    );
+                }
+            }
+
+            const updatedRows = await queryRunner.query(
+                `UPDATE tabs
+                    SET user_phone = $1,
+                        customer_instagram = $2
+                  WHERE id = $3
+                    AND tenant_id = $4
+              RETURNING id, public_code, user_phone, customer_instagram, table_id, status`,
+                [phone || null, instagram || null, tabId, tenantId],
+            );
+
+            await this.recordTabEvent(queryRunner, tenantId, tabId, 'TAB_CUSTOMER_UPDATED', {
+                actorUserId: actor.userId,
+                actorName: actor.userName,
+                details: {
+                    previous_user_phone: String(tab.user_phone || '').trim() || null,
+                    user_phone: phone || null,
+                    previous_customer_instagram: String(tab.customer_instagram || '').trim() || null,
+                    customer_instagram: instagram || null,
+                },
+            });
+
+            await queryRunner.commitTransaction();
+            const updated = Array.isArray(updatedRows?.[0]) ? updatedRows[0][0] : updatedRows?.[0];
+            return {
+                id: String(updated.id),
+                publicCode: String(updated.public_code || ''),
+                userPhone: String(updated.user_phone || '').trim() || null,
+                customerInstagram: String(updated.customer_instagram || '').trim() || null,
+                tableId: String(updated.table_id || '').trim() || null,
+                status: String(updated.status || 'OPEN'),
+            };
+        } catch (error) {
+            await queryRunner.rollbackTransaction();
+            throw error;
+        } finally {
+            await queryRunner.release();
+        }
+    }
+
     private async generateTabPublicCode(tenantId: string) {
         for (let attempt = 0; attempt < 12; attempt += 1) {
             const publicCode = randomInt(0, 0x100000).toString(16).toUpperCase().padStart(5, '0');
@@ -2399,6 +2504,7 @@ export class TablesService {
     private mapTabEventLabel(eventType: string) {
         if (eventType === 'TAB_CLOSED') return 'Comanda fechada';
         if (eventType === 'TAB_REOPENED') return 'Comanda reaberta';
+        if (eventType === 'TAB_CUSTOMER_UPDATED') return 'Cliente atualizado';
         if (eventType === 'PAYMENT_RETRY_CREATED') return 'Nova cobrança PIX gerada';
         if (eventType === 'PAYMENT_REFUND_PREPARED') return 'Estorno preparado';
         return 'Evento da comanda';
@@ -2428,6 +2534,9 @@ export class TablesService {
                 return `Reabertura registrada: ${reason}`;
             }
             return summary ? `Comanda reaberta com auditoria: ${summary}` : 'Comanda reaberta para continuar o atendimento';
+        }
+        if (eventType === 'TAB_CUSTOMER_UPDATED') {
+            return 'Telefone e Instagram da comanda foram atualizados pela equipe';
         }
         if (eventType === 'PAYMENT_RETRY_CREATED') {
             const amountDue = this.roundMoney(Number(details?.amount_due || 0));

@@ -1098,6 +1098,35 @@ export function buildTenantAdminOpenApiDocument() {
                     },
                 },
             },
+            [`${ADMIN_API_VERSIONED_BASE_PATH}/tables/tabs/{tabId}/customer`]: {
+                patch: {
+                    tags: ['Tables'],
+                    summary: 'Atualiza telefone e Instagram de uma comanda aberta',
+                    security: [{ bearerAuth: [] }],
+                    parameters: [uuidPathParam('tabId', 'ID da comanda')],
+                    requestBody: {
+                        required: true,
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    type: 'object',
+                                    properties: {
+                                        user_phone: { type: 'string', nullable: true },
+                                        customer_instagram: { type: 'string', nullable: true },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    responses: {
+                        '200': versionedSuccessResponse('Cliente da comanda atualizado.', {
+                            type: 'object',
+                            additionalProperties: true,
+                        }),
+                        '400': versionedErrorResponse('Dados invalidos ou ja vinculados a outra comanda aberta.'),
+                    },
+                },
+            },
             [`${ADMIN_API_VERSIONED_BASE_PATH}/tables/tabs/{tabId}/details`]: {
                 get: {
                     tags: ['Tables'],
