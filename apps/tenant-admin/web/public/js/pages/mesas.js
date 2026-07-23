@@ -15,6 +15,8 @@ const MESAS_ICONS = {
   reserved: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/></svg>',
   bell: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>',
   users: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
+  ticket: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9a3 3 0 0 0 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 0 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v2"/><path d="M13 17v2"/><path d="M13 11v2"/></svg>',
+  copy: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>',
 };
 let mesasComandaModalState = {
   tableId: null,
@@ -94,50 +96,137 @@ function renderTableActions(table) {
   `;
 }
 
+function renderMesasStats(openTabs, tables, statsData, reservedCount) {
+  const totalTables = Number(statsData.total || tables.length || 0);
+  const occupied = Number(statsData.occupied || 0);
+  const available = Number(statsData.available || 0);
+  const occupancyRate = totalTables > 0 ? Math.round((occupied / totalTables) * 100) : 0;
+  const canManageTabs = canPerformAction('manageTabs');
+
+  return `
+    <div class="mesas-stats-grid">
+      <div class="mesas-stat-card mesas-stat-card--primary">
+        <div class="mesas-stat-icon">${canManageTabs ? MESAS_ICONS.ticket : MESAS_ICONS.chair}</div>
+        <div class="mesas-stat-label">${canManageTabs ? 'Comandas abertas' : 'Total de mesas'}</div>
+        <div class="mesas-stat-value">${canManageTabs ? openTabs.length : totalTables}</div>
+        <div class="mesas-stat-helper">${canManageTabs ? 'Em atendimento agora' : 'Configuradas no salão'}</div>
+      </div>
+      <div class="mesas-stat-card mesas-stat-card--occupied">
+        <div class="mesas-stat-icon">${MESAS_ICONS.occupied}</div>
+        <div class="mesas-stat-label">Mesas ocupadas</div>
+        <div class="mesas-stat-value">${occupied}</div>
+        <div class="mesas-stat-helper">${occupancyRate}% de ocupação</div>
+      </div>
+      <div class="mesas-stat-card mesas-stat-card--reserved">
+        <div class="mesas-stat-icon">${MESAS_ICONS.reserved}</div>
+        <div class="mesas-stat-label">Reservadas</div>
+        <div class="mesas-stat-value">${reservedCount}</div>
+        <div class="mesas-stat-helper">Separadas para chegada</div>
+      </div>
+      <div class="mesas-stat-card mesas-stat-card--available">
+        <div class="mesas-stat-icon">${MESAS_ICONS.available}</div>
+        <div class="mesas-stat-label">Disponíveis</div>
+        <div class="mesas-stat-value">${available}</div>
+        <div class="mesas-stat-helper">Prontas para atendimento</div>
+      </div>
+    </div>
+  `;
+}
+
 function renderOpenTabsManager(openTabs, tables) {
   if (!canPerformAction('manageTabs')) return '';
 
   return `
-    <section class="full-card" style="margin-bottom:20px; border:2px solid rgba(15,118,110,.18);">
-      <div class="card-header" style="align-items:flex-start; gap:16px; flex-wrap:wrap;">
-        <div>
+    <section class="full-card comandas-panel">
+      <div class="comandas-panel-header">
+        <div class="comandas-panel-heading">
+          <div class="comandas-panel-icon">${MESAS_ICONS.ticket}</div>
+          <div>
             <div class="card-title">Gerenciamento de comandas</div>
-            <div class="card-subtitle">Abra, identifique e consulte comandas sem depender de uma mesa.</div>
+            <div class="card-subtitle">Abra uma comanda, entregue o código ao cliente e acompanhe o consumo.</div>
+          </div>
         </div>
-        <div style="padding:8px 12px; border-radius:999px; background:rgba(15,118,110,.10); color:#0f766e; font-weight:800; font-size:12px;">${openTabs.length} aberta(s)</div>
+        <div class="comandas-count"><strong>${openTabs.length}</strong> aberta${openTabs.length === 1 ? '' : 's'}</div>
       </div>
-      <div style="display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:10px; margin-bottom:16px;">
-        <input id="tab-open-phone" type="tel" inputmode="tel" placeholder="Telefone (opcional)" style="height:42px; border:1px solid var(--border); border-radius:9px; padding:0 12px;">
-        <input id="tab-open-instagram" type="text" placeholder="Instagram (opcional)" style="height:42px; border:1px solid var(--border); border-radius:9px; padding:0 12px;">
-        <select id="tab-open-table" style="height:42px; border:1px solid var(--border); border-radius:9px; padding:0 12px; background:var(--card-bg);">
-          <option value="">Sem mesa</option>
-          ${tables.map((table) => `<option value="${escapeHTML(table.id)}">Mesa ${escapeHTML(formatTableNumber(table.number))}</option>`).join('')}
-        </select>
-        <button class="btn btn-primary" type="button" onclick="openNewTabFromPanel()">+ Abrir comanda</button>
+
+      <div class="comandas-open-box">
+        <div class="comandas-open-title">
+          <strong>Nova comanda</strong>
+          <span>Telefone, Instagram e mesa são opcionais.</span>
+        </div>
+        <div class="comandas-open-form">
+          <label class="comandas-field">
+            <span>Telefone do cliente</span>
+            <input id="tab-open-phone" class="input" type="tel" inputmode="tel" placeholder="(11) 99999-9999">
+          </label>
+          <label class="comandas-field">
+            <span>Instagram</span>
+            <input id="tab-open-instagram" class="input" type="text" placeholder="@usuario">
+          </label>
+          <label class="comandas-field">
+            <span>Mesa</span>
+            <select id="tab-open-table" class="input">
+              <option value="">Sem mesa</option>
+              ${tables.map((table) => `<option value="${escapeHTML(table.id)}">Mesa ${escapeHTML(formatTableNumber(table.number))}</option>`).join('')}
+            </select>
+          </label>
+          <button class="btn-sm btn-primary comandas-open-button" type="button" onclick="openNewTabFromPanel()">
+            <span>+</span> Abrir comanda
+          </button>
+        </div>
+        <div class="comandas-open-hint">
+          O cliente pode vincular o próprio telefone depois, informando o código pelo WhatsApp.
+        </div>
       </div>
-      <div style="font-size:12px; color:var(--text-light); margin-bottom:14px;">Telefone e Instagram são opcionais. Se deixar em branco, o cliente poderá informar o código pelo WhatsApp para vincular o telefone.</div>
-      ${openTabs.length === 0 ? '<div class="empty-state" style="padding:22px;"><div class="icon">🔖</div><h3>Nenhuma comanda aberta</h3><p>Abra a primeira comanda para iniciar o atendimento.</p></div>' : `
-        <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(245px, 1fr)); gap:12px;">
+
+      ${openTabs.length === 0 ? `
+        <div class="comandas-empty">
+          <div class="comandas-empty-icon">${MESAS_ICONS.ticket}</div>
+          <div>
+            <strong>Nenhuma comanda aberta</strong>
+            <span>As novas comandas aparecerão aqui para consulta rápida.</span>
+          </div>
+        </div>
+      ` : `
+        <div class="comandas-list-heading">
+          <span>Em atendimento</span>
+          <span>Ordenadas pela abertura</span>
+        </div>
+        <div class="comandas-list">
           ${openTabs.map((tab) => `
-            <div style="border:1px solid var(--border); border-radius:13px; padding:15px; background:var(--bg);">
-              <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
+            <article class="comanda-card">
+              <div class="comanda-card-top">
                 <div>
-                  <div style="font-size:10px; text-transform:uppercase; letter-spacing:1px; color:#0f766e; font-weight:900;">Código da comanda</div>
-                  <div class="mono" style="font-size:26px; font-weight:900; letter-spacing:2px; color:#0f766e; margin-top:4px;">${escapeHTML(tab.publicCode || tab.id)}</div>
+                  <div class="comanda-card-eyebrow">Código da comanda</div>
+                  <div class="comanda-card-code mono">${escapeHTML(tab.publicCode || tab.id)}</div>
                 </div>
-                <span style="font-size:11px; font-weight:800; color:#047857; background:rgba(16,185,129,.12); padding:5px 8px; border-radius:999px;">ABERTA</span>
+                <span class="comanda-card-status"><span></span> Aberta</span>
               </div>
-              <div style="font-size:12px; color:var(--text-light); margin-top:12px; line-height:1.6;">
-                ${tab.userPhone ? `📱 ${escapeHTML(tab.userPhone)}<br>` : ''}
-                ${tab.customerInstagram ? `◎ ${escapeHTML(tab.customerInstagram)}<br>` : ''}
-                ${tab.tableNumber ? `🪑 Mesa ${escapeHTML(formatTableNumber(tab.tableNumber))}<br>` : 'Sem mesa<br>'}
-                Aberta em ${escapeHTML(formatDateTime(tab.openedAt))}
+
+              <div class="comanda-card-meta">
+                <div>
+                  <span>Cliente</span>
+                  <strong>${tab.userPhone ? escapeHTML(tab.userPhone) : (tab.customerInstagram ? escapeHTML(tab.customerInstagram) : 'Aguardando vínculo')}</strong>
+                </div>
+                <div>
+                  <span>Local</span>
+                  <strong>${tab.tableNumber ? `Mesa ${escapeHTML(formatTableNumber(tab.tableNumber))}` : 'Sem mesa'}</strong>
+                </div>
               </div>
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px; padding-top:10px; border-top:1px solid var(--border);">
-                <strong>${escapeHTML(formatCurrency(tab.total || 0))}</strong>
-                <button class="btn-sm btn-outline" type="button" onclick="consultarComanda('${escapeHTML(tab.publicCode || tab.id)}'); navigate('consultaComanda')">Consultar</button>
+
+              <div class="comanda-card-time">Aberta em ${escapeHTML(formatDateTime(tab.openedAt))}</div>
+
+              <div class="comanda-card-footer">
+                <div>
+                  <span>Total atual</span>
+                  <strong>${escapeHTML(formatCurrency(tab.total || 0))}</strong>
+                </div>
+                <div class="comanda-card-actions">
+                  <button class="btn-sm btn-outline" type="button" onclick="copyTabCode('${escapeHTML(tab.publicCode || tab.id)}')">${MESAS_ICONS.copy} Copiar</button>
+                  <button class="btn-sm btn-primary" type="button" onclick="consultarComanda('${escapeHTML(tab.publicCode || tab.id)}'); navigate('consultaComanda')">Consultar</button>
+                </div>
               </div>
-            </div>
+            </article>
           `).join('')}
         </div>
       `}
@@ -148,7 +237,7 @@ function renderOpenTabsManager(openTabs, tables) {
 function renderTableCard(table) {
   const meta = getTableStatusMeta(table.status);
   let tabTotalDisplay = 'Sem comanda';
-  let secondaryNote = `<div style="font-size:12px; color:var(--text-light); margin-top:4px;">Capacidade: ${escapeHTML(getCapacityLabel(table.capacity))}</div>`;
+  let secondaryNote = '<div class="mesas-table-note">Sem comanda vinculada</div>';
 
   if (table.activeTabs && table.activeTabs.length > 0) {
     const totalSum = table.activeTabs.reduce((acc, tab) => acc + parseFloat(tab.total || 0), 0);
@@ -157,27 +246,34 @@ function renderTableCard(table) {
       .filter(Boolean);
     tabTotalDisplay = formatCurrency(totalSum);
 
-    secondaryNote += table.activeTabs.length > 1
-      ? `<div style="font-size:12px; color:var(--text-light); margin-top:4px;">${table.activeTabs.length} comandas ativas</div>`
-      : `<div style="font-size:12px; color:var(--text-light); margin-top:4px;">1 comanda ativa</div>`;
+    secondaryNote = table.activeTabs.length > 1
+      ? `<div class="mesas-table-note">${table.activeTabs.length} comandas ativas</div>`
+      : `<div class="mesas-table-note">1 comanda ativa</div>`;
 
     if (activeCodes.length) {
-      secondaryNote += `<div style="margin-top:9px; padding:7px 9px; border-radius:8px; background:rgba(15,118,110,.08); border:1px solid rgba(15,118,110,.18); color:#0f766e; font-size:11px; font-weight:800; letter-spacing:.3px;">CÓDIGO: <span class="mono" style="font-size:14px;">${escapeHTML(activeCodes.join(' · '))}</span></div>`;
+      secondaryNote += `<div class="mesas-table-code">CÓDIGO <span class="mono">${escapeHTML(activeCodes.join(' · '))}</span></div>`;
     }
   } else if (table.status === 'RESERVED') {
-    secondaryNote += '<div style="font-size:12px; color:var(--text-light); margin-top:4px;">Bloqueada para o Atendimento</div>';
+    secondaryNote = '<div class="mesas-table-note">Bloqueada para o Atendimento</div>';
   }
 
   return `
-    <div class="table-item ${meta.cls}" style="padding:20px">
-      <div class="mesas-table-icon">${meta.icon}</div>
-      <div class="table-num" style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
-        <span>Mesa ${escapeHTML(formatTableNumber(table.number))}</span>
-        <span style="font-size:11px; color:var(--text-light); font-weight:600; background:var(--bg); padding:3px 8px; border-radius:6px; display:inline-flex; align-items:center; gap:4px;">${MESAS_ICONS.users} ${escapeHTML(getCapacityLabel(table.capacity))}</span>
+    <div class="table-item ${meta.cls} mesas-table-card">
+      <div class="mesas-table-card-head">
+        <div class="mesas-table-icon">${meta.icon}</div>
+        <span class="mesas-capacity-badge">${MESAS_ICONS.users} ${escapeHTML(getCapacityLabel(table.capacity))}</span>
       </div>
-      <div class="table-status">${meta.label}</div>
-      <div class="table-value">${tabTotalDisplay}</div>
-      ${secondaryNote}
+      <div class="mesas-table-title-row">
+        <div>
+          <div class="table-num">Mesa ${escapeHTML(formatTableNumber(table.number))}</div>
+          <div class="table-status">${meta.label}</div>
+        </div>
+        <div class="mesas-table-total">
+          <span>Total</span>
+          <strong>${tabTotalDisplay}</strong>
+        </div>
+      </div>
+      <div class="mesas-table-details">${secondaryNote}</div>
       ${renderTableActions(table)}
     </div>
   `;
@@ -188,80 +284,54 @@ function renderManagementCard(tables) {
   const canManageTables = canPerformAction('manageTables');
 
   return `
-    <div class="full-card" style="margin-bottom:24px; padding:24px; border:none; box-shadow:0 4px 20px rgba(0,0,0,0.03);">
-      
-      <!-- Header Area -->
-      <div style="display:flex; align-items:flex-start; margin-bottom: 24px;">
-        <div style="display:flex; align-items:center; gap:16px;">
-          <div style="width:52px; height:52px; border-radius:14px; background:linear-gradient(135deg, rgba(59,130,246,0.1), rgba(124,58,237,0.1)); border:1px solid rgba(59,130,246,0.1); display:flex; align-items:center; justify-content:center; flex-shrink:0; color:#3b82f6;">
+    <section class="full-card mesas-management-card">
+      <div class="mesas-management-header">
+        <div class="mesas-management-heading">
+          <div class="mesas-management-icon">
             ${MESAS_ICONS.chair}
           </div>
           <div>
-            <h2 style="margin:0 0 6px 0; font-size:18px; font-weight:700; color:var(--text); letter-spacing:-0.4px;">Cadastro de Mesas</h2>
-            <p style="margin:0; font-size:13px; color:var(--text-light); max-width:400px; line-height:1.4;">
+            <div class="card-title">Configuração do salão</div>
+            <div class="card-subtitle">
               ${canManageTables
-                ? 'Adicione as mesas do seu salão e defina a capacidade de lugares de cada uma para otimizar o fluxo de atendimento.'
+                ? 'Cadastre mesas e organize a capacidade do atendimento presencial.'
                 : 'Seu perfil acompanha ocupação e comandas em modo leitura, sem alterar o cadastro das mesas.'}
-            </p>
+            </div>
           </div>
         </div>
+        <span class="mesas-management-count">${tables.length} mesa${tables.length === 1 ? '' : 's'}</span>
       </div>
 
-      <!-- Main Content Split -->
-      <div style="display:flex; gap:20px; flex-wrap:wrap; align-items:stretch;">
-
-        <!-- Form Section -->
-        <div style="flex:1.8; min-width:320px; padding:20px; background:var(--bg); border:1px solid var(--border); border-radius:14px;">
-          <h3 style="margin:0 0 16px 0; font-size:14px; font-weight:600; color:var(--text); letter-spacing:-0.2px;">Adicionar Nova Mesa</h3>
-          
-          <div style="display:flex; gap:12px; align-items:flex-end;">
-            <div style="flex:1;">
-              <label style="display:block; font-size:12px; font-weight:600; color:var(--text-light); margin-bottom:6px;">
-                Identificação / Número
-              </label>
-              <input type="text" id="table-number-inline" placeholder="Ex: 01, M-10" class="input" style="width:100%; height:42px; border-radius:8px; padding:0 14px; font-size:14px;">
-            </div>
-            
-            <div style="width:110px;">
-              <label style="display:block; font-size:12px; font-weight:600; color:var(--text-light); margin-bottom:6px;">
-                Lugares
-              </label>
-              <div style="position:relative;">
-                <input type="number" id="table-capacity-inline" value="4" min="1" max="20" class="input" style="width:100%; height:42px; border-radius:8px; padding:0 14px; padding-right:32px; font-size:14px; text-align:center;">
-                <span style="position:absolute; right:12px; top:12px; display:flex; color:var(--text-light); pointer-events:none;">${MESAS_ICONS.users}</span>
-              </div>
-            </div>
-
+      <div class="mesas-management-grid">
+        <div class="mesas-add-box">
+          <div class="mesas-add-title">Adicionar nova mesa</div>
+          <div class="mesas-add-form">
+            <label class="comandas-field">
+              <span>Identificação / Número</span>
+              <input type="text" id="table-number-inline" placeholder="Ex.: 01 ou M-10" class="input">
+            </label>
+            <label class="comandas-field mesas-capacity-field">
+              <span>Lugares</span>
+              <input type="number" id="table-capacity-inline" value="4" min="1" max="20" class="input">
+            </label>
             ${canManageTables ? `
-              <button class="btn btn-primary" type="button" onclick="createTable()" style="height:42px; padding:0 24px; border-radius:8px; font-size:14px; font-weight:600; letter-spacing:0.2px; transition:transform 0.1s;">
+              <button class="btn-sm btn-primary mesas-add-button" type="button" onclick="createTable()">
                 + Adicionar
               </button>
             ` : ''}
           </div>
         </div>
 
-        <!-- Info / Callout Section -->
-        <div style="flex:1; min-width:280px; padding:20px; background:rgba(245,158,11,0.04); border:1px solid rgba(245,158,11,0.2); border-radius:14px; position:relative; overflow:hidden;">
-          <div style="position:absolute; top:-16px; right:-16px; font-size:86px; opacity:0.04; pointer-events:none; filter:grayscale(1);">
-            📅
+        <aside class="mesas-reservation-note">
+          <div class="mesas-reservation-icon">${MESAS_ICONS.calendar}</div>
+          <div>
+            <strong>Regra de reservas</strong>
+            <p>Mesas reservadas ficam fora da distribuição automática de novos clientes.</p>
+            <span>${MESAS_ICONS.bell} ${reservedCount} reservada${reservedCount === 1 ? '' : 's'} agora</span>
           </div>
-          
-          <div style="display:flex; align-items:center; gap:8px; font-size:14px; font-weight:700; color:#b45309; margin-bottom:8px;">
-            Regra de Reservas
-          </div>
-          
-          <p style="font-size:13px; color:var(--text-light); margin:0 0 16px 0; line-height:1.5;">
-            Mesas marcadas como <strong style="color:var(--text);">Reservadas</strong> são ocultadas da distribuição automática de novos clientes vindos do WhatsApp.
-          </p>
-          
-          <div style="display:inline-flex; align-items:center; background:#fffbf0; border:1px solid rgba(245,158,11,0.3); color:#92400e; font-size:12px; font-weight:600; padding:4px 12px; border-radius:20px;">
-            <span style="font-size:14px; margin-right:6px; display:inline-flex; color:#92400e;">${MESAS_ICONS.bell}</span>
-            ${reservedCount} mesa(s) separada(s) agora
-          </div>
-        </div>
-
+        </aside>
       </div>
-    </div>
+    </section>
   `;
 }
 
@@ -287,26 +357,27 @@ async function loadMesas() {
     const reservedCount = tables.filter((table) => table.status === 'RESERVED').length;
 
     container.innerHTML = `
-      <div class="stats-grid" style="margin-bottom:20px">
-        <div class="stat-card"><div class="stat-icon" style="color:#3b82f6">${MESAS_ICONS.chairSm}</div><div class="stat-label">Total de Mesas</div><div class="stat-value">${statsData.total || tables.length}</div></div>
-        <div class="stat-card"><div class="stat-icon" style="color:#ea580c">${MESAS_ICONS.occupied}</div><div class="stat-label">Ocupadas</div><div class="stat-value">${statsData.occupied || 0}</div><div class="stat-change" style="color:var(--pending-text)">${statsData.total > 0 ? Math.round((statsData.occupied / statsData.total) * 100) : 0}% de ocupacao</div></div>
-        <div class="stat-card"><div class="stat-icon" style="color:#2563eb">${MESAS_ICONS.reserved}</div><div class="stat-label">Reservadas</div><div class="stat-value">${reservedCount}</div></div>
-        <div class="stat-card"><div class="stat-icon" style="color:#16a34a">${MESAS_ICONS.available}</div><div class="stat-label">Disponiveis</div><div class="stat-value">${statsData.available || 0}</div><div class="stat-change" style="color:var(--text-light)">Prontas para o Atendimento</div></div>
-      </div>
+      ${renderMesasStats(mesasOpenTabsCache, tables, statsData, reservedCount)}
       ${renderOpenTabsManager(mesasOpenTabsCache, tables)}
       ${renderManagementCard(tables)}
-      <div class="full-card">
-        <div class="card-header">
+      <section class="full-card mesas-floor-card">
+        <div class="mesas-floor-header">
           <div>
             <div class="card-title">Mesas do salão</div>
             <div class="card-subtitle">Controle reserva, ocupação e associação opcional de mesas</div>
+          </div>
+          <div class="mesas-status-legend">
+            <span><i class="is-free"></i>Livre</span>
+            <span><i class="is-occupied"></i>Ocupada</span>
+            <span><i class="is-reserved"></i>Reservada</span>
+            <span><i class="is-cleaning"></i>Limpeza</span>
           </div>
         </div>
         <div class="tables-grid-6">
           ${tables.length === 0 ? '<div class="empty-state" style="grid-column:1/-1"><div class="icon">' + MESAS_ICONS.chair + '</div><h3>Nenhuma mesa</h3><p>Cadastre a primeira mesa e informe a quantidade de lugares.</p></div>' : ''}
           ${tables.map(renderTableCard).join('')}
         </div>
-      </div>
+      </section>
     `;
   } catch (err) {
     mesasTableCache = [];
@@ -334,6 +405,18 @@ async function openNewTabFromPanel() {
     await loadMesas();
   } catch (error) {
     showToast(`Erro: ${error.message}`, 'error');
+  }
+}
+
+async function copyTabCode(code) {
+  const normalizedCode = String(code || '').trim();
+  if (!normalizedCode) return;
+
+  try {
+    await navigator.clipboard.writeText(normalizedCode);
+    showToast(`Código ${normalizedCode} copiado.`);
+  } catch (_error) {
+    showToast(`Código da comanda: ${normalizedCode}`);
   }
 }
 

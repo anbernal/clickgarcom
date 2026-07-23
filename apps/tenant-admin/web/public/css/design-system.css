@@ -2320,3 +2320,916 @@ tbody tr:last-child td {
     grid-template-columns: 1fr;
   }
 }
+
+/* ══════════════════════════════════════════
+   COMANDAS & MESAS
+   ══════════════════════════════════════════ */
+.mesas-context-banner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  margin-bottom: 20px;
+  border: 1px solid rgba(26, 188, 156, 0.22);
+  border-radius: 12px;
+  background: linear-gradient(105deg, rgba(232, 250, 246, 0.96), rgba(255, 255, 255, 0.9));
+  box-shadow: 0 4px 14px rgba(26, 188, 156, 0.05);
+}
+
+.mesas-context-icon {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 11px;
+  background: var(--teal);
+  color: white;
+  font-size: 18px;
+  box-shadow: 0 7px 16px rgba(26, 188, 156, 0.24);
+}
+
+.mesas-context-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mesas-context-copy strong {
+  color: var(--dark);
+  font-size: 13px;
+}
+
+.mesas-context-copy span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.mesas-context-link {
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  border: 1px solid rgba(26, 188, 156, 0.3);
+  border-radius: 8px;
+  background: white;
+  color: var(--teal-dark);
+  font-size: 11px;
+  font-weight: 700;
+  text-decoration: none;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.mesas-context-link:hover {
+  border-color: var(--teal);
+  background: var(--teal-light);
+}
+
+.mesas-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.mesas-stat-card {
+  position: relative;
+  min-height: 132px;
+  padding: 20px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card-bg);
+  box-shadow: var(--shadow);
+  animation: fadeUp 0.4s ease both;
+}
+
+.mesas-stat-card::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 64px;
+  height: 4px;
+  border-radius: 4px 0 0;
+  content: "";
+  background: var(--stat-accent, var(--teal));
+}
+
+.mesas-stat-card--primary {
+  --stat-accent: rgba(255, 255, 255, 0.75);
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--teal) 0%, var(--teal-dark) 100%);
+  box-shadow: 0 9px 24px rgba(26, 188, 156, 0.2);
+}
+
+.mesas-stat-card--occupied { --stat-accent: var(--accent-orange); }
+.mesas-stat-card--reserved { --stat-accent: var(--accent-blue); }
+.mesas-stat-card--available { --stat-accent: #22c55e; }
+
+.mesas-stat-icon {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--stat-accent, var(--teal));
+}
+
+.mesas-stat-card--primary .mesas-stat-icon {
+  background: rgba(255, 255, 255, 0.16);
+  color: white;
+}
+
+.mesas-stat-label {
+  max-width: calc(100% - 42px);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+}
+
+.mesas-stat-value {
+  margin-top: 10px;
+  color: var(--dark);
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -1px;
+}
+
+.mesas-stat-helper {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.mesas-stat-card--primary .mesas-stat-label,
+.mesas-stat-card--primary .mesas-stat-helper {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.mesas-stat-card--primary .mesas-stat-value {
+  color: white;
+}
+
+.comandas-panel {
+  border-color: rgba(26, 188, 156, 0.22);
+}
+
+.comandas-panel-header,
+.mesas-management-header,
+.mesas-floor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 20px 22px;
+  border-bottom: 1px solid var(--border);
+}
+
+.comandas-panel-header {
+  background: linear-gradient(105deg, rgba(232, 250, 246, 0.78), white 68%);
+}
+
+.comandas-panel-heading,
+.mesas-management-heading {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 12px;
+}
+
+.comandas-panel-icon,
+.mesas-management-icon {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 12px;
+  background: var(--teal-light);
+  color: var(--teal-dark);
+}
+
+.comandas-count,
+.mesas-management-count {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  flex: 0 0 auto;
+  padding: 7px 11px;
+  border-radius: 999px;
+  background: var(--teal-light);
+  color: var(--teal-dark);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.comandas-count strong {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 15px;
+}
+
+.comandas-open-box {
+  padding: 18px 22px 20px;
+  border-bottom: 1px solid var(--border);
+  background: #fbfcfd;
+}
+
+.comandas-open-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 13px;
+}
+
+.comandas-open-title strong,
+.mesas-add-title {
+  color: var(--dark);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.comandas-open-title span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.comandas-open-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(160px, 0.9fr) minmax(135px, 0.7fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.comandas-field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.comandas-field > span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.45px;
+  text-transform: uppercase;
+}
+
+.comandas-field .input {
+  width: 100%;
+  height: 42px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  outline: none;
+  background: white;
+  color: var(--dark);
+  font-family: 'Sora', sans-serif;
+  font-size: 12px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.comandas-field .input:focus {
+  border-color: var(--teal);
+  box-shadow: 0 0 0 3px rgba(26, 188, 156, 0.1);
+}
+
+.comandas-open-button,
+.mesas-add-button {
+  height: 42px;
+  justify-content: center;
+  padding: 0 18px;
+  white-space: nowrap;
+}
+
+.comandas-open-button > span {
+  font-size: 17px;
+  line-height: 1;
+}
+
+.comandas-open-hint {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.comandas-list-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 17px 22px 10px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.comandas-list-heading span:first-child {
+  color: var(--dark);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+.comandas-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(285px, 1fr));
+  gap: 12px;
+  padding: 0 22px 22px;
+}
+
+.comanda-card {
+  position: relative;
+  overflow: hidden;
+  padding: 17px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: white;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.035);
+  transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+}
+
+.comanda-card::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 3px;
+  content: "";
+  background: var(--teal);
+}
+
+.comanda-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(26, 188, 156, 0.34);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.07);
+}
+
+.comanda-card-top,
+.comanda-card-footer {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.comanda-card-eyebrow {
+  color: var(--teal-dark);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.9px;
+  text-transform: uppercase;
+}
+
+.comanda-card-code {
+  margin-top: 4px;
+  color: var(--dark);
+  font-size: 29px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 2px;
+}
+
+.comanda-card-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: var(--done-bg);
+  color: var(--done-text);
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.comanda-card-status > span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #22c55e;
+}
+
+.comanda-card-meta {
+  display: grid;
+  grid-template-columns: 1.3fr 0.7fr;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.comanda-card-meta > div {
+  min-width: 0;
+  padding: 10px;
+  border-radius: 9px;
+  background: var(--bg);
+}
+
+.comanda-card-meta span,
+.comanda-card-footer > div:first-child span {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.45px;
+  text-transform: uppercase;
+}
+
+.comanda-card-meta strong {
+  display: block;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.comanda-card-time {
+  margin-top: 9px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.comanda-card-footer {
+  align-items: center;
+  margin-top: 14px;
+  padding-top: 13px;
+  border-top: 1px solid var(--border);
+}
+
+.comanda-card-footer > div:first-child strong {
+  color: var(--dark);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px;
+}
+
+.comanda-card-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.comandas-empty {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 20px 22px 22px;
+  padding: 18px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 12px;
+  background: #fbfcfd;
+}
+
+.comandas-empty-icon {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 12px;
+  background: var(--teal-light);
+  color: var(--teal-dark);
+}
+
+.comandas-empty strong,
+.comandas-empty span {
+  display: block;
+}
+
+.comandas-empty strong {
+  color: var(--dark);
+  font-size: 12px;
+}
+
+.comandas-empty span {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.mesas-management-card {
+  box-shadow: var(--shadow);
+}
+
+.mesas-management-icon {
+  background: var(--prep-bg);
+  color: var(--prep-text);
+}
+
+.mesas-management-count {
+  background: var(--bg);
+  color: var(--muted);
+}
+
+.mesas-management-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(260px, 0.8fr);
+  gap: 14px;
+  padding: 18px 22px 22px;
+}
+
+.mesas-add-box {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fbfcfd;
+}
+
+.mesas-add-form {
+  display: grid;
+  grid-template-columns: minmax(170px, 1fr) 100px auto;
+  align-items: end;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.mesas-capacity-field .input {
+  text-align: center;
+}
+
+.mesas-reservation-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid #fed7aa;
+  border-radius: 12px;
+  background: var(--pending-bg);
+}
+
+.mesas-reservation-icon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 10px;
+  background: white;
+  color: var(--pending-text);
+}
+
+.mesas-reservation-note strong {
+  color: #9a3412;
+  font-size: 12px;
+}
+
+.mesas-reservation-note p {
+  margin-top: 4px;
+  color: #9a5b38;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.mesas-reservation-note span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 10px;
+  color: #9a3412;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.mesas-floor-header {
+  flex-wrap: wrap;
+}
+
+.mesas-status-legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.mesas-status-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.mesas-status-legend i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.mesas-status-legend .is-free { background: #22c55e; }
+.mesas-status-legend .is-occupied { background: var(--accent-orange); }
+.mesas-status-legend .is-reserved { background: var(--accent-blue); }
+.mesas-status-legend .is-cleaning { background: var(--accent-red); }
+
+#page-mesas .tables-grid-6 {
+  grid-template-columns: repeat(auto-fit, minmax(245px, 1fr));
+  gap: 12px;
+  padding: 18px 22px 22px;
+}
+
+#page-mesas .mesas-table-card {
+  min-width: 0;
+  padding: 17px;
+  text-align: left;
+  cursor: default;
+}
+
+#page-mesas .mesas-table-card:hover {
+  transform: translateY(-3px);
+}
+
+.mesas-table-card-head,
+.mesas-table-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+#page-mesas .mesas-table-icon {
+  width: 38px;
+  height: 38px;
+  margin: 0;
+  border-radius: 11px;
+}
+
+.mesas-capacity-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 7px;
+  border: 1px solid rgba(15, 23, 42, 0.05);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.mesas-table-title-row {
+  align-items: flex-start;
+  margin-top: 13px;
+}
+
+.mesas-table-total {
+  text-align: right;
+}
+
+.mesas-table-total span {
+  display: block;
+  color: var(--muted);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.mesas-table-total strong {
+  display: block;
+  margin-top: 3px;
+  color: var(--dark);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+}
+
+.mesas-table-details {
+  min-height: 50px;
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid rgba(15, 23, 42, 0.06);
+}
+
+.mesas-table-note {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.mesas-table-code {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 7px 8px;
+  border: 1px solid rgba(26, 188, 156, 0.2);
+  border-radius: 8px;
+  background: rgba(232, 250, 246, 0.74);
+  color: var(--teal-dark);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+}
+
+.mesas-table-code span {
+  font-size: 12px;
+  letter-spacing: 0.8px;
+}
+
+@media (max-width: 1180px) {
+  .mesas-stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .comandas-open-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .comandas-open-button {
+    width: 100%;
+  }
+
+  .mesas-management-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  body:has(#page-mesas.active) .sidebar {
+    width: 68px;
+    padding: 18px 0;
+  }
+
+  body:has(#page-mesas.active) .logo {
+    justify-content: center;
+    padding: 0 0 18px;
+  }
+
+  body:has(#page-mesas.active) .logo-text,
+  body:has(#page-mesas.active) .nav-label {
+    display: none;
+  }
+
+  body:has(#page-mesas.active) .nav-section,
+  body:has(#page-mesas.active) .sidebar-footer {
+    padding-right: 8px;
+    padding-left: 8px;
+  }
+
+  body:has(#page-mesas.active) .nav-item {
+    justify-content: center;
+    gap: 0;
+    min-height: 42px;
+    padding: 9px;
+    font-size: 0;
+  }
+
+  body:has(#page-mesas.active) .nav-icon {
+    width: auto;
+    font-size: 18px;
+  }
+
+  body:has(#page-mesas.active) .nav-item .badge {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    min-width: 7px;
+    width: 7px;
+    height: 7px;
+    padding: 0;
+    overflow: hidden;
+    font-size: 0;
+  }
+
+  body:has(#page-mesas.active) .main {
+    margin-left: 68px;
+    padding: 20px 14px;
+  }
+
+  body:has(#page-mesas.active) .topbar {
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+
+  body:has(#page-mesas.active) .page-title {
+    font-size: 22px;
+  }
+
+  body:has(#page-mesas.active) .page-sub {
+    max-width: 170px;
+    font-size: 10px;
+    line-height: 1.4;
+  }
+
+  body:has(#page-mesas.active) .topbar-right {
+    gap: 5px;
+  }
+
+  body:has(#page-mesas.active) .btn-icon,
+  body:has(#page-mesas.active) .avatar {
+    width: 33px;
+    height: 33px;
+    font-size: 13px;
+  }
+
+  .mesas-context-banner {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .mesas-context-copy {
+    flex-basis: calc(100% - 54px);
+  }
+
+  .mesas-context-link {
+    margin-left: 54px;
+  }
+
+  .comandas-panel-header,
+  .mesas-management-header,
+  .mesas-floor-header {
+    align-items: flex-start;
+    padding: 17px;
+  }
+
+  .comandas-open-box,
+  .mesas-management-grid {
+    padding: 16px 17px 18px;
+  }
+
+  .comandas-open-title {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .comandas-open-form,
+  .mesas-add-form {
+    grid-template-columns: 1fr;
+  }
+
+  .mesas-capacity-field {
+    max-width: none;
+  }
+
+  .comandas-list-heading {
+    padding-right: 17px;
+    padding-left: 17px;
+  }
+
+  .comandas-list {
+    grid-template-columns: 1fr;
+    padding: 0 17px 18px;
+  }
+
+  .comandas-empty {
+    margin: 18px 17px;
+  }
+
+  .mesas-status-legend {
+    justify-content: flex-start;
+    flex-basis: 100%;
+  }
+
+  #page-mesas .tables-grid-6 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 16px 17px 18px;
+  }
+}
+
+@media (max-width: 520px) {
+  .mesas-stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .mesas-stat-card {
+    min-height: 118px;
+  }
+
+  .comandas-panel-heading,
+  .mesas-management-heading {
+    align-items: flex-start;
+  }
+
+  .comandas-count,
+  .mesas-management-count {
+    display: none;
+  }
+
+  .comanda-card-footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .comanda-card-actions {
+    width: 100%;
+  }
+
+  .comanda-card-actions .btn-sm {
+    flex: 1;
+    justify-content: center;
+  }
+
+  #page-mesas .tables-grid-6 {
+    grid-template-columns: 1fr;
+  }
+}
