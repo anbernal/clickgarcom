@@ -215,8 +215,18 @@ export class TablesController {
 
     @Post('tabs/:tabId/finalize')
     @Roles(...TENANT_SETTLEMENT_ROLES)
-    async finalizeTab(@Request() req, @Param('tabId') tabId: string) {
-        return this.tablesService.finalizeTab(tabId, req.user.tenantId, req.user?.id, req.user?.name);
+    async finalizeTab(
+        @Request() req,
+        @Param('tabId') tabId: string,
+        @Body('manual_payment_method') manualPaymentMethod?: string,
+    ) {
+        return this.tablesService.finalizeTab(
+            tabId,
+            req.user.tenantId,
+            req.user?.id,
+            req.user?.name,
+            manualPaymentMethod,
+        );
     }
 
     @Get('tabs/:tabId/details')

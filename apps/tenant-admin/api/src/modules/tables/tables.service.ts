@@ -1334,11 +1334,18 @@ export class TablesService {
         };
     }
 
-    async finalizeTab(tabId: string, tenantId: string, staffUserId?: string, staffUserName?: string) {
+    async finalizeTab(
+        tabId: string,
+        tenantId: string,
+        staffUserId?: string,
+        staffUserName?: string,
+        manualPaymentMethod?: string,
+    ) {
         const result = await this.finalizeTabInternal(tabId, tenantId, {
             resolvedByUserId: staffUserId,
             resolvedByUserName: staffUserName,
             closureSource: 'MANUAL_SETTLEMENT',
+            manualPaymentMethod,
         });
 
         return {
@@ -1511,28 +1518,36 @@ export class TablesService {
             throw new NotFoundException('Comanda não encontrada');
         }
 
-        const payments = (paymentRows || []).map((row: any) => ({
-            id: String(row.id),
-            paymentType: String(row.payment_type || 'FULL'),
-            amount: this.roundMoney(Number.parseFloat(String(row.amount ?? '0')) || 0),
-            status: String(row.status || 'PENDING'),
-            pixTxid: String(row.pix_txid || ''),
-            method: String(row.method || row.latest_attempt_method || '').trim() || null,
-            externalReference: String(row.external_reference || '').trim() || null,
-            createdAt: row.created_at,
-            paidAt: row.paid_at,
-            expiredAt: row.expired_at,
-            updatedAt: row.updated_at,
-            latestAttemptStatus: String(row.latest_attempt_status || '').trim() || null,
-            latestAttemptMethod: String(row.latest_attempt_method || '').trim() || null,
-            latestAttemptProviderPaymentId: String(row.latest_attempt_provider_payment_id || '').trim() || null,
-            latestAttemptProviderStatus: String(row.latest_attempt_provider_status || '').trim() || null,
-            latestAttemptProviderDetail: String(row.latest_attempt_provider_detail || '').trim() || null,
-            latestAttemptRequestedAmount: this.roundMoney(Number.parseFloat(String(row.latest_attempt_requested_amount ?? '0')) || 0),
-            latestAttemptSettledAt: row.latest_attempt_settled_at || null,
-            latestAttemptCreatedAt: row.latest_attempt_created_at || null,
-            refundPreparation: this.parseRefundPreparation(row.metadata),
-        }));
+        const payments = (paymentRows || []).map((row: any) => {
+            const metadata = this.parseJsonObject(row.metadata);
+            const manualPayment = String(metadata.source || '').trim().toUpperCase() === 'MANUAL_SETTLEMENT';
+            const method = String(row.method || row.latest_attempt_method || '').trim() || null;
+            return {
+                id: String(row.id),
+                paymentType: String(row.payment_type || 'FULL'),
+                amount: this.roundMoney(Number.parseFloat(String(row.amount ?? '0')) || 0),
+                status: String(row.status || 'PENDING'),
+                pixTxid: String(row.pix_txid || ''),
+                method,
+                methodLabel: this.formatPaymentMethodLabel(method),
+                channel: manualPayment ? 'MANUAL' : (metadata.provider ? 'ONLINE' : 'UNKNOWN'),
+                recordedByUserName: manualPayment ? String(metadata.recorded_by_user_name || '').trim() || null : null,
+                externalReference: String(row.external_reference || '').trim() || null,
+                createdAt: row.created_at,
+                paidAt: row.paid_at,
+                expiredAt: row.expired_at,
+                updatedAt: row.updated_at,
+                latestAttemptStatus: String(row.latest_attempt_status || '').trim() || null,
+                latestAttemptMethod: String(row.latest_attempt_method || '').trim() || null,
+                latestAttemptProviderPaymentId: String(row.latest_attempt_provider_payment_id || '').trim() || null,
+                latestAttemptProviderStatus: String(row.latest_attempt_provider_status || '').trim() || null,
+                latestAttemptProviderDetail: String(row.latest_attempt_provider_detail || '').trim() || null,
+                latestAttemptRequestedAmount: this.roundMoney(Number.parseFloat(String(row.latest_attempt_requested_amount ?? '0')) || 0),
+                latestAttemptSettledAt: row.latest_attempt_settled_at || null,
+                latestAttemptCreatedAt: row.latest_attempt_created_at || null,
+                refundPreparation: this.parseRefundPreparation(row.metadata),
+            };
+        });
 
         const closeRequests = (closeRequestRows || []).map((row: any) => ({
             id: String(row.id),
@@ -2276,6 +2291,7 @@ export class TablesService {
             resolvedByUserName?: string;
             requestId?: string;
             closureSource?: string;
+            manualPaymentMethod?: string;
         },
     ) {
         const queryRunner = this.dataSource.createQueryRunner();
@@ -2311,10 +2327,36 @@ export class TablesService {
             const financialSnapshot = await this.reconcileTabFinancialSnapshot(tabId, tenantId, queryRunner);
             const total = financialSnapshot.total;
             const paidAmount = financialSnapshot.paidAmount;
+            const confirmedPaymentsAmount = financialSnapshot.confirmedPaymentsAmount;
             const alreadyClosed = String(tab.status || '').trim().toUpperCase() === 'CLOSED';
             const nextPaidAmount = this.roundMoney(Math.max(total, paidAmount));
 
             if (!alreadyClosed) {
+                const manualPaymentAmount = this.roundMoney(Math.max(0, total - confirmedPaymentsAmount));
+                const closureSource = String(options.closureSource || 'MANUAL_SETTLEMENT');
+                const manualPaymentMethod = this.normalizeManualPaymentMethod(options.manualPaymentMethod);
+
+                if (manualPaymentAmount > 0 && closureSource !== 'PAYMENT_APPROVED') {
+                    await queryRunner.query(
+                        `INSERT INTO payments
+                            (id, tenant_id, tab_id, payment_type, amount, status, method, metadata, created_at, paid_at, updated_at)
+                         VALUES
+                            (gen_random_uuid(), $1, $2, 'FULL', $3, 'CONFIRMED', $4, $5::jsonb, NOW(), NOW(), NOW())`,
+                        [
+                            tenantId,
+                            tabId,
+                            manualPaymentAmount,
+                            manualPaymentMethod,
+                            JSON.stringify({
+                                source: 'MANUAL_SETTLEMENT',
+                                closure_source: closureSource,
+                                recorded_by_user_id: this.normalizeUuidOrNull(options.resolvedByUserId),
+                                recorded_by_user_name: this.normalizeTextOrNull(options.resolvedByUserName),
+                            }),
+                        ],
+                    );
+                }
+
                 await queryRunner.query(
                     `UPDATE tabs
                         SET status = 'CLOSED',
@@ -2337,10 +2379,13 @@ export class TablesService {
                     actorUserId: options.resolvedByUserId,
                     actorName: options.resolvedByUserName,
                     details: {
-                        source: String(options.closureSource || 'MANUAL_SETTLEMENT'),
+                        source: closureSource,
                         request_id: options.requestId || null,
                         total: this.roundMoney(total),
                         paid_amount: nextPaidAmount,
+                        manual_payment_method: manualPaymentAmount > 0 && closureSource !== 'PAYMENT_APPROVED'
+                            ? manualPaymentMethod
+                            : null,
                     },
                 });
             }
@@ -2562,12 +2607,14 @@ export class TablesService {
         });
 
         (input.payments || []).forEach((payment) => {
+            const manualPayment = String(payment.channel || '').toUpperCase() === 'MANUAL';
+            const methodLabel = payment.methodLabel || this.formatPaymentMethodLabel(payment.method || payment.latestAttemptMethod);
             events.push({
                 key: `payment-${payment.id}`,
                 type: 'PAYMENT_CREATED',
-                label: `Pagamento ${this.mapPaymentTypeLabel(payment.paymentType)}`,
-                description: `${this.formatPaymentMethodLabel(payment.method || payment.latestAttemptMethod)} · ${this.roundMoney(payment.amount).toFixed(2)}`,
-                actorName: null,
+                label: manualPayment ? 'Baixa manual registrada' : `Pagamento ${this.mapPaymentTypeLabel(payment.paymentType)}`,
+                description: `${methodLabel} · ${this.roundMoney(payment.amount).toFixed(2)}`,
+                actorName: manualPayment ? payment.recordedByUserName || null : null,
                 createdAt: payment.createdAt,
             });
 
@@ -2575,9 +2622,9 @@ export class TablesService {
                 events.push({
                     key: `payment-approved-${payment.id}`,
                     type: 'PAYMENT_APPROVED',
-                    label: 'Pagamento aprovado',
-                    description: `${this.formatPaymentMethodLabel(payment.method || payment.latestAttemptMethod)} confirmado`,
-                    actorName: null,
+                    label: manualPayment ? 'Baixa manual confirmada' : 'Pagamento aprovado',
+                    description: `${methodLabel} confirmado`,
+                    actorName: manualPayment ? payment.recordedByUserName || null : null,
                     createdAt: payment.paidAt || payment.latestAttemptSettledAt || payment.updatedAt || payment.createdAt,
                 });
             } else if (payment.latestAttemptStatus === 'REJECTED') {
@@ -2701,7 +2748,10 @@ export class TablesService {
             if (source === 'SHIFT_CLOSE_AUTO_SETTLEMENT') {
                 return 'Comanda encerrada automaticamente no fechamento do expediente por estar sem saldo pendente';
             }
-            return 'Fechamento manual registrado pela equipe';
+            const manualPaymentMethod = String(details?.manual_payment_method || '').trim();
+            return manualPaymentMethod
+                ? `Fechamento manual registrado pela equipe · ${this.formatPaymentMethodLabel(manualPaymentMethod)}`
+                : 'Fechamento manual registrado pela equipe';
         }
         if (eventType === 'TAB_REOPENED') {
             const reason = String(details?.reason || '').trim();
@@ -2908,10 +2958,19 @@ export class TablesService {
 
     private formatPaymentMethodLabel(value?: string | null) {
         const normalized = String(value || '').trim().toUpperCase();
+        if (normalized === 'CASH') return 'Dinheiro';
         if (normalized === 'PIX') return 'Pix';
         if (normalized === 'CREDIT_CARD') return 'Cartão de crédito';
         if (normalized === 'DEBIT_CARD') return 'Cartão de débito';
+        if (normalized === 'OTHER') return 'Outro meio';
+        if (normalized === 'UNSPECIFIED') return 'Forma não informada';
         return normalized || 'Forma não informada';
+    }
+
+    private normalizeManualPaymentMethod(value?: string) {
+        const normalized = String(value || '').trim().toUpperCase();
+        const allowed = new Set(['CASH', 'PIX', 'CREDIT_CARD', 'DEBIT_CARD', 'OTHER']);
+        return allowed.has(normalized) ? normalized : 'UNSPECIFIED';
     }
 
     private parseJsonObject(value: unknown) {

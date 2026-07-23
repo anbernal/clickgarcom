@@ -567,6 +567,17 @@ function finalizeComandaFromPanel(tabId) {
         <strong>Confira o pagamento antes de continuar.</strong>
         A confirmação registra a baixa manual, fecha esta comanda e libera a mesa quando não houver outra comanda aberta nela.
       </div>
+      <label class="comandas-field comandas-finalize-method">
+        <span>Forma de pagamento recebida</span>
+        <select id="tab-finalize-method" class="input">
+          <option value="">Selecione a forma recebida</option>
+          <option value="CASH">Dinheiro</option>
+          <option value="PIX">Pix recebido pela equipe</option>
+          <option value="CREDIT_CARD">Cartão de crédito</option>
+          <option value="DEBIT_CARD">Cartão de débito</option>
+          <option value="OTHER">Outro meio</option>
+        </select>
+      </label>
     </div>
     <div class="modal-footer">
       <button class="btn-sm btn-outline" type="button" onclick="closeModal()">Cancelar</button>
@@ -583,6 +594,12 @@ async function confirmFinalizeComanda(tabId) {
 
   const finalizeButton = document.getElementById('tab-finalize-confirm');
   if (finalizeButton?.disabled) return;
+  const manualPaymentMethod = document.getElementById('tab-finalize-method')?.value || '';
+
+  if (!manualPaymentMethod) {
+    showToast('Informe a forma de pagamento recebida.', 'error');
+    return;
+  }
 
   const tab = comandasOpenTabsCache.find((item) => String(item.id) === String(tabId));
   if (!tab) {
@@ -597,7 +614,9 @@ async function confirmFinalizeComanda(tabId) {
   }
 
   try {
-    await api.post(`/tables/tabs/${tabId}/finalize`, {});
+    await api.post(`/tables/tabs/${tabId}/finalize`, {
+      manual_payment_method: manualPaymentMethod,
+    });
     showToast(`Comanda ${tab.publicCode || tab.id} finalizada.`);
     closeModal();
     await loadComandas();

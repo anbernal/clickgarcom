@@ -26,15 +26,54 @@ function renderConsultaMetric(label, value, helper, color = 'var(--text)') {
   `;
 }
 
+function consultaPaymentStatusLabel(status) {
+  const normalized = String(status || '').toUpperCase();
+  if (normalized === 'CONFIRMED') return 'Confirmado';
+  if (normalized === 'PENDING') return 'Aguardando confirmação';
+  if (normalized === 'EXPIRED') return 'Expirado';
+  if (normalized === 'CANCELED') return 'Cancelado';
+  return normalized || 'Sem status';
+}
+
+function renderConsultaPayment(payment) {
+  const manual = String(payment?.channel || '').toUpperCase() === 'MANUAL';
+  const method = payment?.methodLabel || payment?.method || payment?.paymentType || 'Pagamento';
+  const recordedBy = payment?.recordedByUserName ? ` por ${payment.recordedByUserName}` : '';
+  const channel = manual ? `Baixa manual${recordedBy}` : 'Pagamento online';
+
+  return `
+    <div class="consulta-detail-line">
+      <div>
+        <strong>${escapeHTML(method)}</strong>
+        <span>${escapeHTML(`${channel} · ${consultaPaymentStatusLabel(payment?.status)} · ${formatDateTime(payment?.paidAt || payment?.createdAt)}`)}</span>
+      </div>
+      <div class="mono">${escapeHTML(formatCurrency(payment?.amount || 0))}</div>
+    </div>
+  `;
+}
+
 function renderConsultaResult(detail) {
   const financial = detail?.financial || {};
   const status = consultaStatusMeta(detail?.status);
   const items = Array.isArray(detail?.items) ? detail.items : [];
   const payments = Array.isArray(detail?.payments) ? detail.payments : [];
+  const history = Array.isArray(detail?.history) ? detail.history : [];
   const exitValidated = !!detail?.exitValidatedAt;
   const tableLabel = detail?.tableNumber ? `Mesa ${detail.tableNumber}` : 'Sem mesa';
   const pendingAmount = Number(financial.amountDue || 0);
   const publicCode = String(detail?.publicCode || detail?.id || '').trim();
+  const legacyManualClosure = payments.length === 0 && String(detail?.status || '').toUpperCase() === 'CLOSED'
+    ? [{
+      channel: 'MANUAL',
+      methodLabel: 'Forma não informada',
+      status: 'CONFIRMED',
+      amount: Number(financial.paidAmount || 0),
+      createdAt: detail?.closedAt,
+      paidAt: detail?.closedAt,
+      recordedByUserName: detail?.closedByUserName || null,
+    }]
+    : [];
+  const displayedPayments = payments.length ? payments : legacyManualClosure;
 
   return `
     <section class="consulta-result-card">
@@ -52,7 +91,7 @@ function renderConsultaResult(detail) {
 
       <div class="consulta-metrics-grid">
         ${renderConsultaMetric('Total', formatCurrency(financial.total || 0), 'valor da comanda')}
-        ${renderConsultaMetric('Pago', formatCurrency(financial.paidAmount || 0), 'pagamentos confirmados', '#047857')}
+        ${renderConsultaMetric('Pago', formatCurrency(financial.paidAmount || 0), displayedPayments.length ? 'pagamentos confirmados' : 'baixa sem lançamento', '#047857')}
         ${renderConsultaMetric('Saldo', formatCurrency(pendingAmount), pendingAmount > 0 ? 'a regularizar' : 'sem saldo pendente', pendingAmount > 0 ? '#b91c1c' : '#047857')}
         ${renderConsultaMetric('Itens', String(items.reduce((sum, item) => sum + Number(item.quantity || 0), 0)), `${items.length} linha(s) de pedido`)}
       </div>
@@ -78,16 +117,20 @@ function renderConsultaResult(detail) {
         </div>
         <div class="consulta-detail-section">
           <div class="consulta-detail-title">Pagamentos</div>
-          ${payments.length ? payments.map((payment) => `
-            <div class="consulta-detail-line">
-              <div>
-                <strong>${escapeHTML(payment.method || payment.paymentType || 'Pagamento')}</strong>
-                <span>${escapeHTML(payment.status || 'PENDING')} · ${escapeHTML(formatDateTime(payment.createdAt))}</span>
-              </div>
-              <div class="mono">${escapeHTML(formatCurrency(payment.amount || 0))}</div>
-            </div>
-          `).join('') : '<div class="consulta-detail-empty">Nenhum pagamento registrado.</div>'}
+          ${displayedPayments.length ? displayedPayments.map(renderConsultaPayment).join('') : '<div class="consulta-detail-empty">Nenhum pagamento registrado.</div>'}
         </div>
+      </div>
+      <div class="consulta-detail-section consulta-history-section">
+        <div class="consulta-detail-title">Histórico da comanda</div>
+        ${history.length ? history.slice(0, 12).map((event) => `
+          <div class="consulta-detail-line">
+            <div>
+              <strong>${escapeHTML(event.label || 'Evento da comanda')}</strong>
+              <span>${escapeHTML(`${event.description || 'Sem detalhes'}${event.actorName ? ` · por ${event.actorName}` : ''}`)}</span>
+            </div>
+            <div class="consulta-history-date">${escapeHTML(formatDateTime(event.createdAt))}</div>
+          </div>
+        `).join('') : '<div class="consulta-detail-empty">Nenhum evento registrado.</div>'}
       </div>
     </section>
   `;

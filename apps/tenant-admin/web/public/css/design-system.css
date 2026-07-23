@@ -2803,6 +2803,17 @@ tbody tr:last-child td {
   font-size: 11px;
 }
 
+.consulta-history-section {
+  margin-top: 12px;
+}
+
+.consulta-history-date {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 9px;
+  text-align: right;
+}
+
 .comandas-open-box {
   padding: 18px 22px 20px;
   border-bottom: 1px solid var(--border);
@@ -3431,6 +3442,16 @@ tbody tr:last-child td {
 .comandas-finalize-note strong {
   display: block;
   margin-bottom: 3px;
+}
+
+.comandas-finalize-method {
+  display: block;
+  margin-top: 14px;
+}
+
+.comandas-finalize-method .input {
+  width: 100%;
+  margin-top: 5px;
 }
 
 .mesas-management-card {
