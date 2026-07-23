@@ -14,6 +14,9 @@ export class Tab {
     @Column({ name: 'user_phone', type: 'varchar', length: 30, nullable: true })
     userPhone!: string | null;
 
+    @Column({ name: 'customer_instagram', type: 'varchar', length: 80, nullable: true })
+    customerInstagram!: string | null;
+
     @Column({ name: 'payment_notifier_phone', type: 'varchar', length: 30, nullable: true })
     paymentNotifierPhone!: string | null;
 
@@ -25,6 +28,9 @@ export class Tab {
 
     @Column({ name: 'opened_by_user_name', type: 'varchar', length: 255, nullable: true })
     openedByUserName!: string | null;
+
+    @Column({ name: 'opening_channel', type: 'varchar', length: 30, default: 'LEGACY' })
+    openingChannel!: string;
 
     @Column('uuid', { name: 'closed_by_user_id', nullable: true })
     closedByUserId!: string | null;

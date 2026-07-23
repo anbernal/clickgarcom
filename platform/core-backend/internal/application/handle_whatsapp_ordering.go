@@ -299,43 +299,7 @@ func (uc *HandleWhatsAppMessageUseCase) getOrCreateTab(
 		return existingTab, nil
 	}
 
-	tenantObj, err := uc.tenantRepo.FindByID(ctx, sess.TenantID)
-	if err != nil || tenantObj == nil {
-		return nil, fmt.Errorf("failed to load tenant before opening tab")
-	}
-
-	serviceMode := strings.TrimSpace(tenantObj.Settings.ServiceMode)
-	if sess.TableID == nil && !strings.EqualFold(serviceMode, "SEM_MESA") {
-		return nil, fmt.Errorf("cannot open tab without an approved table")
-	}
-
-	// Create a tab only after table approval or in no-table service mode.
-	newTab := &tab.Tab{
-		ID:          uuid.New(),
-		TenantID:    sess.TenantID,
-		TableID:     sess.TableID,
-		UserPhone:   sess.UserPhone,
-		ServiceMode: "COM_MESA",
-		Status:      tab.StatusOpen,
-	}
-	newTab.PublicCode = tab.BuildPublicCode(newTab.ID)
-	if strings.EqualFold(serviceMode, "SEM_MESA") {
-		newTab.ServiceMode = "SEM_MESA"
-	}
-
-	if err := uc.tabRepo.Create(ctx, newTab); err != nil {
-		return nil, fmt.Errorf("failed to create tab: %w", err)
-	}
-
-	// Salvar tab ID na sessão
-	sess.TabID = &newTab.ID
-
-	uc.logger.Info("new tab created",
-		zap.String("tab_id", newTab.ID.String()),
-		zap.String("user_phone", sess.UserPhone),
-	)
-
-	return newTab, nil
+	return nil, fmt.Errorf("cannot order without a staff-opened tab")
 }
 
 // handleMainMenuSimplified - menu principal com opção de pedido simplificado

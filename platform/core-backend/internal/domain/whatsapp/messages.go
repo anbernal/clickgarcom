@@ -56,11 +56,16 @@ para que você viva uma experiência única. ✨🍽️
 
 Posso te ajudar a começar?`
 
-const defaultWelcomeMenu = `*1* - 🙋 Solicitar mesa
+const defaultWelcomeMenu = `Escolha uma opção para continuar:
 
-*0* - 📱 Abrir menu principal
+*1* - 🔖 Já tenho número de comanda
+*2* - 🙋 Preciso solicitar uma comanda
 
-_Digite o número da opção_`
+_Você precisa de uma comanda aberta para fazer pedidos._`
+
+func WelcomeMenuOptionsMessage() string {
+	return defaultWelcomeMenu
+}
 
 const defaultRestaurantClosed = `🚪 *O restaurante ainda não está aberto.*
 
@@ -96,7 +101,7 @@ Daqui a pouquinho nossa equipe vai te chamar por aqui. 🤝`
 
 const defaultMenuAccessUnavailable = `🔒 *Seu acesso ao cardápio não está ativo no momento.*
 
-Se quiser continuar, solicite uma nova mesa para liberar o atendimento.`
+Se você já recebeu uma comanda, informe o código de 5 caracteres. Caso contrário, solicite uma comanda à nossa equipe.`
 
 const defaultTextOnlySupport = `No momento só entendo mensagem de texto, como posso te ajudar?`
 
@@ -204,7 +209,7 @@ func WelcomeMessage(restaurantName string, msgs ...tenant.MessageTemplates) stri
 // WelcomeMenuMessage apresenta o menu inicial para o primeiro contato sem QR Code.
 func WelcomeMenuMessage(restaurantName string, msgs ...tenant.MessageTemplates) string {
 	welcome := strings.TrimSpace(WelcomeMessage(restaurantName, msgs...))
-	menu := strings.TrimSpace(defaultWelcomeMenu)
+	menu := strings.TrimSpace(WelcomeMenuOptionsMessage())
 
 	switch {
 	case welcome == "":

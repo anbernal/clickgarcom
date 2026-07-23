@@ -75,6 +75,12 @@ export const TENANT_TABLE_READ_ROLES = [
     TenantUserRole.Cashier,
 ] as const;
 
+export const TENANT_TAB_OPERATION_ROLES = [
+    TenantUserRole.Admin,
+    TenantUserRole.Manager,
+    TenantUserRole.Waiter,
+] as const;
+
 export const TENANT_TABLE_WRITE_ROLES = [...TENANT_FULL_ACCESS_ROLES] as const;
 
 export const TENANT_FLOOR_ROLES = [
@@ -133,6 +139,7 @@ export function buildTenantRoleMetadata() {
             order_read_write: [...TENANT_ORDER_WRITE_ROLES],
             order_cancel: [...TENANT_ORDER_CANCEL_ROLES],
             table_read: [...TENANT_TABLE_READ_ROLES],
+            tab_operations: [...TENANT_TAB_OPERATION_ROLES],
             table_write: [...TENANT_TABLE_WRITE_ROLES],
             floor_operations: [...TENANT_FLOOR_ROLES],
             settlement: [...TENANT_SETTLEMENT_ROLES],

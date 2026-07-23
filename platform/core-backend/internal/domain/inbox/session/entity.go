@@ -23,6 +23,7 @@ const (
 	StateClosingTab               ConversationState = "CLOSING_TAB"
 	StateServiceRequest           ConversationState = "SERVICE_REQUEST"
 	StateWaitingTableConfirmation ConversationState = "WAITING_TABLE_CONFIRMATION"
+	StateWaitingTabCode           ConversationState = "WAITING_TAB_CODE"
 	StateWaitingAdminApproval     ConversationState = "WAITING_ADMIN_APPROVAL"
 	StateWaitingCollabChoice      ConversationState = "WAITING_COLLAB_CHOICE"   // Fase 14: Escolher Compartilhar vs Individual
 	StateWaitingJoinApproval      ConversationState = "WAITING_JOIN_APPROVAL"   // Fase 15: Client B aguarda opener aprovar

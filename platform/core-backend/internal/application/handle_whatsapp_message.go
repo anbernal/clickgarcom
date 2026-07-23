@@ -82,14 +82,16 @@ type HandleMessageInput struct {
 }
 
 const (
-	welcomeMenuFlowKey       = "welcome_menu"
-	requestTableActionID     = "request_table"
-	defaultWelcomeMenuAction = "btn_request_table"
-	mainMenuListButtonText   = "Abrir menu"
-	mainMenuOpenActionID     = "0"
-	tabSummaryNewOrderID     = "1"
-	tabSummaryCloseTabID     = "2"
-	tabSummaryBackMenuID     = "0"
+	welcomeMenuFlowKey        = "welcome_menu"
+	requestTableActionID      = "request_table"
+	defaultWelcomeMenuAction  = "btn_request_tab"
+	welcomeHasTabActionID     = "btn_has_tab"
+	welcomeRequestTabActionID = "btn_request_tab"
+	mainMenuListButtonText    = "Abrir menu"
+	mainMenuOpenActionID      = "0"
+	tabSummaryNewOrderID      = "1"
+	tabSummaryCloseTabID      = "2"
+	tabSummaryBackMenuID      = "0"
 )
 
 const mainMenuBackOptionText = "*0* - ◂ Voltar ao menu principal"
@@ -202,24 +204,6 @@ func (uc *HandleWhatsAppMessageUseCase) Execute(ctx context.Context, input Handl
 			return fmt.Errorf("failed to find tenant: %w", err)
 		}
 
-		if !strings.EqualFold(strings.TrimSpace(t.Settings.ServiceMode), "SEM_MESA") {
-			// Evita duplicar solicitações pendentes para o mesmo telefone.
-			existingReq, err := uc.tableRepo.FindPendingRequestByPhone(ctx, input.From, input.TenantID)
-			if err != nil {
-				return fmt.Errorf("failed to find pending request by phone: %w", err)
-			}
-			if existingReq != nil {
-				if err := uc.sendWaitingAdminApprovalMenu(ctx, input.From, input.TenantID, whatsapp.AlreadyInQueueMessage()); err != nil {
-					return fmt.Errorf("failed to send already-in-queue message: %w", err)
-				}
-				sess.TransitionTo(session.StateWaitingAdminApproval)
-				if err := uc.sessionRepo.Save(ctx, sess); err != nil {
-					return fmt.Errorf("failed to save session: %w", err)
-				}
-				return nil
-			}
-		}
-
 		if err := uc.sendWelcomeMenu(ctx, input.From, t, ""); err != nil {
 			return fmt.Errorf("failed to send intro menu: %w", err)
 		}
@@ -275,6 +259,8 @@ func (uc *HandleWhatsAppMessageUseCase) Execute(ctx context.Context, input Handl
 					return fmt.Errorf("failed to send waiting admin approval response: %w", err)
 				}
 				sendMessage = nil
+			} else if newState == session.StateWaitingTabCode {
+				sendMessage = uc.sendTenantMessageNoBack
 			} else {
 				sendMessage = uc.sendTenantMessagePlain
 			}
@@ -298,6 +284,8 @@ func (uc *HandleWhatsAppMessageUseCase) Execute(ctx context.Context, input Handl
 				return fmt.Errorf("failed to send waiting join approval response: %w", err)
 			}
 			sendMessage = nil
+		} else if newState == session.StateWaitingTabCode {
+			sendMessage = uc.sendTenantMessageNoBack
 		}
 		if sendMessage != nil {
 			if err := sendMessage(ctx, input.From, input.TenantID, response); err != nil {
@@ -369,6 +357,8 @@ func (uc *HandleWhatsAppMessageUseCase) processMessage(
 
 	case session.StateWaitingTableConfirmation:
 		return uc.handleTableConfirmation(ctx, sess, text)
+	case session.StateWaitingTabCode:
+		return uc.handleTabCode(ctx, sess, text)
 
 	case session.StateWaitingCollabChoice:
 		return uc.handleCollabChoice(ctx, sess, text)
@@ -424,6 +414,8 @@ func (uc *HandleWhatsAppMessageUseCase) repeatCurrentPrompt(
 		return uc.startClosingTabFlow(ctx, sess)
 	case session.StateWaitingTableConfirmation:
 		return uc.repeatWaitingTableConfirmationPrompt(ctx, sess)
+	case session.StateWaitingTabCode:
+		return "🔖 Informe o *código da comanda* com 5 caracteres hexadecimais (ex.: *A39F2*).\n\n_Digite 0 para voltar_", session.StateWaitingTabCode, nil
 	case session.StateWaitingAdminApproval:
 		return whatsapp.AlreadyInQueueMessage(), session.StateWaitingAdminApproval, nil
 	case session.StateWaitingCollabChoice:
@@ -627,39 +619,12 @@ func (uc *HandleWhatsAppMessageUseCase) handleWelcomeMenu(
 		return "", session.StateWelcome, nil
 	}
 
-	t, err := uc.tenantRepo.FindByID(ctx, sess.TenantID)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to find tenant: %w", err)
+	if isWelcomeHasTabChoice(ctx, sess.TenantID, text) {
+		return "🔖 *Número da comanda*\n\nInforme o código de 5 caracteres que a equipe passou para você.\n\n_Digite 0 para voltar_", session.StateWaitingTabCode, nil
 	}
 
-	if strings.EqualFold(strings.TrimSpace(t.Settings.ServiceMode), "SEM_MESA") && isFreeOrderChoice(text) {
-		return uc.startOrderingFlow(ctx, sess)
-	}
-
-	if uc.isInitialTableRequestChoice(ctx, sess.TenantID, text) {
-		existingReq, err := uc.tableRepo.FindPendingRequestByPhone(ctx, sess.UserPhone, sess.TenantID)
-		if err != nil {
-			return "", "", fmt.Errorf("failed to find pending request by phone: %w", err)
-		}
-		if existingReq != nil {
-			return whatsapp.AlreadyInQueueMessage(), session.StateWaitingAdminApproval, nil
-		}
-
-		req := &table.TableRequest{
-			ID:        uuid.New(),
-			TenantID:  sess.TenantID,
-			TableID:   nil,
-			UserPhone: sess.UserPhone,
-			PaxCount:  1,
-			Status:    table.RequestStatusPending,
-		}
-
-		if err := uc.tableRepo.CreateRequest(ctx, req); err != nil {
-			uc.logger.Error("failed to create initial table request", zap.Error(err))
-			return "⚠️ Tivemos uma instabilidade ao solicitar sua mesa agora. Pode tentar novamente em alguns segundos.", session.StateWelcome, nil
-		}
-
-		return whatsapp.TableRequestPendingMessage(t.Settings.Messages), session.StateWaitingAdminApproval, nil
+	if uc.matchesPublishedBotFlowActionInput(ctx, sess.TenantID, welcomeMenuFlowKey, requestTableActionID, text) || isWelcomeRequestTabChoice(ctx, sess.TenantID, text) {
+		return uc.handleCallWaiter(ctx, sess)
 	}
 
 	if isWelcomeGreeting(text) {
@@ -667,6 +632,98 @@ func (uc *HandleWhatsAppMessageUseCase) handleWelcomeMenu(
 	}
 
 	return uc.repeatCurrentPrompt(ctx, sess)
+}
+
+func isWelcomeHasTabChoice(ctx context.Context, tenantID uuid.UUID, text string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(text))
+	return normalized == "1" || normalized == welcomeHasTabActionID || normalized == "já tenho comanda" || normalized == "ja tenho comanda" || strings.Contains(normalized, "tenho comanda")
+}
+
+func isWelcomeRequestTabChoice(ctx context.Context, tenantID uuid.UUID, text string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(text))
+	return normalized == "2" || normalized == welcomeRequestTabActionID || normalized == defaultWelcomeMenuAction || normalized == "preciso solicitar uma comanda" || strings.Contains(normalized, "solicitar comanda")
+}
+
+func (uc *HandleWhatsAppMessageUseCase) handleTabCode(
+	ctx context.Context,
+	sess *session.Session,
+	text string,
+) (string, session.ConversationState, error) {
+	text = strings.TrimSpace(text)
+	if text == "0" {
+		uc.resetSessionAccess(sess)
+		return "", session.StateWelcome, nil
+	}
+
+	code := normalizeTabCodeInput(text)
+	if !isTabCodeInput(code) {
+		return "❌ Código inválido. Informe os 5 caracteres da comanda, por exemplo *A39F2*.", session.StateWaitingTabCode, nil
+	}
+
+	openTabs, err := uc.tabRepo.FindByTenantAndStatus(ctx, sess.TenantID, tab.StatusOpen)
+	if err != nil {
+		return "❌ Não consegui validar a comanda agora. Tente novamente em instantes.", session.StateWaitingTabCode, nil
+	}
+
+	var matched *tab.Tab
+	for _, candidate := range openTabs {
+		if candidate != nil && strings.EqualFold(strings.TrimSpace(candidate.PublicCode), code) {
+			matched = candidate
+			break
+		}
+	}
+	if matched == nil {
+		return "❌ Não encontrei uma comanda *aberta* com esse código. Confira os caracteres ou peça ajuda à equipe.", session.StateWaitingTabCode, nil
+	}
+
+	ownerPhone := normalizePhoneDigits(matched.UserPhone)
+	currentPhone := normalizePhoneDigits(sess.UserPhone)
+	if ownerPhone != "" && currentPhone != "" && ownerPhone != currentPhone {
+		return "🔒 Essa comanda já está vinculada a outro atendimento. Peça à equipe para liberar sua entrada.", session.StateWaitingTabCode, nil
+	}
+
+	if ownerPhone == "" && strings.TrimSpace(sess.UserPhone) != "" {
+		matched.UserPhone = sess.UserPhone
+		if err := uc.tabRepo.Update(ctx, matched); err != nil {
+			return "❌ Não consegui vincular seu atendimento à comanda. Tente novamente.", session.StateWaitingTabCode, nil
+		}
+	}
+
+	tabID := matched.ID
+	sess.TabID = &tabID
+	if matched.TableID != nil {
+		tableID := *matched.TableID
+		sess.TableID = &tableID
+	}
+
+	return fmt.Sprintf("✅ *Comanda validada!*\n\n%s\n\n%s", whatsapp.TabCodeNotice(matched.PublicCode), whatsapp.MainMenuMessage()), session.StateMainMenu, nil
+}
+
+func normalizeTabCodeInput(text string) string {
+	value := strings.TrimSpace(text)
+	value = strings.TrimPrefix(value, "#")
+	value = strings.TrimSpace(value)
+	for _, prefix := range []string{"comanda", "cmd"} {
+		lower := strings.ToLower(value)
+		if strings.HasPrefix(lower, prefix) {
+			value = strings.TrimSpace(value[len(prefix):])
+			value = strings.TrimLeft(value, ":#.- ")
+			break
+		}
+	}
+	return strings.ToUpper(value)
+}
+
+func isTabCodeInput(value string) bool {
+	if len(value) < 5 || len(value) > 12 {
+		return false
+	}
+	for _, char := range value {
+		if !((char >= '0' && char <= '9') || (char >= 'A' && char <= 'F')) {
+			return false
+		}
+	}
+	return true
 }
 
 func isWelcomeGreeting(text string) bool {
@@ -844,10 +901,7 @@ func (uc *HandleWhatsAppMessageUseCase) sendWelcomeMenu(
 		return uc.sendDefaultWelcomeMenu(ctx, to, tenantObj, prefix)
 	}
 
-	buttons := uc.buildInteractiveButtons(definition.Actions)
-	if !uc.shouldSendInteractiveWelcome(definition, buttons) {
-		return uc.sender.SendText(whatsapp.WithTenantID(ctx, tenantObj.ID), to, uc.composeWelcomeMenuText(ctx, tenantObj, prefix))
-	}
+	buttons := buildDefaultWelcomeButtons()
 
 	body := uc.composeWelcomeMenuBody(tenantObj, definition, prefix)
 	if _, err := sendInteractiveButtonsWithoutBack(uc.sender, whatsapp.WithTenantID(ctx, tenantObj.ID), to, body, buttons); err != nil {
@@ -868,11 +922,8 @@ func (uc *HandleWhatsAppMessageUseCase) sendDefaultWelcomeMenu(
 	tenantObj *tenant.Tenant,
 	prefix string,
 ) error {
-	body := strings.TrimSpace(whatsapp.WelcomeMessage(tenantObj.Name, tenantObj.Settings.Messages))
+	body := strings.TrimSpace(whatsapp.WelcomeMenuMessage(tenantObj.Name, tenantObj.Settings.Messages))
 	buttons := buildDefaultWelcomeButtons()
-	if strings.EqualFold(strings.TrimSpace(tenantObj.Settings.ServiceMode), "SEM_MESA") {
-		buttons = buildSingleReplyButtons("1", "🛒 Fazer pedido")
-	}
 	if strings.TrimSpace(prefix) != "" {
 		body = strings.TrimSpace(prefix) + "\n\n" + body
 	}
@@ -939,10 +990,6 @@ func (uc *HandleWhatsAppMessageUseCase) resolveWelcomeMenuText(
 	tenantObj *tenant.Tenant,
 ) string {
 	fallback := whatsapp.WelcomeMenuMessage(tenantObj.Name, tenantObj.Settings.Messages)
-	if strings.EqualFold(strings.TrimSpace(tenantObj.Settings.ServiceMode), "SEM_MESA") {
-		fallback = strings.TrimSpace(whatsapp.WelcomeMessage(tenantObj.Name, tenantObj.Settings.Messages)) +
-			"\n\n*1* - 🛒 Fazer pedido\n\n_Digite o número da opção_"
-	}
 	flow := uc.findPublishedBotFlow(ctx, tenantObj.ID, welcomeMenuFlowKey)
 	if flow == nil {
 		return fallback
@@ -958,23 +1005,7 @@ func (uc *HandleWhatsAppMessageUseCase) resolveWelcomeMenuText(
 		return fallback
 	}
 
-	if len(definition.Actions) == 0 {
-		return body
-	}
-
-	lines := make([]string, 0, len(definition.Actions)+1)
-	for index, action := range definition.Actions {
-		label := strings.TrimSpace(action.Label)
-		if label == "" {
-			continue
-		}
-		lines = append(lines, fmt.Sprintf("*%d* - %s", index+1, label))
-	}
-	if len(lines) == 0 {
-		return body
-	}
-
-	return strings.TrimSpace(body) + "\n\n" + strings.Join(lines, "\n") + "\n\n_Digite o número da opção_"
+	return strings.TrimSpace(body) + "\n\n" + whatsapp.WelcomeMenuOptionsMessage()
 }
 
 func (uc *HandleWhatsAppMessageUseCase) composeWelcomeMenuBody(
@@ -1036,7 +1067,16 @@ func (uc *HandleWhatsAppMessageUseCase) buildInteractiveButtons(
 }
 
 func buildDefaultWelcomeButtons() []whatsapp.InteractiveButton {
-	return buildSingleReplyButtons(defaultWelcomeMenuAction, "🙋 Solicitar mesa")
+	return []whatsapp.InteractiveButton{
+		{Type: "reply", Reply: struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+		}{ID: welcomeHasTabActionID, Title: "🔖 Já tenho comanda"}},
+		{Type: "reply", Reply: struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+		}{ID: welcomeRequestTabActionID, Title: "🙋 Solicitar comanda"}},
+	}
 }
 
 func (uc *HandleWhatsAppMessageUseCase) shouldSendInteractiveWelcome(
@@ -2251,6 +2291,18 @@ func (uc *HandleWhatsAppMessageUseCase) sendTenantMessagePlain(
 ) error {
 	ctx = whatsapp.WithTenantID(ctx, tenantID)
 	return uc.sender.SendText(ctx, to, appendMainMenuBackOption(message))
+}
+
+func (uc *HandleWhatsAppMessageUseCase) sendTenantMessageNoBack(
+	ctx context.Context,
+	to string,
+	tenantID uuid.UUID,
+	message string,
+) error {
+	tenantObj, _ := uc.tenantRepo.FindByID(ctx, tenantID)
+	resolvedMessage := uc.resolveTenantMessage(message, tenantObj)
+	ctx = whatsapp.WithTenantID(ctx, tenantID)
+	return uc.sender.SendText(ctx, to, whatsapp.WithRestaurantHeader(uc.resolveTenantName(ctx, tenantID), resolvedMessage))
 }
 
 func (uc *HandleWhatsAppMessageUseCase) sendWaitingAdminApprovalMenu(

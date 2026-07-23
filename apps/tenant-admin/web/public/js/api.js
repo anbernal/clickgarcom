@@ -54,6 +54,7 @@ const TENANT_ROUTE_GROUPS = {
     order_read_write: ['ADMIN', 'MANAGER', 'WAITER', 'KITCHEN', 'BAR'],
     order_cancel: ['ADMIN', 'MANAGER', 'WAITER'],
     table_read: ['ADMIN', 'MANAGER', 'WAITER', 'CASHIER'],
+    tab_operations: ['ADMIN', 'MANAGER', 'WAITER'],
     table_write: ['ADMIN', 'MANAGER'],
     floor_operations: ['ADMIN', 'MANAGER', 'WAITER'],
     settlement: ['ADMIN', 'MANAGER', 'WAITER', 'CASHIER'],
@@ -125,6 +126,7 @@ function buildFallbackPermissions(role) {
             manageOrders: routeGroups.includes('order_read_write'),
             cancelOrders: routeGroups.includes('order_cancel'),
             manageTables: routeGroups.includes('table_write'),
+            manageTabs: routeGroups.includes('tab_operations'),
             manageSettlement: routeGroups.includes('settlement'),
             manageClosedTabs: routeGroups.includes('full_access'),
             viewReports: routeGroups.includes('reports'),
@@ -144,11 +146,23 @@ function getCurrentUserRole() {
 
 function getCurrentUserPermissions() {
     const storedPermissions = getCurrentUser()?.permissions;
+    const fallbackPermissions = buildFallbackPermissions(getCurrentUserRole());
     if (storedPermissions && Array.isArray(storedPermissions.pages)) {
-        return storedPermissions;
+        return {
+            ...fallbackPermissions,
+            ...storedPermissions,
+            routeGroups: Array.from(new Set([
+                ...(fallbackPermissions.routeGroups || []),
+                ...(storedPermissions.routeGroups || []),
+            ])),
+            actions: {
+                ...fallbackPermissions.actions,
+                ...(storedPermissions.actions || {}),
+            },
+        };
     }
 
-    return buildFallbackPermissions(getCurrentUserRole());
+    return fallbackPermissions;
 }
 
 function canAccessRouteGroup(routeGroup) {

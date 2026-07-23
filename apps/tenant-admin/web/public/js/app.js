@@ -10,7 +10,7 @@ const pages = {
     pedidos: { title: 'Pedidos', sub: 'Fila de pedidos recebidos', loader: loadPedidos },
     cardapio: { title: 'Cardápio', sub: 'Gerencie os itens do seu menu', loader: loadCardapio },
     categorias: { title: 'Categorias', sub: 'Organize o cardápio em categorias', loader: loadCategorias },
-    mesas: { title: 'Mesas & Comandas', sub: 'Gerencie as mesas e comandas do restaurante', loader: loadMesas },
+    mesas: { title: 'Comandas & Mesas', sub: 'Abra e consulte comandas; associe mesas quando necessário', loader: loadMesas },
     consultaComanda: { title: 'Consultar Comanda', sub: 'Leia o QR Code ou informe o código da comanda', loader: loadConsultaComanda },
     pagamentos: { title: 'Pagamentos & Conciliação', sub: 'Acompanhe pagamentos, divergências e baixas operacionais', loader: loadPagamentos },
     compras: { title: 'Compras & Fornecedores', sub: 'Lançamento de notas e histórico de compras', loader: loadComprasPage },

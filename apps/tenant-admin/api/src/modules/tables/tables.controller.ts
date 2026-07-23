@@ -7,6 +7,7 @@ import {
     TENANT_CLOSED_TAB_MUTATION_ROLES,
     TENANT_FLOOR_ROLES,
     TENANT_SETTLEMENT_ROLES,
+    TENANT_TAB_OPERATION_ROLES,
     TENANT_TABLE_READ_ROLES,
     TENANT_TABLE_WRITE_ROLES,
 } from '../auth/roles';
@@ -156,6 +157,26 @@ export class TablesController {
     @Roles(...TENANT_TABLE_READ_ROLES)
     async lookupTab(@Request() req, @Query('value') value?: string) {
         return this.tablesService.lookupTabForStaff(req.user.tenantId, value, req.user?.role);
+    }
+
+    @Get('tabs/open')
+    @Roles(...TENANT_TAB_OPERATION_ROLES)
+    async listOpenTabs(@Request() req) {
+        return this.tablesService.listOpenTabs(req.user.tenantId);
+    }
+
+    @Post('tabs/open')
+    @Roles(...TENANT_TAB_OPERATION_ROLES)
+    async openTab(@Request() req, @Body() body: {
+        user_phone?: string;
+        customer_instagram?: string;
+        table_id?: string;
+    }) {
+        return this.tablesService.openTab(req.user.tenantId, body || {}, {
+            userId: req.user?.id,
+            userName: req.user?.name,
+            userRole: req.user?.role,
+        });
     }
 
     @Post('tabs/:tabId/finalize')

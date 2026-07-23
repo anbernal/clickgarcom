@@ -23,9 +23,11 @@ type Tab struct {
 	TableID              *uuid.UUID `json:"table_id,omitempty" gorm:"type:uuid"`
 	SourceRequestID      *uuid.UUID `json:"source_request_id,omitempty" gorm:"column:source_request_id;type:uuid"`
 	UserPhone            string     `json:"user_phone" gorm:"type:varchar(30)"` // Fase 15: Quem abriu a comanda
+	CustomerInstagram    string     `json:"customer_instagram,omitempty" gorm:"column:customer_instagram;type:varchar(80)"`
 	PaymentNotifierPhone string     `json:"payment_notifier_phone,omitempty" gorm:"column:payment_notifier_phone;type:varchar(30)"`
 	OpenedByUserID       *uuid.UUID `json:"opened_by_user_id,omitempty" gorm:"column:opened_by_user_id;type:uuid"`
 	OpenedByUserName     string     `json:"opened_by_user_name,omitempty" gorm:"column:opened_by_user_name;type:varchar(255)"`
+	OpeningChannel       string     `json:"opening_channel,omitempty" gorm:"column:opening_channel;type:varchar(30)"`
 	ServiceMode          string     `json:"service_mode" gorm:"column:service_mode;type:varchar(20);default:COM_MESA"`
 	PublicCode           string     `json:"public_code,omitempty" gorm:"column:public_code;type:varchar(12)"`
 	ExitValidatedAt      *time.Time `json:"exit_validated_at,omitempty" gorm:"column:exit_validated_at"`
@@ -46,8 +48,8 @@ type Tab struct {
 
 func BuildPublicCode(id uuid.UUID) string {
 	compact := strings.ReplaceAll(id.String(), "-", "")
-	if len(compact) > 8 {
-		compact = compact[:8]
+	if len(compact) > 5 {
+		compact = compact[:5]
 	}
 	return strings.ToUpper(compact)
 }

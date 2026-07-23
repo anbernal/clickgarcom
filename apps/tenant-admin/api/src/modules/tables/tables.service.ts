@@ -9,6 +9,7 @@ import { AmqpService } from '../amqp/amqp.service';
 import { WalletService } from '../wallet/wallet.service';
 import { TenantUserRole } from '../auth/roles';
 import { v4 as uuidv4 } from 'uuid';
+import { randomInt } from 'crypto';
 
 type TabActorContext = {
     userId?: string;
@@ -147,6 +148,160 @@ export class TablesService {
             available: Number.parseInt(String(tableStats?.available || '0'), 10) || 0,
             openTabsTotal: parseFloat(openTabs?.totalOpen || '0'),
         };
+    }
+
+    async listOpenTabs(tenantId: string) {
+        const rows = await this.dataSource.query(
+            `SELECT tb.id,
+                    tb.public_code,
+                    tb.user_phone,
+                    tb.customer_instagram,
+                    tb.table_id,
+                    tb.status,
+                    tb.service_mode,
+                    tb.subtotal,
+                    tb.service_fee,
+                    tb.total,
+                    tb.paid_amount,
+                    tb.opened_at,
+                    tb.opened_by_user_name,
+                    tb.opening_channel,
+                    t.number AS table_number
+               FROM tabs tb
+               LEFT JOIN tables t
+                 ON t.id = tb.table_id
+              WHERE tb.tenant_id = $1
+                AND tb.status = 'OPEN'
+              ORDER BY tb.opened_at ASC`,
+            [tenantId],
+        );
+
+        return (rows || []).map((row: any) => ({
+            id: String(row.id),
+            publicCode: String(row.public_code || ''),
+            userPhone: row.user_phone ? String(row.user_phone) : null,
+            customerInstagram: row.customer_instagram ? String(row.customer_instagram) : null,
+            tableId: row.table_id ? String(row.table_id) : null,
+            tableNumber: row.table_number ? String(row.table_number) : null,
+            status: String(row.status || 'OPEN'),
+            serviceMode: String(row.service_mode || 'SEM_MESA'),
+            subtotal: Number(row.subtotal || 0),
+            serviceFee: Number(row.service_fee || 0),
+            total: Number(row.total || 0),
+            paidAmount: Number(row.paid_amount || 0),
+            openedAt: row.opened_at,
+            openedByUserName: row.opened_by_user_name ? String(row.opened_by_user_name) : null,
+            openingChannel: String(row.opening_channel || 'LEGACY'),
+        }));
+    }
+
+    async openTab(
+        tenantId: string,
+        data: { user_phone?: string; customer_instagram?: string; table_id?: string },
+        actor: TabActorContext,
+    ) {
+        const phone = this.normalizePhone(data?.user_phone);
+        const instagram = this.normalizeInstagram(data?.customer_instagram);
+        const tableId = String(data?.table_id || '').trim() || null;
+
+        if (tableId) {
+            const table = await this.tableRepo.findOne({ where: { id: tableId, tenantId } });
+            if (!table) {
+                throw new NotFoundException('Mesa não encontrada para este restaurante.');
+            }
+        }
+
+        if (phone) {
+            const existing = await this.tabRepo.findOne({ where: { tenantId, userPhone: phone, status: 'OPEN' } });
+            if (existing) {
+                throw new BadRequestException(`Já existe uma comanda aberta para o telefone informado (${existing.publicCode || existing.id}).`);
+            }
+        }
+
+        if (instagram) {
+            const existing = await this.tabRepo.findOne({ where: { tenantId, customerInstagram: instagram, status: 'OPEN' } });
+            if (existing) {
+                throw new BadRequestException(`Já existe uma comanda aberta para o Instagram informado (${existing.publicCode || existing.id}).`);
+            }
+        }
+
+        for (let attempt = 0; attempt < 8; attempt += 1) {
+            const publicCode = await this.generateTabPublicCode(tenantId);
+            const tab = this.tabRepo.create({
+                id: uuidv4(),
+                tenantId,
+                tableId,
+                userPhone: phone || null,
+                customerInstagram: instagram || null,
+                openedByUserId: this.normalizeUuidOrNull(actor.userId),
+                openedByUserName: this.normalizeTextOrNull(actor.userName),
+                openingChannel: 'STAFF',
+                serviceMode: tableId ? 'COM_MESA' : 'SEM_MESA',
+                publicCode,
+                status: 'OPEN',
+                subtotal: 0,
+                serviceFee: 0,
+                total: 0,
+                paidAmount: 0,
+                openedAt: new Date(),
+                closedAt: null,
+            });
+
+            try {
+                const saved = await this.tabRepo.save(tab);
+                if (tableId) {
+                    await this.tableRepo.update(
+                        { id: tableId, tenantId },
+                        { status: 'OCCUPIED' },
+                    );
+                }
+                await this.recordTabEvent(this.dataSource, tenantId, saved.id, 'TAB_OPENED_BY_STAFF', {
+                    actorUserId: actor.userId,
+                    actorName: actor.userName,
+                    details: {
+                        public_code: publicCode,
+                        user_phone: phone || null,
+                        customer_instagram: instagram || null,
+                    },
+                });
+                return saved;
+            } catch (error: any) {
+                if (!this.isUniqueViolation(error)) throw error;
+            }
+        }
+
+        throw new BadRequestException('Não foi possível gerar um código único para a comanda. Tente novamente.');
+    }
+
+    private async generateTabPublicCode(tenantId: string) {
+        for (let attempt = 0; attempt < 12; attempt += 1) {
+            const publicCode = randomInt(0, 0x100000).toString(16).toUpperCase().padStart(5, '0');
+            const existing = await this.tabRepo.findOne({ where: { tenantId, publicCode } });
+            if (!existing) return publicCode;
+        }
+        throw new BadRequestException('Não foi possível reservar um código de comanda.');
+    }
+
+    private normalizePhone(value?: string) {
+        const digits = String(value || '').replace(/\D/g, '');
+        if (!digits) return '';
+        if (digits.length < 10 || digits.length > 15) {
+            throw new BadRequestException('Telefone inválido. Use DDD e número com 10 a 15 dígitos.');
+        }
+        return digits;
+    }
+
+    private normalizeInstagram(value?: string) {
+        const normalized = String(value || '').trim().replace(/^@+/, '').toLowerCase();
+        if (!normalized) return '';
+        if (!/^[a-z0-9._]{1,80}$/.test(normalized)) {
+            throw new BadRequestException('Instagram inválido.');
+        }
+        return `@${normalized}`;
+    }
+
+    private isUniqueViolation(error: any) {
+        return String(error?.code || error?.driverError?.code || '') === '23505';
     }
 
     async getPaymentsOverview(tenantId: string, query: Record<string, string>) {
@@ -928,9 +1083,11 @@ export class TablesService {
                         tb.tenant_id,
                         tb.table_id,
                         tb.user_phone,
+                        tb.customer_instagram,
                         tb.payment_notifier_phone,
                         tb.public_code,
                         tb.service_mode,
+                        tb.opening_channel,
                         tb.exit_validated_at,
                         tb.exit_validation_method,
                         tb.subtotal,
@@ -1180,7 +1337,9 @@ export class TablesService {
             exitValidatedAt: tab.exit_validated_at || null,
             exitValidationMethod: String(tab.exit_validation_method || '').trim() || null,
             userPhone: String(tab.user_phone || '').trim() || null,
+            customerInstagram: String(tab.customer_instagram || '').trim() || null,
             paymentNotifierPhone: String(tab.payment_notifier_phone || '').trim() || null,
+            openingChannel: String(tab.opening_channel || 'LEGACY').trim() || 'LEGACY',
             status: String(tab.status || 'OPEN'),
             openedAt: tab.opened_at,
             openedByUserId: tab.opened_by_user_id || null,

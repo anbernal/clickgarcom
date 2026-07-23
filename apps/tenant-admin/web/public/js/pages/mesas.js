@@ -1,6 +1,7 @@
 // Mesas Page
 let mesasTableCache = [];
 let mesasMenuItemById = new Map();
+let mesasOpenTabsCache = [];
 
 // ─── SVG ICONS ─────────────────────────────────────────────────
 const MESAS_ICONS = {
@@ -90,6 +91,57 @@ function renderTableActions(table) {
       <button class="btn-sm btn-primary" style="flex:1" onclick="changeTableStatus('${table.id}', 'OCCUPIED')">Abrir Mesa</button>
     </div>
     <button class="btn-sm btn-danger" style="margin-top:8px; width:100%" onclick="deleteTable('${table.id}')">Excluir Mesa</button>
+  `;
+}
+
+function renderOpenTabsManager(openTabs, tables) {
+  if (!canPerformAction('manageTabs')) return '';
+
+  return `
+    <section class="full-card" style="margin-bottom:20px; border:2px solid rgba(15,118,110,.18);">
+      <div class="card-header" style="align-items:flex-start; gap:16px; flex-wrap:wrap;">
+        <div>
+            <div class="card-title">Gerenciamento de comandas</div>
+            <div class="card-subtitle">Abra, identifique e consulte comandas sem depender de uma mesa.</div>
+        </div>
+        <div style="padding:8px 12px; border-radius:999px; background:rgba(15,118,110,.10); color:#0f766e; font-weight:800; font-size:12px;">${openTabs.length} aberta(s)</div>
+      </div>
+      <div style="display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:10px; margin-bottom:16px;">
+        <input id="tab-open-phone" type="tel" inputmode="tel" placeholder="Telefone (opcional)" style="height:42px; border:1px solid var(--border); border-radius:9px; padding:0 12px;">
+        <input id="tab-open-instagram" type="text" placeholder="Instagram (opcional)" style="height:42px; border:1px solid var(--border); border-radius:9px; padding:0 12px;">
+        <select id="tab-open-table" style="height:42px; border:1px solid var(--border); border-radius:9px; padding:0 12px; background:var(--card-bg);">
+          <option value="">Sem mesa</option>
+          ${tables.map((table) => `<option value="${escapeHTML(table.id)}">Mesa ${escapeHTML(formatTableNumber(table.number))}</option>`).join('')}
+        </select>
+        <button class="btn btn-primary" type="button" onclick="openNewTabFromPanel()">+ Abrir comanda</button>
+      </div>
+      <div style="font-size:12px; color:var(--text-light); margin-bottom:14px;">Telefone e Instagram são opcionais. Se deixar em branco, o cliente poderá informar o código pelo WhatsApp para vincular o telefone.</div>
+      ${openTabs.length === 0 ? '<div class="empty-state" style="padding:22px;"><div class="icon">🔖</div><h3>Nenhuma comanda aberta</h3><p>Abra a primeira comanda para iniciar o atendimento.</p></div>' : `
+        <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(245px, 1fr)); gap:12px;">
+          ${openTabs.map((tab) => `
+            <div style="border:1px solid var(--border); border-radius:13px; padding:15px; background:var(--bg);">
+              <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
+                <div>
+                  <div style="font-size:10px; text-transform:uppercase; letter-spacing:1px; color:#0f766e; font-weight:900;">Código da comanda</div>
+                  <div class="mono" style="font-size:26px; font-weight:900; letter-spacing:2px; color:#0f766e; margin-top:4px;">${escapeHTML(tab.publicCode || tab.id)}</div>
+                </div>
+                <span style="font-size:11px; font-weight:800; color:#047857; background:rgba(16,185,129,.12); padding:5px 8px; border-radius:999px;">ABERTA</span>
+              </div>
+              <div style="font-size:12px; color:var(--text-light); margin-top:12px; line-height:1.6;">
+                ${tab.userPhone ? `📱 ${escapeHTML(tab.userPhone)}<br>` : ''}
+                ${tab.customerInstagram ? `◎ ${escapeHTML(tab.customerInstagram)}<br>` : ''}
+                ${tab.tableNumber ? `🪑 Mesa ${escapeHTML(formatTableNumber(tab.tableNumber))}<br>` : 'Sem mesa<br>'}
+                Aberta em ${escapeHTML(formatDateTime(tab.openedAt))}
+              </div>
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px; padding-top:10px; border-top:1px solid var(--border);">
+                <strong>${escapeHTML(formatCurrency(tab.total || 0))}</strong>
+                <button class="btn-sm btn-outline" type="button" onclick="consultarComanda('${escapeHTML(tab.publicCode || tab.id)}'); navigate('consultaComanda')">Consultar</button>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      `}
+    </section>
   `;
 }
 
@@ -218,12 +270,14 @@ async function loadMesas() {
   if (!container) return;
 
   try {
-    const [tables, statsData, menuItems] = await Promise.all([
+    const [tables, statsData, menuItems, openTabs] = await Promise.all([
       api.get('/tables'),
       api.get('/tables/stats'),
       api.get('/menu').catch(() => []),
+      canPerformAction('manageTabs') ? api.get('/tables/tabs/open') : Promise.resolve([]),
     ]);
     mesasTableCache = Array.isArray(tables) ? tables : [];
+    mesasOpenTabsCache = Array.isArray(openTabs) ? openTabs : [];
     mesasMenuItemById = new Map(
       (Array.isArray(menuItems) ? menuItems : [])
         .filter((item) => item && item.id)
@@ -239,12 +293,13 @@ async function loadMesas() {
         <div class="stat-card"><div class="stat-icon" style="color:#2563eb">${MESAS_ICONS.reserved}</div><div class="stat-label">Reservadas</div><div class="stat-value">${reservedCount}</div></div>
         <div class="stat-card"><div class="stat-icon" style="color:#16a34a">${MESAS_ICONS.available}</div><div class="stat-label">Disponiveis</div><div class="stat-value">${statsData.available || 0}</div><div class="stat-change" style="color:var(--text-light)">Prontas para o Atendimento</div></div>
       </div>
+      ${renderOpenTabsManager(mesasOpenTabsCache, tables)}
       ${renderManagementCard(tables)}
       <div class="full-card">
         <div class="card-header">
           <div>
-            <div class="card-title">Grid de Mesas</div>
-            <div class="card-subtitle">Controle abertura, reserva e liberacao das mesas</div>
+            <div class="card-title">Mesas do salão</div>
+            <div class="card-subtitle">Controle reserva, ocupação e associação opcional de mesas</div>
           </div>
         </div>
         <div class="tables-grid-6">
@@ -256,6 +311,29 @@ async function loadMesas() {
   } catch (err) {
     mesasTableCache = [];
     container.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><h3>Erro</h3><p>${escapeHTML(err.message)}</p></div>`;
+  }
+}
+
+async function openNewTabFromPanel() {
+  if (!canPerformAction('manageTabs')) {
+    showToast('Seu perfil não pode abrir comandas.', 'error');
+    return;
+  }
+
+  const phone = document.getElementById('tab-open-phone')?.value || '';
+  const instagram = document.getElementById('tab-open-instagram')?.value || '';
+  const tableId = document.getElementById('tab-open-table')?.value || '';
+
+  try {
+    const created = await api.post('/tables/tabs/open', {
+      user_phone: phone,
+      customer_instagram: instagram,
+      table_id: tableId || undefined,
+    });
+    showToast(`Comanda ${created.publicCode || created.id} aberta. Informe esse código ao cliente.`);
+    await loadMesas();
+  } catch (error) {
+    showToast(`Erro: ${error.message}`, 'error');
   }
 }
 
