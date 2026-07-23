@@ -228,8 +228,8 @@ services:
       NGROK_PUBLIC_URL: ""
     command: ["./bin/worker"]
     networks:
-      - clickgarcom-internal
       # Keep outbound Meta traffic off the shared Traefik network.
+      clickgarcom-internal: {}
       clickgarcom-egress: {}
     healthcheck:
       test: ["CMD-SHELL", "HEALTHCHECK_URL=http://127.0.0.1:8081/health /app/bin/healthcheck"]
@@ -265,8 +265,8 @@ services:
       METRICS_PORT: "8082"
     command: ["./bin/outbox-worker"]
     networks:
-      - clickgarcom-internal
       # Keep outbound Meta traffic off the shared Traefik network.
+      clickgarcom-internal: {}
       clickgarcom-egress: {}
     healthcheck:
       test: ["CMD-SHELL", "HEALTHCHECK_URL=http://127.0.0.1:8082/health /app/bin/healthcheck"]
