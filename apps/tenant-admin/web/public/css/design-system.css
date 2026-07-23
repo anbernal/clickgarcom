@@ -2985,6 +2985,15 @@ tbody tr:last-child td {
   background: #22c55e;
 }
 
+.comanda-card-status--closed {
+  background: #eef2f7;
+  color: #526173;
+}
+
+.comanda-card-status--closed > span {
+  background: #8492a6;
+}
+
 .comanda-card-meta {
   display: grid;
   grid-template-columns: 1.3fr 0.7fr;
@@ -3084,7 +3093,7 @@ tbody tr:last-child td {
 
 .comandas-toolbar {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) 180px 180px;
+  grid-template-columns: minmax(240px, 1fr) 130px 170px 170px;
   gap: 10px;
   padding: 17px 22px;
   border-bottom: 1px solid var(--border);
@@ -3677,7 +3686,7 @@ tbody tr:last-child td {
 
 @media (max-width: 940px) {
   .comandas-toolbar {
-    grid-template-columns: 1fr 150px 150px;
+    grid-template-columns: minmax(220px, 1fr) 130px 145px 145px;
   }
 
   .comandas-table-head {

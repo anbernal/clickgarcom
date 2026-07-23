@@ -195,6 +195,57 @@ export class TablesService {
         }));
     }
 
+    async listClosedTabs(tenantId: string, requestedLimit?: number) {
+        const limit = Math.min(Math.max(Number.isFinite(requestedLimit) ? Math.floor(Number(requestedLimit)) : 200, 1), 500);
+        const rows = await this.dataSource.query(
+            `SELECT tb.id,
+                    tb.public_code,
+                    tb.user_phone,
+                    tb.customer_instagram,
+                    tb.table_id,
+                    tb.status,
+                    tb.service_mode,
+                    tb.subtotal,
+                    tb.service_fee,
+                    tb.total,
+                    tb.paid_amount,
+                    tb.opened_at,
+                    tb.opened_by_user_name,
+                    tb.opening_channel,
+                    tb.closed_at,
+                    tb.closed_by_user_name,
+                    t.number AS table_number
+               FROM tabs tb
+               LEFT JOIN tables t
+                 ON t.id = tb.table_id
+              WHERE tb.tenant_id = $1
+                AND tb.status = 'CLOSED'
+              ORDER BY tb.closed_at DESC NULLS LAST, tb.opened_at DESC
+              LIMIT $2`,
+            [tenantId, limit],
+        );
+
+        return (rows || []).map((row: any) => ({
+            id: String(row.id),
+            publicCode: String(row.public_code || ''),
+            userPhone: row.user_phone ? String(row.user_phone) : null,
+            customerInstagram: row.customer_instagram ? String(row.customer_instagram) : null,
+            tableId: row.table_id ? String(row.table_id) : null,
+            tableNumber: row.table_number ? String(row.table_number) : null,
+            status: 'CLOSED',
+            serviceMode: String(row.service_mode || 'SEM_MESA'),
+            subtotal: Number(row.subtotal || 0),
+            serviceFee: Number(row.service_fee || 0),
+            total: Number(row.total || 0),
+            paidAmount: Number(row.paid_amount || 0),
+            openedAt: row.opened_at,
+            openedByUserName: row.opened_by_user_name ? String(row.opened_by_user_name) : null,
+            openingChannel: String(row.opening_channel || 'LEGACY'),
+            closedAt: row.closed_at || null,
+            closedByUserName: row.closed_by_user_name ? String(row.closed_by_user_name) : null,
+        }));
+    }
+
     async openTab(
         tenantId: string,
         data: { user_phone?: string; customer_instagram?: string; table_id?: string },
@@ -368,6 +419,133 @@ export class TablesService {
                 userPhone: String(updated.user_phone || '').trim() || null,
                 customerInstagram: String(updated.customer_instagram || '').trim() || null,
                 tableId: String(updated.table_id || '').trim() || null,
+                status: String(updated.status || 'OPEN'),
+            };
+        } catch (error) {
+            await queryRunner.rollbackTransaction();
+            throw error;
+        } finally {
+            await queryRunner.release();
+        }
+    }
+
+    async updateTabTable(
+        tenantId: string,
+        tabId: string,
+        data: { table_id?: string | null },
+        actor: TabActorContext,
+    ) {
+        const nextTableId = String(data?.table_id || '').trim() || null;
+        const queryRunner = this.dataSource.createQueryRunner();
+        await queryRunner.connect();
+        await queryRunner.startTransaction();
+
+        try {
+            const tabRows = await queryRunner.query(
+                `SELECT id, public_code, table_id, status
+                   FROM tabs
+                  WHERE id = $1
+                    AND tenant_id = $2
+                  LIMIT 1
+                  FOR UPDATE`,
+                [tabId, tenantId],
+            );
+            const tab = tabRows?.[0];
+            if (!tab) {
+                throw new NotFoundException('Comanda não encontrada para este restaurante.');
+            }
+            if (String(tab.status || '').toUpperCase() !== 'OPEN') {
+                throw new BadRequestException('A mesa só pode ser alterada em comandas abertas.');
+            }
+
+            const previousTableId = String(tab.table_id || '').trim() || null;
+            if (previousTableId === nextTableId) {
+                await queryRunner.commitTransaction();
+                return {
+                    id: String(tab.id),
+                    publicCode: String(tab.public_code || ''),
+                    tableId: previousTableId,
+                    status: 'OPEN',
+                };
+            }
+
+            const relatedTableIds = Array.from(new Set([previousTableId, nextTableId].filter(Boolean)));
+            const tableRows = relatedTableIds.length
+                ? await queryRunner.query(
+                    `SELECT id, number
+                       FROM tables
+                      WHERE tenant_id = $1
+                        AND id = ANY($2::uuid[])
+                      ORDER BY id
+                      FOR UPDATE`,
+                    [tenantId, relatedTableIds],
+                )
+                : [];
+            const tableById = new Map<string, any>((tableRows || []).map((table: any) => [String(table.id), table]));
+
+            if (nextTableId && !tableById.has(nextTableId)) {
+                throw new NotFoundException('Mesa não encontrada para este restaurante.');
+            }
+
+            const updatedRows = await queryRunner.query(
+                `UPDATE tabs
+                    SET table_id = $1::uuid,
+                        service_mode = CASE WHEN $1::uuid IS NULL THEN 'SEM_MESA' ELSE 'COM_MESA' END
+                  WHERE id = $2
+                    AND tenant_id = $3
+              RETURNING id, public_code, table_id, status`,
+                [nextTableId, tabId, tenantId],
+            );
+
+            if (nextTableId) {
+                await queryRunner.query(
+                    `UPDATE tables
+                        SET status = 'OCCUPIED'
+                      WHERE id = $1
+                        AND tenant_id = $2`,
+                    [nextTableId, tenantId],
+                );
+            }
+
+            if (previousTableId) {
+                const otherOpenRows = await queryRunner.query(
+                    `SELECT COUNT(*)::int AS total
+                       FROM tabs
+                      WHERE tenant_id = $1
+                        AND table_id = $2
+                        AND status = 'OPEN'
+                        AND id <> $3`,
+                    [tenantId, previousTableId, tabId],
+                );
+                if (Number(otherOpenRows?.[0]?.total || 0) === 0) {
+                    await queryRunner.query(
+                        `UPDATE tables
+                            SET status = 'AVAILABLE'
+                          WHERE id = $1
+                            AND tenant_id = $2`,
+                        [previousTableId, tenantId],
+                    );
+                }
+            }
+
+            await this.recordTabEvent(queryRunner, tenantId, tabId, 'TAB_TABLE_UPDATED', {
+                actorUserId: actor.userId,
+                actorName: actor.userName,
+                details: {
+                    previous_table_id: previousTableId,
+                    previous_table_number: previousTableId ? String(tableById.get(previousTableId)?.number || '') || null : null,
+                    table_id: nextTableId,
+                    table_number: nextTableId ? String(tableById.get(nextTableId)?.number || '') || null : null,
+                },
+            });
+
+            await queryRunner.commitTransaction();
+            const updated = updatedRows?.[0];
+            return {
+                id: String(updated.id),
+                publicCode: String(updated.public_code || ''),
+                tableId: updated.table_id ? String(updated.table_id) : null,
+                tableNumber: nextTableId ? String(tableById.get(nextTableId)?.number || '') || null : null,
                 status: String(updated.status || 'OPEN'),
             };
         } catch (error) {
@@ -2505,6 +2683,7 @@ export class TablesService {
         if (eventType === 'TAB_CLOSED') return 'Comanda fechada';
         if (eventType === 'TAB_REOPENED') return 'Comanda reaberta';
         if (eventType === 'TAB_CUSTOMER_UPDATED') return 'Cliente atualizado';
+        if (eventType === 'TAB_TABLE_UPDATED') return 'Mesa da comanda alterada';
         if (eventType === 'PAYMENT_RETRY_CREATED') return 'Nova cobrança PIX gerada';
         if (eventType === 'PAYMENT_REFUND_PREPARED') return 'Estorno preparado';
         return 'Evento da comanda';
@@ -2537,6 +2716,20 @@ export class TablesService {
         }
         if (eventType === 'TAB_CUSTOMER_UPDATED') {
             return 'Telefone e Instagram da comanda foram atualizados pela equipe';
+        }
+        if (eventType === 'TAB_TABLE_UPDATED') {
+            const previousTableNumber = String(details?.previous_table_number || '').trim();
+            const tableNumber = String(details?.table_number || '').trim();
+            if (previousTableNumber && tableNumber) {
+                return `Comanda movida da mesa ${previousTableNumber} para a mesa ${tableNumber}`;
+            }
+            if (tableNumber) {
+                return `Comanda vinculada à mesa ${tableNumber}`;
+            }
+            if (previousTableNumber) {
+                return `Comanda desvinculada da mesa ${previousTableNumber}`;
+            }
+            return 'Mesa da comanda atualizada pela equipe';
         }
         if (eventType === 'PAYMENT_RETRY_CREATED') {
             const amountDue = this.roundMoney(Number(details?.amount_due || 0));

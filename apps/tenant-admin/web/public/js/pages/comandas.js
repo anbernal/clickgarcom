@@ -1,8 +1,10 @@
 // Comandas Page
 let comandasOpenTabsCache = [];
+let comandasClosedTabsCache = [];
 let comandasTablesCache = [];
 let comandasViewState = {
   search: '',
+  status: 'OPEN',
   location: 'ALL',
   sort: 'RECENT',
   page: 1,
@@ -71,11 +73,15 @@ function renderComandasStats(openTabs) {
   `;
 }
 
+function getCurrentComandas() {
+  return comandasViewState.status === 'CLOSED' ? comandasClosedTabsCache : comandasOpenTabsCache;
+}
+
 function getVisibleComandas() {
   const search = comandasViewState.search.toLowerCase().trim();
   const searchDigits = search.replace(/\D/g, '');
 
-  return comandasOpenTabsCache
+  return getCurrentComandas()
     .filter((tab) => {
       const hasTable = Boolean(tab.tableNumber || tab.tableId);
       if (comandasViewState.location === 'WITH_TABLE' && !hasTable) return false;
@@ -112,6 +118,8 @@ function renderComandaCustomer(tab) {
 }
 
 function renderComandasResults() {
+  const currentTabs = getCurrentComandas();
+  const isClosedView = comandasViewState.status === 'CLOSED';
   const visibleTabs = getVisibleComandas();
   const totalPages = Math.max(1, Math.ceil(visibleTabs.length / comandasViewState.perPage));
   comandasViewState.page = Math.min(Math.max(1, comandasViewState.page), totalPages);
@@ -119,13 +127,13 @@ function renderComandasResults() {
   const pageTabs = visibleTabs.slice(start, start + comandasViewState.perPage);
   const canFinalize = canPerformAction('manageSettlement');
 
-  if (comandasOpenTabsCache.length === 0) {
+  if (currentTabs.length === 0) {
     return `
       <div class="comandas-empty">
         <div class="comandas-empty-icon">${COMANDAS_ICONS.ticket}</div>
         <div>
-          <strong>Nenhuma comanda aberta</strong>
-          <span>As novas comandas aparecerão aqui para consulta rápida.</span>
+          <strong>${isClosedView ? 'Nenhuma comanda finalizada' : 'Nenhuma comanda aberta'}</strong>
+          <span>${isClosedView ? 'As próximas finalizações ficarão disponíveis aqui para consulta.' : 'As novas comandas aparecerão aqui para consulta rápida.'}</span>
         </div>
       </div>
     `;
@@ -153,7 +161,7 @@ function renderComandasResults() {
         <span>Comanda</span>
         <span>Cliente</span>
         <span>Local</span>
-        <span>Abertura</span>
+        <span>${isClosedView ? 'Finalização' : 'Abertura'}</span>
         <span>Total</span>
         <span>Ações</span>
       </div>
@@ -163,34 +171,43 @@ function renderComandasResults() {
           const total = Number(tab.total || 0);
           const paidAmount = Number(tab.paidAmount || 0);
           const outstanding = Math.max(0, total - paidAmount);
+          const statusLabel = isClosedView ? 'Finalizada' : 'Aberta';
+          const actionButtons = isClosedView
+            ? `<button class="btn-sm btn-outline" type="button" onclick="openComandaConsultation('${code}')">Consultar</button>`
+            : `
+              <button class="btn-sm btn-outline" type="button" onclick="openComandaConsultation('${code}')">Consultar</button>
+              <button class="btn-sm btn-outline" type="button" onclick="openEditComandaTable('${escapeHTML(tab.id)}')">${tab.tableId ? 'Alterar mesa' : 'Vincular mesa'}</button>
+              ${canFinalize ? `<button class="btn-sm btn-danger" type="button" onclick="finalizeComandaFromPanel('${escapeHTML(tab.id)}')">Finalizar</button>` : ''}
+            `;
           return `
             <article class="comandas-table-row">
               <div class="comandas-code-cell" data-label="Comanda">
                 <button class="comandas-code-button mono" type="button" onclick="copyTabCode('${code}')" title="Copiar código">
                   ${code} ${COMANDAS_ICONS.copy}
                 </button>
-                <span class="comanda-card-status"><span></span> Aberta</span>
+                <span class="comanda-card-status ${isClosedView ? 'comanda-card-status--closed' : ''}"><span></span> ${statusLabel}</span>
               </div>
               <div class="comandas-customer-cell" data-label="Cliente">
                 ${renderComandaCustomer(tab)}
-                <button class="comandas-inline-edit" type="button" onclick="openEditComandaCustomer('${escapeHTML(tab.id)}')">
+                ${isClosedView ? '' : `<button class="comandas-inline-edit" type="button" onclick="openEditComandaCustomer('${escapeHTML(tab.id)}')">
                   ${COMANDAS_ICONS.edit} Editar cliente
-                </button>
+                </button>`}
               </div>
               <div class="comandas-location-cell" data-label="Local">
                 <strong>${tab.tableNumber ? `Mesa ${escapeHTML(formatComandaTableNumber(tab.tableNumber))}` : 'Sem mesa'}</strong>
               </div>
               <div class="comandas-opened-cell" data-label="Abertura">
-                <strong>${escapeHTML(formatComandaDateTime(tab.openedAt))}</strong>
-                <span>${tab.openedByUserName ? `por ${escapeHTML(tab.openedByUserName)}` : 'Origem não informada'}</span>
+                <strong>${escapeHTML(formatComandaDateTime(isClosedView ? tab.closedAt : tab.openedAt))}</strong>
+                <span>${isClosedView
+                  ? (tab.closedByUserName ? `finalizada por ${escapeHTML(tab.closedByUserName)}` : 'Finalização registrada')
+                  : (tab.openedByUserName ? `por ${escapeHTML(tab.openedByUserName)}` : 'Origem não informada')}</span>
               </div>
               <div class="comandas-total-cell" data-label="Total">
                 <strong>${escapeHTML(formatCurrency(total))}</strong>
-                ${paidAmount > 0 ? `<span>Falta ${escapeHTML(formatCurrency(outstanding))}</span>` : '<span>Sem baixa registrada</span>'}
+                ${isClosedView ? `<span>Baixa ${escapeHTML(formatCurrency(paidAmount))}</span>` : (paidAmount > 0 ? `<span>Falta ${escapeHTML(formatCurrency(outstanding))}</span>` : '<span>Sem baixa registrada</span>')}
               </div>
               <div class="comandas-row-actions" data-label="Ações">
-                <button class="btn-sm btn-outline" type="button" onclick="openComandaConsultation('${code}')">Consultar</button>
-                ${canFinalize ? `<button class="btn-sm btn-danger" type="button" onclick="finalizeComandaFromPanel('${escapeHTML(tab.id)}')">Finalizar</button>` : ''}
+                ${actionButtons}
               </div>
             </article>
           `;
@@ -212,8 +229,8 @@ function renderComandasManager(openTabs, tables) {
         <div class="comandas-panel-heading">
           <div class="comandas-panel-icon">${COMANDAS_ICONS.ticket}</div>
           <div>
-            <div class="card-title">Gerenciamento de comandas</div>
-            <div class="card-subtitle">Abra, identifique, consulte e finalize comandas em um único fluxo operacional.</div>
+          <div class="card-title">Gerenciamento de comandas</div>
+            <div class="card-subtitle">Abra, vincule mesas, consulte o histórico e finalize comandas em um único fluxo operacional.</div>
           </div>
         </div>
         <div class="comandas-panel-actions">
@@ -259,6 +276,13 @@ function renderComandasManager(openTabs, tables) {
             placeholder="Código, telefone, Instagram ou mesa" oninput="updateComandasView()">
         </label>
         <label class="comandas-filter-field">
+          <span>Situação</span>
+          <select id="comandas-status-filter" class="input" onchange="updateComandasView()">
+            <option value="OPEN" ${comandasViewState.status === 'OPEN' ? 'selected' : ''}>Abertas</option>
+            <option value="CLOSED" ${comandasViewState.status === 'CLOSED' ? 'selected' : ''}>Finalizadas</option>
+          </select>
+        </label>
+        <label class="comandas-filter-field">
           <span>Local</span>
           <select id="comandas-location-filter" class="input" onchange="updateComandasView()">
             <option value="ALL" ${comandasViewState.location === 'ALL' ? 'selected' : ''}>Todas</option>
@@ -290,6 +314,7 @@ function refreshComandasResults() {
 
 function updateComandasView() {
   comandasViewState.search = document.getElementById('comandas-search')?.value || '';
+  comandasViewState.status = document.getElementById('comandas-status-filter')?.value || 'OPEN';
   comandasViewState.location = document.getElementById('comandas-location-filter')?.value || 'ALL';
   comandasViewState.sort = document.getElementById('comandas-sort')?.value || 'RECENT';
   comandasViewState.page = 1;
@@ -321,11 +346,13 @@ async function loadComandas() {
   }
 
   try {
-    const [openTabs, tables] = await Promise.all([
+    const [openTabs, closedTabs, tables] = await Promise.all([
       api.get('/tables/tabs/open'),
+      api.get('/tables/tabs/closed?limit=200'),
       api.get('/tables'),
     ]);
     comandasOpenTabsCache = Array.isArray(openTabs) ? openTabs : [];
+    comandasClosedTabsCache = Array.isArray(closedTabs) ? closedTabs : [];
     comandasTablesCache = Array.isArray(tables) ? tables : [];
 
     container.innerHTML = `
@@ -334,6 +361,7 @@ async function loadComandas() {
     `;
   } catch (error) {
     comandasOpenTabsCache = [];
+    comandasClosedTabsCache = [];
     container.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><h3>Erro ao carregar comandas</h3><p>${escapeHTML(error.message)}</p></div>`;
   }
 }
@@ -423,6 +451,75 @@ async function saveComandaCustomer(tabId) {
     if (saveButton) {
       saveButton.disabled = false;
       saveButton.textContent = 'Salvar cliente';
+    }
+  }
+}
+
+function openEditComandaTable(tabId) {
+  const tab = comandasOpenTabsCache.find((item) => String(item.id) === String(tabId));
+  if (!tab) {
+    showToast('Comanda não encontrada na lista atual.', 'error');
+    return;
+  }
+
+  const tableOptions = [...comandasTablesCache]
+    .sort((left, right) => String(left.number || '').localeCompare(String(right.number || ''), 'pt-BR', { numeric: true }))
+    .map((table) => {
+      const isSelected = String(table.id) === String(tab.tableId || '');
+      const statusSuffix = String(table.status || '').toUpperCase() === 'OCCUPIED' ? ' · ocupada' : '';
+      return `<option value="${escapeHTML(table.id)}" ${isSelected ? 'selected' : ''}>Mesa ${escapeHTML(formatComandaTableNumber(table.number))}${statusSuffix}</option>`;
+    }).join('');
+
+  openModal(`
+    <div class="modal-header">
+      <div>
+        <h3>${tab.tableId ? 'Alterar mesa da comanda' : 'Vincular comanda a uma mesa'}</h3>
+        <div class="comandas-modal-code">Comanda <strong class="mono">${escapeHTML(tab.publicCode || tab.id)}</strong></div>
+      </div>
+      <button class="modal-close" type="button" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <label class="comandas-field">
+        <span>Mesa</span>
+        <select id="tab-edit-table" class="input">
+          <option value="">Sem mesa</option>
+          ${tableOptions}
+        </select>
+      </label>
+      <div class="comandas-edit-note">
+        Vincular a comanda marca a mesa como ocupada. Ao remover ou trocar a mesa, ela só será liberada se não houver outra comanda aberta vinculada a ela.
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-sm btn-outline" type="button" onclick="closeModal()">Cancelar</button>
+      <button class="btn-sm btn-primary" id="tab-edit-table-save" type="button" onclick="saveComandaTable('${escapeHTML(tab.id)}')">Salvar mesa</button>
+    </div>
+  `);
+}
+
+async function saveComandaTable(tabId) {
+  const saveButton = document.getElementById('tab-edit-table-save');
+  const tableId = document.getElementById('tab-edit-table')?.value || '';
+
+  if (saveButton) {
+    saveButton.disabled = true;
+    saveButton.textContent = 'Salvando...';
+  }
+
+  try {
+    const updated = await api.patch(`/tables/tabs/${tabId}/table`, {
+      table_id: tableId || null,
+    });
+    closeModal();
+    showToast(updated.tableNumber
+      ? `Comanda vinculada à Mesa ${formatComandaTableNumber(updated.tableNumber)}.`
+      : 'Comanda desvinculada da mesa.');
+    await loadComandas();
+  } catch (error) {
+    showToast(`Erro ao alterar mesa: ${error.message}`, 'error');
+    if (saveButton) {
+      saveButton.disabled = false;
+      saveButton.textContent = 'Salvar mesa';
     }
   }
 }

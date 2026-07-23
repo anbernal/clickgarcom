@@ -165,6 +165,12 @@ export class TablesController {
         return this.tablesService.listOpenTabs(req.user.tenantId);
     }
 
+    @Get('tabs/closed')
+    @Roles(...TENANT_TAB_OPERATION_ROLES)
+    async listClosedTabs(@Request() req, @Query('limit') limit?: string) {
+        return this.tablesService.listClosedTabs(req.user.tenantId, Number(limit));
+    }
+
     @Post('tabs/open')
     @Roles(...TENANT_TAB_OPERATION_ROLES)
     async openTab(@Request() req, @Body() body: {
@@ -187,6 +193,20 @@ export class TablesController {
         @Body() body: { user_phone?: string; customer_instagram?: string },
     ) {
         return this.tablesService.updateTabCustomer(req.user.tenantId, tabId, body || {}, {
+            userId: req.user?.id,
+            userName: req.user?.name,
+            userRole: req.user?.role,
+        });
+    }
+
+    @Patch('tabs/:tabId/table')
+    @Roles(...TENANT_TAB_OPERATION_ROLES)
+    async updateTabTable(
+        @Request() req,
+        @Param('tabId') tabId: string,
+        @Body() body: { table_id?: string | null },
+    ) {
+        return this.tablesService.updateTabTable(req.user.tenantId, tabId, body || {}, {
             userId: req.user?.id,
             userName: req.user?.name,
             userRole: req.user?.role,
