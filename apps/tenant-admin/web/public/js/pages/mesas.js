@@ -1,7 +1,6 @@
 // Mesas Page
 let mesasTableCache = [];
 let mesasMenuItemById = new Map();
-let mesasOpenTabsCache = [];
 
 // ─── SVG ICONS ─────────────────────────────────────────────────
 const MESAS_ICONS = {
@@ -15,8 +14,6 @@ const MESAS_ICONS = {
   reserved: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/></svg>',
   bell: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>',
   users: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
-  ticket: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9a3 3 0 0 0 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 0 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v2"/><path d="M13 17v2"/><path d="M13 11v2"/></svg>',
-  copy: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>',
 };
 let mesasComandaModalState = {
   tableId: null,
@@ -96,20 +93,19 @@ function renderTableActions(table) {
   `;
 }
 
-function renderMesasStats(openTabs, tables, statsData, reservedCount) {
+function renderMesasStats(tables, statsData, reservedCount) {
   const totalTables = Number(statsData.total || tables.length || 0);
   const occupied = Number(statsData.occupied || 0);
   const available = Number(statsData.available || 0);
   const occupancyRate = totalTables > 0 ? Math.round((occupied / totalTables) * 100) : 0;
-  const canManageTabs = canPerformAction('manageTabs');
 
   return `
     <div class="mesas-stats-grid">
       <div class="mesas-stat-card mesas-stat-card--primary">
-        <div class="mesas-stat-icon">${canManageTabs ? MESAS_ICONS.ticket : MESAS_ICONS.chair}</div>
-        <div class="mesas-stat-label">${canManageTabs ? 'Comandas abertas' : 'Total de mesas'}</div>
-        <div class="mesas-stat-value">${canManageTabs ? openTabs.length : totalTables}</div>
-        <div class="mesas-stat-helper">${canManageTabs ? 'Em atendimento agora' : 'Configuradas no salão'}</div>
+        <div class="mesas-stat-icon">${MESAS_ICONS.chair}</div>
+        <div class="mesas-stat-label">Total de mesas</div>
+        <div class="mesas-stat-value">${totalTables}</div>
+        <div class="mesas-stat-helper">Configuradas no salão</div>
       </div>
       <div class="mesas-stat-card mesas-stat-card--occupied">
         <div class="mesas-stat-icon">${MESAS_ICONS.occupied}</div>
@@ -130,107 +126,6 @@ function renderMesasStats(openTabs, tables, statsData, reservedCount) {
         <div class="mesas-stat-helper">Prontas para atendimento</div>
       </div>
     </div>
-  `;
-}
-
-function renderOpenTabsManager(openTabs, tables) {
-  if (!canPerformAction('manageTabs')) return '';
-
-  return `
-    <section class="full-card comandas-panel">
-      <div class="comandas-panel-header">
-        <div class="comandas-panel-heading">
-          <div class="comandas-panel-icon">${MESAS_ICONS.ticket}</div>
-          <div>
-            <div class="card-title">Gerenciamento de comandas</div>
-            <div class="card-subtitle">Abra uma comanda, entregue o código ao cliente e acompanhe o consumo.</div>
-          </div>
-        </div>
-        <div class="comandas-count"><strong>${openTabs.length}</strong> aberta${openTabs.length === 1 ? '' : 's'}</div>
-      </div>
-
-      <div class="comandas-open-box">
-        <div class="comandas-open-title">
-          <strong>Nova comanda</strong>
-          <span>Telefone, Instagram e mesa são opcionais.</span>
-        </div>
-        <div class="comandas-open-form">
-          <label class="comandas-field">
-            <span>Telefone do cliente</span>
-            <input id="tab-open-phone" class="input" type="tel" inputmode="tel" placeholder="(11) 99999-9999">
-          </label>
-          <label class="comandas-field">
-            <span>Instagram</span>
-            <input id="tab-open-instagram" class="input" type="text" placeholder="@usuario">
-          </label>
-          <label class="comandas-field">
-            <span>Mesa</span>
-            <select id="tab-open-table" class="input">
-              <option value="">Sem mesa</option>
-              ${tables.map((table) => `<option value="${escapeHTML(table.id)}">Mesa ${escapeHTML(formatTableNumber(table.number))}</option>`).join('')}
-            </select>
-          </label>
-          <button class="btn-sm btn-primary comandas-open-button" type="button" onclick="openNewTabFromPanel()">
-            <span>+</span> Abrir comanda
-          </button>
-        </div>
-        <div class="comandas-open-hint">
-          O cliente pode vincular o próprio telefone depois, informando o código pelo WhatsApp.
-        </div>
-      </div>
-
-      ${openTabs.length === 0 ? `
-        <div class="comandas-empty">
-          <div class="comandas-empty-icon">${MESAS_ICONS.ticket}</div>
-          <div>
-            <strong>Nenhuma comanda aberta</strong>
-            <span>As novas comandas aparecerão aqui para consulta rápida.</span>
-          </div>
-        </div>
-      ` : `
-        <div class="comandas-list-heading">
-          <span>Em atendimento</span>
-          <span>Ordenadas pela abertura</span>
-        </div>
-        <div class="comandas-list">
-          ${openTabs.map((tab) => `
-            <article class="comanda-card">
-              <div class="comanda-card-top">
-                <div>
-                  <div class="comanda-card-eyebrow">Código da comanda</div>
-                  <div class="comanda-card-code mono">${escapeHTML(tab.publicCode || tab.id)}</div>
-                </div>
-                <span class="comanda-card-status"><span></span> Aberta</span>
-              </div>
-
-              <div class="comanda-card-meta">
-                <div>
-                  <span>Cliente</span>
-                  <strong>${tab.userPhone ? escapeHTML(tab.userPhone) : (tab.customerInstagram ? escapeHTML(tab.customerInstagram) : 'Aguardando vínculo')}</strong>
-                </div>
-                <div>
-                  <span>Local</span>
-                  <strong>${tab.tableNumber ? `Mesa ${escapeHTML(formatTableNumber(tab.tableNumber))}` : 'Sem mesa'}</strong>
-                </div>
-              </div>
-
-              <div class="comanda-card-time">Aberta em ${escapeHTML(formatDateTime(tab.openedAt))}</div>
-
-              <div class="comanda-card-footer">
-                <div>
-                  <span>Total atual</span>
-                  <strong>${escapeHTML(formatCurrency(tab.total || 0))}</strong>
-                </div>
-                <div class="comanda-card-actions">
-                  <button class="btn-sm btn-outline" type="button" onclick="copyTabCode('${escapeHTML(tab.publicCode || tab.id)}')">${MESAS_ICONS.copy} Copiar</button>
-                  <button class="btn-sm btn-primary" type="button" onclick="consultarComanda('${escapeHTML(tab.publicCode || tab.id)}'); navigate('consultaComanda')">Consultar</button>
-                </div>
-              </div>
-            </article>
-          `).join('')}
-        </div>
-      `}
-    </section>
   `;
 }
 
@@ -340,14 +235,12 @@ async function loadMesas() {
   if (!container) return;
 
   try {
-    const [tables, statsData, menuItems, openTabs] = await Promise.all([
+    const [tables, statsData, menuItems] = await Promise.all([
       api.get('/tables'),
       api.get('/tables/stats'),
       api.get('/menu').catch(() => []),
-      canPerformAction('manageTabs') ? api.get('/tables/tabs/open') : Promise.resolve([]),
     ]);
     mesasTableCache = Array.isArray(tables) ? tables : [];
-    mesasOpenTabsCache = Array.isArray(openTabs) ? openTabs : [];
     mesasMenuItemById = new Map(
       (Array.isArray(menuItems) ? menuItems : [])
         .filter((item) => item && item.id)
@@ -357,8 +250,7 @@ async function loadMesas() {
     const reservedCount = tables.filter((table) => table.status === 'RESERVED').length;
 
     container.innerHTML = `
-      ${renderMesasStats(mesasOpenTabsCache, tables, statsData, reservedCount)}
-      ${renderOpenTabsManager(mesasOpenTabsCache, tables)}
+      ${renderMesasStats(tables, statsData, reservedCount)}
       ${renderManagementCard(tables)}
       <section class="full-card mesas-floor-card">
         <div class="mesas-floor-header">
@@ -382,41 +274,6 @@ async function loadMesas() {
   } catch (err) {
     mesasTableCache = [];
     container.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><h3>Erro</h3><p>${escapeHTML(err.message)}</p></div>`;
-  }
-}
-
-async function openNewTabFromPanel() {
-  if (!canPerformAction('manageTabs')) {
-    showToast('Seu perfil não pode abrir comandas.', 'error');
-    return;
-  }
-
-  const phone = document.getElementById('tab-open-phone')?.value || '';
-  const instagram = document.getElementById('tab-open-instagram')?.value || '';
-  const tableId = document.getElementById('tab-open-table')?.value || '';
-
-  try {
-    const created = await api.post('/tables/tabs/open', {
-      user_phone: phone,
-      customer_instagram: instagram,
-      table_id: tableId || undefined,
-    });
-    showToast(`Comanda ${created.publicCode || created.id} aberta. Informe esse código ao cliente.`);
-    await loadMesas();
-  } catch (error) {
-    showToast(`Erro: ${error.message}`, 'error');
-  }
-}
-
-async function copyTabCode(code) {
-  const normalizedCode = String(code || '').trim();
-  if (!normalizedCode) return;
-
-  try {
-    await navigator.clipboard.writeText(normalizedCode);
-    showToast(`Código ${normalizedCode} copiado.`);
-  } catch (_error) {
-    showToast(`Código da comanda: ${normalizedCode}`);
   }
 }
 

@@ -38,7 +38,9 @@ Este documento reflete as regras implementadas em:
 | Pedidos | Sim | Sim | Sim | Sim | Sim | Nao |
 | Cardapio | Sim | Sim | Sim | Sim | Sim | Sim |
 | Categorias | Sim | Sim | Sim | Sim | Sim | Sim |
-| Mesas / Comandas | Sim | Sim | Sim | Nao | Nao | Sim |
+| Comandas | Sim | Sim | Sim | Nao | Nao | Nao |
+| Mesas | Sim | Sim | Sim | Nao | Nao | Sim |
+| Consultar Comanda | Sim | Sim | Sim | Nao | Nao | Sim |
 | Pagamentos | Sim | Sim | Sim | Nao | Nao | Sim |
 | Vendas | Sim | Sim | Nao | Nao | Nao | Sim |
 | Meu Restaurante | Sim | Sim | Nao | Nao | Nao | Nao |
@@ -94,6 +96,7 @@ Este documento reflete as regras implementadas em:
 | `order_read_write` | `ADMIN`, `MANAGER`, `WAITER`, `KITCHEN`, `BAR` |
 | `order_cancel` | `ADMIN`, `MANAGER`, `WAITER` |
 | `table_read` | `ADMIN`, `MANAGER`, `WAITER`, `CASHIER` |
+| `tab_operations` | `ADMIN`, `MANAGER`, `WAITER` |
 | `table_write` | `ADMIN`, `MANAGER` |
 | `floor_operations` | `ADMIN`, `MANAGER`, `WAITER` |
 | `settlement` | `ADMIN`, `MANAGER`, `WAITER`, `CASHIER` |

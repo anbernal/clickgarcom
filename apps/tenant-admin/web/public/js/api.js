@@ -71,6 +71,7 @@ const TENANT_PAGE_ACCESS = {
     pedidos: TENANT_ROUTE_GROUPS.order_read_write,
     cardapio: TENANT_ROUTE_GROUPS.menu_read,
     categorias: TENANT_ROUTE_GROUPS.menu_read,
+    comandas: TENANT_ROUTE_GROUPS.tab_operations,
     mesas: TENANT_ROUTE_GROUPS.table_read,
     consultaComanda: TENANT_ROUTE_GROUPS.table_read,
     pagamentos: TENANT_ROUTE_GROUPS.settlement,

@@ -799,6 +799,7 @@ export class AuthService {
         if (routeGroups.includes('wallet')) pages.push('wallet', 'extratoMensagens');
         if (routeGroups.includes('order_read_write')) pages.push('pedidos');
         if (routeGroups.includes('menu_read')) pages.push('cardapio', 'categorias');
+        if (routeGroups.includes('tab_operations')) pages.push('comandas');
         if (routeGroups.includes('table_read')) pages.push('mesas', 'consultaComanda');
         if (routeGroups.includes('settlement')) pages.push('pagamentos');
         if (routeGroups.includes('reports')) pages.push('vendas');

@@ -42,8 +42,11 @@
             <button class="nav-item" data-page="categorias">
                 <span class="nav-icon">🏷</span> Categorias
             </button>
+            <button class="nav-item" data-page="comandas">
+                <span class="nav-icon">🔖</span> Comandas
+            </button>
             <button class="nav-item" data-page="mesas">
-                <span class="nav-icon">🔖</span> Comandas / Mesas
+                <span class="nav-icon">🪑</span> Mesas
             </button>
             <button class="nav-item" data-page="consultaComanda">
                 <span class="nav-icon">🔎</span> Consultar Comanda
@@ -112,9 +115,9 @@
         <div id="page-pedidos" class="page"></div>
         <div id="page-cardapio" class="page"></div>
         <div id="page-categorias" class="page"></div>
-        <div id="page-mesas" class="page">
+        <div id="page-comandas" class="page">
             <div class="layout-content">
-                <main class="main-body" id="main-content">
+                <main class="main-body">
                     <div class="mesas-context-banner">
                         <div class="mesas-context-icon" aria-hidden="true">🔖</div>
                         <div class="mesas-context-copy">
@@ -124,11 +127,23 @@
                         <a class="mesas-context-link" href="/kds.html?panel=salao" target="_blank"
                             rel="noopener noreferrer">Abrir Atendimento</a>
                     </div>
-                    <div id="mesas-view-container">
-                        <div id="mesas-grid-container">
-                            <!-- Grid de Mesas Injetado dinamicamente -->
+                    <div id="comandas-grid-container"></div>
+                </main>
+            </div>
+        </div>
+        <div id="page-mesas" class="page">
+            <div class="layout-content">
+                <main class="main-body">
+                    <div class="mesas-context-banner">
+                        <div class="mesas-context-icon mesas-context-icon--tables" aria-hidden="true">🪑</div>
+                        <div class="mesas-context-copy">
+                            <strong>Mapa do salão</strong>
+                            <span>Acompanhe disponibilidade, reservas e ocupação das mesas.</span>
                         </div>
+                        <a class="mesas-context-link" href="/kds.html?panel=salao" target="_blank"
+                            rel="noopener noreferrer">Abrir Atendimento</a>
                     </div>
+                    <div id="mesas-grid-container"></div>
                 </main>
             </div>
         </div>
@@ -160,6 +175,7 @@
     <script src="/js/pages/pedidos.js"></script>
     <script src="/js/pages/cardapio.js"></script>
     <script src="/js/pages/categorias.js"></script>
+    <script src="/js/pages/comandas.js"></script>
     <script src="/js/pages/mesas.js"></script>
     <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
     <script src="/js/pages/consulta-comanda.js"></script>
