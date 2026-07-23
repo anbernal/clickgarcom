@@ -427,7 +427,7 @@ async function saveComandaCustomer(tabId) {
   }
 }
 
-async function finalizeComandaFromPanel(tabId) {
+function finalizeComandaFromPanel(tabId) {
   if (!canPerformAction('manageSettlement')) {
     showToast('Seu perfil não pode finalizar comandas.', 'error');
     return;
@@ -442,20 +442,74 @@ async function finalizeComandaFromPanel(tabId) {
   const total = Number(tab.total || 0);
   const paidAmount = Number(tab.paidAmount || 0);
   const outstanding = Math.max(0, total - paidAmount);
-  const confirmed = window.confirm(
-    `Finalizar a comanda ${tab.publicCode || tab.id}?\n\n` +
-    `Total: ${formatCurrency(total)}\n` +
-    `Valor ainda sem baixa: ${formatCurrency(outstanding)}\n\n` +
-    'Confirme somente depois de receber ou conferir o pagamento. Esta ação registra a baixa manual, fecha a comanda e libera a mesa quando aplicável.'
-  );
-  if (!confirmed) return;
+
+  openModal(`
+    <div class="modal-header">
+      <div>
+        <h3>Finalizar comanda</h3>
+        <div class="comandas-modal-code">Comanda <strong class="mono">${escapeHTML(tab.publicCode || tab.id)}</strong></div>
+      </div>
+      <button class="modal-close" type="button" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="comandas-finalize-summary">
+        <div class="comandas-finalize-metric">
+          <span>Total da comanda</span>
+          <strong>${escapeHTML(formatCurrency(total))}</strong>
+        </div>
+        <div class="comandas-finalize-metric">
+          <span>Já recebido</span>
+          <strong>${escapeHTML(formatCurrency(paidAmount))}</strong>
+        </div>
+        <div class="comandas-finalize-metric comandas-finalize-metric--due">
+          <span>Baixa a registrar</span>
+          <strong>${escapeHTML(formatCurrency(outstanding))}</strong>
+        </div>
+      </div>
+      <div class="comandas-finalize-note">
+        <strong>Confira o pagamento antes de continuar.</strong>
+        A confirmação registra a baixa manual, fecha esta comanda e libera a mesa quando não houver outra comanda aberta nela.
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-sm btn-outline" type="button" onclick="closeModal()">Cancelar</button>
+      <button class="btn-sm btn-danger" id="tab-finalize-confirm" type="button" onclick="confirmFinalizeComanda('${escapeHTML(tab.id)}')">Registrar baixa e finalizar</button>
+    </div>
+  `);
+}
+
+async function confirmFinalizeComanda(tabId) {
+  if (!canPerformAction('manageSettlement')) {
+    showToast('Seu perfil não pode finalizar comandas.', 'error');
+    return;
+  }
+
+  const finalizeButton = document.getElementById('tab-finalize-confirm');
+  if (finalizeButton?.disabled) return;
+
+  const tab = comandasOpenTabsCache.find((item) => String(item.id) === String(tabId));
+  if (!tab) {
+    closeModal();
+    showToast('Comanda não encontrada na lista atual.', 'error');
+    return;
+  }
+
+  if (finalizeButton) {
+    finalizeButton.disabled = true;
+    finalizeButton.textContent = 'Finalizando...';
+  }
 
   try {
     await api.post(`/tables/tabs/${tabId}/finalize`, {});
     showToast(`Comanda ${tab.publicCode || tab.id} finalizada.`);
+    closeModal();
     await loadComandas();
   } catch (error) {
     showToast(`Erro ao finalizar: ${error.message}`, 'error');
+    if (finalizeButton) {
+      finalizeButton.disabled = false;
+      finalizeButton.textContent = 'Registrar baixa e finalizar';
+    }
   }
 }
 

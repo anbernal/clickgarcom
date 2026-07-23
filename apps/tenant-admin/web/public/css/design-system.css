@@ -3370,6 +3370,60 @@ tbody tr:last-child td {
   line-height: 1.5;
 }
 
+.comandas-finalize-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.comandas-finalize-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg);
+}
+
+.comandas-finalize-metric span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.35px;
+}
+
+.comandas-finalize-metric strong {
+  color: var(--dark);
+  font-size: 15px;
+}
+
+.comandas-finalize-metric--due {
+  border-color: color-mix(in srgb, var(--danger) 30%, var(--border));
+  background: color-mix(in srgb, var(--danger) 5%, var(--bg));
+}
+
+.comandas-finalize-metric--due strong {
+  color: var(--danger);
+}
+
+.comandas-finalize-note {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--warning) 35%, var(--border));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--warning) 8%, var(--bg));
+  color: var(--dark);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.comandas-finalize-note strong {
+  display: block;
+  margin-bottom: 3px;
+}
+
 .mesas-management-card {
   box-shadow: var(--shadow);
 }
@@ -3822,6 +3876,10 @@ tbody tr:last-child td {
   }
 
   .comandas-edit-customer-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .comandas-finalize-summary {
     grid-template-columns: 1fr;
   }
 
