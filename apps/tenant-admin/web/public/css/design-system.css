@@ -2548,6 +2548,261 @@ tbody tr:last-child td {
   font-size: 15px;
 }
 
+.comandas-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.comandas-panel-actions .btn-outline {
+  border-color: rgba(15, 118, 110, 0.28);
+  color: var(--teal-dark);
+}
+
+.comandas-consultation-only {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 24px;
+  border-color: rgba(26, 188, 156, 0.24);
+  background: linear-gradient(110deg, rgba(232, 250, 246, 0.86), white 65%);
+}
+
+.comandas-consultation-only .card-subtitle {
+  max-width: 620px;
+  margin-top: 5px;
+}
+
+.comandas-consultation-icon {
+  display: inline-grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  margin-bottom: 12px;
+  border-radius: 12px;
+  background: var(--teal-light);
+  font-size: 20px;
+}
+
+.consulta-dialog-body {
+  min-height: 260px;
+}
+
+.consulta-dialog-search {
+  display: flex;
+  gap: 10px;
+}
+
+.consulta-dialog-search .input {
+  min-width: 0;
+  height: 42px;
+  flex: 1;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  outline: none;
+  font-family: 'Sora', sans-serif;
+  font-size: 12px;
+}
+
+.consulta-dialog-search .input:focus {
+  border-color: var(--teal);
+  box-shadow: 0 0 0 3px rgba(26, 188, 156, 0.1);
+}
+
+.consulta-dialog-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.consulta-scanner-wrap {
+  max-width: 380px;
+  margin-top: 14px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: white;
+}
+
+.consulta-scanner-wrap #consulta-qr-reader {
+  width: 100%;
+}
+
+.consulta-feedback {
+  min-height: 18px;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.consulta-result-card {
+  margin-top: 16px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: white;
+}
+
+.consulta-result-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.consulta-result-eyebrow,
+.consulta-metric-label {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+}
+
+.consulta-result-code {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 8px;
+  padding: 9px 12px;
+  border: 2px solid rgba(15, 118, 110, 0.25);
+  border-radius: 10px;
+  background: rgba(15, 118, 110, 0.1);
+}
+
+.consulta-result-code span {
+  color: var(--teal-dark);
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+}
+
+.consulta-result-code strong {
+  color: var(--teal-dark);
+  font-size: 27px;
+  letter-spacing: 1.4px;
+  line-height: 1;
+}
+
+.consulta-result-meta {
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.consulta-status {
+  padding: 8px 11px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.consulta-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.consulta-metric-card {
+  padding: 13px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--bg);
+}
+
+.consulta-metric-value {
+  margin-top: 6px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.consulta-metric-helper {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.consulta-notice {
+  margin-top: 14px;
+  padding: 12px 13px;
+  border-radius: 10px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.consulta-notice--ok {
+  border: 1px solid rgba(16, 185, 129, 0.18);
+  background: rgba(16, 185, 129, 0.08);
+  color: #047857;
+}
+
+.consulta-notice--alert {
+  border: 1px solid rgba(239, 68, 68, 0.16);
+  background: rgba(239, 68, 68, 0.08);
+  color: #b91c1c;
+}
+
+.consulta-detail-grid {
+  display: grid;
+  grid-template-columns: 1.1fr .9fr;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.consulta-detail-section {
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--bg);
+}
+
+.consulta-detail-title {
+  margin-bottom: 8px;
+  color: var(--dark);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.consulta-detail-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.consulta-detail-line:last-child {
+  border-bottom: 0;
+}
+
+.consulta-detail-line strong,
+.consulta-detail-line span {
+  display: block;
+}
+
+.consulta-detail-line strong {
+  color: var(--text);
+  font-size: 11px;
+}
+
+.consulta-detail-line span,
+.consulta-detail-empty {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.consulta-detail-line .mono {
+  flex: 0 0 auto;
+  color: var(--dark);
+  font-size: 11px;
+}
+
 .comandas-open-box {
   padding: 18px 22px 20px;
   border-bottom: 1px solid var(--border);
@@ -3502,6 +3757,30 @@ tbody tr:last-child td {
     padding: 17px;
   }
 
+  .comandas-panel-actions,
+  .comandas-consultation-only,
+  .consulta-dialog-search,
+  .consulta-dialog-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .comandas-panel-actions .btn-outline,
+  .comandas-consultation-only .btn-primary,
+  .consulta-dialog-search .btn-sm,
+  .consulta-dialog-actions .btn-sm {
+    width: 100%;
+  }
+
+  .consulta-result-head {
+    flex-direction: column;
+  }
+
+  .consulta-metrics-grid,
+  .consulta-detail-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
   .comandas-open-box,
   .mesas-management-grid {
     padding: 16px 17px 18px;
@@ -3592,6 +3871,11 @@ tbody tr:last-child td {
   .comandas-count,
   .mesas-management-count {
     display: none;
+  }
+
+  .consulta-metrics-grid,
+  .consulta-detail-grid {
+    grid-template-columns: 1fr;
   }
 
   .comanda-card-footer {

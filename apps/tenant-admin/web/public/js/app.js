@@ -12,7 +12,6 @@ const pages = {
     categorias: { title: 'Categorias', sub: 'Organize o cardápio em categorias', loader: loadCategorias },
     comandas: { title: 'Comandas', sub: 'Abra e acompanhe as comandas do restaurante', loader: loadComandas },
     mesas: { title: 'Mesas', sub: 'Gerencie disponibilidade, reservas e ocupação do salão', loader: loadMesas },
-    consultaComanda: { title: 'Consultar Comanda', sub: 'Leia o QR Code ou informe o código da comanda', loader: loadConsultaComanda },
     pagamentos: { title: 'Pagamentos & Conciliação', sub: 'Acompanhe pagamentos, divergências e baixas operacionais', loader: loadPagamentos },
     compras: { title: 'Compras & Fornecedores', sub: 'Lançamento de notas e histórico de compras', loader: loadComprasPage },
     vendas: { title: 'Vendas', sub: 'Relatório completo de vendas', loader: loadVendas },
@@ -112,7 +111,8 @@ function configureKdsNavigation() {
 }
 
 function navigate(pageId, options = {}) {
-    const requestedPageId = pages[pageId] ? pageId : getDefaultPageId();
+    const consultationRequested = pageId === 'consultaComanda';
+    const requestedPageId = consultationRequested ? 'comandas' : (pages[pageId] ? pageId : getDefaultPageId());
     let authorizedPageId = requestedPageId;
 
     if (!canAccessPage(authorizedPageId)) {
@@ -125,7 +125,7 @@ function navigate(pageId, options = {}) {
     const page = pages[authorizedPageId];
     if (!page) return;
 
-    if (authorizedPageId !== 'consultaComanda' && typeof window.stopConsultaScanner === 'function') {
+    if (typeof window.stopConsultaScanner === 'function') {
         window.stopConsultaScanner().catch(() => {});
     }
 
@@ -143,6 +143,10 @@ function navigate(pageId, options = {}) {
     document.getElementById('page-title').textContent = page.title;
     document.getElementById('page-sub').textContent = page.sub;
     page.loader();
+
+    if (consultationRequested) {
+        window.setTimeout(() => window.openComandaConsultation?.(options.code), 0);
+    }
 }
 
 function openChangePasswordModal() {
@@ -232,6 +236,9 @@ function openModal(html, options) {
 }
 
 function closeModal() {
+    if (typeof window.stopConsultaScanner === 'function') {
+        window.stopConsultaScanner().catch(() => {});
+    }
     document.getElementById('modal-overlay').classList.remove('active');
 }
 

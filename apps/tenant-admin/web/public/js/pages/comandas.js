@@ -189,7 +189,7 @@ function renderComandasResults() {
                 ${paidAmount > 0 ? `<span>Falta ${escapeHTML(formatCurrency(outstanding))}</span>` : '<span>Sem baixa registrada</span>'}
               </div>
               <div class="comandas-row-actions" data-label="Ações">
-                <button class="btn-sm btn-outline" type="button" onclick="consultarComanda('${code}'); navigate('consultaComanda')">Consultar</button>
+                <button class="btn-sm btn-outline" type="button" onclick="openComandaConsultation('${code}')">Consultar</button>
                 ${canFinalize ? `<button class="btn-sm btn-danger" type="button" onclick="finalizeComandaFromPanel('${escapeHTML(tab.id)}')">Finalizar</button>` : ''}
               </div>
             </article>
@@ -216,7 +216,10 @@ function renderComandasManager(openTabs, tables) {
             <div class="card-subtitle">Abra, identifique, consulte e finalize comandas em um único fluxo operacional.</div>
           </div>
         </div>
-        <div class="comandas-count"><strong>${openTabs.length}</strong> aberta${openTabs.length === 1 ? '' : 's'}</div>
+        <div class="comandas-panel-actions">
+          <button class="btn-sm btn-outline" type="button" onclick="openComandaConsultation()">🔎 Consultar QR / código</button>
+          <div class="comandas-count"><strong>${openTabs.length}</strong> aberta${openTabs.length === 1 ? '' : 's'}</div>
+        </div>
       </div>
 
       <div class="comandas-open-box">
@@ -302,6 +305,20 @@ function setComandasPage(page) {
 async function loadComandas() {
   const container = document.getElementById('comandas-grid-container');
   if (!container) return;
+
+  if (!canPerformAction('manageTabs')) {
+    container.innerHTML = `
+      <section class="full-card comandas-consultation-only">
+        <div>
+          <div class="comandas-consultation-icon">🔎</div>
+          <div class="card-title">Consultar comanda</div>
+          <div class="card-subtitle">Leia o QR Code ou informe o código para conferir pedidos, pagamentos e situação de saída.</div>
+        </div>
+        <button class="btn-sm btn-primary" type="button" onclick="openComandaConsultation()">Consultar QR / código</button>
+      </section>
+    `;
+    return;
+  }
 
   try {
     const [openTabs, tables] = await Promise.all([

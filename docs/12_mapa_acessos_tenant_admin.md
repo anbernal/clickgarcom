@@ -38,9 +38,8 @@ Este documento reflete as regras implementadas em:
 | Pedidos | Sim | Sim | Sim | Sim | Sim | Nao |
 | Cardapio | Sim | Sim | Sim | Sim | Sim | Sim |
 | Categorias | Sim | Sim | Sim | Sim | Sim | Sim |
-| Comandas | Sim | Sim | Sim | Nao | Nao | Nao |
+| Comandas e consulta por QR/código | Sim | Sim | Sim | Nao | Nao | Sim |
 | Mesas | Sim | Sim | Sim | Nao | Nao | Sim |
-| Consultar Comanda | Sim | Sim | Sim | Nao | Nao | Sim |
 | Pagamentos | Sim | Sim | Sim | Nao | Nao | Sim |
 | Vendas | Sim | Sim | Nao | Nao | Nao | Sim |
 | Meu Restaurante | Sim | Sim | Nao | Nao | Nao | Nao |
