@@ -143,6 +143,120 @@ func TestProcessTableEventSendsInteractiveApprovalButtons(t *testing.T) {
 	}
 }
 
+func TestProcessTableEventOpensIndependentComanda(t *testing.T) {
+	ctx := context.Background()
+	tenantID := uuid.New()
+	requestID := uuid.New()
+	approverID := uuid.New()
+	phone := "5511922222222"
+
+	sessionRepo := newTestSessionRepo()
+	if err := sessionRepo.Save(ctx, session.NewSession(phone, tenantID)); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	tableRepo := &testProcessTableRepo{
+		requestsByID: map[uuid.UUID]*table.TableRequest{
+			requestID: {
+				ID:                 requestID,
+				TenantID:           tenantID,
+				UserPhone:          phone,
+				PaxCount:           1,
+				Status:             table.RequestStatusPending,
+				ApprovedByUserID:   &approverID,
+				ApprovedByUserName: "Carlos Garçom",
+			},
+		},
+		tablesByID: map[uuid.UUID]*table.Table{},
+	}
+	tabRepo := &testProcessTabRepo{}
+	sender := &testWhatsAppSender{}
+	uc := NewProcessTableEventUseCase(
+		tableRepo,
+		tabRepo,
+		sessionRepo,
+		&testTenantRepo{tenant: testTenant(tenantID)},
+		sender,
+		zap.NewNop(),
+	)
+
+	payload, err := json.Marshal(TableEventPayload{RequestID: requestID.String(), Action: "APPROVE"})
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	if err := uc.Execute(ctx, payload); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if len(tabRepo.createdTabs) != 1 {
+		t.Fatalf("expected one independent tab, got %d", len(tabRepo.createdTabs))
+	}
+	created := tabRepo.createdTabs[0]
+	if created.TableID != nil || created.ServiceMode != "SEM_MESA" || created.OpeningChannel != "WHATSAPP" {
+		t.Fatalf("expected independent WhatsApp tab, got %+v", created)
+	}
+	expectedCode := tab.BuildPublicCode(requestID)
+	if created.PublicCode != expectedCode {
+		t.Fatalf("expected request-derived code %s, got %s", expectedCode, created.PublicCode)
+	}
+	if len(sender.interactiveMessages) != 1 || !strings.Contains(sender.interactiveMessages[0].Body, created.PublicCode) {
+		t.Fatalf("expected public comanda code in approval message, got %+v", sender.interactiveMessages)
+	}
+}
+
+func TestProcessTableEventRejectsRequestAndNotifiesCustomer(t *testing.T) {
+	ctx := context.Background()
+	tenantID := uuid.New()
+	requestID := uuid.New()
+	phone := "5511933333333"
+
+	sessionRepo := newTestSessionRepo()
+	if err := sessionRepo.Save(ctx, session.NewSession(phone, tenantID)); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	tableRepo := &testProcessTableRepo{
+		requestsByID: map[uuid.UUID]*table.TableRequest{
+			requestID: {
+				ID:        requestID,
+				TenantID:  tenantID,
+				UserPhone: phone,
+				Status:    table.RequestStatusPending,
+			},
+		},
+		tablesByID: map[uuid.UUID]*table.Table{},
+	}
+	sender := &testWhatsAppSender{}
+	uc := NewProcessTableEventUseCase(
+		tableRepo,
+		&testProcessTabRepo{},
+		sessionRepo,
+		&testTenantRepo{tenant: testTenant(tenantID)},
+		sender,
+		zap.NewNop(),
+	)
+
+	payload, err := json.Marshal(TableEventPayload{RequestID: requestID.String(), Action: "REJECT"})
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	if err := uc.Execute(ctx, payload); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if got := tableRepo.requestsByID[requestID].Status; got != table.RequestStatusRejected {
+		t.Fatalf("expected rejected request, got %s", got)
+	}
+	if len(sender.textMessages) != 1 || !strings.Contains(sender.textMessages[0], "não conseguiu liberar") {
+		t.Fatalf("expected friendly rejection message, got %+v", sender.textMessages)
+	}
+	sess, err := sessionRepo.Find(ctx, phone, tenantID.String())
+	if err != nil {
+		t.Fatalf("Find() error = %v", err)
+	}
+	if sess.State != session.StateWelcome || sess.TabID != nil {
+		t.Fatalf("expected session returned to welcome without tab, got %+v", sess)
+	}
+}
+
 type testProcessTableRepo struct {
 	requestsByID map[uuid.UUID]*table.TableRequest
 	tablesByID   map[uuid.UUID]*table.Table

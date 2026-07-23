@@ -2179,6 +2179,23 @@
         </div>
     </div>
 
+    <!-- MODAL: Recusar solicitação de comanda -->
+    <div class="modal-overlay" id="requestRejectModal">
+        <div class="modal" style="width:min(440px,94vw)">
+            <div class="modal-header">
+                <div class="modal-title">Recusar solicitação</div>
+                <button class="modal-close" onclick="closeRequestRejectModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <p style="margin:0;color:var(--muted);line-height:1.5">O cliente será avisado de forma amigável e poderá solicitar novamente depois.</p>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-ghost" onclick="closeRequestRejectModal()">Cancelar</button>
+                <button class="btn btn-red-solid" onclick="confirmRejectRequest()">✕ Confirmar recusa</button>
+            </div>
+        </div>
+    </div>
+
     <div class="toast-container" id="toasts"></div>
 
     <script src="js/kds.js"></script>

@@ -84,6 +84,11 @@ const defaultTablePending = `🙋‍♂️ *Prontinho! Já solicitei sua mesa pa
 Nossa equipe já está organizando tudo para liberar seu acesso ao cardápio.
 Te aviso por aqui assim que estiver pronto. 🤝`
 
+const defaultComandaPending = `🙋‍♂️ *Solicitação de comanda enviada!*
+
+O garçom já recebeu seu pedido e vai confirmar a abertura.
+Assim que sua comanda for liberada, eu envio o código por aqui. 🤝`
+
 const defaultTableRequestCanceled = `🙏 *Agradecemos seu contato!*
 
 Retirei você da fila de atendimento por aqui.
@@ -99,6 +104,11 @@ const defaultAlreadyInQueue = `🙋‍♂️ *Recebi sua mensagem!*
 Você já está na fila de atendimento.
 Daqui a pouquinho nossa equipe vai te chamar por aqui. 🤝`
 
+const defaultComandaRejected = `🙏 *Tudo bem!*
+
+Neste momento nossa equipe não conseguiu liberar uma comanda.
+Peça ajuda a um garçom ou tente novamente em alguns instantes.`
+
 const defaultMenuAccessUnavailable = `🔒 *Seu acesso ao cardápio não está ativo no momento.*
 
 Se você já recebeu uma comanda, informe o código de 5 caracteres. Caso contrário, solicite uma comanda à nossa equipe.`
@@ -110,6 +120,14 @@ const defaultTableApproved = `✅ *Mesa liberada!*
 Você está na *Mesa {numero_mesa}*.
 
 Escolha como deseja começar:`
+
+const defaultComandaApproved = `✅ *Comanda liberada!*
+
+Sua comanda foi aberta e já está pronta para receber pedidos.
+
+🔐 *Número da comanda: {codigo_comanda}*
+
+Guarde esse código para consultar sua comanda e validar sua saída.`
 
 const defaultTableApprovedMenuOptions = `*1* - 🛒 Fazer pedido
 *2* - 📋 Ver minha comanda
@@ -251,6 +269,11 @@ func TableRequestPendingMessage(msgs ...tenant.MessageTemplates) string {
 	return resolveTemplate(custom, defaultTablePending, nil)
 }
 
+// ComandaRequestPendingMessage informa que uma abertura sem mesa aguarda a equipe.
+func ComandaRequestPendingMessage() string {
+	return defaultComandaPending
+}
+
 func TableRequestCanceledMessage() string {
 	return defaultTableRequestCanceled
 }
@@ -262,6 +285,11 @@ func TableRequestFlowCanceledMessage() string {
 // AlreadyInQueueMessage mensagem para quando o cliente já está aguardando na fila.
 func AlreadyInQueueMessage() string {
 	return defaultAlreadyInQueue
+}
+
+// ComandaRequestRejectedMessage informa de forma amigável que a equipe recusou a abertura.
+func ComandaRequestRejectedMessage() string {
+	return defaultComandaRejected
 }
 
 func MenuAccessUnavailableMessage() string {
@@ -315,6 +343,13 @@ func TableRequestApprovedMessageWithCode(tableNumber, publicCode string, msgs ..
 	}
 
 	return appendTabCodeNotice(msg, publicCode)
+}
+
+// ComandaRequestApprovedMessageWithCode confirma uma comanda aberta sem mesa.
+func ComandaRequestApprovedMessageWithCode(publicCode string) string {
+	return appendTabCodeNotice(resolveTemplate(defaultComandaApproved, defaultComandaApproved, map[string]string{
+		"{codigo_comanda}": strings.TrimSpace(publicCode),
+	}), publicCode)
 }
 
 // TableRequestApprovedMenuMessage adiciona as opções em texto quando o canal não suporta interações.

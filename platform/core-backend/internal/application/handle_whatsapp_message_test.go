@@ -702,11 +702,17 @@ func TestHandleWhatsAppMessageUsesPublishedWelcomeActionInputs(t *testing.T) {
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	if got := len(tableRepo.createdRequests); got != 0 {
-		t.Fatalf("expected no table request from the comanda flow, got %d", got)
+	if got := len(tableRepo.createdRequests); got != 1 {
+		t.Fatalf("expected one pending comanda request, got %d", got)
 	}
-	if got := len(sender.textMessages); got != 1 {
-		t.Fatalf("expected a staff assistance response, got %d", got)
+	if got := len(sender.interactiveMessages); got != 1 {
+		t.Fatalf("expected a pending request menu, got %d", got)
+	}
+	if got := sender.interactiveMessages[0].Buttons; len(got) != 1 || got[0].Reply.ID != "cancel_pending_request" {
+		t.Fatalf("expected only the cancel request action, got %+v", got)
+	}
+	if strings.Contains(sender.interactiveMessages[0].Body, "Voltar ao menu principal") {
+		t.Fatal("pending comanda request must not expose the main menu back option")
 	}
 }
 

@@ -15,8 +15,8 @@ export class TableRequest {
     @Column({ name: 'tenant_id', type: 'uuid' })
     tenantId: string;
 
-    @Column({ name: 'table_id', type: 'uuid' })
-    tableId: string;
+    @Column({ name: 'table_id', type: 'uuid', nullable: true })
+    tableId: string | null;
 
     @Column({ name: 'user_phone' })
     userPhone: string;

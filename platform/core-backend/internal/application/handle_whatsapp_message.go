@@ -624,7 +624,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleWelcomeMenu(
 	}
 
 	if uc.matchesPublishedBotFlowActionInput(ctx, sess.TenantID, welcomeMenuFlowKey, requestTableActionID, text) || isWelcomeRequestTabChoice(ctx, sess.TenantID, text) {
-		return uc.handleCallWaiter(ctx, sess)
+		return uc.createComandaRequest(ctx, sess)
 	}
 
 	if isWelcomeGreeting(text) {
@@ -1154,6 +1154,40 @@ func (uc *HandleWhatsAppMessageUseCase) handleCallWaiter(
 			"Pode me contar por aqui que nossa equipe já vai te atender.\n\n" +
 			"_Digite 0 para sair da conversa com a equipe_",
 		session.StateServiceRequest, nil
+}
+
+// createComandaRequest opens a pending staff task without creating menu access.
+// The tab and public code are created only after KDS approval.
+func (uc *HandleWhatsAppMessageUseCase) createComandaRequest(
+	ctx context.Context,
+	sess *session.Session,
+) (string, session.ConversationState, error) {
+	if uc.tableRepo == nil {
+		return "❌ Não consegui registrar a solicitação agora. Tente novamente em instantes.", session.StateWelcome, nil
+	}
+
+	pending, err := uc.tableRepo.FindPendingRequestByPhone(ctx, sess.UserPhone, sess.TenantID)
+	if err != nil {
+		return "❌ Não consegui consultar sua solicitação agora. Tente novamente em instantes.", session.StateWelcome, nil
+	}
+	if pending != nil {
+		return whatsapp.AlreadyInQueueMessage(), session.StateWaitingAdminApproval, nil
+	}
+
+	request := &table.TableRequest{
+		ID:        uuid.New(),
+		TenantID:  sess.TenantID,
+		UserPhone: sess.UserPhone,
+		PaxCount:  1,
+		Status:    table.RequestStatusPending,
+	}
+	if err := uc.tableRepo.CreateRequest(ctx, request); err != nil {
+		uc.logger.Error("failed to create comanda request", zap.Error(err))
+		return "❌ Não consegui registrar sua solicitação agora. Tente novamente em instantes.", session.StateWelcome, nil
+	}
+
+	uc.resetSessionAccess(sess)
+	return whatsapp.ComandaRequestPendingMessage(), session.StateWaitingAdminApproval, nil
 }
 
 func (uc *HandleWhatsAppMessageUseCase) handleOrdering(
@@ -1906,7 +1940,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleTableConfirmation(
 	text = strings.TrimSpace(text)
 
 	// Permitir cancelar
-	if text == "0" || strings.ToLower(text) == "cancelar" {
+	if text == "0" || strings.EqualFold(strings.TrimSpace(text), "cancelar") {
 		uc.resetSessionAccess(sess)
 		return whatsapp.TableRequestFlowCanceledMessage(), session.StateWelcome, nil
 	}
@@ -1951,7 +1985,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleWaitingAdminApproval(
 ) (string, session.ConversationState, error) {
 
 	// Enquanto aguarda aprovação, ignorar outras mensagens exceto cancelamento
-	if text == "0" || strings.ToLower(text) == "cancelar" {
+	if text == "0" || strings.EqualFold(strings.TrimSpace(text), "cancelar") || text == "cancel_pending_request" {
 		if err := uc.cancelPendingTableRequest(ctx, sess); err != nil {
 			uc.logger.Error("failed to cancel pending table request",
 				zap.Error(err),
@@ -2317,8 +2351,8 @@ func (uc *HandleWhatsAppMessageUseCase) sendWaitingAdminApprovalMenu(
 		tenantID,
 		message,
 		message,
-		"0",
-		"Cancelar",
+		"cancel_pending_request",
+		"Cancelar solicitação",
 	)
 }
 

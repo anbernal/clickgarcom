@@ -129,6 +129,7 @@ let tablesSnapshot = [];
 let tableMetrics = { total: 0, available: 0, occupied: 0 };
 let tabMetaById = new Map();
 let assignModalState = { requestId: null, selectedTableId: null };
+let requestRejectState = { requestId: null };
 let waiterChats = [];
 let waiterChatMessagesById = new Map();
 let activeWaiterChatId = null;
@@ -987,13 +988,27 @@ function renderSalaoPendingRequests() {
       const elapsed = getElapsed(req.createdAt || req.created_at);
       const phone = escapeHTML(req.userPhone || req.user_phone || 'N/A');
       const pax = req.paxCount || req.pax_count || '?';
+      const tableId = req.tableId || req.table_id || null;
+      const tableNumber = req.table?.number || req.table_number || null;
+      const requestCode = String(req.id || '').replace(/-/g, '').slice(0, 5).toUpperCase();
+      const context = tableNumber
+        ? `Mesa ${escapeHTML(String(tableNumber))} · `
+        : 'Comanda sem mesa · ';
+      const approveAction = tableId
+        ? `openAssignModal('${escapeHTML(req.id)}','${phone}','${pax}')`
+        : `approvePendingRequest('${escapeHTML(req.id)}')`;
+      const approveLabel = tableId ? '🪑 Alocar mesa' : '✓ Abrir comanda';
       return `<div class="ready-item">
         <div style="font-size:20px;flex-shrink:0">📱</div>
         <div class="ready-item-left">
           <div class="ready-item-title">${phone}</div>
-          <div class="ready-item-sub">${pax} pessoa(s) · Aguardando há ${escapeHTML(elapsed.text)}</div>
+          <div class="ready-item-sub">${context}${pax} pessoa(s) · Aguardando há ${escapeHTML(elapsed.text)}</div>
+          <div class="ready-item-sub" style="color:var(--green);font-size:12px;font-weight:700">Comanda prevista: ${escapeHTML(requestCode)}</div>
         </div>
-        <button class="action-btn accept-btn" style="flex-shrink:0" onclick="openAssignModal('${escapeHTML(req.id)}','${phone}','${pax}')">🥞 Alocar Mesa</button>
+        <div style="display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end">
+          <button class="action-btn accept-btn" onclick="${approveAction}">${approveLabel}</button>
+          <button class="action-btn reject-btn" onclick="openRequestRejectModal('${escapeHTML(req.id)}')">✕ Recusar</button>
+        </div>
       </div>`;
     }).join('');
   }
@@ -1586,6 +1601,65 @@ async function loadPendingRequests() {
   }
 }
 
+async function approvePendingRequest(requestId) {
+  try {
+    const r = await fetch(`${CONFIG.API_URL}/tables/requests/${requestId}/approve`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': authSession ? `Bearer ${authSession.token}` : ''
+      },
+      body: JSON.stringify({}),
+    });
+    if (r.status === 401 || r.status === 403) { window.location.href = loginPagePath; return; }
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.error || err.message || `API ${r.status}`);
+    }
+    playNotificationSound();
+    toast('t-success', '✅ Comanda aberta', 'A comanda será criada e enviada ao cliente');
+    await Promise.all([loadPendingRequests(), loadTableState()]);
+    broadcastKdsSync('table.request.approved');
+  } catch (e) {
+    toast('t-error', '❌ Erro ao abrir comanda', e.message);
+  }
+}
+
+function openRequestRejectModal(requestId) {
+  requestRejectState = { requestId };
+  document.getElementById('requestRejectModal').classList.add('open');
+}
+
+function closeRequestRejectModal() {
+  document.getElementById('requestRejectModal').classList.remove('open');
+  requestRejectState = { requestId: null };
+}
+
+async function confirmRejectRequest() {
+  if (!requestRejectState.requestId) return;
+  try {
+    const r = await fetch(`${CONFIG.API_URL}/tables/requests/${requestRejectState.requestId}/reject`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': authSession ? `Bearer ${authSession.token}` : ''
+      },
+      body: JSON.stringify({}),
+    });
+    if (r.status === 401 || r.status === 403) { window.location.href = loginPagePath; return; }
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.error || err.message || `API ${r.status}`);
+    }
+    closeRequestRejectModal();
+    toast('t-success', 'Solicitação recusada', 'O cliente receberá uma orientação pelo WhatsApp');
+    await loadPendingRequests();
+    broadcastKdsSync('table.request.rejected');
+  } catch (e) {
+    toast('t-error', '❌ Erro ao recusar', e.message);
+  }
+}
+
 async function loadTableState() {
   try {
     const data = await apiGet('/tables');
@@ -1888,6 +1962,10 @@ function closeAssignModal() {
 
 document.getElementById('assignTableModal').addEventListener('click', e => {
   if (e.target.id === 'assignTableModal') closeAssignModal();
+});
+
+document.getElementById('requestRejectModal').addEventListener('click', e => {
+  if (e.target.id === 'requestRejectModal') closeRequestRejectModal();
 });
 
 function selectAssignTable(el, tableId) {

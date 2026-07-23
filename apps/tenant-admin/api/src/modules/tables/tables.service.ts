@@ -1275,8 +1275,17 @@ export class TablesService {
         const req = await this.tableRequestRepo.findOne({ where: { id: requestId, tenantId } });
         if (!req) throw new Error('Request not found');
 
-        req.status = RequestStatus.REJECTED;
+        if (req.status === RequestStatus.APPROVED) {
+            throw new Error('Approved requests cannot be rejected');
+        }
+        if (req.status === RequestStatus.REJECTED) {
+            return req;
+        }
+
+        // Core owns the final transition and the WhatsApp notification. Keeping
+        // this pending until the event is consumed prevents a lost rejection.
         await this.tableRequestRepo.save(req);
+        await this.amqpService.publishTableEvent(req.id, 'REJECT');
 
         return req;
     }
