@@ -11,6 +11,7 @@
     let currentTab = null;
     let activePanel = '';
     let followChat = true;
+    let composerDraft = '';
 
     function escapeHtml(value) {
         return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
@@ -47,9 +48,8 @@
             ${cartEntries.length ? `<div class="portal-cart"><strong style="font-size:13px">Seu pedido</strong>${cartEntries.map(({ item, quantity }) => `<div class="portal-cart-row"><span>${quantity}x ${escapeHtml(item.name)}</span><span>${money.format(Number(item.price || 0) * quantity)} <button type="button" data-portal-remove="${escapeHtml(item.id)}" aria-label="Remover ${escapeHtml(item.name)}">−</button></span></div>`).join('')}<div class="portal-cart-row"><strong>Total parcial</strong><strong>${money.format(total)}</strong></div><button class="portal-cart-submit" type="button" data-portal-submit-order>Enviar pedido para a equipe</button></div>` : ''}`;
     }
 
-    function render(tab) {
+    function render(tab, { restoreComposerFocus = false } = {}) {
         currentTab = tab;
-        const draft = document.getElementById('portal-message')?.value || '';
         const table = tab.tableNumber ? `Mesa ${escapeHtml(String(tab.tableNumber).padStart(2, '0'))}` : 'Comanda sem mesa';
         const items = Array.isArray(tab.items) ? tab.items : [];
         const messages = Array.isArray(tab.messages) ? tab.messages : [];
@@ -79,7 +79,7 @@
                 </section>
                 <form class="portal-compose" id="portal-compose">
                     <button class="portal-compose-plus" type="button" data-portal-panel="account" aria-label="Abrir conta e cardápio">+</button>
-                    <textarea id="portal-message" rows="1" maxlength="1000" placeholder="Mensagem">${escapeHtml(draft)}</textarea>
+                    <textarea id="portal-message" rows="1" maxlength="1000" placeholder="Mensagem">${escapeHtml(composerDraft)}</textarea>
                     <button class="portal-compose-send" type="submit" aria-label="Enviar mensagem">➤</button>
                 </form>
                 <section class="portal-sheet ${panelVisible ? 'portal-sheet--open' : ''}" aria-hidden="${panelVisible ? 'false' : 'true'}">
@@ -90,14 +90,23 @@
                     <section class="portal-sheet__section"><h3>Pedidos lançados <span>${itemCount}</span></h3>${items.length ? `<ul class="portal-items">${items.map((item) => `<li class="portal-item"><div><span class="portal-item__name">${Number(item.quantity || 0)}x ${escapeHtml(item.name)}</span><span class="portal-item__status">${escapeHtml(formatStatus(item.orderStatus))}</span></div><span class="portal-item__price">${money.format(Number(item.quantity || 0) * Number(item.unitPrice || 0))}</span></li>`).join('')}</ul>` : '<p class="portal-sheet__empty">Nenhum item lançado até agora.</p>'}</section>
                 </section>
             </section>`;
-        requestAnimationFrame(scrollChatToEnd);
+        requestAnimationFrame(() => {
+            scrollChatToEnd();
+            if (!restoreComposerFocus) return;
+            const input = document.getElementById('portal-message');
+            if (!input) return;
+            input.focus();
+            const cursor = input.value.length;
+            input.setSelectionRange(cursor, cursor);
+        });
     }
 
     async function loadTab() {
+        const restoreComposerFocus = document.activeElement?.id === 'portal-message';
         captureChatPosition();
         const response = await fetch(`${API}/tab`, { credentials:'same-origin', cache:'no-store' });
         if (!response.ok) throw new Error('Este acesso não está disponível. Leia novamente o QR Code da comanda.');
-        render(await response.json());
+        render(await response.json(), { restoreComposerFocus });
     }
 
     async function loadMenu() {
@@ -127,9 +136,7 @@
         const portalWsUrl = String(runtimeConfig.portalWsUrl || `${fallbackProtocol}//${window.location.host}/ws/portal`).replace(/\/+$/, '');
         portalSocket = new WebSocket(portalWsUrl);
         portalSocket.onmessage = () => {
-            if (document.activeElement?.id !== 'portal-message') {
-                Promise.all([loadMenu(), loadTab()]).catch(() => undefined);
-            }
+            Promise.all([loadMenu(), loadTab()]).catch(() => undefined);
         };
         portalSocket.onclose = () => {
             portalSocket = null;
@@ -175,10 +182,17 @@
             input?.focus();
             return;
         }
+        composerDraft = '';
+        if (input) input.value = '';
         if (button) button.disabled = true;
         try {
             await sendMessage(message, button);
         } catch (error) {
+            composerDraft = message;
+            if (input) {
+                input.value = message;
+                input.focus();
+            }
             if (button) button.disabled = false;
             window.alert(error.message || 'Não foi possível enviar sua mensagem.');
         }
@@ -222,6 +236,7 @@
 
     root.addEventListener('input', (event) => {
         if (event.target?.id !== 'portal-message') return;
+        composerDraft = event.target.value;
         event.target.style.height = 'auto';
         event.target.style.height = `${Math.min(event.target.scrollHeight, 120)}px`;
     });
@@ -234,9 +249,7 @@
     start().then(() => {
         connectRealtime();
         window.setInterval(() => {
-            if (document.activeElement?.id !== 'portal-message') {
-                loadTab().catch(() => undefined);
-            }
+            loadTab().catch(() => undefined);
         }, 5000);
     }).catch((error) => { root.innerHTML = `<div class="portal-error"><strong>Não foi possível abrir sua comanda</strong><span>${escapeHtml(error.message)}</span></div>`; });
 })();
