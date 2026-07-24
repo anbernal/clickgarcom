@@ -167,7 +167,7 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=easypanel"
-      - "traefik.http.routers.clickgarcom-go.rule=Host(`clickgarcom.servicoswebia.com.br`) && (PathPrefix(`/webhooks`) || PathPrefix(`/ws`) || PathPrefix(`/menu`) || PathPrefix(`/auth`) || PathPrefix(`/payments`) || PathPrefix(`/wallet`) || PathPrefix(`/api/receipt`) || PathPrefix(`/api/exit`) || PathPrefix(`/health`))"
+      - "traefik.http.routers.clickgarcom-go.rule=Host(`clickgarcom.servicoswebia.com.br`) && (PathPrefix(`/webhooks`) || PathPrefix(`/ws`) || PathPrefix(`/menu`) || PathPrefix(`/auth`) || PathPrefix(`/payments`) || PathPrefix(`/wallet`) || PathPrefix(`/api/receipt`) || PathPrefix(`/api/exit`) || PathPrefix(`/api/portal`) || PathPrefix(`/health`))"
       - "traefik.http.routers.clickgarcom-go.entrypoints=https"
       - "traefik.http.routers.clickgarcom-go.tls=true"
       - "traefik.http.routers.clickgarcom-go.tls.certresolver=letsencrypt"
@@ -196,7 +196,7 @@ services:
       labels:
         - "traefik.enable=true"
         - "traefik.docker.network=easypanel"
-        - "traefik.http.routers.clickgarcom-go.rule=Host(`clickgarcom.servicoswebia.com.br`) && (PathPrefix(`/webhooks`) || PathPrefix(`/ws`) || PathPrefix(`/menu`) || PathPrefix(`/auth`) || PathPrefix(`/payments`) || PathPrefix(`/wallet`) || PathPrefix(`/api/receipt`) || PathPrefix(`/api/exit`) || PathPrefix(`/health`))"
+        - "traefik.http.routers.clickgarcom-go.rule=Host(`clickgarcom.servicoswebia.com.br`) && (PathPrefix(`/webhooks`) || PathPrefix(`/ws`) || PathPrefix(`/menu`) || PathPrefix(`/auth`) || PathPrefix(`/payments`) || PathPrefix(`/wallet`) || PathPrefix(`/api/receipt`) || PathPrefix(`/api/exit`) || PathPrefix(`/api/portal`) || PathPrefix(`/health`))"
         - "traefik.http.routers.clickgarcom-go.entrypoints=https"
         - "traefik.http.routers.clickgarcom-go.tls=true"
         - "traefik.http.routers.clickgarcom-go.tls.certresolver=letsencrypt"
@@ -355,6 +355,7 @@ services:
       ADMIN_API_BASE_URL: https://clickgarcom.servicoswebia.com.br/admin/api
       ADMIN_PUBLIC_API_BASE_URL: https://clickgarcom.servicoswebia.com.br/admin/api/public/tables
       KDS_WS_URL: wss://clickgarcom.servicoswebia.com.br/ws/kds
+      PORTAL_WS_URL: wss://clickgarcom.servicoswebia.com.br/ws/portal
       ADMIN_WEB_DISABLE_TEXT_ASSET_CACHE: "true"
     labels:
       - "traefik.enable=true"
