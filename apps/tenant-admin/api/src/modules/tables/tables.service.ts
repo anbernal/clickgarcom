@@ -519,6 +519,16 @@ export class TablesService {
                 [chatId, credential.tenantId, text],
             );
             await queryRunner.query(
+                `INSERT INTO waiter_chat_messages
+                    (id, chat_id, tenant_id, sender_type, sender_name, message, created_at)
+                 VALUES (gen_random_uuid(), $1, $2, 'SYSTEM', 'Assistente virtual', $3, NOW())`,
+                [
+                    chatId,
+                    credential.tenantId,
+                    '🤖 Recebi sua mensagem. Para pedir, consultar sua conta ou ver opções, toque no botão +. A equipe também foi avisada.',
+                ],
+            );
+            await queryRunner.query(
                 `UPDATE waiter_chats
                     SET last_message_at = NOW()
                   WHERE id = $1
