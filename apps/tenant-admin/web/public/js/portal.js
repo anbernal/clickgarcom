@@ -8,6 +8,9 @@
     const cart = new Map();
     let portalSocket = null;
     let reconnectTimer = null;
+    let currentTab = null;
+    let activePanel = '';
+    let followChat = true;
 
     function escapeHtml(value) {
         return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
@@ -16,6 +19,24 @@
     function formatStatus(status) {
         const labels = { PENDING:'Recebido', ACCEPTED:'Em preparo', PREPARING:'Em preparo', READY:'Pronto', DELIVERED:'Entregue' };
         return labels[String(status || '').toUpperCase()] || 'Em andamento';
+    }
+
+    function formatMessageTime(value) {
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return '';
+        return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    }
+
+    function captureChatPosition() {
+        const history = document.getElementById('portal-history');
+        if (!history) return;
+        followChat = history.scrollHeight - history.scrollTop - history.clientHeight < 72;
+    }
+
+    function scrollChatToEnd() {
+        if (!followChat) return;
+        const history = document.getElementById('portal-history');
+        if (history) history.scrollTop = history.scrollHeight;
     }
 
     function renderPortalMenu() {
@@ -27,34 +48,53 @@
     }
 
     function render(tab) {
+        currentTab = tab;
         const draft = document.getElementById('portal-message')?.value || '';
         const table = tab.tableNumber ? `Mesa ${escapeHtml(String(tab.tableNumber).padStart(2, '0'))}` : 'Comanda sem mesa';
         const items = Array.isArray(tab.items) ? tab.items : [];
         const messages = Array.isArray(tab.messages) ? tab.messages : [];
+        const itemCount = items.reduce((total, item) => total + Number(item.quantity || 0), 0);
+        const panelVisible = activePanel === 'account';
         root.innerHTML = `
-            <div class="portal-logo"><span class="portal-logo__mark">🍽</span><span>${escapeHtml(tab.tenantName || 'ClickGarçom')}</span></div>
-            <section class="portal-hero">
-                <p class="portal-eyebrow">Minha comanda</p><h1>Acompanhe seu atendimento</h1>
-                <p class="portal-location">${table} · acesso ativo enquanto sua conta estiver aberta</p>
-                <div class="portal-code">CÓDIGO <strong>${escapeHtml(tab.publicCode || '---')}</strong></div>
-            </section>
-            <section class="portal-grid" aria-label="Resumo financeiro">
-                <div class="portal-metric"><span>Total</span><strong>${money.format(Number(tab.fullTotal || 0))}</strong></div>
-                <div class="portal-metric"><span>Pago</span><strong>${money.format(Number(tab.paidAmount || 0))}</strong></div>
-                <div class="portal-metric"><span>Saldo</span><strong>${money.format(Number(tab.amountDue || 0))}</strong></div>
-            </section>
-            ${Number(tab.amountDue || 0) <= 0 ? '<div class="portal-notice"><strong>Conta regularizada.</strong> Aguarde a equipe confirmar a finalização e a saída.</div>' : ''}
-            <section class="portal-card"><h2>Fazer pedido</h2><p>Escolha os itens disponíveis e envie direto para a equipe.</p>${renderPortalMenu()}</section>
-            <section class="portal-card"><h2>Pedidos e itens</h2><p>Seu consumo atualizado nesta comanda.</p>
-                ${items.length ? `<ul class="portal-items">${items.map((item) => `<li class="portal-item"><div><span class="portal-item__name">${Number(item.quantity || 0)}x ${escapeHtml(item.name)}</span><span class="portal-item__status">${escapeHtml(formatStatus(item.orderStatus))}</span></div><span class="portal-item__price">${money.format(Number(item.quantity || 0) * Number(item.unitPrice || 0))}</span></li>`).join('')}</ul>` : '<p style="margin-top:15px">Nenhum item lançado até agora.</p>'}
-            </section>
-            <section class="portal-card"><h2>Histórico do atendimento</h2><p>Mensagens vinculadas a esta comanda.</p>
-                ${messages.length ? `<div class="portal-history">${messages.map((message) => `<div class="portal-message ${String(message.senderType).toUpperCase() === 'STAFF' ? 'portal-message--staff' : ''}">${escapeHtml(message.message)}<small>${escapeHtml(message.senderName || (String(message.senderType).toUpperCase() === 'STAFF' ? 'Equipe' : 'Cliente'))}</small></div>`).join('')}</div>` : '<p style="margin-top:15px">Ainda não há mensagens neste atendimento.</p>'}
-                <form class="portal-compose" id="portal-compose"><textarea id="portal-message" maxlength="1000" placeholder="Escreva sua mensagem para a equipe...">${escapeHtml(draft)}</textarea><button type="submit">Enviar mensagem</button></form>
-            </section><p class="portal-footer">O acesso é encerrado automaticamente ao finalizar a comanda.</p>`;
+            <section class="portal-shell">
+                <header class="portal-chat-header">
+                    <div class="portal-logo"><span class="portal-logo__mark">🍽</span><div><strong>${escapeHtml(tab.tenantName || 'ClickGarçom')}</strong><small><i></i> Atendimento ativo</small></div></div>
+                    <div class="portal-header-code"><span>COMANDA</span><strong>${escapeHtml(tab.publicCode || '---')}</strong></div>
+                </header>
+                <section class="portal-summary" aria-label="Resumo da comanda">
+                    <div><span>${escapeHtml(table)}</span><strong>${money.format(Number(tab.fullTotal || 0))}</strong></div>
+                    <div class="portal-summary-balance"><span>Saldo</span><strong>${money.format(Number(tab.amountDue || 0))}</strong></div>
+                    <button type="button" data-portal-panel="account">Ver conta</button>
+                </section>
+                ${Number(tab.amountDue || 0) <= 0 ? '<div class="portal-notice"><strong>Conta regularizada.</strong> Aguarde a equipe confirmar a finalização e a saída.</div>' : ''}
+                <section class="portal-conversation">
+                    <div class="portal-chat-label">CONVERSA COM A EQUIPE</div>
+                    <div class="portal-chat-intro">Você está falando sobre a comanda <strong>${escapeHtml(tab.publicCode || '---')}</strong>. A equipe recebe suas mensagens aqui.</div>
+                    <div class="portal-history" id="portal-history">
+                        ${messages.length ? messages.map((message) => {
+                            const isCustomer = String(message.senderType).toUpperCase() === 'CUSTOMER';
+                            return `<div class="portal-message ${isCustomer ? 'portal-message--customer' : 'portal-message--staff'}"><span>${escapeHtml(message.message)}</span><small>${escapeHtml(message.senderName || (isCustomer ? 'Você' : 'Equipe'))} · ${escapeHtml(formatMessageTime(message.createdAt))}</small></div>`;
+                        }).join('') : '<div class="portal-chat-empty">Envie uma mensagem para iniciar o atendimento.</div>'}
+                    </div>
+                </section>
+                <form class="portal-compose" id="portal-compose">
+                    <button class="portal-compose-plus" type="button" data-portal-panel="account" aria-label="Abrir conta e cardápio">+</button>
+                    <textarea id="portal-message" rows="1" maxlength="1000" placeholder="Mensagem">${escapeHtml(draft)}</textarea>
+                    <button class="portal-compose-send" type="submit" aria-label="Enviar mensagem">➤</button>
+                </form>
+                <section class="portal-sheet ${panelVisible ? 'portal-sheet--open' : ''}" aria-hidden="${panelVisible ? 'false' : 'true'}">
+                    <div class="portal-sheet__handle"></div>
+                    <div class="portal-sheet__head"><div><span>MINHA COMANDA</span><h2>Pedidos e conta</h2></div><button type="button" data-portal-close-panel aria-label="Fechar">✕</button></div>
+                    <div class="portal-sheet__metrics"><div><span>Total</span><strong>${money.format(Number(tab.fullTotal || 0))}</strong></div><div><span>Pago</span><strong>${money.format(Number(tab.paidAmount || 0))}</strong></div><div><span>Saldo</span><strong>${money.format(Number(tab.amountDue || 0))}</strong></div></div>
+                    <section class="portal-sheet__section"><h3>Fazer pedido</h3><p>Escolha itens e envie diretamente para a equipe.</p>${renderPortalMenu()}</section>
+                    <section class="portal-sheet__section"><h3>Pedidos lançados <span>${itemCount}</span></h3>${items.length ? `<ul class="portal-items">${items.map((item) => `<li class="portal-item"><div><span class="portal-item__name">${Number(item.quantity || 0)}x ${escapeHtml(item.name)}</span><span class="portal-item__status">${escapeHtml(formatStatus(item.orderStatus))}</span></div><span class="portal-item__price">${money.format(Number(item.quantity || 0) * Number(item.unitPrice || 0))}</span></li>`).join('')}</ul>` : '<p class="portal-sheet__empty">Nenhum item lançado até agora.</p>'}</section>
+                </section>
+            </section>`;
+        requestAnimationFrame(scrollChatToEnd);
     }
 
     async function loadTab() {
+        captureChatPosition();
         const response = await fetch(`${API}/tab`, { credentials:'same-origin', cache:'no-store' });
         if (!response.ok) throw new Error('Este acesso não está disponível. Leia novamente o QR Code da comanda.');
         render(await response.json());
@@ -151,13 +191,23 @@
         const removeId = button.dataset.portalRemove;
         if (addId) {
             cart.set(addId, Math.min(20, (cart.get(addId) || 0) + 1));
-            await loadTab();
+            render(currentTab);
             return;
         }
         if (removeId) {
             const next = (cart.get(removeId) || 0) - 1;
             if (next > 0) cart.set(removeId, next); else cart.delete(removeId);
-            await loadTab();
+            render(currentTab);
+            return;
+        }
+        if (button.dataset.portalPanel) {
+            activePanel = button.dataset.portalPanel;
+            render(currentTab);
+            return;
+        }
+        if (button.hasAttribute('data-portal-close-panel')) {
+            activePanel = '';
+            render(currentTab);
             return;
         }
         if (button.hasAttribute('data-portal-submit-order')) {
@@ -169,6 +219,17 @@
             }
         }
     });
+
+    root.addEventListener('input', (event) => {
+        if (event.target?.id !== 'portal-message') return;
+        event.target.style.height = 'auto';
+        event.target.style.height = `${Math.min(event.target.scrollHeight, 120)}px`;
+    });
+
+    root.addEventListener('scroll', (event) => {
+        if (event.target?.id !== 'portal-history') return;
+        followChat = event.target.scrollHeight - event.target.scrollTop - event.target.clientHeight < 72;
+    }, true);
 
     start().then(() => {
         connectRealtime();
