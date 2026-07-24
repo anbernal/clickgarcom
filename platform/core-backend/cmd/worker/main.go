@@ -117,6 +117,11 @@ func main() {
 		resolveInternalServiceToken(),
 		logger.Log,
 	)
+	portalAccessClient := adminclient.NewPortalAccessClient(
+		resolveNodeAdminInternalBaseURL(),
+		resolveInternalServiceToken(),
+		logger.Log,
+	)
 
 	// 7. Use Cases
 	createOrderUC := application.NewCreateOrderUseCase(
@@ -161,6 +166,7 @@ func main() {
 		tenantRepo,
 		whatsappSender,
 		logger.Log,
+		portalAccessClient,
 	)
 	reconcilePaymentWebhookUC := application.NewReconcilePaymentWebhookUseCase(
 		paymentRepo,

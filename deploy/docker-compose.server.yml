@@ -134,7 +134,7 @@ services:
       - "traefik.enable=true"
       - "traefik.docker.network=easypanel"
       - "traefik.http.middlewares.clickgarcom-whatsapp-strip.stripprefix.prefixes=${TRAEFIK_WHATSAPP_PATH_PREFIX:-/clickgarcom-whatsapp}"
-      - "traefik.http.routers.clickgarcom-go.rule=Host(`${TRAEFIK_PUBLIC_HOST}`) && (PathPrefix(`${TRAEFIK_WHATSAPP_PATH_PREFIX:-/clickgarcom-whatsapp}`) || PathPrefix(`/api/exit`))"
+      - "traefik.http.routers.clickgarcom-go.rule=Host(`${TRAEFIK_PUBLIC_HOST}`) && (PathPrefix(`${TRAEFIK_WHATSAPP_PATH_PREFIX:-/clickgarcom-whatsapp}`) || PathPrefix(`/api/exit`) || PathPrefix(`/api/portal`))"
       - "traefik.http.routers.clickgarcom-go.entrypoints=https"
       - "traefik.http.routers.clickgarcom-go.tls=true"
       - "traefik.http.routers.clickgarcom-go.priority=130"
@@ -147,7 +147,7 @@ services:
         - "traefik.enable=true"
         - "traefik.docker.network=easypanel"
         - "traefik.http.middlewares.clickgarcom-whatsapp-strip.stripprefix.prefixes=${TRAEFIK_WHATSAPP_PATH_PREFIX:-/clickgarcom-whatsapp}"
-        - "traefik.http.routers.clickgarcom-go.rule=Host(`${TRAEFIK_PUBLIC_HOST}`) && (PathPrefix(`${TRAEFIK_WHATSAPP_PATH_PREFIX:-/clickgarcom-whatsapp}`) || PathPrefix(`/api/exit`))"
+        - "traefik.http.routers.clickgarcom-go.rule=Host(`${TRAEFIK_PUBLIC_HOST}`) && (PathPrefix(`${TRAEFIK_WHATSAPP_PATH_PREFIX:-/clickgarcom-whatsapp}`) || PathPrefix(`/api/exit`) || PathPrefix(`/api/portal`))"
         - "traefik.http.routers.clickgarcom-go.entrypoints=https"
         - "traefik.http.routers.clickgarcom-go.tls=true"
         - "traefik.http.routers.clickgarcom-go.priority=130"
@@ -298,6 +298,7 @@ services:
       ADMIN_API_BASE_URL: https://${TRAEFIK_PUBLIC_HOST}${TRAEFIK_CLICKGARCOM_PATH_PREFIX:-/clickgarcom}/admin/api
       ADMIN_PUBLIC_API_BASE_URL: https://${TRAEFIK_PUBLIC_HOST}${TRAEFIK_CLICKGARCOM_PATH_PREFIX:-/clickgarcom}/admin/api/public/tables
       KDS_WS_URL: wss://${TRAEFIK_PUBLIC_HOST}${TRAEFIK_WHATSAPP_PATH_PREFIX:-/clickgarcom-whatsapp}/ws/kds
+      PORTAL_WS_URL: wss://${TRAEFIK_PUBLIC_HOST}${TRAEFIK_WHATSAPP_PATH_PREFIX:-/clickgarcom-whatsapp}/ws/portal
       ADMIN_WEB_DISABLE_TEXT_ASSET_CACHE: "true"
     depends_on:
       node-admin:

@@ -37,6 +37,7 @@ export function configureAdminWebShell(app: INestApplication) {
     app.use('/login.html', express.static(join(publicPath, 'login.html'), noCacheOptions));
     app.use('/kds.html', express.static(join(publicPath, 'kds.html'), noCacheOptions));
     app.use('/checkout.html', express.static(join(publicPath, 'checkout.html'), noCacheOptions));
+    app.use('/portal.html', express.static(join(publicPath, 'portal.html'), noCacheOptions));
     app.use('/exit.html', express.static(join(publicPath, 'exit.html'), noCacheOptions));
 
     app.use((req: Request, res: Response, next: NextFunction) => {

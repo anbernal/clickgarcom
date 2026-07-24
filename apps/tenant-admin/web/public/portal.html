@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="referrer" content="no-referrer">
+    <title>Minha comanda | ClickGarçom</title>
+    <link rel="stylesheet" href="/css/design-system.css">
+    <script src="/_config.js"></script>
+    <style>
+        :root { --portal-ink:#182235; --portal-muted:#73819a; --portal-teal:#109a83; --portal-bg:#eff5f2; --portal-card:#fff; }
+        * { box-sizing:border-box; }
+        body { margin:0; min-height:100vh; color:var(--portal-ink); background:radial-gradient(circle at 100% 0,#c9f2e7 0,transparent 28rem),linear-gradient(150deg,#f8fbfa 0%,var(--portal-bg) 100%); font-family:'Sora',sans-serif; }
+        main { width:min(100%,760px); margin:auto; padding:24px 18px 48px; }
+        .portal-loading,.portal-error { min-height:70vh; display:grid; place-content:center; text-align:center; gap:12px; color:var(--portal-muted); }
+        .portal-logo { display:flex; align-items:center; gap:10px; font-weight:800; margin-bottom:26px; }
+        .portal-logo__mark { display:grid; place-items:center; width:38px; height:38px; color:#fff; border-radius:13px; background:linear-gradient(135deg,#17b99d,#087b70); box-shadow:0 10px 20px rgba(16,154,131,.23); }
+        .portal-hero { overflow:hidden; position:relative; padding:26px; color:#fff; border-radius:24px; background:linear-gradient(135deg,#103c45,#106e68); box-shadow:0 16px 40px rgba(16,75,77,.18); }
+        .portal-hero:after { content:''; position:absolute; width:210px; height:210px; border:30px solid rgba(255,255,255,.08); border-radius:50%; right:-90px; top:-115px; }
+        .portal-eyebrow { margin:0 0 7px; color:rgba(255,255,255,.67); font-size:11px; font-weight:800; letter-spacing:1.2px; text-transform:uppercase; }
+        h1 { margin:0; font-size:clamp(23px,6vw,31px); letter-spacing:-1px; }
+        .portal-location { margin:9px 0 21px; color:rgba(255,255,255,.76); font-size:14px; }
+        .portal-code { position:relative; z-index:1; display:inline-flex; align-items:center; gap:9px; padding:10px 13px; border:1px solid rgba(255,255,255,.22); border-radius:13px; background:rgba(0,0,0,.14); font-size:12px; font-weight:700; }
+        .portal-code strong { font-family:monospace; font-size:19px; letter-spacing:2px; }
+        .portal-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin:16px 0; }
+        .portal-metric { padding:15px 12px; border:1px solid rgba(21,42,68,.08); border-radius:17px; background:var(--portal-card); box-shadow:0 8px 18px rgba(29,54,64,.05); }
+        .portal-metric span { display:block; margin-bottom:7px; color:var(--portal-muted); font-size:10px; font-weight:800; letter-spacing:.7px; text-transform:uppercase; }
+        .portal-metric strong { font-size:clamp(16px,4vw,21px); white-space:nowrap; }
+        .portal-card { margin-top:16px; padding:20px; border:1px solid rgba(21,42,68,.08); border-radius:21px; background:rgba(255,255,255,.88); box-shadow:0 10px 28px rgba(29,54,64,.06); }
+        .portal-card h2 { margin:0 0 5px; font-size:17px; letter-spacing:-.4px; }
+        .portal-card p { margin:0; color:var(--portal-muted); font-size:13px; line-height:1.55; }
+        .portal-menu-list { display:grid; gap:10px; margin-top:15px; }.portal-menu-item { display:grid; grid-template-columns:1fr auto; gap:10px; padding:13px; border:1px solid #e4eceb; border-radius:15px; }.portal-menu-item h3 { margin:0; font-size:14px; }.portal-menu-item p { margin-top:4px; font-size:11px; }.portal-menu-price { display:block; margin-top:8px; color:#087861; font-family:monospace; font-weight:800; }.portal-menu-item button,.portal-cart button { border:0; border-radius:10px; cursor:pointer; font:inherit; font-size:12px; font-weight:800; }.portal-menu-item button { align-self:center; padding:9px 11px; color:#087861; background:#e5f6f0; }.portal-cart { display:grid; gap:10px; margin-top:15px; padding:14px; border-radius:15px; background:#f0f7f5; }.portal-cart-row { display:flex; justify-content:space-between; gap:12px; font-size:12px; }.portal-cart-row button { min-width:25px; color:#a44141; background:#fbeaea; }.portal-cart-submit { padding:11px; color:#fff; background:var(--portal-teal); }.portal-cart-submit:disabled { opacity:.6; cursor:wait; }
+        .portal-items { margin:14px 0 0; padding:0; list-style:none; }
+        .portal-item { display:flex; justify-content:space-between; gap:14px; padding:13px 0; border-top:1px solid #edf0f3; }
+        .portal-item:first-child { border-top:0; padding-top:0; }
+        .portal-item__name { font-size:14px; font-weight:700; }.portal-item__status { display:block; margin-top:4px; color:var(--portal-muted); font-size:11px; }.portal-item__price { font-family:monospace; font-size:15px; font-weight:800; white-space:nowrap; }
+        .portal-notice { padding:13px 15px; border-radius:14px; background:#e8f7f1; color:#087861; font-size:13px; line-height:1.45; }
+        .portal-history { margin-top:14px; display:grid; gap:9px; max-height:330px; overflow:auto; }
+        .portal-message { max-width:88%; padding:10px 12px; border-radius:13px 13px 13px 3px; background:#eef3f5; font-size:13px; line-height:1.45; }.portal-message--staff { justify-self:end; border-radius:13px 13px 3px 13px; background:#dff5ed; }.portal-message small { display:block; margin-top:5px; color:var(--portal-muted); font-size:10px; }
+        .portal-compose { display:grid; gap:9px; margin-top:15px; }.portal-compose textarea { min-height:76px; width:100%; resize:vertical; padding:12px; color:var(--portal-ink); font:inherit; font-size:13px; border:1px solid #d9e2e3; border-radius:13px; outline:none; }.portal-compose textarea:focus { border-color:var(--portal-teal); box-shadow:0 0 0 3px rgba(16,154,131,.12); }.portal-compose button { justify-self:end; border:0; padding:10px 14px; color:#fff; font:inherit; font-size:13px; font-weight:800; border-radius:11px; cursor:pointer; background:var(--portal-teal); }.portal-compose button:disabled { opacity:.6; cursor:wait; }
+        .portal-footer { margin:22px 0 0; text-align:center; color:var(--portal-muted); font-size:11px; }
+        @media (max-width:480px) { main { padding:16px 14px 34px; }.portal-hero { padding:22px; border-radius:20px; }.portal-grid { gap:8px; }.portal-metric { padding:13px 10px; }.portal-card { padding:17px; border-radius:18px; } }
+    </style>
+</head>
+<body>
+    <main id="portal-root"><div class="portal-loading">Carregando sua comanda...</div></main>
+    <script src="/js/portal.js"></script>
+</body>
+</html>

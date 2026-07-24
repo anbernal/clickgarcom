@@ -229,6 +229,12 @@ export class TablesController {
         );
     }
 
+    @Post('tabs/:tabId/portal-access')
+    @Roles(...TENANT_TAB_OPERATION_ROLES)
+    async createPortalAccess(@Request() req, @Param('tabId') tabId: string) {
+        return this.tablesService.createPortalAccess(req.user.tenantId, tabId, req.user?.id);
+    }
+
     @Get('tabs/:tabId/details')
     @Roles(...TENANT_TABLE_READ_ROLES)
     async getTabDetails(@Request() req, @Param('tabId') tabId: string) {

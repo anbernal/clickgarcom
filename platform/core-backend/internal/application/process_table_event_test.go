@@ -203,6 +203,54 @@ func TestProcessTableEventOpensIndependentComanda(t *testing.T) {
 	}
 }
 
+func TestProcessTableEventSendsPortalLinkAfterApproval(t *testing.T) {
+	ctx := context.Background()
+	tenantID := uuid.New()
+	requestID := uuid.New()
+	phone := "5511944444444"
+
+	sessionRepo := newTestSessionRepo()
+	if err := sessionRepo.Save(ctx, session.NewSession(phone, tenantID)); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	tableRepo := &testProcessTableRepo{
+		requestsByID: map[uuid.UUID]*table.TableRequest{
+			requestID: {ID: requestID, TenantID: tenantID, UserPhone: phone, Status: table.RequestStatusPending},
+		},
+		tablesByID: map[uuid.UUID]*table.Table{},
+	}
+	tabRepo := &testProcessTabRepo{}
+	sender := &testWhatsAppSender{}
+	issuer := &testPortalAccessIssuer{url: "https://clickgarcom.example/portal.html#access_token=secret"}
+	uc := NewProcessTableEventUseCase(
+		tableRepo,
+		tabRepo,
+		sessionRepo,
+		&testTenantRepo{tenant: testTenant(tenantID)},
+		sender,
+		zap.NewNop(),
+		issuer,
+	)
+
+	payload, err := json.Marshal(TableEventPayload{RequestID: requestID.String(), Action: "APPROVE"})
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	if err := uc.Execute(ctx, payload); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if len(sender.interactiveMessages) != 1 {
+		t.Fatalf("expected approval interactive message, got %d", len(sender.interactiveMessages))
+	}
+	if len(sender.textMessages) != 1 || !strings.Contains(sender.textMessages[0], issuer.url) {
+		t.Fatalf("expected separate portal link message, got %+v", sender.textMessages)
+	}
+	if len(tabRepo.createdTabs) != 1 || issuer.tabID != tabRepo.createdTabs[0].ID || issuer.tenantID != tenantID {
+		t.Fatalf("expected portal issuer scoped to the created tab, got tenant=%s tab=%s", issuer.tenantID, issuer.tabID)
+	}
+}
+
 func TestProcessTableEventRejectsRequestAndNotifiesCustomer(t *testing.T) {
 	ctx := context.Background()
 	tenantID := uuid.New()
@@ -326,6 +374,18 @@ func (r *testProcessTableRepo) UpdateRequest(_ context.Context, req *table.Table
 
 type testProcessTabRepo struct {
 	createdTabs []*tab.Tab
+}
+
+type testPortalAccessIssuer struct {
+	url      string
+	tenantID uuid.UUID
+	tabID    uuid.UUID
+}
+
+func (i *testPortalAccessIssuer) CreatePortalAccess(_ context.Context, tenantID, tabID uuid.UUID) (string, error) {
+	i.tenantID = tenantID
+	i.tabID = tabID
+	return i.url, nil
 }
 
 func (r *testProcessTabRepo) FindByID(_ context.Context, id uuid.UUID, tenantID uuid.UUID) (*tab.Tab, error) {

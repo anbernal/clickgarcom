@@ -1885,11 +1885,11 @@ async function sendWaiterChatMessage() {
   }
 
   try {
-    await apiPost(`/tables/waiter/chats/${activeWaiterChatId}/messages`, { message });
+    const payload = await apiPost(`/tables/waiter/chats/${activeWaiterChatId}/messages`, { message });
     input.value = '';
     await Promise.all([loadWaiterChats(), loadWaiterChatMessages(activeWaiterChatId)]);
     broadcastKdsSync('waiter.chat.message_sent');
-    toast('t-success', '✅ Mensagem enviada', 'Cliente notificado no WhatsApp');
+    toast('t-success', '✅ Mensagem enviada', payload?.deliveryChannel === 'PORTAL' ? 'Cliente notificado no portal' : 'Cliente notificado no WhatsApp');
   } catch (e) {
     toast('t-error', '❌ Erro', e.message);
   }

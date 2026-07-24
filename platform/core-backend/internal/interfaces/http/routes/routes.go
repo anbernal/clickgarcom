@@ -81,6 +81,13 @@ func SetupRoutes(
 	jwtAuth := middleware.JWTAuth(authService)
 
 	registerPublicCheckoutProxyRoutes(app, logger)
+	portalWebSocketHandler := handlers.NewPortalWebSocketHandler(db.DB, logger)
+	app.Post("/internal/portal/events", func(c *fiber.Ctx) error {
+		if strings.TrimSpace(c.Get("X-Internal-Token")) != internalToken {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid internal token"})
+		}
+		return portalWebSocketHandler.HandleInternalEvent(c)
+	})
 
 	// Auth routes
 	authGrp := app.Group("/auth")
@@ -373,6 +380,10 @@ func SetupRoutes(
 	exitQRCodeHandler := handlers.NewExitQRCodeHandler(logger)
 	app.Get("/api/exit/:tabId/qr.png", exitQRCodeHandler.GetExitQRCode)
 
+	// Portal QR is a revocable opaque credential. The token itself is required to render it.
+	portalQRCodeHandler := handlers.NewPortalQRCodeHandler(logger)
+	app.Get("/api/portal/qr.png", portalQRCodeHandler.GetPortalQRCode)
+
 	// Order routes (Protected)
 	orders := app.Group("/orders", jwtAuth, middleware.TenantScope)
 	{
@@ -392,6 +403,10 @@ func SetupRoutes(
 			return fiber.ErrUpgradeRequired
 		})
 		ws.Get("/kds", wsHandler.HandleKDS, fiberws.New(wsHandler.HandleKDSConnection, fiberws.Config{
+			EnableCompression: true,
+		}))
+		ws.Use("/portal", portalWebSocketHandler.Authorize)
+		ws.Get("/portal", fiberws.New(portalWebSocketHandler.HandleConnection, fiberws.Config{
 			EnableCompression: true,
 		}))
 	}
@@ -430,6 +445,7 @@ func registerPublicCheckoutProxyRoutes(app *fiber.App, logger *zap.Logger) {
 	}
 
 	app.All("/checkout.html", webHandler)
+	app.All("/portal.html", webHandler)
 	app.All("/css/*", webHandler)
 	app.All("/js/*", webHandler)
 	app.All("/assets/*", webHandler)

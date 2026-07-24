@@ -176,6 +176,7 @@ function renderComandasResults() {
             ? `<button class="btn-sm btn-outline" type="button" onclick="openComandaConsultation('${code}')">Consultar</button>`
             : `
               <button class="btn-sm btn-outline" type="button" onclick="openComandaConsultation('${code}')">Consultar</button>
+              <button class="btn-sm btn-outline" type="button" onclick="openComandaPortalAccess('${escapeHTML(tab.id)}')">QR do portal</button>
               <button class="btn-sm btn-outline" type="button" onclick="openEditComandaTable('${escapeHTML(tab.id)}')">${tab.tableId ? 'Alterar mesa' : 'Vincular mesa'}</button>
               ${canFinalize ? `<button class="btn-sm btn-danger" type="button" onclick="finalizeComandaFromPanel('${escapeHTML(tab.id)}')">Finalizar</button>` : ''}
             `;
@@ -384,10 +385,47 @@ async function openNewTabFromPanel() {
     });
     comandasViewState.page = 1;
     comandasViewState.sort = 'RECENT';
-    showToast(`Comanda ${created.publicCode || created.id} aberta. Informe esse código ao cliente.`);
+    await openComandaPortalAccess(created.id, created.publicCode || created.id, true);
     await loadComandas();
   } catch (error) {
     showToast(`Erro: ${error.message}`, 'error');
+  }
+}
+
+async function openComandaPortalAccess(tabId, publicCode = '', openedNow = false) {
+  try {
+    const access = await api.post(`/tables/tabs/${tabId}/portal-access`, {});
+    const code = publicCode || comandasOpenTabsCache.find((tab) => String(tab.id) === String(tabId))?.publicCode || tabId;
+    openModal(`
+      <div class="modal-header">
+        <div><h3>Portal da comanda</h3><div class="comandas-modal-code">Comanda <strong class="mono">${escapeHTML(code)}</strong></div></div>
+        <button class="modal-close" type="button" onclick="closeModal()">✕</button>
+      </div>
+      <div class="modal-body" style="text-align:center;display:grid;gap:14px">
+        <p style="margin:0;color:var(--muted);font-size:13px;line-height:1.5">Peça ao cliente para escanear. O acesso funciona sem WhatsApp e será encerrado ao finalizar a conta.</p>
+        <img src="${escapeHTML(access.qrImagePath)}" alt="QR Code do portal da comanda" style="width:min(100%,250px);margin:auto;padding:12px;background:#fff;border:1px solid var(--border);border-radius:16px">
+        <input class="input mono" id="portal-access-link" readonly value="${escapeHTML(access.portalUrl)}" aria-label="Link do portal da comanda">
+      </div>
+      <div class="modal-footer">
+        <button class="btn-sm btn-outline" type="button" onclick="copyPortalAccessLink()">Copiar link</button>
+        <a class="btn-sm btn-primary" href="${escapeHTML(access.portalPath)}" target="_blank" rel="noopener">Testar portal</a>
+      </div>
+    `);
+    if (openedNow) showToast(`Comanda ${code} aberta. Apresente o QR Code ao cliente.`);
+  } catch (error) {
+    showToast(`Erro ao gerar acesso web: ${error.message}`, 'error');
+  }
+}
+
+async function copyPortalAccessLink() {
+  const field = document.getElementById('portal-access-link');
+  if (!field) return;
+  try {
+    await navigator.clipboard.writeText(field.value);
+    showToast('Link do portal copiado.');
+  } catch (_error) {
+    field.select();
+    showToast('Selecione e copie o link.');
   }
 }
 

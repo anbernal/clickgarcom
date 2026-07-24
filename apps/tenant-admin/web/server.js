@@ -80,10 +80,12 @@ function sendRuntimeConfig(req, res, requestBasePath) {
       : `${apiBaseUrl}/public/tables`,
   );
   const kdsWsUrl = resolveKdsWebSocketUrl(req, { isPublicProxyRequest });
+  const portalWsUrl = resolvePortalWebSocketUrl(req, { isPublicProxyRequest });
   const payload = {
     apiBaseUrl,
     publicTablesApiBaseUrl,
     kdsWsUrl,
+    portalWsUrl,
     appBasePath: requestBasePath,
     loginPagePath: buildPathWithBase(requestBasePath, '/login.html'),
     appHomePath: buildPathWithBase(requestBasePath, '/'),
@@ -260,6 +262,27 @@ function resolveKdsWebSocketUrl(req, options = {}) {
   return buildBrowserServiceUrl(req, {
     pathname: '/ws/kds',
     port: process.env.KDS_WS_BROWSER_PORT || '8080',
+    protocol: origin.protocol === 'https:' ? 'wss:' : 'ws:',
+  });
+}
+
+function resolvePortalWebSocketUrl(req, options = {}) {
+  const configuredValue = String(process.env.PORTAL_WS_URL || '').trim();
+  if (configuredValue) {
+    return configuredValue.replace(/\/+$/, '');
+  }
+
+  if (options.isPublicProxyRequest) {
+    const origin = getRequestOrigin(req);
+    const targetUrl = new URL('/ws/portal', origin);
+    targetUrl.protocol = origin.protocol === 'https:' ? 'wss:' : 'ws:';
+    return targetUrl.toString().replace(/\/+$/, '');
+  }
+
+  const origin = getRequestOrigin(req);
+  return buildBrowserServiceUrl(req, {
+    pathname: '/ws/portal',
+    port: process.env.PORTAL_WS_BROWSER_PORT || '8080',
     protocol: origin.protocol === 'https:' ? 'wss:' : 'ws:',
   });
 }

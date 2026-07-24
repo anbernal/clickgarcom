@@ -23,12 +23,19 @@ const (
 )
 
 type ProcessTableEventUseCase struct {
-	tableRepo   table.Repository
-	tabRepo     tab.Repository
-	sessionRepo session.Repository
-	tenantRepo  tenant.Repository
-	sender      WhatsAppSender
-	logger      *zap.Logger
+	tableRepo    table.Repository
+	tabRepo      tab.Repository
+	sessionRepo  session.Repository
+	tenantRepo   tenant.Repository
+	sender       WhatsAppSender
+	portalAccess PortalAccessIssuer
+	logger       *zap.Logger
+}
+
+// PortalAccessIssuer creates the one-time URL that lets a customer continue
+// the current comanda outside WhatsApp.
+type PortalAccessIssuer interface {
+	CreatePortalAccess(ctx context.Context, tenantID, tabID uuid.UUID) (string, error)
 }
 
 func NewProcessTableEventUseCase(
@@ -38,14 +45,20 @@ func NewProcessTableEventUseCase(
 	tenantRepo tenant.Repository,
 	sender WhatsAppSender,
 	logger *zap.Logger,
+	portalAccess ...PortalAccessIssuer,
 ) *ProcessTableEventUseCase {
+	var issuer PortalAccessIssuer
+	if len(portalAccess) > 0 {
+		issuer = portalAccess[0]
+	}
 	return &ProcessTableEventUseCase{
-		tableRepo:   tableRepo,
-		tabRepo:     tabRepo,
-		sessionRepo: sessionRepo,
-		tenantRepo:  tenantRepo,
-		sender:      sender,
-		logger:      logger,
+		tableRepo:    tableRepo,
+		tabRepo:      tabRepo,
+		sessionRepo:  sessionRepo,
+		tenantRepo:   tenantRepo,
+		sender:       sender,
+		portalAccess: issuer,
+		logger:       logger,
 	}
 }
 
@@ -194,6 +207,16 @@ func (uc *ProcessTableEventUseCase) Execute(ctx context.Context, payloadBytes []
 		msgFallback = whatsapp.WithRestaurantHeader(tenantObj.Name, msgFallback)
 	}
 
+	// A portal link is supplementary: failure must never block the WhatsApp
+	// approval that already opened the comanda.
+	portalURL := ""
+	if uc.portalAccess != nil {
+		portalURL, err = uc.portalAccess.CreatePortalAccess(ctx, req.TenantID, tabID)
+		if err != nil {
+			uc.logger.Warn("failed to create portal access for approved comanda", zap.Error(err), zap.String("tab_id", tabID.String()))
+		}
+	}
+
 	recipient := req.UserPhone
 	if sess != nil && strings.TrimSpace(sess.UserPhone) != "" {
 		recipient = sess.UserPhone
@@ -203,6 +226,12 @@ func (uc *ProcessTableEventUseCase) Execute(ctx context.Context, payloadBytes []
 		uc.logger.Warn("failed to send interactive comanda approval, falling back to text", zap.Error(err))
 		if err := uc.sender.SendText(ctx, recipient, appendMainMenuBackOption(msgFallback)); err != nil {
 			uc.logger.Error("failed to send wa approval message", zap.Error(err))
+		}
+	}
+	if portalURL != "" {
+		portalMessage := "🌐 *Continue sua comanda pelo navegador*\n\nSe o WhatsApp ficar indisponível, use este link para ver pedidos, chamar a equipe e continuar comprando:\n" + portalURL
+		if err := uc.sender.SendText(ctx, recipient, portalMessage); err != nil {
+			uc.logger.Warn("failed to send portal access link", zap.Error(err), zap.String("tab_id", tabID.String()))
 		}
 	}
 

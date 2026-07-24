@@ -9,7 +9,7 @@ import { AmqpService } from '../amqp/amqp.service';
 import { WalletService } from '../wallet/wallet.service';
 import { TenantUserRole } from '../auth/roles';
 import { v4 as uuidv4 } from 'uuid';
-import { randomInt } from 'crypto';
+import { createHash, randomBytes, randomInt } from 'crypto';
 
 type TabActorContext = {
     userId?: string;
@@ -322,6 +322,348 @@ export class TablesService {
         }
 
         throw new BadRequestException('Não foi possível gerar um código único para a comanda. Tente novamente.');
+    }
+
+    async createPortalAccess(tenantId: string, tabId: string, staffUserId?: string) {
+        const queryRunner = this.dataSource.createQueryRunner();
+        await queryRunner.connect();
+        await queryRunner.startTransaction();
+
+        try {
+            const rows = await queryRunner.query(
+                `SELECT id, tenant_id, status
+                   FROM tabs
+                  WHERE id = $1
+                    AND tenant_id = $2
+                  LIMIT 1
+                  FOR UPDATE`,
+                [tabId, tenantId],
+            );
+            const tab = rows?.[0];
+            if (!tab) {
+                throw new NotFoundException('Comanda não encontrada para este restaurante.');
+            }
+            if (String(tab.status || '').toUpperCase() === 'CLOSED') {
+                throw new BadRequestException('Não é possível liberar o portal de uma comanda finalizada.');
+            }
+
+            await queryRunner.query(
+                `UPDATE tab_portal_access_credentials
+                    SET revoked_at = NOW(),
+                        revoked_by_user_id = $3::uuid
+                  WHERE tenant_id = $1
+                    AND tab_id = $2
+                    AND revoked_at IS NULL`,
+                [tenantId, tabId, this.normalizeUuidOrNull(staffUserId)],
+            );
+
+            const rawToken = randomBytes(32).toString('base64url');
+            const tokenHash = this.hashPortalToken(rawToken);
+            const credentialId = uuidv4();
+            await queryRunner.query(
+                `INSERT INTO tab_portal_access_credentials
+                    (id, tenant_id, tab_id, token_hash, created_at)
+                 VALUES ($1, $2, $3, $4, NOW())`,
+                [credentialId, tenantId, tabId, tokenHash],
+            );
+
+            await this.recordTabEvent(queryRunner, tenantId, tabId, 'PORTAL_ACCESS_CREATED', {
+                actorUserId: staffUserId,
+                details: { credential_id: credentialId },
+            });
+            await queryRunner.commitTransaction();
+
+            const portalPath = `/portal.html#access_token=${encodeURIComponent(rawToken)}`;
+            return {
+                portalPath,
+                portalUrl: `${this.resolvePublicPortalBaseUrl()}${portalPath}`,
+                qrImagePath: `/api/portal/qr.png?access_token=${encodeURIComponent(rawToken)}`,
+            };
+        } catch (error) {
+            await queryRunner.rollbackTransaction();
+            throw error;
+        } finally {
+            await queryRunner.release();
+        }
+    }
+
+    async startPortalSession(accessToken: string) {
+        const credential = await this.loadPortalCredential(accessToken);
+        const sessionToken = this.jwtService.sign({
+            scope: 'tab_portal',
+            credential_id: credential.id,
+            tenant_id: credential.tenantId,
+            tab_id: credential.tabId,
+        }, { expiresIn: '12h' });
+
+        return { sessionToken, expiresInSeconds: 12 * 60 * 60 };
+    }
+
+    async getPortalTab(sessionToken: string) {
+        const credential = await this.loadPortalSession(sessionToken);
+        const tab = await this.loadPortalTabContext(credential.tabId, credential.tenantId);
+        if (!tab) {
+            throw new UnauthorizedException('Acesso à comanda não está mais disponível.');
+        }
+
+        const [items, messages] = await Promise.all([
+            this.dataSource.query(
+                `SELECT oi.quantity,
+                        oi.unit_price,
+                        COALESCE(mi.name, 'Item') AS name,
+                        o.status AS order_status,
+                        o.created_at
+                   FROM orders o
+                   JOIN order_items oi ON oi.order_id = o.id
+              LEFT JOIN menu_items mi ON mi.id = oi.menu_item_id
+                  WHERE o.tenant_id = $1
+                    AND o.tab_id = $2
+                    AND o.status <> 'CANCELED'
+                  ORDER BY o.created_at DESC, oi.created_at ASC`,
+                [credential.tenantId, credential.tabId],
+            ),
+            this.dataSource.query(
+                `SELECT sender_type, sender_name, message, created_at
+                   FROM waiter_chat_messages
+                  WHERE tenant_id = $1
+                    AND chat_id IN (
+                        SELECT id
+                          FROM waiter_chats
+                         WHERE tenant_id = $1
+                           AND tab_id = $2
+                    )
+                  ORDER BY created_at ASC
+                  LIMIT 100`,
+                [credential.tenantId, credential.tabId],
+            ),
+        ]);
+
+        return {
+            ...this.buildPublicTabPayload(tab),
+            subtotal: this.roundMoney(tab.subtotal),
+            serviceFee: this.roundMoney(tab.serviceFee),
+            openedAt: tab.openedAt,
+            items: (items || []).map((item: any) => ({
+                name: String(item.name || 'Item'),
+                quantity: Number(item.quantity || 0),
+                unitPrice: Number(item.unit_price || 0),
+                orderStatus: String(item.order_status || ''),
+                createdAt: item.created_at,
+            })),
+            messages: (messages || []).map((message: any) => ({
+                senderType: String(message.sender_type || 'SYSTEM'),
+                senderName: String(message.sender_name || ''),
+                message: String(message.message || ''),
+                createdAt: message.created_at,
+            })),
+        };
+    }
+
+    async sendPortalMessage(sessionToken: string, message: string) {
+        const credential = await this.loadPortalSession(sessionToken);
+        const text = String(message || '').trim();
+        if (!text) {
+            throw new BadRequestException('Digite uma mensagem para a equipe.');
+        }
+        if (text.length > 1000) {
+            throw new BadRequestException('A mensagem pode ter no máximo 1000 caracteres.');
+        }
+
+        const queryRunner = this.dataSource.createQueryRunner();
+        await queryRunner.connect();
+        await queryRunner.startTransaction();
+        try {
+            const tabRows = await queryRunner.query(
+                `SELECT id, table_id, public_code
+                   FROM tabs
+                  WHERE id = $1
+                    AND tenant_id = $2
+                    AND status <> 'CLOSED'
+                  LIMIT 1
+                  FOR UPDATE`,
+                [credential.tabId, credential.tenantId],
+            );
+            const tab = tabRows?.[0];
+            if (!tab) {
+                throw new UnauthorizedException('A comanda foi encerrada.');
+            }
+
+            const chatRows = await queryRunner.query(
+                `SELECT id
+                   FROM waiter_chats
+                  WHERE tenant_id = $1
+                    AND tab_id = $2
+                    AND status = 'OPEN'
+                  ORDER BY opened_at ASC
+                  LIMIT 1
+                  FOR UPDATE`,
+                [credential.tenantId, credential.tabId],
+            );
+
+            let chatId = String(chatRows?.[0]?.id || '');
+            if (!chatId) {
+                chatId = uuidv4();
+                const portalIdentity = `portal:${String(tab.public_code || credential.tabId).slice(0, 20)}`;
+                await queryRunner.query(
+                    `INSERT INTO waiter_chats
+                        (id, tenant_id, user_phone, tab_id, table_id, status, opened_at, last_message_at)
+                     VALUES ($1, $2, $3, $4, $5, 'OPEN', NOW(), NOW())`,
+                    [chatId, credential.tenantId, portalIdentity, credential.tabId, tab.table_id || null],
+                );
+            }
+
+            await queryRunner.query(
+                `INSERT INTO waiter_chat_messages
+                    (id, chat_id, tenant_id, sender_type, sender_name, message, created_at)
+                 VALUES (gen_random_uuid(), $1, $2, 'CUSTOMER', 'Cliente do portal', $3, NOW())`,
+                [chatId, credential.tenantId, text],
+            );
+            await queryRunner.query(
+                `UPDATE waiter_chats
+                    SET last_message_at = NOW()
+                  WHERE id = $1
+                    AND tenant_id = $2`,
+                [chatId, credential.tenantId],
+            );
+            await queryRunner.commitTransaction();
+            void this.notifyPortalEvent(credential.tenantId, credential.tabId, 'chat.updated');
+            return { ok: true, chatId };
+        } catch (error) {
+            await queryRunner.rollbackTransaction();
+            throw error;
+        } finally {
+            await queryRunner.release();
+        }
+    }
+
+    async getPortalMenu(sessionToken: string) {
+        const credential = await this.loadPortalSession(sessionToken);
+        const rows = await this.dataSource.query(
+            `SELECT mi.id,
+                    mi.category_id,
+                    mi.name,
+                    mi.description,
+                    mi.price,
+                    mi.image_url,
+                    mi.destination,
+                    mi.available,
+                    mi.track_stock,
+                    mi.stock_quantity,
+                    mi.availability_windows,
+                    mi.item_type,
+                    mi.option_groups,
+                    mc.name AS category_name,
+                    mc.display_order AS category_display_order,
+                    mi.display_order
+               FROM menu_items mi
+          LEFT JOIN menu_categories mc
+                 ON mc.id = mi.category_id
+                AND mc.tenant_id = mi.tenant_id
+              WHERE mi.tenant_id = $1
+              ORDER BY COALESCE(mc.display_order, 9999), mc.name, mi.display_order, mi.name`,
+            [credential.tenantId],
+        );
+
+        return (rows || [])
+            .filter((item: any) => this.isPortalMenuItemAvailable(item) && this.isPortalSimpleMenuItem(item))
+            .map((item: any) => ({
+                id: String(item.id),
+                categoryId: item.category_id ? String(item.category_id) : null,
+                categoryName: String(item.category_name || 'Cardápio'),
+                name: String(item.name || 'Item'),
+                description: String(item.description || ''),
+                price: Number(item.price || 0),
+                imageUrl: String(item.image_url || ''),
+            }));
+    }
+
+    async createPortalOrder(sessionToken: string, rawItems: unknown) {
+        const credential = await this.loadPortalSession(sessionToken);
+        const requestedItems = this.normalizePortalOrderItems(rawItems);
+        const queryRunner = this.dataSource.createQueryRunner();
+        await queryRunner.connect();
+        await queryRunner.startTransaction();
+
+        try {
+            const tabRows = await queryRunner.query(
+                `SELECT id
+                   FROM tabs
+                  WHERE id = $1
+                    AND tenant_id = $2
+                    AND status <> 'CLOSED'
+                  LIMIT 1
+                  FOR UPDATE`,
+                [credential.tabId, credential.tenantId],
+            );
+            if (!tabRows?.[0]) {
+                throw new UnauthorizedException('A comanda foi encerrada.');
+            }
+
+            const ids = requestedItems.map((item) => item.menuItemId);
+            const menuRows = await queryRunner.query(
+                `SELECT id, name, price, destination, available, track_stock, stock_quantity, availability_windows,
+                        item_type, option_groups
+                   FROM menu_items
+                  WHERE tenant_id = $1
+                    AND id = ANY($2::uuid[])
+                  FOR UPDATE`,
+                [credential.tenantId, ids],
+            );
+            const menuById = new Map<string, Record<string, unknown>>(
+                (menuRows || []).map((item: any) => [String(item.id), item as Record<string, unknown>]),
+            );
+            const grouped = new Map<string, Array<{ id: string; quantity: number; name: string; price: number }>>();
+
+            for (const requested of requestedItems) {
+                const menuItem = menuById.get(requested.menuItemId);
+                if (!menuItem || !this.isPortalMenuItemAvailable(menuItem) || !this.isPortalSimpleMenuItem(menuItem)) {
+                    throw new BadRequestException('Um dos itens selecionados não está mais disponível. Atualize o cardápio.');
+                }
+                const destination = String(menuItem.destination || '').toUpperCase();
+                if (destination !== 'KITCHEN' && destination !== 'BAR') {
+                    throw new BadRequestException('Um dos itens selecionados não possui destino de preparo válido.');
+                }
+                const items = grouped.get(destination) || [];
+                items.push({
+                    id: String(menuItem.id),
+                    quantity: requested.quantity,
+                    name: String(menuItem.name || 'Item'),
+                    price: Number(menuItem.price || 0),
+                });
+                grouped.set(destination, items);
+            }
+
+            const createdOrderIds: string[] = [];
+            for (const [destination, items] of grouped) {
+                const orderId = uuidv4();
+                await queryRunner.query(
+                    `INSERT INTO orders (id, tenant_id, tab_id, destination, status, notes, created_at)
+                     VALUES ($1, $2, $3, $4, 'PENDING', 'Pedido realizado pelo Portal da Comanda', NOW())`,
+                    [orderId, credential.tenantId, credential.tabId, destination],
+                );
+                for (const item of items) {
+                    await queryRunner.query(
+                        `INSERT INTO order_items (id, order_id, menu_item_id, quantity, unit_price, created_at)
+                         VALUES (gen_random_uuid(), $1, $2, $3, $4, NOW())`,
+                        [orderId, item.id, item.quantity, item.price],
+                    );
+                }
+                createdOrderIds.push(orderId);
+            }
+
+            await this.recordTabEvent(queryRunner, credential.tenantId, credential.tabId, 'PORTAL_ORDER_CREATED', {
+                details: { order_ids: createdOrderIds, item_count: requestedItems.length },
+            });
+            await queryRunner.commitTransaction();
+            await this.reconcileTabFinancialSnapshot(credential.tabId, credential.tenantId);
+            void this.notifyPortalEvent(credential.tenantId, credential.tabId, 'order.updated');
+            return { ok: true, orderIds: createdOrderIds };
+        } catch (error) {
+            await queryRunner.rollbackTransaction();
+            throw error;
+        } finally {
+            await queryRunner.release();
+        }
     }
 
     async updateTabCustomer(
@@ -2120,12 +2462,16 @@ export class TablesService {
                     wc.tab_id,
                     wc.table_id,
                     t.number AS table_number,
+                    tb.public_code AS tab_public_code,
                     lm.message AS last_message,
                     lm.sender_type AS last_sender_type,
                     lm.created_at AS last_message_created_at
                FROM waiter_chats wc
                LEFT JOIN tables t
                  ON t.id = wc.table_id
+              LEFT JOIN tabs tb
+                 ON tb.id = wc.tab_id
+                AND tb.tenant_id = wc.tenant_id
                LEFT JOIN LATERAL (
                     SELECT m.message, m.sender_type, m.created_at
                       FROM waiter_chat_messages m
@@ -2141,7 +2487,9 @@ export class TablesService {
 
         return (rows || []).map((row: any) => ({
             id: String(row.id),
-            userPhone: String(row.user_phone || ''),
+            userPhone: String(row.user_phone || '').startsWith('portal:')
+                ? `Portal · comanda ${String(row.tab_public_code || '').trim() || '--'}`
+                : String(row.user_phone || ''),
             status: String(row.status || 'OPEN'),
             openedAt: row.opened_at,
             lastMessageAt: row.last_message_at,
@@ -2202,10 +2550,8 @@ export class TablesService {
             throw new BadRequestException('Mensagem obrigatória');
         }
 
-        await this.assertTenantCanSendWhatsApp(tenantId);
-
         const rows = await this.dataSource.query(
-            `SELECT id, user_phone, status
+            `SELECT id, user_phone, status, tab_id
                FROM waiter_chats
               WHERE id = $1
                 AND tenant_id = $2
@@ -2218,6 +2564,11 @@ export class TablesService {
         }
         if (String(chat.status) !== 'OPEN') {
             throw new BadRequestException('Conversa já encerrada');
+        }
+
+        const portalOnly = String(chat.user_phone || '').startsWith('portal:');
+        if (!portalOnly) {
+            await this.assertTenantCanSendWhatsApp(tenantId);
         }
 
         await this.dataSource.query(
@@ -2235,14 +2586,19 @@ export class TablesService {
             [chatId, tenantId],
         );
 
-        await this.dataSource.query(
-            `INSERT INTO outbox_messages
-                (tenant_id, destination, recipient, payload, sent, attempts, max_attempts, created_at)
-             VALUES ($1, 'whatsapp', $2, $3, false, 0, 3, NOW())`,
-            [tenantId, String(chat.user_phone || ''), text],
-        );
+        if (!portalOnly) {
+            await this.dataSource.query(
+                `INSERT INTO outbox_messages
+                    (tenant_id, destination, recipient, payload, sent, attempts, max_attempts, created_at)
+                 VALUES ($1, 'whatsapp', $2, $3, false, 0, 3, NOW())`,
+                [tenantId, String(chat.user_phone || ''), text],
+            );
+        }
 
-        return { ok: true };
+        if (chat.tab_id) {
+            void this.notifyPortalEvent(tenantId, String(chat.tab_id), 'chat.updated');
+        }
+        return { ok: true, deliveryChannel: portalOnly ? 'PORTAL' : 'WHATSAPP' };
     }
 
     async closeWaiterChat(chatId: string, tenantId: string, staffName?: string) {
@@ -2422,6 +2778,17 @@ export class TablesService {
                     AND tab_id = $2
                     AND request_type = 'CLOSE_BILL'
                     AND status IN ('PENDING', 'IN_PROGRESS')`,
+                [tenantId, tabId, this.normalizeUuidOrNull(options.resolvedByUserId)],
+            );
+
+            // A comanda fechada não pode continuar acessível pelo QR ou por sessões já abertas.
+            await queryRunner.query(
+                `UPDATE tab_portal_access_credentials
+                    SET revoked_at = COALESCE(revoked_at, NOW()),
+                        revoked_by_user_id = COALESCE(revoked_by_user_id, $3::uuid)
+                  WHERE tenant_id = $1
+                    AND tab_id = $2
+                    AND revoked_at IS NULL`,
                 [tenantId, tabId, this.normalizeUuidOrNull(options.resolvedByUserId)],
             );
 
@@ -3144,6 +3511,211 @@ export class TablesService {
         return status === 'PENDING' || !status;
     }
 
+    private hashPortalToken(rawToken: string) {
+        return createHash('sha256').update(String(rawToken || ''), 'utf8').digest('hex');
+    }
+
+    private async loadPortalCredential(rawToken: string) {
+        const token = String(rawToken || '').trim();
+        if (token.length < 32) {
+            throw new UnauthorizedException('Link da comanda inválido ou expirado.');
+        }
+
+        const rows = await this.dataSource.query(
+            `SELECT c.id, c.tenant_id, c.tab_id
+               FROM tab_portal_access_credentials c
+               JOIN tabs tb ON tb.id = c.tab_id AND tb.tenant_id = c.tenant_id
+              WHERE c.token_hash = $1
+                AND c.revoked_at IS NULL
+                AND (c.expires_at IS NULL OR c.expires_at > NOW())
+                AND tb.status <> 'CLOSED'
+              LIMIT 1`,
+            [this.hashPortalToken(token)],
+        );
+        const credential = rows?.[0];
+        if (!credential) {
+            throw new UnauthorizedException('Link da comanda inválido ou expirado.');
+        }
+
+        return {
+            id: String(credential.id),
+            tenantId: String(credential.tenant_id),
+            tabId: String(credential.tab_id),
+        };
+    }
+
+    private async loadPortalSession(sessionToken: string) {
+        let claims: Record<string, unknown>;
+        try {
+            claims = this.jwtService.verify(sessionToken) as Record<string, unknown>;
+        } catch (_error) {
+            throw new UnauthorizedException('Sessão da comanda expirada. Leia o QR Code novamente.');
+        }
+
+        if (String(claims.scope || '') !== 'tab_portal') {
+            throw new UnauthorizedException('Sessão da comanda inválida.');
+        }
+
+        const credentialId = String(claims.credential_id || '').trim();
+        const tenantId = String(claims.tenant_id || '').trim();
+        const tabId = String(claims.tab_id || '').trim();
+        if (!credentialId || !tenantId || !tabId) {
+            throw new UnauthorizedException('Sessão da comanda inválida.');
+        }
+
+        const rows = await this.dataSource.query(
+            `SELECT c.id
+               FROM tab_portal_access_credentials c
+               JOIN tabs tb ON tb.id = c.tab_id AND tb.tenant_id = c.tenant_id
+              WHERE c.id = $1
+                AND c.tenant_id = $2
+                AND c.tab_id = $3
+                AND c.revoked_at IS NULL
+                AND (c.expires_at IS NULL OR c.expires_at > NOW())
+                AND tb.status <> 'CLOSED'
+              LIMIT 1`,
+            [credentialId, tenantId, tabId],
+        );
+        if (!rows?.[0]) {
+            throw new UnauthorizedException('A comanda foi encerrada ou o acesso foi renovado.');
+        }
+
+        return { id: credentialId, tenantId, tabId };
+    }
+
+    private async loadPortalTabContext(tabId: string, tenantId: string) {
+        const rows = await this.dataSource.query(
+            `SELECT tb.id,
+                    tb.tenant_id,
+                    tb.table_id,
+                    tb.public_code,
+                    tb.service_mode,
+                    tb.exit_validated_at,
+                    tb.status,
+                    tb.opened_at,
+                    tb.closed_at,
+                    t.number AS table_number,
+                    tn.name AS tenant_name,
+                    tn.settings AS tenant_settings
+               FROM tabs tb
+               JOIN tenants tn ON tn.id = tb.tenant_id
+          LEFT JOIN tables t ON t.id = tb.table_id AND t.tenant_id = tb.tenant_id
+              WHERE tb.id = $1
+                AND tb.tenant_id = $2
+                AND tb.status <> 'CLOSED'
+              LIMIT 1`,
+            [tabId, tenantId],
+        );
+        const row = rows?.[0];
+        if (!row) return null;
+
+        const financialSnapshot = await this.reconcileTabFinancialSnapshot(tabId, tenantId);
+        return {
+            id: String(row.id),
+            tenantId: String(row.tenant_id),
+            tableId: row.table_id ? String(row.table_id) : null,
+            publicCode: String(row.public_code || '').trim() || null,
+            serviceMode: String(row.service_mode || 'COM_MESA').trim() || 'COM_MESA',
+            exitValidatedAt: row.exit_validated_at || null,
+            subtotal: financialSnapshot.subtotal,
+            serviceFee: financialSnapshot.serviceFee,
+            total: financialSnapshot.total,
+            paidAmount: financialSnapshot.paidAmount,
+            amountDue: this.getAmountDue(financialSnapshot.total, financialSnapshot.paidAmount, String(row.status || 'OPEN')),
+            status: String(row.status || 'OPEN'),
+            openedAt: row.opened_at,
+            closedAt: row.closed_at,
+            tableNumber: row.table_number || null,
+            tenantName: String(row.tenant_name || 'ClickGarcom'),
+            tenantSettings: this.parseTenantSettings(row.tenant_settings),
+        };
+    }
+
+    private resolvePublicPortalBaseUrl() {
+        return String(process.env.PUBLIC_ADMIN_BASE_URL || '').trim().replace(/\/+$/, '');
+    }
+
+    private normalizePortalOrderItems(rawItems: unknown) {
+        if (!Array.isArray(rawItems) || rawItems.length === 0 || rawItems.length > 15) {
+            throw new BadRequestException('Selecione de 1 a 15 itens para o pedido.');
+        }
+
+        const quantities = new Map<string, number>();
+        for (const rawItem of rawItems) {
+            const item = rawItem as Record<string, unknown>;
+            const menuItemId = String(item?.menu_item_id || item?.menuItemId || '').trim();
+            const quantity = Number(item?.quantity || 0);
+            if (!this.normalizeUuidOrNull(menuItemId) || !Number.isInteger(quantity) || quantity < 1 || quantity > 20) {
+                throw new BadRequestException('Item ou quantidade inválida no pedido.');
+            }
+            const nextQuantity = (quantities.get(menuItemId) || 0) + quantity;
+            if (nextQuantity > 20) {
+                throw new BadRequestException('Cada item pode ter no máximo 20 unidades por pedido.');
+            }
+            quantities.set(menuItemId, nextQuantity);
+        }
+
+        return Array.from(quantities, ([menuItemId, quantity]) => ({ menuItemId, quantity }));
+    }
+
+    private isPortalMenuItemAvailable(item: Record<string, unknown>) {
+        if (item.available !== true && item.available !== 'true' && item.available !== 1 && item.available !== '1') {
+            return false;
+        }
+        const tracksStock = item.track_stock === true || item.track_stock === 'true' || item.track_stock === 1 || item.track_stock === '1';
+        if (tracksStock && Number(item.stock_quantity || 0) <= 0) {
+            return false;
+        }
+
+        const rawWindows = item.availability_windows;
+        const windows = Array.isArray(rawWindows)
+            ? rawWindows
+            : typeof rawWindows === 'string'
+                ? this.parseJsonArray(rawWindows)
+                : [];
+        if (!windows.length) return true;
+
+        const now = new Date();
+        const minuteOfDay = now.getHours() * 60 + now.getMinutes();
+        return windows.some((rawWindow: any) => {
+            const day = Number(rawWindow?.dayOfWeek ?? rawWindow?.day_of_week);
+            const start = this.timeToMinutes(rawWindow?.startTime ?? rawWindow?.start_time);
+            const end = this.timeToMinutes(rawWindow?.endTime ?? rawWindow?.end_time);
+            return day === now.getDay() && start !== null && end !== null && minuteOfDay >= start && minuteOfDay <= end;
+        });
+    }
+
+    private isPortalSimpleMenuItem(item: Record<string, unknown>) {
+        if (String(item.item_type || 'STANDARD').toUpperCase() !== 'STANDARD') {
+            return false;
+        }
+
+        const rawOptionGroups = item.option_groups;
+        const optionGroups = Array.isArray(rawOptionGroups)
+            ? rawOptionGroups
+            : typeof rawOptionGroups === 'string'
+                ? this.parseJsonArray(rawOptionGroups)
+                : [];
+        return optionGroups.length === 0;
+    }
+
+    private parseJsonArray(value: string): any[] {
+        try {
+            const parsed = JSON.parse(value);
+            return Array.isArray(parsed) ? parsed : [];
+        } catch (_error) {
+            return [];
+        }
+    }
+
+    private timeToMinutes(value: unknown): number | null {
+        const match = /^(\d{1,2}):(\d{2})$/.exec(String(value || '').trim());
+        if (!match) return null;
+        const hour = Number(match[1]);
+        const minute = Number(match[2]);
+        return hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59 ? hour * 60 + minute : null;
+    }
+
     private normalizePhoneDigits(value: unknown) {
         return String(value || '').replace(/\D/g, '');
     }
@@ -3618,6 +4190,26 @@ Esperamos te receber novamente em breve! 😊`;
     private getGoCoreBaseUrls() {
         const configured = (process.env.GO_CORE_BASE_URL || '').trim();
         return [...new Set([configured, 'http://go-api:8080', 'http://localhost:8080'].filter(Boolean))];
+    }
+
+    private async notifyPortalEvent(tenantId: string, tabId: string, type: string) {
+        const token = String(process.env.INTERNAL_SERVICE_TOKEN || 'clickgarcom-internal-token').trim();
+        for (const baseUrl of this.getGoCoreBaseUrls()) {
+            try {
+                const response = await fetch(`${baseUrl}/internal/portal/events`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Internal-Token': token,
+                    },
+                    body: JSON.stringify({ tenant_id: tenantId, tab_id: tabId, type }),
+                });
+                if (response.ok) return;
+            } catch (_error) {
+                // The portal keeps polling as a fallback when Go-Core is restarting.
+            }
+        }
+        this.logger.warn(`Portal realtime event not delivered: ${type} for tab ${tabId}`);
     }
 
     private async assertTenantCanSendWhatsApp(tenantId: string) {

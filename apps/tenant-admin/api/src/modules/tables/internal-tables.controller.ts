@@ -23,6 +23,22 @@ export class InternalTablesController {
         return this.tablesService.confirmApprovedPaymentSettlement(tenantId, tabId);
     }
 
+    @Post('portal-access')
+    async createPortalAccess(
+        @Headers('x-internal-token') token: string,
+        @Body() body: { tenant_id?: string; tab_id?: string },
+    ) {
+        this.assertInternalToken(token);
+
+        const tenantId = String(body?.tenant_id || '').trim();
+        const tabId = String(body?.tab_id || '').trim();
+        if (!tenantId || !tabId) {
+            throw new BadRequestException('tenant_id and tab_id are required');
+        }
+
+        return this.tablesService.createPortalAccess(tenantId, tabId);
+    }
+
     private assertInternalToken(token?: string) {
         const expected = String(process.env.INTERNAL_SERVICE_TOKEN || 'clickgarcom-internal-token').trim();
         if (!expected) return;
