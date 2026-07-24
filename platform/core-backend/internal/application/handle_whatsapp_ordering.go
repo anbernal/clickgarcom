@@ -3251,6 +3251,10 @@ func (uc *HandleWhatsAppMessageUseCase) canSessionAccessTab(
 		return true
 	}
 
+	if uc.isPortalAuthorizedTab(sess, userTab.ID) {
+		return true
+	}
+
 	if normalizePhoneDigits(userTab.UserPhone) == "" {
 		return true
 	}
@@ -3323,7 +3327,7 @@ func (uc *HandleWhatsAppMessageUseCase) reconcileOpenTabMetadata(
 
 	tabChanged := false
 
-	if strings.TrimSpace(userTab.UserPhone) == "" && strings.TrimSpace(sess.UserPhone) != "" {
+	if strings.TrimSpace(userTab.UserPhone) == "" && strings.TrimSpace(sess.UserPhone) != "" && !uc.isPortalSyntheticSession(sess) {
 		userTab.UserPhone = sess.UserPhone
 		tabChanged = true
 	}
@@ -3359,6 +3363,27 @@ func (uc *HandleWhatsAppMessageUseCase) reconcileOpenTabMetadata(
 		tableID := *userTab.TableID
 		sess.TableID = &tableID
 	}
+}
+
+func (uc *HandleWhatsAppMessageUseCase) isPortalAuthorizedTab(sess *session.Session, tabID uuid.UUID) bool {
+	if sess == nil || sess.Context == nil {
+		return false
+	}
+
+	value, ok := sess.GetContext(portalAuthorizedTabContextKey)
+	if !ok {
+		return false
+	}
+
+	return strings.TrimSpace(fmt.Sprint(value)) == tabID.String()
+}
+
+func (uc *HandleWhatsAppMessageUseCase) isPortalSyntheticSession(sess *session.Session) bool {
+	if sess == nil {
+		return false
+	}
+
+	return strings.HasPrefix(strings.TrimSpace(strings.ToLower(sess.UserPhone)), "portal:")
 }
 
 func (uc *HandleWhatsAppMessageUseCase) recoverSessionTableID(

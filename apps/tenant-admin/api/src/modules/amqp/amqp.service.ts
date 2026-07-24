@@ -9,6 +9,7 @@ export class AmqpService implements OnModuleInit, OnModuleDestroy {
     private readonly url = process.env.RABBITMQ_URL || 'amqp://clickgarcom:clickgarcom123@localhost:5672/';
     private readonly tableEventsQueue = 'admin.table.events';
     private readonly kdsEventsQueue = 'kds.events';
+    private readonly portalConversationQueue = 'portal.conversation.inputs';
 
     async onModuleInit() {
         await this.connect();
@@ -32,6 +33,7 @@ export class AmqpService implements OnModuleInit, OnModuleDestroy {
                 this.channel = await this.connection.createChannel();
                 await this.channel.assertQueue(this.tableEventsQueue, { durable: true });
                 await this.channel.assertQueue(this.kdsEventsQueue, { durable: true });
+                await this.channel.assertQueue(this.portalConversationQueue, { durable: true });
                 this.logger.log('Connected to RabbitMQ successfully');
                 return;
             } catch (error) {
@@ -58,6 +60,10 @@ export class AmqpService implements OnModuleInit, OnModuleDestroy {
 
     async publishKDSEvent(payload: Record<string, unknown>, eventType: string) {
         await this.publishToQueue(this.kdsEventsQueue, payload, eventType);
+    }
+
+    async publishPortalConversationInput(payload: Record<string, unknown>) {
+        await this.publishToQueue(this.portalConversationQueue, payload, 'portal.conversation.input');
     }
 
     private async publishToQueue(queueName: string, payload: Record<string, unknown>, eventType: string) {

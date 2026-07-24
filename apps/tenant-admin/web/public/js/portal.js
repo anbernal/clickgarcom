@@ -53,6 +53,7 @@
         const table = tab.tableNumber ? `Mesa ${escapeHtml(String(tab.tableNumber).padStart(2, '0'))}` : 'Comanda sem mesa';
         const items = Array.isArray(tab.items) ? tab.items : [];
         const messages = Array.isArray(tab.messages) ? tab.messages : [];
+        const activeActionIndex = findActiveActionIndex(messages);
         const itemCount = items.reduce((total, item) => total + Number(item.quantity || 0), 0);
         const panelVisible = activePanel === 'account';
         root.innerHTML = `
@@ -69,11 +70,17 @@
                 ${Number(tab.amountDue || 0) <= 0 ? '<div class="portal-notice"><strong>Conta regularizada.</strong> Aguarde a equipe confirmar a finalização e a saída.</div>' : ''}
                 <section class="portal-conversation">
                     <div class="portal-chat-label">CONVERSA COM A EQUIPE</div>
-                    <div class="portal-chat-intro">Você está falando sobre a comanda <strong>${escapeHtml(tab.publicCode || '---')}</strong>. A equipe recebe suas mensagens aqui.</div>
+                    <div class="portal-chat-intro">Você está falando sobre a comanda <strong>${escapeHtml(tab.publicCode || '---')}</strong>. O mesmo fluxo do WhatsApp continua aqui no navegador.</div>
                     <div class="portal-history" id="portal-history">
-                        ${messages.length ? messages.map((message) => {
-                            const isCustomer = String(message.senderType).toUpperCase() === 'CUSTOMER';
-                            return `<div class="portal-message ${isCustomer ? 'portal-message--customer' : 'portal-message--staff'}"><span>${escapeHtml(message.message)}</span><small>${escapeHtml(message.senderName || (isCustomer ? 'Você' : 'Equipe'))} · ${escapeHtml(formatMessageTime(message.createdAt))}</small></div>`;
+                        ${messages.length ? messages.map((message, index) => {
+                            const senderType = String(message.senderType).toUpperCase();
+                            const isCustomer = senderType === 'CUSTOMER';
+                            const actions = Array.isArray(message.actions) ? message.actions : [];
+                            const showActions = !isCustomer && index === activeActionIndex && actions.length > 0;
+                            return `<div class="portal-message-wrap ${isCustomer ? 'portal-message-wrap--customer' : 'portal-message-wrap--staff'}">
+                                <div class="portal-message ${isCustomer ? 'portal-message--customer' : 'portal-message--staff'}"><span>${escapeHtml(message.message)}</span><small>${escapeHtml(message.senderName || (isCustomer ? 'Você' : 'Equipe'))} · ${escapeHtml(formatMessageTime(message.createdAt))}</small></div>
+                                ${showActions ? `<div class="portal-actions">${actions.map((action) => `<button type="button" class="portal-action-btn" data-portal-action-id="${escapeHtml(action.id)}" data-portal-action-label="${escapeHtml(action.label)}">${escapeHtml(action.label)}${action.description ? `<small>${escapeHtml(action.description)}</small>` : ''}</button>`).join('')}</div>` : ''}
+                            </div>`;
                         }).join('') : '<div class="portal-chat-empty">Envie uma mensagem para iniciar o atendimento.</div>'}
                     </div>
                 </section>
@@ -99,6 +106,15 @@
             const cursor = input.value.length;
             input.setSelectionRange(cursor, cursor);
         });
+    }
+
+    function findActiveActionIndex(messages) {
+        for (let index = messages.length - 1; index >= 0; index -= 1) {
+            if (Array.isArray(messages[index]?.actions) && messages[index].actions.length) {
+                return index;
+            }
+        }
+        return -1;
     }
 
     async function loadTab() {
@@ -146,18 +162,18 @@
         portalSocket.onerror = () => portalSocket?.close();
     }
 
-    async function sendMessage(message, button) {
+    async function sendPortalInput(payload, button) {
+        if (button) button.disabled = true;
         const response = await fetch(`${API}/messages`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'same-origin',
-            body: JSON.stringify({ message }),
+            body: JSON.stringify(payload),
         });
         if (!response.ok) {
             const payload = await response.json().catch(() => ({}));
             throw new Error(payload.message || 'Não foi possível enviar sua mensagem.');
         }
-        if (button) button.disabled = true;
         await Promise.all([loadMenu(), loadTab()]);
     }
 
@@ -186,7 +202,7 @@
         if (input) input.value = '';
         if (button) button.disabled = true;
         try {
-            await sendMessage(message, button);
+            await sendPortalInput({ message }, button);
         } catch (error) {
             composerDraft = message;
             if (input) {
@@ -203,6 +219,8 @@
         if (!button) return;
         const addId = button.dataset.portalAdd;
         const removeId = button.dataset.portalRemove;
+        const actionId = button.dataset.portalActionId;
+        const actionLabel = button.dataset.portalActionLabel;
         if (addId) {
             cart.set(addId, Math.min(20, (cart.get(addId) || 0) + 1));
             render(currentTab);
@@ -222,6 +240,15 @@
         if (button.hasAttribute('data-portal-close-panel')) {
             activePanel = '';
             render(currentTab);
+            return;
+        }
+        if (actionId) {
+            try {
+                await sendPortalInput({ action_id: actionId, action_label: actionLabel || '' }, button);
+            } catch (error) {
+                button.disabled = false;
+                window.alert(error.message || 'Não foi possível enviar sua escolha.');
+            }
             return;
         }
         if (button.hasAttribute('data-portal-submit-order')) {

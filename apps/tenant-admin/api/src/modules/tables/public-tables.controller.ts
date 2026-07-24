@@ -92,8 +92,11 @@ export class PublicTablesController {
     }
 
     @Post('portal/messages')
-    sendPortalMessage(@Req() request: Request, @Body('message') message: string) {
-        return this.tablesService.sendPortalMessage(this.readPortalCookie(request), message);
+    sendPortalMessage(
+        @Req() request: Request,
+        @Body() body: { message?: string; action_id?: string; action_label?: string },
+    ) {
+        return this.tablesService.sendPortalMessage(this.readPortalCookie(request), body || {});
     }
 
     @Get('portal/menu')

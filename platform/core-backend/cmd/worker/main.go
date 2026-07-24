@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -16,6 +17,8 @@ import (
 
 	"github.com/anbernal/clickgarcom/internal/application"
 	"github.com/anbernal/clickgarcom/internal/config"
+	domainconversation "github.com/anbernal/clickgarcom/internal/domain/conversation"
+	infraConversation "github.com/anbernal/clickgarcom/internal/infrastructure/conversation"
 	"github.com/anbernal/clickgarcom/internal/infrastructure/metrics"
 	adminclient "github.com/anbernal/clickgarcom/internal/infrastructure/nodeadmin"
 	infraMP "github.com/anbernal/clickgarcom/internal/infrastructure/payment"
@@ -102,6 +105,8 @@ func main() {
 	waiterChatRepo := postgres.NewWaiterChatRepository(db.DB)
 	paymentRepo := postgres.NewPaymentRepository(db.DB)
 	paymentAttemptRepo := postgres.NewPaymentAttemptRepository(db.DB)
+	portalConversationOutputStore := postgres.NewPortalConversationEventRepository(db.DB)
+	portalConversationInputStore := postgres.NewPortalConversationInputRepository(db.DB)
 
 	// 6. Infrastructure
 	whatsappAPI := infraWA.NewMetaAPIClient(
@@ -212,6 +217,39 @@ func main() {
 		return reconcilePaymentWebhookUC.Execute(ctx, body)
 	}
 
+	handlePortalConversation := func(ctx context.Context, body []byte) error {
+		var input domainconversation.Input
+		if err := json.Unmarshal(body, &input); err != nil {
+			return fmt.Errorf("failed to unmarshal portal conversation input: %w", err)
+		}
+		if input.TabID == nil {
+			return fmt.Errorf("portal conversation input missing tab_id")
+		}
+
+		portalSender := infraConversation.NewPortalSender(portalConversationOutputStore, input.TenantID, *input.TabID)
+		portalHandleUC := application.NewHandleWhatsAppMessageUseCase(
+			sessionRepo,
+			tenantRepo,
+			botConfigRepo,
+			menuRepo,
+			tabRepo,
+			tableRepo,
+			serviceRequestRepo,
+			waiterChatRepo,
+			createOrderUC,
+			portalSender,
+			resolvePublicCheckoutBaseURL(),
+			logger.Log,
+		)
+
+		if err := portalHandleUC.ExecutePortal(ctx, input, portalConversationInputStore); err != nil {
+			return err
+		}
+
+		notifyPortalConversationUpdated(ctx, input.TenantID, *input.TabID, logger.Log)
+		return nil
+	}
+
 	// 9. Iniciar consumers
 	if err := consumer.Consume("whatsapp.messages", handleWhatsAppMessage); err != nil {
 		logger.Fatal("Failed to start whatsapp consumer", zap.Error(err))
@@ -223,6 +261,10 @@ func main() {
 
 	if err := consumer.Consume("payment.webhooks", handlePaymentWebhook); err != nil {
 		logger.Fatal("Failed to start payment webhook consumer", zap.Error(err))
+	}
+
+	if err := consumer.Consume("portal.conversation.inputs", handlePortalConversation); err != nil {
+		logger.Fatal("Failed to start portal conversation consumer", zap.Error(err))
 	}
 
 	logger.Info("Worker is running, waiting for messages...")
@@ -331,6 +373,60 @@ func resolveNodeAdminInternalBaseURL() string {
 	}
 
 	return "http://node-admin:3002"
+}
+
+func resolveGoCoreInternalBaseURL() string {
+	candidates := []string{
+		os.Getenv("GO_CORE_BASE_URL"),
+		"http://go-api:8080",
+		"http://localhost:8080",
+	}
+
+	for _, candidate := range candidates {
+		base := strings.TrimRight(strings.TrimSpace(candidate), "/")
+		if base != "" {
+			return base
+		}
+	}
+
+	return "http://go-api:8080"
+}
+
+func notifyPortalConversationUpdated(ctx context.Context, tenantID, tabID uuid.UUID, logger *zap.Logger) {
+	payload, err := json.Marshal(map[string]string{
+		"tenant_id": tenantID.String(),
+		"tab_id":    tabID.String(),
+		"type":      "conversation.updated",
+	})
+	if err != nil {
+		logger.Warn("failed to marshal portal realtime payload", zap.Error(err))
+		return
+	}
+
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		resolveGoCoreInternalBaseURL()+"/internal/portal/events",
+		bytes.NewReader(payload),
+	)
+	if err != nil {
+		logger.Warn("failed to create portal realtime request", zap.Error(err))
+		return
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Internal-Token", resolveInternalServiceToken())
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		logger.Warn("failed to notify portal realtime update", zap.Error(err))
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		logger.Warn("portal realtime notifier returned non-success status", zap.Int("status", resp.StatusCode))
+	}
 }
 
 func resolveInternalServiceToken() string {

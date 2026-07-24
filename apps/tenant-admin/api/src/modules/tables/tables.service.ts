@@ -406,7 +406,7 @@ export class TablesService {
             throw new UnauthorizedException('Acesso à comanda não está mais disponível.');
         }
 
-        const [items, messages] = await Promise.all([
+        const [items, staffMessages, conversationEvents] = await Promise.all([
             this.dataSource.query(
                 `SELECT oi.quantity,
                         oi.unit_price,
@@ -436,7 +436,18 @@ export class TablesService {
                   LIMIT 100`,
                 [credential.tenantId, credential.tabId],
             ),
+            this.dataSource.query(
+                `SELECT direction, event_type, payload, created_at
+                   FROM tab_portal_conversation_events
+                  WHERE tenant_id = $1
+                    AND tab_id = $2
+                  ORDER BY created_at ASC
+                  LIMIT 200`,
+                [credential.tenantId, credential.tabId],
+            ),
         ]);
+
+        const mergedMessages = this.mergePortalMessages(tab, conversationEvents || [], staffMessages || []);
 
         return {
             ...this.buildPublicTabPayload(tab),
@@ -450,90 +461,37 @@ export class TablesService {
                 orderStatus: String(item.order_status || ''),
                 createdAt: item.created_at,
             })),
-            messages: (messages || []).map((message: any) => ({
-                senderType: String(message.sender_type || 'SYSTEM'),
-                senderName: String(message.sender_name || ''),
-                message: String(message.message || ''),
-                createdAt: message.created_at,
-            })),
+            messages: mergedMessages,
         };
     }
 
-    async sendPortalMessage(sessionToken: string, message: string) {
+    async sendPortalMessage(
+        sessionToken: string,
+        payload: { message?: string; action_id?: string; action_label?: string },
+    ) {
         const credential = await this.loadPortalSession(sessionToken);
-        const text = String(message || '').trim();
-        if (!text) {
-            throw new BadRequestException('Digite uma mensagem para a equipe.');
+        const actionId = String(payload?.action_id || '').trim();
+        const actionLabel = String(payload?.action_label || '').trim();
+        const text = String(payload?.message || '').trim();
+        if (!text && !actionId) {
+            throw new BadRequestException('Digite uma mensagem ou selecione uma opção.');
         }
-        if (text.length > 1000) {
+        if (text.length > 1000 || actionLabel.length > 1000) {
             throw new BadRequestException('A mensagem pode ter no máximo 1000 caracteres.');
         }
 
-        const queryRunner = this.dataSource.createQueryRunner();
-        await queryRunner.connect();
-        await queryRunner.startTransaction();
-        try {
-            const tabRows = await queryRunner.query(
-                `SELECT id, table_id, public_code
-                   FROM tabs
-                  WHERE id = $1
-                    AND tenant_id = $2
-                    AND status <> 'CLOSED'
-                  LIMIT 1
-                  FOR UPDATE`,
-                [credential.tabId, credential.tenantId],
-            );
-            const tab = tabRows?.[0];
-            if (!tab) {
-                throw new UnauthorizedException('A comanda foi encerrada.');
-            }
+        await this.amqpService.publishPortalConversationInput({
+            tenant_id: credential.tenantId,
+            tab_id: credential.tabId,
+            participant_id: `portal:${credential.tabId}`,
+            channel: 'PORTAL',
+            text: actionLabel || text,
+            action_id: actionId || undefined,
+        });
 
-            const chatRows = await queryRunner.query(
-                `SELECT id
-                   FROM waiter_chats
-                  WHERE tenant_id = $1
-                    AND tab_id = $2
-                    AND status = 'OPEN'
-                  ORDER BY opened_at ASC
-                  LIMIT 1
-                  FOR UPDATE`,
-                [credential.tenantId, credential.tabId],
-            );
+        void this.notifyPortalEvent(credential.tenantId, credential.tabId, 'conversation.updated');
 
-            let chatId = String(chatRows?.[0]?.id || '');
-            if (!chatId) {
-                chatId = uuidv4();
-                const portalIdentity = `portal:${String(tab.public_code || credential.tabId).slice(0, 20)}`;
-                await queryRunner.query(
-                    `INSERT INTO waiter_chats
-                        (id, tenant_id, user_phone, tab_id, table_id, status, opened_at, last_message_at)
-                     VALUES ($1, $2, $3, $4, $5, 'OPEN', NOW(), NOW())`,
-                    [chatId, credential.tenantId, portalIdentity, credential.tabId, tab.table_id || null],
-                );
-            }
-
-            await queryRunner.query(
-                `INSERT INTO waiter_chat_messages
-                    (id, chat_id, tenant_id, sender_type, sender_name, message, created_at)
-                 VALUES (gen_random_uuid(), $1, $2, 'CUSTOMER', 'Cliente do portal', $3, NOW())`,
-                [chatId, credential.tenantId, text],
-            );
-            await queryRunner.query(
-                `UPDATE waiter_chats
-                    SET last_message_at = NOW()
-                  WHERE id = $1
-                    AND tenant_id = $2`,
-                [chatId, credential.tenantId],
-            );
-            await queryRunner.commitTransaction();
-            void this.notifyPortalEvent(credential.tenantId, credential.tabId, 'chat.updated');
-            return { ok: true, chatId };
-        } catch (error) {
-            await queryRunner.rollbackTransaction();
-            throw error;
-        } finally {
-            await queryRunner.release();
-        }
+        return { ok: true };
     }
 
     async getPortalMenu(sessionToken: string) {
@@ -3741,6 +3699,84 @@ export class TablesService {
             cardEnabled: cardCheckoutConfig.enabled,
             cardUnavailableReason: cardCheckoutConfig.reason,
         };
+    }
+
+    private mergePortalMessages(tab: any, conversationEvents: any[], staffMessages: any[]) {
+        const mappedConversation = (conversationEvents || [])
+            .map((row: any) => this.mapPortalConversationEvent(tab, row))
+            .filter(Boolean);
+        const mappedStaff = (staffMessages || [])
+            .map((row: any) => this.mapPortalStaffMessage(row))
+            .filter(Boolean);
+
+        return [...mappedConversation, ...mappedStaff].sort((left: any, right: any) => {
+            const leftTime = new Date(left.createdAt || 0).getTime();
+            const rightTime = new Date(right.createdAt || 0).getTime();
+            return leftTime - rightTime;
+        });
+    }
+
+    private mapPortalConversationEvent(tab: any, row: any) {
+        const payload = this.parsePortalEventPayload(row?.payload);
+        const direction = String(row?.direction || '').trim().toUpperCase();
+        const text = String(payload?.text || payload?.action_label || payload?.action_id || '').trim();
+        if (!text) {
+            return null;
+        }
+
+        return {
+            senderType: direction === 'INBOUND' ? 'CUSTOMER' : 'BOT',
+            senderName: direction === 'INBOUND'
+                ? 'Você'
+                : `${String(tab?.tenantName || 'Assistente').trim()} · Assistente`,
+            message: text,
+            createdAt: row?.created_at,
+            actions: direction === 'OUTBOUND' ? this.normalizePortalActions(payload?.actions) : [],
+        };
+    }
+
+    private mapPortalStaffMessage(row: any) {
+        const text = String(row?.message || '').trim();
+        if (!text) {
+            return null;
+        }
+
+        return {
+            senderType: String(row?.sender_type || 'STAFF').trim().toUpperCase(),
+            senderName: String(row?.sender_name || '').trim() || 'Equipe',
+            message: text,
+            createdAt: row?.created_at,
+            actions: [],
+        };
+    }
+
+    private parsePortalEventPayload(value: unknown) {
+        if (!value) return {};
+        if (typeof value === 'object') return value as Record<string, unknown>;
+        try {
+            return JSON.parse(String(value)) as Record<string, unknown>;
+        } catch (_error) {
+            return {};
+        }
+    }
+
+    private normalizePortalActions(value: unknown) {
+        if (!Array.isArray(value)) {
+            return [];
+        }
+
+        return value
+            .map((entry) => {
+                const action = entry as Record<string, unknown>;
+                const id = String(action?.id || '').trim();
+                const label = String(action?.label || '').trim();
+                const description = String(action?.description || '').trim();
+                if (!id || !label) {
+                    return null;
+                }
+                return { id, label, description };
+            })
+            .filter(Boolean);
     }
 
     private async resolveAnchorOrderId(tabId: string, tenantId: string) {
