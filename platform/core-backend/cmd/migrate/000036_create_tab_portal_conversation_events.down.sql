@@ -1,0 +1,2 @@
+DROP INDEX IF EXISTS idx_tab_portal_conversation_events_tab_created;
+DROP TABLE IF EXISTS tab_portal_conversation_events;
