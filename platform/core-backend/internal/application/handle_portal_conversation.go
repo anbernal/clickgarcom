@@ -13,6 +13,7 @@ import (
 )
 
 const portalAuthorizedTabContextKey = "portal_authorized_tab_id"
+const portalBootstrapActionID = "__PORTAL_BOOTSTRAP__"
 
 func (uc *HandleWhatsAppMessageUseCase) ExecutePortal(
 	ctx context.Context,
@@ -39,7 +40,7 @@ func (uc *HandleWhatsAppMessageUseCase) ExecutePortal(
 		return fmt.Errorf("portal participant could not be resolved")
 	}
 
-	if inputStore != nil {
+	if inputStore != nil && strings.TrimSpace(input.ActionID) != portalBootstrapActionID {
 		storedInput := input
 		storedInput.ParticipantID = participantID
 		if err := inputStore.AppendInput(ctx, input.TenantID, *input.TabID, storedInput); err != nil {
@@ -67,14 +68,23 @@ func (uc *HandleWhatsAppMessageUseCase) ExecutePortal(
 		sess.TransitionTo(session.StateMainMenu)
 	}
 
-	messageText := strings.TrimSpace(input.ActionID)
-	if messageText == "" {
-		messageText = strings.TrimSpace(input.Text)
-	}
+	var response string
+	var newState session.ConversationState
+	if strings.TrimSpace(input.ActionID) == portalBootstrapActionID {
+		response, newState, err = uc.repeatCurrentPrompt(ctx, sess)
+		if err != nil {
+			return fmt.Errorf("failed to bootstrap portal conversation: %w", err)
+		}
+	} else {
+		messageText := strings.TrimSpace(input.ActionID)
+		if messageText == "" {
+			messageText = strings.TrimSpace(input.Text)
+		}
 
-	response, newState, err := uc.processMessage(ctx, sess, messageText)
-	if err != nil {
-		return fmt.Errorf("failed to process portal message: %w", err)
+		response, newState, err = uc.processMessage(ctx, sess, messageText)
+		if err != nil {
+			return fmt.Errorf("failed to process portal message: %w", err)
+		}
 	}
 
 	if response == "" && sess.State == session.StateWelcome && (newState == "" || newState == session.StateWelcome) {

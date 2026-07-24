@@ -4,8 +4,6 @@
     const publicTablesApiBaseUrl = String(runtimeConfig.publicTablesApiBaseUrl || '/admin/api/public/tables').replace(/\/+$/, '');
     const API = `${publicTablesApiBaseUrl}/portal`;
     const money = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
-    let menuItems = [];
-    const cart = new Map();
     let portalSocket = null;
     let reconnectTimer = null;
     let currentTab = null;
@@ -38,14 +36,6 @@
         if (!followChat) return;
         const history = document.getElementById('portal-history');
         if (history) history.scrollTop = history.scrollHeight;
-    }
-
-    function renderPortalMenu() {
-        if (!menuItems.length) return '<p style="margin-top:15px">Não há itens disponíveis no cardápio neste momento.</p>';
-        const cartEntries = Array.from(cart.entries()).map(([id, quantity]) => ({ item: menuItems.find((entry) => entry.id === id), quantity })).filter((entry) => entry.item);
-        const total = cartEntries.reduce((sum, entry) => sum + Number(entry.item.price || 0) * entry.quantity, 0);
-        return `<div class="portal-menu-list">${menuItems.map((item) => `<article class="portal-menu-item"><div><h3>${escapeHtml(item.name)}</h3>${item.description ? `<p>${escapeHtml(item.description)}</p>` : ''}<span class="portal-menu-price">${money.format(Number(item.price || 0))}</span></div><button type="button" data-portal-add="${escapeHtml(item.id)}">Adicionar</button></article>`).join('')}</div>
-            ${cartEntries.length ? `<div class="portal-cart"><strong style="font-size:13px">Seu pedido</strong>${cartEntries.map(({ item, quantity }) => `<div class="portal-cart-row"><span>${quantity}x ${escapeHtml(item.name)}</span><span>${money.format(Number(item.price || 0) * quantity)} <button type="button" data-portal-remove="${escapeHtml(item.id)}" aria-label="Remover ${escapeHtml(item.name)}">−</button></span></div>`).join('')}<div class="portal-cart-row"><strong>Total parcial</strong><strong>${money.format(total)}</strong></div><button class="portal-cart-submit" type="button" data-portal-submit-order>Enviar pedido para a equipe</button></div>` : ''}`;
     }
 
     function render(tab, { restoreComposerFocus = false } = {}) {
@@ -85,7 +75,7 @@
                     </div>
                 </section>
                 <form class="portal-compose" id="portal-compose">
-                    <button class="portal-compose-plus" type="button" data-portal-panel="account" aria-label="Abrir conta e cardápio">+</button>
+                    <button class="portal-compose-plus" type="button" data-portal-panel="account" aria-label="Abrir conta">+</button>
                     <textarea id="portal-message" rows="1" maxlength="1000" placeholder="Mensagem">${escapeHtml(composerDraft)}</textarea>
                     <button class="portal-compose-send" type="submit" aria-label="Enviar mensagem">➤</button>
                 </form>
@@ -93,7 +83,7 @@
                     <div class="portal-sheet__handle"></div>
                     <div class="portal-sheet__head"><div><span>MINHA COMANDA</span><h2>Pedidos e conta</h2></div><button type="button" data-portal-close-panel aria-label="Fechar">✕</button></div>
                     <div class="portal-sheet__metrics"><div><span>Total</span><strong>${money.format(Number(tab.fullTotal || 0))}</strong></div><div><span>Pago</span><strong>${money.format(Number(tab.paidAmount || 0))}</strong></div><div><span>Saldo</span><strong>${money.format(Number(tab.amountDue || 0))}</strong></div></div>
-                    <section class="portal-sheet__section"><h3>Fazer pedido</h3><p>Escolha itens e envie diretamente para a equipe.</p>${renderPortalMenu()}</section>
+                    <section class="portal-sheet__section"><h3>Como pedir</h3><p>Use os botões da conversa para abrir cardápio, escolher itens, informar quantidade e acompanhar a comanda com as mesmas regras do WhatsApp.</p></section>
                     <section class="portal-sheet__section"><h3>Pedidos lançados <span>${itemCount}</span></h3>${items.length ? `<ul class="portal-items">${items.map((item) => `<li class="portal-item"><div><span class="portal-item__name">${Number(item.quantity || 0)}x ${escapeHtml(item.name)}</span><span class="portal-item__status">${escapeHtml(formatStatus(item.orderStatus))}</span></div><span class="portal-item__price">${money.format(Number(item.quantity || 0) * Number(item.unitPrice || 0))}</span></li>`).join('')}</ul>` : '<p class="portal-sheet__empty">Nenhum item lançado até agora.</p>'}</section>
                 </section>
             </section>`;
@@ -109,12 +99,38 @@
     }
 
     function findActiveActionIndex(messages) {
+        let customerOrStaffReplyAfterAction = false;
         for (let index = messages.length - 1; index >= 0; index -= 1) {
+            const senderType = String(messages[index]?.senderType || '').toUpperCase();
+            if (senderType === 'CUSTOMER' || senderType === 'STAFF') {
+                customerOrStaffReplyAfterAction = true;
+                continue;
+            }
             if (Array.isArray(messages[index]?.actions) && messages[index].actions.length) {
+                if (customerOrStaffReplyAfterAction) {
+                    return -1;
+                }
                 return index;
             }
         }
         return -1;
+    }
+
+    function appendOptimisticCustomerMessage(message) {
+        if (!currentTab) return;
+        const text = String(message || '').trim();
+        if (!text) return;
+        const messages = Array.isArray(currentTab.messages) ? [...currentTab.messages] : [];
+        messages.push({
+            senderType: 'CUSTOMER',
+            senderName: 'Você',
+            message: text,
+            createdAt: new Date().toISOString(),
+            actions: [],
+        });
+        currentTab = { ...currentTab, messages };
+        followChat = true;
+        render(currentTab);
     }
 
     async function loadTab() {
@@ -125,34 +141,13 @@
         render(await response.json(), { restoreComposerFocus });
     }
 
-    async function loadMenu() {
-        const response = await fetch(`${API}/menu`, { credentials:'same-origin', cache:'no-store' });
-        if (!response.ok) throw new Error('Não foi possível carregar o cardápio.');
-        menuItems = await response.json();
-    }
-
-    async function submitOrder(button) {
-        const items = Array.from(cart.entries()).map(([menu_item_id, quantity]) => ({ menu_item_id, quantity }));
-        if (!items.length) return;
-        if (button) button.disabled = true;
-        const response = await fetch(`${API}/orders`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials:'same-origin', body:JSON.stringify({ items }),
-        });
-        if (!response.ok) {
-            const payload = await response.json().catch(() => ({}));
-            throw new Error(payload.message || 'Não foi possível enviar o pedido.');
-        }
-        cart.clear();
-        await Promise.all([loadMenu(), loadTab()]);
-    }
-
     function connectRealtime() {
         if (portalSocket?.readyState === WebSocket.OPEN || portalSocket?.readyState === WebSocket.CONNECTING) return;
         const fallbackProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const portalWsUrl = String(runtimeConfig.portalWsUrl || `${fallbackProtocol}//${window.location.host}/ws/portal`).replace(/\/+$/, '');
         portalSocket = new WebSocket(portalWsUrl);
         portalSocket.onmessage = () => {
-            Promise.all([loadMenu(), loadTab()]).catch(() => undefined);
+            loadTab().catch(() => undefined);
         };
         portalSocket.onclose = () => {
             portalSocket = null;
@@ -174,7 +169,6 @@
             const payload = await response.json().catch(() => ({}));
             throw new Error(payload.message || 'Não foi possível enviar sua mensagem.');
         }
-        await Promise.all([loadMenu(), loadTab()]);
     }
 
     async function start() {
@@ -201,6 +195,7 @@
         composerDraft = '';
         if (input) input.value = '';
         if (button) button.disabled = true;
+        appendOptimisticCustomerMessage(message);
         try {
             await sendPortalInput({ message }, button);
         } catch (error) {
@@ -210,6 +205,7 @@
                 input.focus();
             }
             if (button) button.disabled = false;
+            loadTab().catch(() => undefined);
             window.alert(error.message || 'Não foi possível enviar sua mensagem.');
         }
     });
@@ -217,21 +213,8 @@
     root.addEventListener('click', async (event) => {
         const button = event.target.closest('button');
         if (!button) return;
-        const addId = button.dataset.portalAdd;
-        const removeId = button.dataset.portalRemove;
         const actionId = button.dataset.portalActionId;
         const actionLabel = button.dataset.portalActionLabel;
-        if (addId) {
-            cart.set(addId, Math.min(20, (cart.get(addId) || 0) + 1));
-            render(currentTab);
-            return;
-        }
-        if (removeId) {
-            const next = (cart.get(removeId) || 0) - 1;
-            if (next > 0) cart.set(removeId, next); else cart.delete(removeId);
-            render(currentTab);
-            return;
-        }
         if (button.dataset.portalPanel) {
             activePanel = button.dataset.portalPanel;
             render(currentTab);
@@ -243,21 +226,15 @@
             return;
         }
         if (actionId) {
+            appendOptimisticCustomerMessage(actionLabel || actionId);
             try {
                 await sendPortalInput({ action_id: actionId, action_label: actionLabel || '' }, button);
             } catch (error) {
                 button.disabled = false;
+                loadTab().catch(() => undefined);
                 window.alert(error.message || 'Não foi possível enviar sua escolha.');
             }
             return;
-        }
-        if (button.hasAttribute('data-portal-submit-order')) {
-            try {
-                await submitOrder(button);
-            } catch (error) {
-                button.disabled = false;
-                window.alert(error.message || 'Não foi possível enviar o pedido.');
-            }
         }
     });
 

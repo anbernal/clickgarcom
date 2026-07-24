@@ -396,6 +396,8 @@ export class TablesService {
             tab_id: credential.tabId,
         }, { expiresIn: '12h' });
 
+        await this.bootstrapPortalConversationIfNeeded(credential.tenantId, credential.tabId);
+
         return { sessionToken, expiresInSeconds: 12 * 60 * 60 };
     }
 
@@ -488,8 +490,6 @@ export class TablesService {
             text: actionLabel || text,
             action_id: actionId || undefined,
         });
-
-        void this.notifyPortalEvent(credential.tenantId, credential.tabId, 'conversation.updated');
 
         return { ok: true };
     }
@@ -3777,6 +3777,29 @@ export class TablesService {
                 return { id, label, description };
             })
             .filter(Boolean);
+    }
+
+    private async bootstrapPortalConversationIfNeeded(tenantId: string, tabId: string) {
+        const rows = await this.dataSource.query(
+            `SELECT 1
+               FROM tab_portal_conversation_events
+              WHERE tenant_id = $1
+                AND tab_id = $2
+              LIMIT 1`,
+            [tenantId, tabId],
+        );
+
+        if (rows?.[0]) {
+            return;
+        }
+
+        await this.amqpService.publishPortalConversationInput({
+            tenant_id: tenantId,
+            tab_id: tabId,
+            participant_id: `portal:${tabId}`,
+            channel: 'PORTAL',
+            action_id: '__PORTAL_BOOTSTRAP__',
+        });
     }
 
     private async resolveAnchorOrderId(tabId: string, tenantId: string) {

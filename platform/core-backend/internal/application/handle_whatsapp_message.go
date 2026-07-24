@@ -412,6 +412,11 @@ func (uc *HandleWhatsAppMessageUseCase) repeatCurrentPrompt(
 		return uc.buildTabSummaryResponse(ctx, sess, false)
 	case session.StateClosingTab:
 		return uc.startClosingTabFlow(ctx, sess)
+	case session.StateServiceRequest:
+		return "🙋 *Olá! Como posso te ajudar?*\n\n" +
+				"Pode me contar por aqui que nossa equipe já vai te atender.\n\n" +
+				"_Digite 0 para sair da conversa com a equipe_",
+			session.StateServiceRequest, nil
 	case session.StateWaitingTableConfirmation:
 		return uc.repeatWaitingTableConfirmationPrompt(ctx, sess)
 	case session.StateWaitingTabCode:

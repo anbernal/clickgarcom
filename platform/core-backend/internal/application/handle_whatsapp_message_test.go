@@ -36,6 +36,25 @@ func TestAppendMainMenuBackOption(t *testing.T) {
 	}
 }
 
+func TestRepeatCurrentPromptKeepsServiceRequestState(t *testing.T) {
+	ctx := context.Background()
+	tenantID := uuid.New()
+	sess := session.NewSession("5511999999999", tenantID)
+	sess.TransitionTo(session.StateServiceRequest)
+
+	uc := &HandleWhatsAppMessageUseCase{}
+	response, newState, err := uc.repeatCurrentPrompt(ctx, sess)
+	if err != nil {
+		t.Fatalf("repeatCurrentPrompt() error = %v", err)
+	}
+	if newState != session.StateServiceRequest {
+		t.Fatalf("expected state %s, got %s", session.StateServiceRequest, newState)
+	}
+	if !strings.Contains(response, "Como posso te ajudar") {
+		t.Fatalf("expected service request prompt, got %q", response)
+	}
+}
+
 func TestHandleWhatsAppMessageFirstContactShowsWelcomeMenu(t *testing.T) {
 	ctx := context.Background()
 	tenantID := uuid.New()
