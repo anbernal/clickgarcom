@@ -86,6 +86,12 @@ type OrderOperationalStage = keyof typeof ORDER_SLA_MINUTES;
 type OrderStationKey = keyof typeof ORDER_STATION_SLA_MINUTES;
 type CancelCategory = 'stock' | 'operational' | 'customer' | 'other';
 
+type PortalNotificationAction = {
+    id: string;
+    label: string;
+    description?: string;
+};
+
 type StationOperationsSummary = {
     destination: string;
     label: string;
@@ -311,9 +317,6 @@ export class OrdersService {
     }
 
     private async enqueueAcceptedMessage(order: Order, tenantId: string, prepMinutes?: number) {
-        const recipient = await this.resolveOrderRecipient(order, tenantId);
-        if (!recipient) return;
-
         const itemsSummary = await this.buildAcceptedItemsSummary(order, tenantId);
         const tenantName = await this.resolveTenantName(tenantId);
         const eta = this.normalizePrepMinutes(prepMinutes);
@@ -326,13 +329,10 @@ export class OrdersService {
             `Assim que estiver pronto, avisaremos por aqui.`;
         const message = this.withRestaurantHeader(tenantName, messageBody);
 
-        await this.enqueueWhatsAppMessage(tenantId, recipient, message);
+        await this.dispatchOrderStatusNotification(order, tenantId, message);
     }
 
     private async enqueueCanceledMessage(order: Order, tenantId: string) {
-        const recipient = await this.resolveOrderRecipient(order, tenantId);
-        if (!recipient) return;
-
         const itemsSummary = await this.buildAcceptedItemsSummary(order, tenantId);
         const tenantName = await this.resolveTenantName(tenantId);
         const reason = (order.cancelReason || '').trim() || 'Sem motivo informado.';
@@ -344,13 +344,10 @@ export class OrdersService {
             `Você pode fazer um novo pedido pelo menu principal.`;
         const message = this.withRestaurantHeader(tenantName, messageBody);
 
-        await this.enqueueWhatsAppMessage(tenantId, recipient, message);
+        await this.dispatchOrderStatusNotification(order, tenantId, message);
     }
 
     private async enqueueReadyMessage(order: Order, tenantId: string) {
-        const recipient = await this.resolveOrderRecipient(order, tenantId);
-        if (!recipient) return;
-
         const tenant = await this.tenantRepository.findOne({ where: { id: tenantId } });
         const orderCode = this.resolveOrderMessageCode(order);
         const message = resolveMessageTemplate(
@@ -365,18 +362,10 @@ export class OrdersService {
 
         if (!message) return;
 
-        await this.enqueueWhatsAppMessage(
-            tenantId,
-            recipient,
-            message,
-            OUTBOX_TEMPLATE_INTERACTIVE_MAIN_MENU,
-        );
+        await this.dispatchOrderStatusNotification(order, tenantId, message, OUTBOX_TEMPLATE_INTERACTIVE_MAIN_MENU);
     }
 
     private async enqueueDeliveredMessage(order: Order, tenantId: string) {
-        const recipient = await this.resolveOrderRecipient(order, tenantId);
-        if (!recipient) return;
-
         const tenant = await this.tenantRepository.findOne({ where: { id: tenantId } });
         const orderCode = this.resolveOrderMessageCode(order);
         const message = resolveMessageTemplate(
@@ -391,12 +380,48 @@ export class OrdersService {
 
         if (!message) return;
 
-        await this.enqueueWhatsAppMessage(
-            tenantId,
-            recipient,
-            message,
-            OUTBOX_TEMPLATE_INTERACTIVE_MAIN_MENU,
-        );
+        await this.dispatchOrderStatusNotification(order, tenantId, message, OUTBOX_TEMPLATE_INTERACTIVE_MAIN_MENU);
+    }
+
+    // One status transition can project to both channels. WhatsApp delivery stays in
+    // the outbox while the portal consumes its own durable event queue.
+    private async dispatchOrderStatusNotification(
+        order: Order,
+        tenantId: string,
+        message: string,
+        templateId?: string,
+    ) {
+        const recipient = await this.resolveOrderRecipient(order, tenantId);
+        if (recipient && !recipient.toLowerCase().startsWith('portal:')) {
+            await this.enqueueWhatsAppMessage(tenantId, recipient, message, templateId);
+        }
+
+        try {
+            await this.amqpService.publishPortalOrderStatus({
+                event_id: `order-status:${order.id}:${order.status}`,
+                tenant_id: tenantId,
+                tab_id: order.tabId,
+                order_id: order.id,
+                status: order.status,
+                text: message,
+                actions: templateId === OUTBOX_TEMPLATE_INTERACTIVE_MAIN_MENU
+                    ? this.buildPortalMainMenuActions()
+                    : [],
+            });
+        } catch (error) {
+            this.logger.warn(`Failed to publish portal order status for ${order.id}: ${(error as Error).message}`);
+        }
+    }
+
+    private buildPortalMainMenuActions(): PortalNotificationAction[] {
+        return [
+            { id: '1', label: 'Fazer pedido', description: 'Ver os itens do cardápio' },
+            { id: '2', label: 'Ver minha comanda', description: 'Consultar itens e valores' },
+            { id: '3', label: 'Repetir última rodada', description: 'Refazer seu último pedido' },
+            { id: '4', label: 'Chamar garçom', description: 'Falar com nossa equipe' },
+            { id: '5', label: 'Fechar conta', description: 'Pagar ou pedir fechamento' },
+            { id: '6', label: 'QR Code de saída', description: 'Conferir se a comanda está fechada' },
+        ];
     }
 
     private async enqueueWhatsAppMessage(

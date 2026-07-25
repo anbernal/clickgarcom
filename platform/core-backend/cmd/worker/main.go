@@ -107,6 +107,7 @@ func main() {
 	paymentAttemptRepo := postgres.NewPaymentAttemptRepository(db.DB)
 	portalConversationOutputStore := postgres.NewPortalConversationEventRepository(db.DB)
 	portalConversationInputStore := postgres.NewPortalConversationInputRepository(db.DB)
+	portalAccessVerifier := postgres.NewPortalAccessVerifier(db.DB)
 
 	// 6. Infrastructure
 	whatsappAPI := infraWA.NewMetaAPIClient(
@@ -181,6 +182,10 @@ func main() {
 		settlementClient,
 		logger.Log,
 	)
+	portalOrderStatusUC := application.NewHandlePortalOrderStatusUseCase(
+		portalAccessVerifier,
+		portalConversationOutputStore,
+	)
 
 	// 8. Handler de mensagens do WhatsApp
 	handleWhatsAppMessage := func(ctx context.Context, body []byte) error {
@@ -250,6 +255,29 @@ func main() {
 		return nil
 	}
 
+	handlePortalOrderStatus := func(ctx context.Context, body []byte) error {
+		var event application.PortalOrderStatusNotification
+		if err := json.Unmarshal(body, &event); err != nil {
+			return fmt.Errorf("failed to unmarshal portal order status event: %w", err)
+		}
+
+		updated, err := portalOrderStatusUC.Execute(ctx, event)
+		if err != nil {
+			return err
+		}
+		if !updated {
+			return nil
+		}
+
+		notifyPortalConversationUpdated(ctx, event.TenantID, event.TabID, logger.Log)
+		logger.Info("portal order status projected",
+			zap.String("event_id", event.EventID),
+			zap.String("order_id", event.OrderID.String()),
+			zap.String("status", event.Status),
+		)
+		return nil
+	}
+
 	// 9. Iniciar consumers
 	if err := consumer.Consume("whatsapp.messages", handleWhatsAppMessage); err != nil {
 		logger.Fatal("Failed to start whatsapp consumer", zap.Error(err))
@@ -265,6 +293,10 @@ func main() {
 
 	if err := consumer.Consume("portal.conversation.inputs", handlePortalConversation); err != nil {
 		logger.Fatal("Failed to start portal conversation consumer", zap.Error(err))
+	}
+
+	if err := consumer.Consume("portal.order.status.events", handlePortalOrderStatus); err != nil {
+		logger.Fatal("Failed to start portal.order.status.events consumer", zap.Error(err))
 	}
 
 	logger.Info("Worker is running, waiting for messages...")

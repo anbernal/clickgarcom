@@ -39,10 +39,19 @@ func (r *portalConversationEventRepository) AppendOutput(ctx context.Context, te
 	if err != nil {
 		return fmt.Errorf("marshal portal conversation output: %w", err)
 	}
+	query := `INSERT INTO tab_portal_conversation_events
+		(tenant_id, tab_id, direction, event_type, payload)
+	 SELECT ?, ?, 'OUTBOUND', 'BOT_RESPONSE', ?::jsonb
+	 WHERE ? = '' OR NOT EXISTS (
+		SELECT 1
+		  FROM tab_portal_conversation_events
+		 WHERE tenant_id = ?
+		   AND tab_id = ?
+		   AND direction = 'OUTBOUND'
+		   AND payload->>'event_id' = ?
+	 )`
 	return r.db.WithContext(ctx).Exec(
-		`INSERT INTO tab_portal_conversation_events
-			(tenant_id, tab_id, direction, event_type, payload)
-		 VALUES (?, ?, 'OUTBOUND', 'BOT_RESPONSE', ?::jsonb)`,
-		tenantID, tabID, string(payload),
+		query,
+		tenantID, tabID, string(payload), output.EventID, tenantID, tabID, output.EventID,
 	).Error
 }

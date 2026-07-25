@@ -10,6 +10,7 @@ export class AmqpService implements OnModuleInit, OnModuleDestroy {
     private readonly tableEventsQueue = 'admin.table.events';
     private readonly kdsEventsQueue = 'kds.events';
     private readonly portalConversationQueue = 'portal.conversation.inputs';
+    private readonly portalOrderStatusQueue = 'portal.order.status.events';
 
     async onModuleInit() {
         await this.connect();
@@ -34,6 +35,7 @@ export class AmqpService implements OnModuleInit, OnModuleDestroy {
                 await this.channel.assertQueue(this.tableEventsQueue, { durable: true });
                 await this.channel.assertQueue(this.kdsEventsQueue, { durable: true });
                 await this.channel.assertQueue(this.portalConversationQueue, { durable: true });
+                await this.channel.assertQueue(this.portalOrderStatusQueue, { durable: true });
                 this.logger.log('Connected to RabbitMQ successfully');
                 return;
             } catch (error) {
@@ -64,6 +66,10 @@ export class AmqpService implements OnModuleInit, OnModuleDestroy {
 
     async publishPortalConversationInput(payload: Record<string, unknown>) {
         await this.publishToQueue(this.portalConversationQueue, payload, 'portal.conversation.input');
+    }
+
+    async publishPortalOrderStatus(payload: Record<string, unknown>) {
+        await this.publishToQueue(this.portalOrderStatusQueue, payload, 'portal.order.status');
     }
 
     private async publishToQueue(queueName: string, payload: Record<string, unknown>, eventType: string) {
