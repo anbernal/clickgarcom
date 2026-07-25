@@ -27,11 +27,10 @@ func (s *PortalSender) SendText(ctx context.Context, _ string, message string) e
 }
 
 func (s *PortalSender) SendImage(ctx context.Context, _ string, imageURL, caption string) (string, error) {
-	text := strings.TrimSpace(caption)
-	if strings.TrimSpace(imageURL) != "" {
-		text = strings.TrimSpace(text + "\n" + imageURL)
-	}
-	return "portal", s.SendText(ctx, "", text)
+	return "portal", s.store.AppendOutput(ctx, s.tenantID, s.tabID, domain.Output{
+		Text:     strings.TrimSpace(caption),
+		ImageURL: strings.TrimSpace(imageURL),
+	})
 }
 
 func (s *PortalSender) SendInteractiveButtons(ctx context.Context, _ string, bodyText string, buttons []whatsapp.InteractiveButton) (string, error) {

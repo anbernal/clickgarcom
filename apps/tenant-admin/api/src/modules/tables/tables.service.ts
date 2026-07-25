@@ -3720,7 +3720,10 @@ export class TablesService {
         const payload = this.parsePortalEventPayload(row?.payload);
         const direction = String(row?.direction || '').trim().toUpperCase();
         const text = String(payload?.text || payload?.action_label || payload?.action_id || '').trim();
-        if (!text) {
+        const imageUrl = direction === 'OUTBOUND'
+            ? String(payload?.image_url || payload?.imageUrl || '').trim()
+            : '';
+        if (!text && !imageUrl) {
             return null;
         }
 
@@ -3730,6 +3733,7 @@ export class TablesService {
                 ? 'Você'
                 : `${String(tab?.tenantName || 'Assistente').trim()} · Assistente`,
             message: text,
+            imageUrl,
             createdAt: row?.created_at,
             actions: direction === 'OUTBOUND' ? this.normalizePortalActions(payload?.actions) : [],
         };
@@ -3745,6 +3749,7 @@ export class TablesService {
             senderType: String(row?.sender_type || 'STAFF').trim().toUpperCase(),
             senderName: String(row?.sender_name || '').trim() || 'Equipe',
             message: text,
+            imageUrl: '',
             createdAt: row?.created_at,
             actions: [],
         };

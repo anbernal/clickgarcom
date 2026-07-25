@@ -56,8 +56,9 @@ type Action struct {
 
 // Output is the response produced by the shared conversation engine.
 type Output struct {
-	Text    string   `json:"text"`
-	Actions []Action `json:"actions,omitempty"`
+	Text     string   `json:"text"`
+	ImageURL string   `json:"image_url,omitempty"`
+	Actions  []Action `json:"actions,omitempty"`
 	// EventID makes externally delivered events idempotent in the portal timeline.
 	EventID string `json:"event_id,omitempty"`
 }
