@@ -7,7 +7,9 @@
     let portalSocket = null;
     let reconnectTimer = null;
     let currentTab = null;
+    let menuCatalog = [];
     let activePanel = '';
+    let activeActionMessageIndex = -1;
     let followChat = true;
     let composerDraft = '';
     let preservedScrollTop = 0;
@@ -137,18 +139,41 @@
         </button>`;
     }
 
+    function resolveCatalogActionKind(actions) {
+        const actionable = actions.filter((action) => String(action?.id || '') !== '0');
+        if (actionable.some((action) => String(action?.id || '').startsWith('menu:category:'))) {
+            return 'categories';
+        }
+        if (actionable.some((action) => String(action?.id || '').startsWith('menu:item:'))) {
+            return 'items';
+        }
+        return '';
+    }
+
+    function renderCatalogTrigger(actions, messageIndex, kind) {
+        const optionCount = actions.filter((action) => String(action?.id || '') !== '0').length;
+        const label = kind === 'categories' ? 'Ver categorias' : 'Ver itens';
+        const detail = optionCount === 1 ? '1 opção disponível' : `${optionCount} opções disponíveis`;
+        return `<button type="button" class="portal-catalog-trigger" data-portal-open-actions="${messageIndex}">
+            <span class="portal-catalog-trigger__icon" aria-hidden="true">${kind === 'categories' ? '⌘' : '◇'}</span>
+            <span><strong>${label}</strong><small>${detail}</small></span>
+            <span class="portal-catalog-trigger__arrow" aria-hidden="true">›</span>
+        </button>`;
+    }
+
     function renderPortalMessage(message, index, activeActionIndex, animateFromIndex) {
         const senderType = String(message.senderType || '').toUpperCase();
         const isCustomer = senderType === 'CUSTOMER';
         const isStaff = senderType === 'STAFF';
         const actions = Array.isArray(message.actions) ? message.actions : [];
         const showActions = !isCustomer && index === activeActionIndex && actions.length > 0;
+        const catalogKind = showActions ? resolveCatalogActionKind(actions) : '';
         const presented = presentMessage(message);
         const milestone = !isCustomer && isMilestoneMessage(presented.text);
         const senderName = message.senderName || (isCustomer ? 'Você' : isStaff ? 'Equipe' : 'Assistente');
         const avatar = isStaff ? 'EQ' : 'CG';
         const media = presented.imageUrl
-            ? `<figure class="portal-message-media"><img src="${escapeHtml(presented.imageUrl)}" alt="Imagem enviada por ${escapeHtml(senderName)}" loading="lazy" decoding="async"></figure>`
+            ? `<figure class="portal-message-media"><img src="${escapeHtml(presented.imageUrl)}" alt="Imagem enviada por ${escapeHtml(senderName)}" loading="eager" decoding="async"></figure>`
             : '';
         const body = presented.text
             ? `<div class="portal-message__text">${formatMessageContent(presented.text)}</div>`
@@ -161,8 +186,86 @@
                 ${body}
                 <div class="portal-message__meta"><span>${escapeHtml(senderName)}</span><span>·</span><time>${escapeHtml(formatMessageTime(message.createdAt))}</time>${isCustomer ? '<span class="portal-message__check" aria-label="Enviada">✓✓</span>' : ''}</div>
             </div>
-            ${showActions ? `<div class="portal-actions">${actions.map(renderPortalAction).join('')}</div>` : ''}
+            ${showActions ? `<div class="portal-actions ${catalogKind ? 'portal-actions--catalog' : ''}">${catalogKind ? renderCatalogTrigger(actions, index, catalogKind) : actions.map(renderPortalAction).join('')}</div>` : ''}
         </article>`;
+    }
+
+    function findCatalogItem(actionId) {
+        const id = String(actionId || '').split(':').pop();
+        return menuCatalog.find((item) => String(item?.id || '') === id) || null;
+    }
+
+    function findCategoryItems(actionId) {
+        const id = String(actionId || '').split(':').pop();
+        return menuCatalog.filter((item) => String(item?.categoryId || '') === id);
+    }
+
+    function renderCatalogImage(imageUrl, alt, modifier) {
+        const normalized = normalizeImageUrl(imageUrl);
+        if (!normalized) {
+            return `<span class="portal-picker-card__image portal-picker-card__image--empty ${modifier}" aria-hidden="true"><span>CG</span></span>`;
+        }
+        return `<span class="portal-picker-card__image ${modifier}"><img src="${escapeHtml(normalized)}" alt="${escapeHtml(alt)}" loading="eager" decoding="async"></span>`;
+    }
+
+    function renderCatalogPickerAction(action, kind) {
+        const actionId = String(action?.id || '');
+        if (actionId === '0') {
+            return `<button type="button" class="portal-picker-back-action" data-portal-action-id="${escapeHtml(actionId)}" data-portal-action-label="${escapeHtml(action.label)}">
+                <span aria-hidden="true">←</span><span>${escapeHtml(action.label)}</span>
+            </button>`;
+        }
+
+        if (kind === 'categories') {
+            const items = findCategoryItems(actionId);
+            const imageUrl = items.find((item) => normalizeImageUrl(item.imageUrl))?.imageUrl || '';
+            const itemCount = items.length === 1 ? '1 item disponível' : `${items.length} itens disponíveis`;
+            return `<button type="button" class="portal-picker-card portal-picker-card--category" data-portal-action-id="${escapeHtml(actionId)}" data-portal-action-label="${escapeHtml(action.label)}">
+                ${renderCatalogImage(imageUrl, action.label, 'portal-picker-card__image--category')}
+                <span class="portal-picker-card__copy">
+                    <strong>${escapeHtml(action.label)}</strong>
+                    <small>${escapeHtml(action.description || itemCount)}</small>
+                </span>
+                <span class="portal-picker-card__arrow" aria-hidden="true">›</span>
+            </button>`;
+        }
+
+        const item = findCatalogItem(actionId);
+        const description = item?.description || action.description || 'Toque para escolher este item';
+        return `<button type="button" class="portal-picker-card portal-picker-card--item" data-portal-action-id="${escapeHtml(actionId)}" data-portal-action-label="${escapeHtml(action.label)}">
+            ${renderCatalogImage(item?.imageUrl, item?.name || action.label, 'portal-picker-card__image--item')}
+            <span class="portal-picker-card__copy">
+                <strong>${escapeHtml(item?.name || action.label)}</strong>
+                <small>${escapeHtml(description)}</small>
+                ${item ? `<b>${money.format(Number(item.price || 0))}</b>` : ''}
+            </span>
+            <span class="portal-picker-card__arrow" aria-hidden="true">›</span>
+        </button>`;
+    }
+
+    function renderCatalogPicker(messages) {
+        if (activePanel !== 'actions') return '';
+        const message = messages[activeActionMessageIndex];
+        const actions = Array.isArray(message?.actions) ? message.actions : [];
+        const kind = resolveCatalogActionKind(actions);
+        if (!kind) return '';
+
+        const title = kind === 'categories' ? 'Escolha uma categoria' : 'Escolha seu item';
+        const eyebrow = kind === 'categories' ? 'CARDÁPIO' : 'ITENS DO CARDÁPIO';
+        const regularActions = actions.filter((action) => String(action?.id || '') !== '0');
+        const backActions = actions.filter((action) => String(action?.id || '') === '0');
+
+        return `<button type="button" class="portal-sheet-backdrop portal-picker-backdrop" data-portal-close-panel aria-label="Fechar cardápio"></button>
+            <aside class="portal-picker" role="dialog" aria-modal="true" aria-label="${escapeHtml(title)}">
+                <div class="portal-picker__head">
+                    <div><span>${eyebrow}</span><h2>${title}</h2><small>${regularActions.length} ${regularActions.length === 1 ? 'opção' : 'opções'} para escolher</small></div>
+                    <button type="button" data-portal-close-panel aria-label="Fechar">✕</button>
+                </div>
+                <div class="portal-picker__list">
+                    ${regularActions.map((action) => renderCatalogPickerAction(action, kind)).join('')}
+                </div>
+                ${backActions.length ? `<div class="portal-picker__foot">${backActions.map((action) => renderCatalogPickerAction(action, kind)).join('')}</div>` : ''}
+            </aside>`;
     }
 
     function captureChatPosition() {
@@ -219,6 +322,7 @@
                     <section class="portal-sheet__section"><h3>Como pedir</h3><p>Use os botões da conversa para abrir cardápio, escolher itens, informar quantidade e acompanhar a comanda com as mesmas regras do WhatsApp.</p></section>
                     <section class="portal-sheet__section"><h3>Pedidos lançados <span>${itemCount}</span></h3>${items.length ? `<ul class="portal-items">${items.map((item) => `<li class="portal-item"><div><span class="portal-item__name">${Number(item.quantity || 0)}x ${escapeHtml(item.name)}</span><span class="portal-item__status">${escapeHtml(formatStatus(item.orderStatus))}</span></div><span class="portal-item__price">${money.format(Number(item.quantity || 0) * Number(item.unitPrice || 0))}</span></li>`).join('')}</ul>` : '<p class="portal-sheet__empty">Nenhum item lançado até agora.</p>'}</section>
                 </aside>
+                ${renderCatalogPicker(messages)}
             </section>`;
         lastRenderedMessageCount = messages.length;
         requestAnimationFrame(() => {
@@ -283,6 +387,13 @@
         render(tab, { restoreComposerFocus });
     }
 
+    async function loadMenuCatalog() {
+        const response = await fetch(`${API}/menu`, { credentials:'same-origin', cache:'no-store' });
+        if (!response.ok) return;
+        const payload = await response.json();
+        menuCatalog = Array.isArray(payload) ? payload : [];
+    }
+
     function connectRealtime() {
         if (portalSocket?.readyState === WebSocket.OPEN || portalSocket?.readyState === WebSocket.CONNECTING) return;
         const fallbackProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -321,6 +432,7 @@
             if (!response.ok) throw new Error('O link da comanda não é mais válido. Peça um novo QR Code à equipe.');
             history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
         }
+        await loadMenuCatalog().catch(() => undefined);
         await loadTab();
     }
 
@@ -357,17 +469,29 @@
         if (!button) return;
         const actionId = button.dataset.portalActionId;
         const actionLabel = button.dataset.portalActionLabel;
+        const pickerMessageIndex = button.dataset.portalOpenActions;
+        if (pickerMessageIndex !== undefined) {
+            captureChatPosition();
+            activePanel = 'actions';
+            activeActionMessageIndex = Number(pickerMessageIndex);
+            render(currentTab);
+            return;
+        }
         if (button.dataset.portalPanel) {
+            captureChatPosition();
             activePanel = button.dataset.portalPanel;
             render(currentTab);
             return;
         }
         if (button.hasAttribute('data-portal-close-panel')) {
             activePanel = '';
+            activeActionMessageIndex = -1;
             render(currentTab);
             return;
         }
         if (actionId) {
+            activePanel = '';
+            activeActionMessageIndex = -1;
             appendOptimisticCustomerMessage(actionLabel || actionId);
             try {
                 await sendPortalInput({ action_id: actionId, action_label: actionLabel || '' }, button);
@@ -391,6 +515,8 @@
         if (!(event.target instanceof HTMLImageElement)) return;
         const media = event.target.closest('.portal-message-media');
         if (media) media.classList.add('portal-message-media--error');
+        const pickerMedia = event.target.closest('.portal-picker-card__image');
+        if (pickerMedia) pickerMedia.classList.add('portal-picker-card__image--error');
     }, true);
 
     root.addEventListener('load', (event) => {
