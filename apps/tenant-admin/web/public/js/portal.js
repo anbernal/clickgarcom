@@ -12,6 +12,7 @@
     let composerDraft = '';
     let preservedScrollTop = 0;
     let lastRenderedMessageCount = 0;
+    let lastServerSnapshot = '';
 
     function escapeHtml(value) {
         return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
@@ -28,9 +29,40 @@
         return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
     }
 
-    function syncViewportHeight() {
+    function syncViewportHeight(force = false) {
+        if (!force && document.activeElement?.id !== 'portal-message') {
+            return;
+        }
         const viewportHeight = window.visualViewport?.height || window.innerHeight;
         document.documentElement.style.setProperty('--portal-vh', `${Math.round(viewportHeight)}px`);
+    }
+
+    function buildServerSnapshot(tab) {
+        const items = Array.isArray(tab?.items) ? tab.items : [];
+        const messages = Array.isArray(tab?.messages) ? tab.messages : [];
+        return JSON.stringify({
+            publicCode: tab?.publicCode,
+            tableNumber: tab?.tableNumber,
+            status: tab?.status,
+            fullTotal: tab?.fullTotal,
+            paidAmount: tab?.paidAmount,
+            amountDue: tab?.amountDue,
+            items: items.map((item) => ({
+                id: item.id,
+                name: item.name,
+                quantity: item.quantity,
+                unitPrice: item.unitPrice,
+                orderStatus: item.orderStatus,
+            })),
+            messages: messages.map((message) => ({
+                senderType: message.senderType,
+                senderName: message.senderName,
+                message: message.message,
+                imageUrl: message.imageUrl,
+                createdAt: message.createdAt,
+                actions: message.actions,
+            })),
+        });
     }
 
     function normalizeImageUrl(value) {
@@ -236,12 +268,19 @@
         render(currentTab);
     }
 
-    async function loadTab() {
+    async function loadTab({ force = false } = {}) {
         const restoreComposerFocus = document.activeElement?.id === 'portal-message';
-        captureChatPosition();
         const response = await fetch(`${API}/tab`, { credentials:'same-origin', cache:'no-store' });
         if (!response.ok) throw new Error('Este acesso não está disponível. Leia novamente o QR Code da comanda.');
-        render(await response.json(), { restoreComposerFocus });
+        const tab = await response.json();
+        const snapshot = buildServerSnapshot(tab);
+        if (!force && snapshot === lastServerSnapshot) {
+            return;
+        }
+
+        captureChatPosition();
+        lastServerSnapshot = snapshot;
+        render(tab, { restoreComposerFocus });
     }
 
     function connectRealtime() {
@@ -308,7 +347,7 @@
                 input.focus();
             }
             if (button) button.disabled = false;
-            loadTab().catch(() => undefined);
+            loadTab({ force: true }).catch(() => undefined);
             window.alert(error.message || 'Não foi possível enviar sua mensagem.');
         }
     });
@@ -334,7 +373,7 @@
                 await sendPortalInput({ action_id: actionId, action_label: actionLabel || '' }, button);
             } catch (error) {
                 button.disabled = false;
-                loadTab().catch(() => undefined);
+                loadTab({ force: true }).catch(() => undefined);
                 window.alert(error.message || 'Não foi possível enviar sua escolha.');
             }
             return;
@@ -354,6 +393,16 @@
         if (media) media.classList.add('portal-message-media--error');
     }, true);
 
+    root.addEventListener('load', (event) => {
+        if (!(event.target instanceof HTMLImageElement) || !followChat) return;
+        requestAnimationFrame(scrollChatToEnd);
+    }, true);
+
+    root.addEventListener('focusout', (event) => {
+        if (event.target?.id !== 'portal-message') return;
+        window.setTimeout(() => syncViewportHeight(true), 180);
+    });
+
     root.addEventListener('scroll', (event) => {
         if (event.target?.id !== 'portal-history') return;
         followChat = event.target.scrollHeight - event.target.scrollTop - event.target.clientHeight < 72;
@@ -366,7 +415,9 @@
         }, 5000);
     }).catch((error) => { root.innerHTML = `<div class="portal-error"><strong>Não foi possível abrir sua comanda</strong><span>${escapeHtml(error.message)}</span></div>`; });
 
-    syncViewportHeight();
-    window.addEventListener('resize', syncViewportHeight);
-    window.visualViewport?.addEventListener('resize', syncViewportHeight);
+    syncViewportHeight(true);
+    window.addEventListener('orientationchange', () => {
+        window.setTimeout(() => syncViewportHeight(true), 120);
+    });
+    window.visualViewport?.addEventListener('resize', () => syncViewportHeight(false));
 })();
