@@ -586,6 +586,10 @@ main {
     transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
 }
 
+.portal-action-btn--link {
+    text-decoration: none;
+}
+
 .portal-action-btn::after {
     position: absolute;
     top: 0;

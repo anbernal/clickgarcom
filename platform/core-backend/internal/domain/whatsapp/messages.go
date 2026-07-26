@@ -16,6 +16,11 @@ type InteractiveButton struct {
 	} `json:"reply"`
 }
 
+type InteractiveURLButton struct {
+	DisplayText string
+	URL         string
+}
+
 type InteractiveListRow struct {
 	ID          string `json:"id"`
 	Title       string `json:"title"`

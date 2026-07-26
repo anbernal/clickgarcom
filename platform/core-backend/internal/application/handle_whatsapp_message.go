@@ -44,6 +44,10 @@ type WhatsAppSender interface {
 	SendInteractiveList(ctx context.Context, to, bodyText, buttonText string, sections []whatsapp.InteractiveListSection) (string, error)
 }
 
+type WhatsAppURLButtonSender interface {
+	SendInteractiveURLButton(ctx context.Context, to, bodyText, displayText, targetURL string) (string, error)
+}
+
 func NewHandleWhatsAppMessageUseCase(
 	sessionRepo session.Repository,
 	tenantRepo tenant.Repository,
@@ -2316,6 +2320,10 @@ func (uc *HandleWhatsAppMessageUseCase) sendTenantMessage(
 	message string,
 ) error {
 	tenantObj, _ := uc.tenantRepo.FindByID(ctx, tenantID)
+	if handled, err := uc.sendCheckoutURLButton(ctx, to, tenantID, tenantObj, message); handled {
+		return err
+	}
+
 	if prefix, ok := uc.extractMainMenuPrefix(message, tenantObj); ok {
 		if err := uc.sendInteractiveMainMenu(ctx, to, tenantID, tenantObj, prefix); err == nil {
 			return nil
@@ -2326,6 +2334,55 @@ func (uc *HandleWhatsAppMessageUseCase) sendTenantMessage(
 	decorated := whatsapp.WithRestaurantHeader(uc.resolveTenantName(ctx, tenantID), appendMainMenuBackOption(resolvedMessage))
 	ctx = whatsapp.WithTenantID(ctx, tenantID)
 	return uc.sender.SendText(ctx, to, decorated)
+}
+
+func (uc *HandleWhatsAppMessageUseCase) sendCheckoutURLButton(
+	ctx context.Context,
+	to string,
+	tenantID uuid.UUID,
+	tenantObj *tenant.Tenant,
+	message string,
+) (bool, error) {
+	sender, ok := uc.sender.(WhatsAppURLButtonSender)
+	if !ok {
+		return false, nil
+	}
+
+	targetURL := extractCheckoutURL(message)
+	if targetURL == "" {
+		return false, nil
+	}
+
+	body := message
+	if prefix, hasMenu := uc.extractMainMenuPrefix(message, tenantObj); hasMenu {
+		body = prefix
+	}
+	body = strings.Replace(body, targetURL, "", 1)
+	body = strings.Replace(body, "Abra sua comanda neste link seguro:", "Clique no botão abaixo para abrir sua comanda com segurança:", 1)
+	body = strings.TrimSpace(body)
+	if body == "" {
+		body = "Abra sua comanda para continuar o pagamento."
+	}
+
+	_, err := sender.SendInteractiveURLButton(
+		whatsapp.WithTenantID(ctx, tenantID),
+		to,
+		whatsapp.WithRestaurantHeader(uc.resolveTenantName(ctx, tenantID), body),
+		"Abrir pagamento",
+		targetURL,
+	)
+	return true, err
+}
+
+func extractCheckoutURL(message string) string {
+	for _, field := range strings.Fields(message) {
+		candidate := strings.Trim(field, "<>.,;)")
+		if !strings.HasPrefix(strings.ToLower(candidate), "https://") || !strings.Contains(candidate, "/checkout.html#") {
+			continue
+		}
+		return candidate
+	}
+	return ""
 }
 
 func (uc *HandleWhatsAppMessageUseCase) sendTenantMessagePlain(

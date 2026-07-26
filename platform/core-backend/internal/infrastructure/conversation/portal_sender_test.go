@@ -89,6 +89,29 @@ func TestPortalSenderCombinesImageWithInteractiveList(t *testing.T) {
 	}
 }
 
+func TestPortalSenderStoresCheckoutURLAsAction(t *testing.T) {
+	store := &portalSenderTestStore{}
+	sender := NewPortalSender(store, uuid.New(), uuid.New())
+	targetURL := "https://clickgarcom.example/checkout.html#access_token=signed-token&tab_id=tab-1"
+
+	if _, err := sender.SendInteractiveURLButton(
+		context.Background(),
+		"",
+		"Abra sua comanda para continuar.",
+		"Abrir pagamento",
+		targetURL,
+	); err != nil {
+		t.Fatalf("send portal checkout action: %v", err)
+	}
+
+	if len(store.outputs) != 1 || len(store.outputs[0].Actions) != 1 {
+		t.Fatalf("expected one checkout action, got %+v", store.outputs)
+	}
+	if store.outputs[0].Actions[0].URL != targetURL {
+		t.Fatalf("unexpected checkout action URL: %q", store.outputs[0].Actions[0].URL)
+	}
+}
+
 type portalSenderTestStore struct {
 	outputs []domain.Output
 }

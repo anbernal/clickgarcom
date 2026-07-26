@@ -146,7 +146,27 @@
         return /(pedido aceito|pedido pronto|já está pronto|pedido entregue|pedido cancelado|pagamento confirmado)/i.test(text);
     }
 
+    function normalizeActionUrl(value) {
+        const raw = String(value || '').trim();
+        if (!/^https?:\/\//i.test(raw)) return '';
+        try {
+            const parsed = new URL(raw);
+            const secure = parsed.protocol === 'https:';
+            const localDevelopment = parsed.protocol === 'http:' && window.location.protocol === 'http:';
+            return secure || localDevelopment ? parsed.href : '';
+        } catch (_error) {
+            return '';
+        }
+    }
+
     function renderPortalAction(action) {
+        const actionUrl = normalizeActionUrl(action?.url);
+        if (actionUrl) {
+            return `<a class="portal-action-btn portal-action-btn--link" href="${escapeHtml(actionUrl)}" target="_blank" rel="noopener noreferrer">
+                <span class="portal-action-icon" aria-hidden="true">↗</span>
+                <span class="portal-action-copy"><span>${escapeHtml(action.label)}</span>${action.description ? `<small>${escapeHtml(action.description)}</small>` : ''}</span>
+            </a>`;
+        }
         return `<button type="button" class="portal-action-btn" data-portal-action-id="${escapeHtml(action.id)}" data-portal-action-label="${escapeHtml(action.label)}">
             <span class="portal-action-icon" aria-hidden="true">${escapeHtml(resolveActionIcon(action))}</span>
             <span class="portal-action-copy"><span>${escapeHtml(action.label)}</span>${action.description ? `<small>${escapeHtml(action.description)}</small>` : ''}</span>

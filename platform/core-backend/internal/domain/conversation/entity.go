@@ -52,6 +52,7 @@ type Action struct {
 	ID          string `json:"id"`
 	Label       string `json:"label"`
 	Description string `json:"description,omitempty"`
+	URL         string `json:"url,omitempty"`
 }
 
 // Output is the response produced by the shared conversation engine.

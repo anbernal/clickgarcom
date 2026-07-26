@@ -320,6 +320,26 @@ type SendInteractiveListMessageRequest struct {
 	} `json:"interactive"`
 }
 
+type SendInteractiveURLMessageRequest struct {
+	MessagingProduct string `json:"messaging_product"`
+	RecipientType    string `json:"recipient_type"`
+	To               string `json:"to"`
+	Type             string `json:"type"`
+	Interactive      struct {
+		Type string `json:"type"`
+		Body struct {
+			Text string `json:"text"`
+		} `json:"body"`
+		Action struct {
+			Name       string `json:"name"`
+			Parameters struct {
+				DisplayText string `json:"display_text"`
+				URL         string `json:"url"`
+			} `json:"parameters"`
+		} `json:"action"`
+	} `json:"interactive"`
+}
+
 func (c *MetaAPIClient) SendInteractiveButtons(ctx context.Context, to, bodyText string, buttons []whatsapp.InteractiveButton) (string, error) {
 	url := fmt.Sprintf("https://graph.facebook.com/v18.0/%s/messages", c.phoneNumberID)
 
@@ -373,6 +393,57 @@ func (c *MetaAPIClient) SendInteractiveButtons(ctx context.Context, to, bodyText
 		return "", fmt.Errorf("no message id in interactive response")
 	}
 
+	return apiResp.Messages[0].ID, nil
+}
+
+func (c *MetaAPIClient) SendInteractiveURLButton(ctx context.Context, to, bodyText, displayText, targetURL string) (string, error) {
+	url := fmt.Sprintf("https://graph.facebook.com/v18.0/%s/messages", c.phoneNumberID)
+	reqBody := SendInteractiveURLMessageRequest{
+		MessagingProduct: "whatsapp",
+		RecipientType:    "individual",
+		To:               to,
+		Type:             "interactive",
+	}
+	reqBody.Interactive.Type = "cta_url"
+	reqBody.Interactive.Body.Text = bodyText
+	reqBody.Interactive.Action.Name = "cta_url"
+	reqBody.Interactive.Action.Parameters.DisplayText = displayText
+	reqBody.Interactive.Action.Parameters.URL = targetURL
+
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal interactive URL request: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return "", fmt.Errorf("failed to create interactive URL request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiToken)
+	req.Header.Set("Content-Type", "application/json")
+
+	c.logger.Debug("sending interactive URL button", zap.String("to", to))
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to send interactive URL request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		c.logger.Error("whatsapp api error interactive URL",
+			zap.Int("status", resp.StatusCode),
+			zap.String("response", string(respBody)),
+		)
+		return "", fmt.Errorf("api error: %d - %s", resp.StatusCode, string(respBody))
+	}
+
+	var apiResp SendMessageResponse
+	if err := json.Unmarshal(respBody, &apiResp); err != nil {
+		return "", fmt.Errorf("failed to unmarshal interactive URL response: %w", err)
+	}
+	if len(apiResp.Messages) == 0 {
+		return "", fmt.Errorf("no message id in interactive URL response")
+	}
 	return apiResp.Messages[0].ID, nil
 }
 

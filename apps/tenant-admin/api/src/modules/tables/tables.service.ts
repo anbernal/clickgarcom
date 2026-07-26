@@ -3776,10 +3776,11 @@ export class TablesService {
                 const id = String(action?.id || '').trim();
                 const label = String(action?.label || '').trim();
                 const description = String(action?.description || '').trim();
+                const url = String(action?.url || '').trim();
                 if (!id || !label) {
                     return null;
                 }
-                return { id, label, description };
+                return { id, label, description, url };
             })
             .filter(Boolean);
     }

@@ -151,6 +151,36 @@ func (s *Sender) SendInteractiveButtons(ctx context.Context, to, bodyText string
 	return messageID, nil
 }
 
+func (s *Sender) SendInteractiveURLButton(ctx context.Context, to, bodyText, displayText, targetURL string) (string, error) {
+	if s.apiClient == nil {
+		return "", fmt.Errorf("MetaAPIClient is not initialized")
+	}
+
+	billingTenant, err := s.loadTenantForBilling(ctx)
+	if err != nil {
+		return "", err
+	}
+	if billingTenant != nil && billingTenant.BillingPlan == tenantDomain.PlanPrePaid && billingTenant.WalletBalance <= 0 {
+		return "", fmt.Errorf("tenant out of credits")
+	}
+
+	messageID, err := s.apiClient.SendInteractiveURLButton(ctx, to, bodyText, displayText, targetURL)
+	if err != nil {
+		return "", err
+	}
+
+	if billingTenant != nil {
+		if err := s.applyImmediateBilling(ctx, billingTenant, messageID, to, bodyText); err != nil {
+			s.logger.Warn("failed to apply interactive URL billing",
+				zap.String("tenant_id", billingTenant.ID.String()),
+				zap.Error(err),
+			)
+		}
+	}
+
+	return messageID, nil
+}
+
 func (s *Sender) SendInteractiveList(
 	ctx context.Context,
 	to, bodyText, buttonText string,

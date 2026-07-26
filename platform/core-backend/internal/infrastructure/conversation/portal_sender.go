@@ -57,6 +57,19 @@ func (s *PortalSender) SendInteractiveButtons(ctx context.Context, _ string, bod
 	})
 }
 
+func (s *PortalSender) SendInteractiveURLButton(ctx context.Context, _ string, bodyText, displayText, targetURL string) (string, error) {
+	imageURL, _ := s.takePendingImage()
+	return "portal", s.store.AppendOutput(ctx, s.tenantID, s.tabID, domain.Output{
+		Text:     strings.TrimSpace(bodyText),
+		ImageURL: imageURL,
+		Actions: []domain.Action{{
+			ID:    "checkout:url",
+			Label: strings.TrimSpace(displayText),
+			URL:   strings.TrimSpace(targetURL),
+		}},
+	})
+}
+
 func (s *PortalSender) SendInteractiveList(ctx context.Context, _ string, bodyText, _ string, sections []whatsapp.InteractiveListSection) (string, error) {
 	actions := make([]domain.Action, 0)
 	for _, section := range sections {
