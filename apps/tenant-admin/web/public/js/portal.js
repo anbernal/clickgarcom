@@ -70,11 +70,25 @@
     function normalizeImageUrl(value) {
         const raw = String(value || '').trim();
         if (!raw) return '';
+        const absoluteHTTP = /^https?:\/\//i.test(raw);
+        const explicitRelativePath = /^(?:\/(?!\/)|\.{1,2}\/)[^\s]+$/.test(raw);
+        if (!absoluteHTTP && !explicitRelativePath) return '';
         try {
             const parsed = new URL(raw, window.location.origin);
             const secure = parsed.protocol === 'https:';
             const localDevelopment = parsed.protocol === 'http:' && window.location.protocol === 'http:';
             return secure || localDevelopment ? parsed.href : '';
+        } catch (_error) {
+            return '';
+        }
+    }
+
+    function normalizeLegacyImageUrl(value) {
+        const normalized = normalizeImageUrl(value);
+        if (!normalized) return '';
+        try {
+            const pathname = new URL(normalized).pathname;
+            return /\.(?:avif|gif|jpe?g|png|webp)$/i.test(pathname) ? normalized : '';
         } catch (_error) {
             return '';
         }
@@ -92,7 +106,7 @@
         while (lastContentIndex >= 0 && !lines[lastContentIndex].trim()) {
             lastContentIndex -= 1;
         }
-        const legacyImage = lastContentIndex >= 0 ? normalizeImageUrl(lines[lastContentIndex]) : '';
+        const legacyImage = lastContentIndex >= 0 ? normalizeLegacyImageUrl(lines[lastContentIndex]) : '';
         if (!legacyImage) {
             return { text: rawText, imageUrl: '' };
         }

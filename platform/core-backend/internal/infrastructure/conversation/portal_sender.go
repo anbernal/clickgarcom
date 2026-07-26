@@ -16,6 +16,9 @@ type PortalSender struct {
 	store    domain.OutputStore
 	tenantID uuid.UUID
 	tabID    uuid.UUID
+	// Meta needs separate media and interactive messages; the portal can render both atomically.
+	pendingImageURL     string
+	pendingImageCaption string
 }
 
 func NewPortalSender(store domain.OutputStore, tenantID, tabID uuid.UUID) *PortalSender {
@@ -23,14 +26,22 @@ func NewPortalSender(store domain.OutputStore, tenantID, tabID uuid.UUID) *Porta
 }
 
 func (s *PortalSender) SendText(ctx context.Context, _ string, message string) error {
-	return s.store.AppendOutput(ctx, s.tenantID, s.tabID, domain.Output{Text: strings.TrimSpace(message)})
+	imageURL, _ := s.takePendingImage()
+	return s.store.AppendOutput(ctx, s.tenantID, s.tabID, domain.Output{
+		Text:     strings.TrimSpace(message),
+		ImageURL: imageURL,
+	})
 }
 
 func (s *PortalSender) SendImage(ctx context.Context, _ string, imageURL, caption string) (string, error) {
-	return "portal", s.store.AppendOutput(ctx, s.tenantID, s.tabID, domain.Output{
-		Text:     strings.TrimSpace(caption),
-		ImageURL: strings.TrimSpace(imageURL),
-	})
+	if s.pendingImageURL != "" {
+		if err := s.flushPendingImage(ctx); err != nil {
+			return "", err
+		}
+	}
+	s.pendingImageURL = strings.TrimSpace(imageURL)
+	s.pendingImageCaption = strings.TrimSpace(caption)
+	return "portal", nil
 }
 
 func (s *PortalSender) SendInteractiveButtons(ctx context.Context, _ string, bodyText string, buttons []whatsapp.InteractiveButton) (string, error) {
@@ -38,7 +49,12 @@ func (s *PortalSender) SendInteractiveButtons(ctx context.Context, _ string, bod
 	for _, button := range buttons {
 		actions = append(actions, domain.Action{ID: button.Reply.ID, Label: button.Reply.Title})
 	}
-	return "portal", s.store.AppendOutput(ctx, s.tenantID, s.tabID, domain.Output{Text: strings.TrimSpace(bodyText), Actions: actions})
+	imageURL, _ := s.takePendingImage()
+	return "portal", s.store.AppendOutput(ctx, s.tenantID, s.tabID, domain.Output{
+		Text:     strings.TrimSpace(bodyText),
+		ImageURL: imageURL,
+		Actions:  actions,
+	})
 }
 
 func (s *PortalSender) SendInteractiveList(ctx context.Context, _ string, bodyText, _ string, sections []whatsapp.InteractiveListSection) (string, error) {
@@ -48,5 +64,29 @@ func (s *PortalSender) SendInteractiveList(ctx context.Context, _ string, bodyTe
 			actions = append(actions, domain.Action{ID: row.ID, Label: row.Title, Description: row.Description})
 		}
 	}
-	return "portal", s.store.AppendOutput(ctx, s.tenantID, s.tabID, domain.Output{Text: strings.TrimSpace(bodyText), Actions: actions})
+	imageURL, _ := s.takePendingImage()
+	return "portal", s.store.AppendOutput(ctx, s.tenantID, s.tabID, domain.Output{
+		Text:     strings.TrimSpace(bodyText),
+		ImageURL: imageURL,
+		Actions:  actions,
+	})
+}
+
+func (s *PortalSender) flushPendingImage(ctx context.Context) error {
+	imageURL, caption := s.takePendingImage()
+	if imageURL == "" {
+		return nil
+	}
+	return s.store.AppendOutput(ctx, s.tenantID, s.tabID, domain.Output{
+		Text:     caption,
+		ImageURL: imageURL,
+	})
+}
+
+func (s *PortalSender) takePendingImage() (string, string) {
+	imageURL := s.pendingImageURL
+	caption := s.pendingImageCaption
+	s.pendingImageURL = ""
+	s.pendingImageCaption = ""
+	return imageURL, caption
 }
