@@ -350,7 +350,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleExitQRCode(
 			session.StateMainMenu, nil
 	}
 
-	if !uc.isTabOwnedBySessionPhone(userTab, sess.UserPhone) {
+	if !uc.canSessionCloseTab(sess, userTab) {
 		return buildClosingTabOwnerOnlyMessage(), session.StateMainMenu, nil
 	}
 
@@ -2368,7 +2368,7 @@ func (uc *HandleWhatsAppMessageUseCase) startClosingTabFlow(
 			session.StateMainMenu, nil
 	}
 
-	if !uc.isTabOwnedBySessionPhone(userTab, sess.UserPhone) {
+	if !uc.canSessionCloseTab(sess, userTab) {
 		return buildClosingTabOwnerOnlyMessage(), session.StateMainMenu, nil
 	}
 
@@ -2423,7 +2423,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleClosingTab(
 				session.StateMainMenu, nil
 		}
 
-		if !uc.isTabOwnedBySessionPhone(userTab, sess.UserPhone) {
+		if !uc.canSessionCloseTab(sess, userTab) {
 			return buildClosingTabOwnerOnlyMessage(), session.StateMainMenu, nil
 		}
 
@@ -2612,7 +2612,7 @@ func (uc *HandleWhatsAppMessageUseCase) requestCloseBillByStaff(
 			session.StateMainMenu, nil
 	}
 
-	if !uc.isTabOwnedBySessionPhone(userTab, sess.UserPhone) {
+	if !uc.canSessionCloseTab(sess, userTab) {
 		return buildClosingTabOwnerOnlyMessage(), session.StateMainMenu, nil
 	}
 
@@ -3128,7 +3128,7 @@ func (uc *HandleWhatsAppMessageUseCase) findSessionExitTab(
 ) *tab.Tab {
 	if sess != nil && sess.TabID != nil && uc.tabRepo != nil {
 		candidate, err := uc.tabRepo.FindByID(ctx, *sess.TabID, sess.TenantID)
-		if err == nil && candidate != nil && uc.canSessionAccessTab(ctx, sess, candidate) && uc.isTabOwnedBySessionPhone(candidate, sess.UserPhone) {
+		if err == nil && candidate != nil && uc.canSessionAccessTab(ctx, sess, candidate) && uc.canSessionCloseTab(sess, candidate) {
 			return candidate
 		}
 	}
@@ -3300,6 +3300,21 @@ func (uc *HandleWhatsAppMessageUseCase) isTabOwnedBySessionPhone(
 	ownerPhone := normalizePhoneDigits(userTab.UserPhone)
 	requestPhone := normalizePhoneDigits(userPhone)
 	return ownerPhone != "" && ownerPhone == requestPhone
+}
+
+func (uc *HandleWhatsAppMessageUseCase) canSessionCloseTab(
+	sess *session.Session,
+	userTab *tab.Tab,
+) bool {
+	if sess == nil || userTab == nil {
+		return false
+	}
+
+	if uc.isPortalAuthorizedTab(sess, userTab.ID) {
+		return true
+	}
+
+	return uc.isTabOwnedBySessionPhone(userTab, sess.UserPhone)
 }
 
 func (uc *HandleWhatsAppMessageUseCase) isCustomerVisibleTab(userTab *tab.Tab) bool {
