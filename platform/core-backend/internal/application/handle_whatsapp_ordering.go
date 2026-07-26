@@ -2593,6 +2593,31 @@ func buildClosingTabOwnerOnlyMessage() string {
 	return "💰 *Fechar Conta*\n\nEsta comanda está vinculada ao telefone responsável que a abriu.\n\nSomente esse número pode fechar e pagar por aqui.\n\nSe precisar, peça autorização da pessoa responsável ou solicite apoio da equipe presencialmente.\n\n" + whatsapp.MainMenuMessage()
 }
 
+func buildClosingTabNoTableStaffMessage(userTab *tab.Tab) string {
+	code := "sua comanda"
+	if userTab != nil && strings.TrimSpace(userTab.PublicCode) != "" {
+		code = "a comanda *" + strings.TrimSpace(userTab.PublicCode) + "*"
+	}
+
+	return "💰 *Fechar Conta*\n\n" +
+		"Esta comanda não está vinculada a uma mesa. Já avisei a equipe e ela pode localizar " + code + ".\n\n" +
+		"Aguarde o atendimento ou escolha *Fechar Conta* novamente para pagar pelo celular.\n\n" +
+		whatsapp.MainMenuMessage()
+}
+
+func buildClosingTabNoTableFallback(userTab *tab.Tab) string {
+	code := "sua comanda"
+	if userTab != nil && strings.TrimSpace(userTab.PublicCode) != "" {
+		code = "a comanda *" + strings.TrimSpace(userTab.PublicCode) + "*"
+	}
+
+	return "💰 *Fechar Conta*\n\n" +
+		"Esta comanda não está vinculada a uma mesa, mas continua válida.\n\n" +
+		"Não consegui abrir o atendimento automático agora. Informe à equipe o código de " + code + " para localizar sua conta.\n\n" +
+		"Se preferir, escolha *Fechar Conta* novamente e selecione *Pagar pelo celular*.\n\n" +
+		whatsapp.MainMenuMessage()
+}
+
 func (uc *HandleWhatsAppMessageUseCase) requestCloseBillByStaff(
 	ctx context.Context,
 	sess *session.Session,
@@ -2622,11 +2647,11 @@ func (uc *HandleWhatsAppMessageUseCase) requestCloseBillByStaff(
 				zap.Error(err),
 				zap.String("user_phone", sess.UserPhone),
 			)
-			return "💰 *Fechar Conta*\n\nNão consegui identificar sua mesa com segurança agora.\n\nSe preferir, escolha *1* para pagar pelo celular.\n\n" + whatsapp.MainMenuMessage(),
+			return buildClosingTabNoTableFallback(userTab),
 				session.StateMainMenu, nil
 		}
 
-		return "💰 *Fechar Conta*\n\nNão consegui localizar sua mesa automaticamente agora, então já abri um atendimento com a equipe por aqui.\n\nMe envie o número da mesa ou alguma referência, ou *digite 0* para sair da conversa.\n\n",
+		return buildClosingTabNoTableStaffMessage(userTab),
 			session.StateServiceRequest, nil
 	}
 

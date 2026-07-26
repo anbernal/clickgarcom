@@ -1,6 +1,7 @@
 package application
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -28,5 +29,25 @@ func TestCanSessionCloseTabKeepsWhatsAppOwnerRestriction(t *testing.T) {
 	uc := &HandleWhatsAppMessageUseCase{}
 	if uc.canSessionCloseTab(sess, userTab) {
 		t.Fatal("expected a different WhatsApp phone to be rejected")
+	}
+}
+
+func TestClosingTabWithoutTableUsesComandaCode(t *testing.T) {
+	userTab := &tab.Tab{PublicCode: "BB436"}
+
+	staffMessage := buildClosingTabNoTableStaffMessage(userTab)
+	fallbackMessage := buildClosingTabNoTableFallback(userTab)
+	for name, message := range map[string]string{
+		"staff":    staffMessage,
+		"fallback": fallbackMessage,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if !strings.Contains(message, "BB436") {
+				t.Fatalf("expected public comanda code in message: %q", message)
+			}
+			if strings.Contains(message, "identificar sua mesa") {
+				t.Fatalf("message must not require a table: %q", message)
+			}
+		})
 	}
 }
