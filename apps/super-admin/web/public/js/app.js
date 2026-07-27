@@ -123,6 +123,15 @@ const api = {
             body: JSON.stringify(payload),
         });
     },
+    getPaymentGateway(id) {
+        return request(`/tenants/${encodeURIComponent(String(id))}/payment-gateway`);
+    },
+    updatePaymentGateway(id, payload) {
+        return request(`/tenants/${encodeURIComponent(String(id))}/payment-gateway`, {
+            method: 'PATCH',
+            body: JSON.stringify(payload),
+        });
+    },
     setTenantActive(id, active) {
         return request(`/tenants/${id}/active`, {
             method: 'PATCH',
@@ -211,6 +220,7 @@ function formatAuditAction(action) {
     if (key === 'TENANT_UPDATED') return 'Tenant atualizado';
     if (key === 'TENANT_STATUS_CHANGED') return 'Status alterado';
     if (key === 'TENANT_WALLET_UPDATED') return 'Carteira alterada';
+    if (key === 'TENANT_PAYMENT_GATEWAY_UPDATED') return 'Gateway de pagamento alterado';
     return key || 'Ação';
 }
 
@@ -403,6 +413,7 @@ async function loadTenants() {
                 <td>${formatNumber(t.msgs)} msgs</td>
                 <td>
                     <button class="btn" style="padding:6px 12px; background:var(--border)" onclick="openTenantModal('${escapeHtml(t.id)}')">Editar</button>
+                    <button class="btn" style="padding:6px 12px; background:rgba(59, 130, 246, 0.2); color:#93c5fd" onclick="openPaymentGatewayModal('${escapeHtml(t.id)}')">Pagamento</button>
                     <button class="btn" style="padding:6px 12px; background:${t.active ? 'rgba(239, 68, 68, 0.2)' : 'rgba(16, 185, 129, 0.2)'}; color:${t.active ? 'var(--danger)' : '#22c55e'}" onclick="toggleTenantActive('${escapeHtml(t.id)}', ${t.active ? 'false' : 'true'})">${t.active ? 'Pausar' : 'Ativar'}</button>
                 </td>
             </tr>
@@ -874,6 +885,70 @@ function openTenantModal(tenantId = '') {
 
 function closeTenantModal() {
     document.getElementById('tenant-modal').classList.remove('active');
+}
+
+function togglePaymentGatewayFields() {
+    const provider = document.getElementById('pgm-provider').value;
+    document.getElementById('pgm-mercadopago-fields').style.display = provider === 'MERCADO_PAGO' ? 'block' : 'none';
+    if (provider === 'NONE') document.getElementById('pgm-enabled').checked = false;
+}
+
+async function openPaymentGatewayModal(tenantId) {
+    const tenant = state.tenants.find((item) => item.id === tenantId);
+    if (!tenant) return;
+    try {
+        const response = await api.getPaymentGateway(tenantId);
+        const gateway = response?.gateway || {};
+        document.getElementById('pgm-tenant-id').value = tenantId;
+        document.getElementById('pgm-tenant-name').textContent = response?.tenantName || tenant.name || '';
+        document.getElementById('pgm-provider').value = gateway.provider || 'NONE';
+        document.getElementById('pgm-environment').value = gateway.environment || 'TEST';
+        document.getElementById('pgm-public-key').value = gateway.publicKey || '';
+        document.getElementById('pgm-access-token').value = '';
+        document.getElementById('pgm-clear-token').checked = false;
+        document.getElementById('pgm-enabled').checked = !!gateway.enabled;
+        document.getElementById('pgm-token-status').textContent = gateway.accessTokenConfigured
+            ? 'Token já configurado e protegido. Preencha somente para substituir.'
+            : 'Nenhum token configurado ainda.';
+        document.getElementById('pgm-public-key').placeholder = 'TEST-... ou APP_USR-...';
+        togglePaymentGatewayFields();
+        document.getElementById('payment-gateway-modal').classList.add('active');
+    } catch (error) {
+        console.error(error);
+        alert(`Falha ao abrir gateway: ${error.message}`);
+    }
+}
+
+function closePaymentGatewayModal() {
+    document.getElementById('payment-gateway-modal').classList.remove('active');
+}
+
+async function savePaymentGateway(event) {
+    event.preventDefault();
+    const tenantId = document.getElementById('pgm-tenant-id').value.trim();
+    const provider = document.getElementById('pgm-provider').value;
+    const payload = {
+        provider,
+        enabled: !!document.getElementById('pgm-enabled').checked,
+        environment: document.getElementById('pgm-environment').value,
+        public_key: document.getElementById('pgm-public-key').value.trim(),
+        access_token: document.getElementById('pgm-access-token').value.trim(),
+        clear_access_token: !!document.getElementById('pgm-clear-token').checked,
+    };
+    if (provider === 'NONE') {
+        payload.enabled = false;
+        payload.public_key = '';
+        payload.access_token = '';
+    }
+    try {
+        await api.updatePaymentGateway(tenantId, payload);
+        closePaymentGatewayModal();
+        await loadTenants();
+        alert('Gateway de pagamento salvo.');
+    } catch (error) {
+        console.error(error);
+        alert(`Falha ao salvar gateway: ${error.message}`);
+    }
 }
 
 async function saveTenant(event) {

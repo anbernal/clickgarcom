@@ -53,15 +53,26 @@ type MessageTemplates struct {
 }
 
 type TenantSettings struct {
-	ServiceMode       string           `json:"service_mode"`
-	ServiceFeePercent float64          `json:"service_fee_percent"`
-	SplitEnabled      bool             `json:"split_enabled"`
-	AutoAcceptOrders  bool             `json:"auto_accept_orders"`
-	NPSEnabled        bool             `json:"nps_enabled"`
-	VoucherEnabled    bool             `json:"voucher_enabled"`
-	MPAccessToken     string           `json:"mp_access_token"` // FASE 12
-	MPPublicKey       string           `json:"mp_public_key"`   // FASE 12
-	Messages          MessageTemplates `json:"messages"`        // FASE 16
+	ServiceMode       string                 `json:"service_mode"`
+	ServiceFeePercent float64                `json:"service_fee_percent"`
+	SplitEnabled      bool                   `json:"split_enabled"`
+	AutoAcceptOrders  bool                   `json:"auto_accept_orders"`
+	NPSEnabled        bool                   `json:"nps_enabled"`
+	VoucherEnabled    bool                   `json:"voucher_enabled"`
+	MPAccessToken     string                 `json:"mp_access_token"` // FASE 12
+	MPPublicKey       string                 `json:"mp_public_key"`   // FASE 12
+	PaymentGateway    PaymentGatewaySettings `json:"payment_gateway"`
+	Messages          MessageTemplates       `json:"messages"` // FASE 16
+}
+
+// PaymentGatewaySettings keeps the provider selection tenant-scoped. The encrypted
+// access token is never returned by administrative APIs or exposed to checkout users.
+type PaymentGatewaySettings struct {
+	Provider             string `json:"provider"`
+	Enabled              bool   `json:"enabled"`
+	Environment          string `json:"environment"`
+	PublicKey            string `json:"public_key"`
+	AccessTokenEncrypted string `json:"access_token_encrypted"`
 }
 
 func (Tenant) TableName() string {

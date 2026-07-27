@@ -230,6 +230,36 @@ export class SuperAdminController {
         return this.superAdminService.updateTenant(id, body || {}, actor);
     }
 
+    @Get('tenants/:id/payment-gateway')
+    async getPaymentGateway(
+        @Request() req,
+        @Headers('authorization') authorization: string | undefined,
+        @Param('id') id: string,
+    ) {
+        await this.superAdminService.requireAuthenticatedSession({
+            authorization,
+            sourceIp: this.resolveSourceIp(req),
+            userAgent: this.resolveUserAgent(req),
+        });
+        return this.superAdminService.getPaymentGateway(id);
+    }
+
+    @Patch('tenants/:id/payment-gateway')
+    async updatePaymentGateway(
+        @Request() req,
+        @Headers('authorization') authorization: string | undefined,
+        @Param('id') id: string,
+        @Body() body: any,
+    ) {
+        const actor = await this.superAdminService.requireAuthenticatedSession({
+            authorization,
+            sourceIp: this.resolveSourceIp(req),
+            userAgent: this.resolveUserAgent(req),
+            sensitiveOperation: true,
+        });
+        return this.superAdminService.updatePaymentGateway(id, body || {}, actor);
+    }
+
     @Patch('tenants/:id/active')
     async setTenantActive(
         @Request() req,

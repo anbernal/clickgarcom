@@ -26,7 +26,16 @@ export interface TenantSettings {
     voucher_enabled?: boolean;
     mp_access_token?: string;
     mp_public_key?: string;
+    payment_gateway?: PaymentGatewaySettings;
     messages?: MessageTemplates;
+}
+
+export interface PaymentGatewaySettings {
+    provider?: 'NONE' | 'MERCADO_PAGO';
+    enabled?: boolean;
+    environment?: '' | 'TEST' | 'PRODUCTION';
+    public_key?: string;
+    access_token_encrypted?: string;
 }
 
 @Entity('tenants')

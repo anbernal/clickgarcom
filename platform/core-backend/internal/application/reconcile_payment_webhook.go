@@ -85,8 +85,12 @@ func (uc *ReconcilePaymentWebhookUseCase) Execute(ctx context.Context, body []by
 	}
 
 	tnt, err := uc.tenantRepo.FindByID(ctx, localPayment.TenantID)
-	if err != nil || tnt == nil || strings.TrimSpace(tnt.Settings.MPAccessToken) == "" {
-		return fmt.Errorf("tenant mercadopago config not found for tenant %s", localPayment.TenantID.String())
+	if err != nil || tnt == nil {
+		return fmt.Errorf("tenant payment gateway config not found for tenant %s", localPayment.TenantID.String())
+	}
+	gateway, err := infraMP.ResolveTenantGateway(tnt.Settings)
+	if err != nil || gateway.Provider != payment.ProviderMercadoPago {
+		return fmt.Errorf("tenant payment gateway config not found for tenant %s", localPayment.TenantID.String())
 	}
 
 	providerPaymentID := strings.TrimSpace(payload.MpID)
@@ -100,7 +104,7 @@ func (uc *ReconcilePaymentWebhookUseCase) Execute(ctx context.Context, body []by
 		return fmt.Errorf("provider payment id missing for payment %s", localPayment.ID.String())
 	}
 
-	providerDetails, err := uc.mpClient.GetPayment(ctx, tnt.Settings.MPAccessToken, providerPaymentID)
+	providerDetails, err := uc.mpClient.GetPayment(ctx, gateway.AccessToken, providerPaymentID)
 	if err != nil {
 		return fmt.Errorf("failed to fetch provider payment status: %w", err)
 	}

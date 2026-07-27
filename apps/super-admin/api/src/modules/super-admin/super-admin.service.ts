@@ -10,8 +10,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import axios from 'axios';
-import { createHash, createHmac, randomUUID, timingSafeEqual } from 'crypto';
-import { Tenant, TenantSettings } from '../../entities/tenant.entity';
+import { createCipheriv, createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'crypto';
+import { PaymentGatewaySettings, Tenant, TenantSettings } from '../../entities/tenant.entity';
 import { User } from '../../entities/user.entity';
 
 type TenantPayload = {
@@ -23,6 +23,15 @@ type TenantPayload = {
     message_price?: number;
     admin_email?: string;
     admin_password?: string;
+};
+
+type PaymentGatewayPayload = {
+    provider?: string;
+    enabled?: boolean;
+    environment?: string;
+    public_key?: string;
+    access_token?: string;
+    clear_access_token?: boolean;
 };
 
 type SuperAdminLoginPayload = {
@@ -325,6 +334,7 @@ export class SuperAdminService {
                     t.wallet_balance,
                     t.billing_plan,
                     t.message_price,
+                    t.settings,
                     t.created_at,
                     admin_user.email AS admin_email,
                     COALESCE(SUM(CASE WHEN ml.direction = 'IN' THEN 1 ELSE 0 END), 0)::int AS msg_in,
@@ -339,7 +349,7 @@ export class SuperAdminService {
                  ) admin_user ON true
                  LEFT JOIN message_logs ml ON ml.tenant_id = t.id
                  GROUP BY
-                    t.id, t.name, t.slug, t.whatsapp_number, t.waba_id, t.active, t.is_open, t.wallet_balance, t.billing_plan, t.message_price, t.created_at, admin_user.email
+                    t.id, t.name, t.slug, t.whatsapp_number, t.waba_id, t.active, t.is_open, t.wallet_balance, t.billing_plan, t.message_price, t.settings, t.created_at, admin_user.email
                  ORDER BY t.created_at DESC`,
             )
             : await this.dataSource.query(
@@ -354,6 +364,7 @@ export class SuperAdminService {
                     t.wallet_balance,
                     t.billing_plan,
                     t.message_price,
+                    t.settings,
                     t.created_at,
                     admin_user.email AS admin_email,
                     0::int AS msg_in,
@@ -385,6 +396,7 @@ export class SuperAdminService {
                 walletBalance: Number(row.wallet_balance || 0),
                 billingPlan: row.billing_plan || 'pre_paid',
                 messagePrice: Number(row.message_price || 0.02),
+                paymentGateway: this.summarizePaymentGateway(this.parseTenantSettings(row.settings)),
                 webhook: webhookUrl,
                 msgsIn: msgIn,
                 msgsOut: msgOut,
@@ -392,6 +404,70 @@ export class SuperAdminService {
                 createdAt: row.created_at,
             };
         });
+    }
+
+    async getPaymentGateway(id: string) {
+        const tenant = await this.tenantRepo.findOne({ where: { id } });
+        if (!tenant) throw new NotFoundException('Tenant nao encontrado.');
+        return {
+            tenantId: tenant.id,
+            tenantName: tenant.name,
+            gateway: this.summarizePaymentGateway(tenant.settings || {}),
+            providers: [
+                { code: 'NONE', label: 'Sem gateway', supported: true },
+                { code: 'MERCADO_PAGO', label: 'Mercado Pago', supported: true },
+            ],
+        };
+    }
+
+    async updatePaymentGateway(id: string, payload: PaymentGatewayPayload, actor: SuperAdminActorContext) {
+        const tenant = await this.tenantRepo.findOne({ where: { id } });
+        if (!tenant) throw new NotFoundException('Tenant nao encontrado.');
+
+        const provider = String(payload.provider || '').trim().toUpperCase();
+        const enabled = !!payload.enabled;
+        const environment = String(payload.environment || '').trim().toUpperCase();
+        const publicKey = String(payload.public_key || '').trim();
+        const accessToken = String(payload.access_token || '').trim();
+
+        if (!['NONE', 'MERCADO_PAGO'].includes(provider)) {
+            throw new BadRequestException('Gateway de pagamento não suportado.');
+        }
+        if (provider === 'MERCADO_PAGO' && !['TEST', 'PRODUCTION'].includes(environment)) {
+            throw new BadRequestException('Escolha o ambiente de teste ou produção do Mercado Pago.');
+        }
+        if (enabled && provider === 'MERCADO_PAGO' && !publicKey) {
+            throw new BadRequestException('A Public Key do Mercado Pago é obrigatória para ativar cartão.');
+        }
+
+        const settings = (tenant.settings || {}) as TenantSettings;
+        const current = settings.payment_gateway || {};
+        let encryptedToken = String(current.access_token_encrypted || '').trim();
+        if (payload.clear_access_token) encryptedToken = '';
+        if (accessToken) {
+            this.validateMercadoPagoCredentials(environment, publicKey, accessToken);
+            encryptedToken = this.encryptPaymentGatewaySecret(accessToken);
+        } else if (enabled && provider === 'MERCADO_PAGO' && !encryptedToken) {
+            throw new BadRequestException('Informe o Access Token do Mercado Pago para ativar o gateway.');
+        }
+
+        const next: PaymentGatewaySettings = provider === 'NONE'
+            ? { provider: 'NONE', enabled: false, environment: '', public_key: '', access_token_encrypted: '' }
+            : { provider: 'MERCADO_PAGO', enabled, environment: environment as 'TEST' | 'PRODUCTION', public_key: publicKey, access_token_encrypted: encryptedToken };
+
+        tenant.settings = { ...settings, payment_gateway: next };
+        await this.tenantRepo.save(tenant);
+
+        const summary = this.summarizePaymentGateway(tenant.settings);
+        await this.recordAuditLog({
+            action: 'TENANT_PAYMENT_GATEWAY_UPDATED', entityType: 'TENANT', entityId: tenant.id, tenantId: tenant.id, actor,
+            details: {
+                summary: `Gateway de pagamento de ${tenant.name} atualizado para ${summary.providerLabel} (${summary.environmentLabel || 'desativado'}).`,
+                provider: summary.provider, enabled: summary.enabled, environment: summary.environment,
+                public_key_configured: summary.publicKeyConfigured, access_token_configured: summary.accessTokenConfigured,
+            },
+        });
+        return { gateway: summary };
     }
 
     async getOperationsOverview() {
@@ -2559,6 +2635,55 @@ export class SuperAdminService {
             return raw as TenantSettings;
         }
         return {};
+    }
+
+    private summarizePaymentGateway(settings: TenantSettings) {
+        const configured = settings?.payment_gateway;
+        const provider = String(configured?.provider || '').trim().toUpperCase();
+        const legacy = !provider && !!String(settings?.mp_access_token || '').trim();
+        const normalizedProvider = provider || (legacy ? 'MERCADO_PAGO' : 'NONE');
+        const environment = String(configured?.environment || '').trim().toUpperCase();
+        const enabled = provider === 'MERCADO_PAGO'
+            ? !!configured?.enabled
+            : legacy;
+        return {
+            provider: normalizedProvider,
+            providerLabel: normalizedProvider === 'MERCADO_PAGO' ? 'Mercado Pago' : 'Sem gateway',
+            enabled,
+            environment,
+            environmentLabel: environment === 'TEST' ? 'Teste' : environment === 'PRODUCTION' ? 'Produção' : '',
+            publicKey: String(configured?.public_key || (legacy ? settings?.mp_public_key : '') || '').trim(),
+            publicKeyConfigured: !!String(configured?.public_key || (legacy ? settings?.mp_public_key : '') || '').trim(),
+            accessTokenConfigured: !!String(configured?.access_token_encrypted || (legacy ? settings?.mp_access_token : '') || '').trim(),
+            legacy,
+        };
+    }
+
+    private encryptPaymentGatewaySecret(value: string) {
+        const key = this.getPaymentGatewayEncryptionKey();
+        const nonce = randomBytes(12);
+        const cipher = createCipheriv('aes-256-gcm', key, nonce);
+        const encrypted = Buffer.concat([cipher.update(String(value).trim(), 'utf8'), cipher.final()]);
+        const tag = cipher.getAuthTag();
+        return `v1.${nonce.toString('base64url')}.${tag.toString('base64url')}.${encrypted.toString('base64url')}`;
+    }
+
+    private getPaymentGatewayEncryptionKey() {
+        const raw = String(process.env.PAYMENT_GATEWAY_ENCRYPTION_KEY || '').trim();
+        if (!raw) {
+            throw new BadRequestException('PAYMENT_GATEWAY_ENCRYPTION_KEY não está configurada no ambiente.');
+        }
+        const decoded = Buffer.from(raw, 'base64');
+        if (decoded.length === 32) return decoded;
+        if (raw.length >= 32) return createHash('sha256').update(raw).digest();
+        throw new BadRequestException('PAYMENT_GATEWAY_ENCRYPTION_KEY inválida no ambiente.');
+    }
+
+    private validateMercadoPagoCredentials(environment: string, publicKey: string, accessToken: string) {
+        const expectedPrefix = environment === 'TEST' ? 'TEST-' : 'APP_USR-';
+        if (!publicKey.startsWith(expectedPrefix) || !accessToken.startsWith(expectedPrefix)) {
+            throw new BadRequestException(`As credenciais do Mercado Pago devem ser do ambiente ${environment === 'TEST' ? 'de teste' : 'de produção'} e da mesma aplicação.`);
+        }
     }
 
     private parseJsonRecord(raw: unknown): Record<string, unknown> {

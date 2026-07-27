@@ -26,6 +26,13 @@ export interface TenantSettings {
     voucher_enabled?: boolean;
     mp_access_token?: string;
     mp_public_key?: string;
+    payment_gateway?: {
+        provider?: 'NONE' | 'MERCADO_PAGO';
+        enabled?: boolean;
+        environment?: 'TEST' | 'PRODUCTION';
+        public_key?: string;
+        access_token_encrypted?: string;
+    };
     messages?: MessageTemplates;
     document?: string;
     address?: string;

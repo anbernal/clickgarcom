@@ -75,8 +75,12 @@ func (h *PaymentHandler) CreatePixPayment(c *fiber.Ctx) error {
 	}
 
 	tnt, err := h.tenantRepo.FindByID(c.Context(), tenantID)
-	if err != nil || tnt == nil || tnt.Settings.MPAccessToken == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "mercadopago not configured for this tenant"})
+	if err != nil || tnt == nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "payment gateway not configured for this tenant"})
+	}
+	gateway, err := infraMP.ResolveTenantGateway(tnt.Settings)
+	if err != nil || gateway.Provider != payment.ProviderMercadoPago {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "payment gateway not configured for this tenant"})
 	}
 
 	var reqBody struct {
@@ -107,7 +111,7 @@ func (h *PaymentHandler) CreatePixPayment(c *fiber.Ctx) error {
 	}
 
 	method := payment.MethodPix
-	localPayment := h.newLocalPayment(tenantID, tabID, orderID, reqBody.Amount, method, walletRecharge)
+	localPayment := h.newLocalPayment(tenantID, tabID, orderID, reqBody.Amount, method, gateway.Provider, walletRecharge)
 	if err := h.paymentRepo.Create(c.Context(), localPayment); err != nil {
 		h.logger.Error("failed to create local pix payment", zap.Error(err))
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to create local payment"})
@@ -129,7 +133,7 @@ func (h *PaymentHandler) CreatePixPayment(c *fiber.Ctx) error {
 		PaymentID:         localPayment.ID,
 		TenantID:          tenantID,
 		TabID:             tabID,
-		Provider:          payment.ProviderMercadoPago,
+		Provider:          gateway.Provider,
 		PaymentMethod:     method,
 		RequestedAmount:   reqBody.Amount,
 		IdempotencyKey:    idempotencyKey,
@@ -152,7 +156,7 @@ func (h *PaymentHandler) CreatePixPayment(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to create payment attempt"})
 	}
 
-	mpResp, err := h.mpClient.CreatePixPayment(c.Context(), tnt.Settings.MPAccessToken, idempotencyKey, mpReq)
+	mpResp, err := h.mpClient.CreatePixPayment(c.Context(), gateway.AccessToken, idempotencyKey, mpReq)
 	if err != nil {
 		h.persistIndeterminateAttempt(c.Context(), attempt, err)
 		if h.isIndeterminateProviderError(err) {
@@ -187,8 +191,12 @@ func (h *PaymentHandler) CreateCardPayment(c *fiber.Ctx) error {
 	}
 
 	tnt, err := h.tenantRepo.FindByID(c.Context(), tenantID)
-	if err != nil || tnt == nil || tnt.Settings.MPAccessToken == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "mercadopago not configured for this tenant"})
+	if err != nil || tnt == nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "payment gateway not configured for this tenant"})
+	}
+	gateway, err := infraMP.ResolveTenantGateway(tnt.Settings)
+	if err != nil || gateway.Provider != payment.ProviderMercadoPago {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "payment gateway not configured for this tenant"})
 	}
 
 	var reqBody struct {
@@ -239,7 +247,7 @@ func (h *PaymentHandler) CreateCardPayment(c *fiber.Ctx) error {
 		method = payment.MethodDebitCard
 	}
 
-	localPayment := h.newLocalPayment(tenantID, tabID, orderID, reqBody.Amount, method, walletRecharge)
+	localPayment := h.newLocalPayment(tenantID, tabID, orderID, reqBody.Amount, method, gateway.Provider, walletRecharge)
 	if err := h.paymentRepo.Create(c.Context(), localPayment); err != nil {
 		h.logger.Error("failed to create local card payment", zap.Error(err))
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to create local payment"})
@@ -281,7 +289,7 @@ func (h *PaymentHandler) CreateCardPayment(c *fiber.Ctx) error {
 		PaymentID:         localPayment.ID,
 		TenantID:          tenantID,
 		TabID:             tabID,
-		Provider:          payment.ProviderMercadoPago,
+		Provider:          gateway.Provider,
 		PaymentMethod:     method,
 		RequestedAmount:   reqBody.Amount,
 		IdempotencyKey:    idempotencyKey,
@@ -294,7 +302,7 @@ func (h *PaymentHandler) CreateCardPayment(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to create payment attempt"})
 	}
 
-	mpResp, err := h.mpClient.CreateCardPayment(c.Context(), tnt.Settings.MPAccessToken, idempotencyKey, mpReq)
+	mpResp, err := h.mpClient.CreateCardPayment(c.Context(), gateway.AccessToken, idempotencyKey, mpReq)
 	if err != nil {
 		h.persistIndeterminateAttempt(c.Context(), attempt, err)
 		if h.isIndeterminateProviderError(err) {
@@ -364,7 +372,7 @@ func (h *PaymentHandler) GetPaymentStatus(c *fiber.Ctx) error {
 	}
 
 	tnt, tenantErr := h.tenantRepo.FindByID(c.Context(), tenantID)
-	if tenantErr == nil && tnt != nil && strings.TrimSpace(tnt.Settings.MPAccessToken) != "" {
+	if tenantErr == nil && tnt != nil {
 		h.refreshPaymentStatus(c.Context(), tnt, localPayment, attempt)
 	}
 
@@ -401,11 +409,15 @@ func (h *PaymentHandler) GetMercadoPagoPaymentStatus(c *fiber.Ctx) error {
 	}
 
 	tnt, err := h.tenantRepo.FindByID(c.Context(), tenantID)
-	if err != nil || tnt == nil || strings.TrimSpace(tnt.Settings.MPAccessToken) == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "mercadopago not configured for this tenant"})
+	if err != nil || tnt == nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "payment gateway not configured for this tenant"})
+	}
+	gateway, err := infraMP.ResolveTenantGateway(tnt.Settings)
+	if err != nil || gateway.Provider != payment.ProviderMercadoPago {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "payment gateway not configured for this tenant"})
 	}
 
-	mpPayment, err := h.mpClient.GetPayment(c.Context(), tnt.Settings.MPAccessToken, mpID)
+	mpPayment, err := h.mpClient.GetPayment(c.Context(), gateway.AccessToken, mpID)
 	if err != nil {
 		h.logger.Warn("failed to fetch mercadopago payment status",
 			zap.Error(err),
@@ -562,6 +574,7 @@ func (h *PaymentHandler) newLocalPayment(
 	orderID uuid.UUID,
 	amount float64,
 	method payment.Method,
+	provider payment.Provider,
 	walletRecharge bool,
 ) *payment.Payment {
 	var orderRef *uuid.UUID
@@ -582,7 +595,7 @@ func (h *PaymentHandler) newLocalPayment(
 		Method:            method,
 		ExternalReference: paymentID.String(),
 		Metadata: payment.JSONMap{
-			"provider": string(payment.ProviderMercadoPago),
+			"provider": string(provider),
 			"method":   string(method),
 		},
 	}
@@ -685,19 +698,23 @@ func (h *PaymentHandler) refreshPaymentStatus(
 	if tnt == nil || localPayment == nil {
 		return
 	}
-
-	var providerDetails *infraMP.PaymentStatusResponse
-	var err error
-
-	if attempt != nil && payment.ValueOrEmpty(attempt.ProviderPaymentID) != "" {
-		providerDetails, err = h.mpClient.GetPayment(ctx, tnt.Settings.MPAccessToken, payment.ValueOrEmpty(attempt.ProviderPaymentID))
-	} else if attempt != nil && strings.TrimSpace(attempt.ExternalReference) != "" {
-		providerDetails, err = h.mpClient.SearchPaymentsByExternalReference(ctx, tnt.Settings.MPAccessToken, attempt.ExternalReference)
+	gateway, err := infraMP.ResolveTenantGateway(tnt.Settings)
+	if err != nil || gateway.Provider != payment.ProviderMercadoPago {
+		return
 	}
 
-	if err != nil {
+	var providerDetails *infraMP.PaymentStatusResponse
+	var providerErr error
+
+	if attempt != nil && payment.ValueOrEmpty(attempt.ProviderPaymentID) != "" {
+		providerDetails, providerErr = h.mpClient.GetPayment(ctx, gateway.AccessToken, payment.ValueOrEmpty(attempt.ProviderPaymentID))
+	} else if attempt != nil && strings.TrimSpace(attempt.ExternalReference) != "" {
+		providerDetails, providerErr = h.mpClient.SearchPaymentsByExternalReference(ctx, gateway.AccessToken, attempt.ExternalReference)
+	}
+
+	if providerErr != nil {
 		h.logger.Warn("failed to refresh payment status from mercadopago",
-			zap.Error(err),
+			zap.Error(providerErr),
 			zap.String("payment_id", localPayment.ID.String()),
 		)
 		return
