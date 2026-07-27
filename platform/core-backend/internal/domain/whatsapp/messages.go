@@ -151,6 +151,7 @@ const defaultMainMenuOptions = `*1* - 🛒 Fazer pedido
 *4* - 🙋 Chamar garçom
 *5* - 💰 Fechar conta
 *6* - 🔐 QR Code de saída
+*7* - 🌐 Continuar no navegador
 
 _Digite o número da opção_`
 

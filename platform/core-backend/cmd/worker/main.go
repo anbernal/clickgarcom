@@ -153,6 +153,7 @@ func main() {
 		whatsappSender,
 		resolvePublicCheckoutBaseURL(),
 		logger.Log,
+		portalAccessClient,
 	)
 	processWhatsAppMsg := application.NewProcessWhatsAppMessageUseCase(
 		inboxRepo,
@@ -172,7 +173,6 @@ func main() {
 		tenantRepo,
 		whatsappSender,
 		logger.Log,
-		portalAccessClient,
 	)
 	reconcilePaymentWebhookUC := application.NewReconcilePaymentWebhookUseCase(
 		paymentRepo,
@@ -245,6 +245,7 @@ func main() {
 			portalSender,
 			resolvePublicCheckoutBaseURL(),
 			logger.Log,
+			portalAccessClient,
 		)
 
 		if err := portalHandleUC.ExecutePortal(ctx, input, portalConversationInputStore); err != nil {

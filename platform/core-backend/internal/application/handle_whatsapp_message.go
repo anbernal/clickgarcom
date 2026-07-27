@@ -22,6 +22,12 @@ import (
 	"github.com/anbernal/clickgarcom/internal/domain/whatsapp"
 )
 
+// PortalAccessIssuer creates a short-lived URL for continuing a comanda
+// outside WhatsApp.
+type PortalAccessIssuer interface {
+	CreatePortalAccess(ctx context.Context, tenantID, tabID uuid.UUID) (string, error)
+}
+
 type HandleWhatsAppMessageUseCase struct {
 	sessionRepo           session.Repository
 	tenantRepo            tenant.Repository
@@ -33,6 +39,7 @@ type HandleWhatsAppMessageUseCase struct {
 	waiterChatRepo        waiterchat.Repository
 	createOrderUC         *CreateOrderUseCase
 	sender                WhatsAppSender
+	portalAccess          PortalAccessIssuer
 	logger                *zap.Logger
 	publicCheckoutBaseURL string
 }
@@ -61,7 +68,12 @@ func NewHandleWhatsAppMessageUseCase(
 	sender WhatsAppSender,
 	publicCheckoutBaseURL string,
 	logger *zap.Logger,
+	portalAccess ...PortalAccessIssuer,
 ) *HandleWhatsAppMessageUseCase {
+	var portalIssuer PortalAccessIssuer
+	if len(portalAccess) > 0 {
+		portalIssuer = portalAccess[0]
+	}
 	return &HandleWhatsAppMessageUseCase{
 		sessionRepo:           sessionRepo,
 		tenantRepo:            tenantRepo,
@@ -73,6 +85,7 @@ func NewHandleWhatsAppMessageUseCase(
 		waiterChatRepo:        waiterChatRepo,
 		createOrderUC:         createOrderUC,
 		sender:                sender,
+		portalAccess:          portalIssuer,
 		logger:                logger,
 		publicCheckoutBaseURL: publicCheckoutBaseURL,
 	}
@@ -2320,7 +2333,7 @@ func (uc *HandleWhatsAppMessageUseCase) sendTenantMessage(
 	message string,
 ) error {
 	tenantObj, _ := uc.tenantRepo.FindByID(ctx, tenantID)
-	if handled, err := uc.sendCheckoutURLButton(ctx, to, tenantID, tenantObj, message); handled {
+	if handled, err := uc.sendExternalURLButton(ctx, to, tenantID, tenantObj, message); handled {
 		return err
 	}
 
@@ -2336,7 +2349,7 @@ func (uc *HandleWhatsAppMessageUseCase) sendTenantMessage(
 	return uc.sender.SendText(ctx, to, decorated)
 }
 
-func (uc *HandleWhatsAppMessageUseCase) sendCheckoutURLButton(
+func (uc *HandleWhatsAppMessageUseCase) sendExternalURLButton(
 	ctx context.Context,
 	to string,
 	tenantID uuid.UUID,
@@ -2348,7 +2361,7 @@ func (uc *HandleWhatsAppMessageUseCase) sendCheckoutURLButton(
 		return false, nil
 	}
 
-	targetURL := extractCheckoutURL(message)
+	targetURL, displayText := extractSupportedExternalURL(message)
 	if targetURL == "" {
 		return false, nil
 	}
@@ -2359,25 +2372,44 @@ func (uc *HandleWhatsAppMessageUseCase) sendCheckoutURLButton(
 	}
 	body = strings.Replace(body, targetURL, "", 1)
 	body = strings.Replace(body, "Abra sua comanda neste link seguro:", "Clique no botão abaixo para abrir sua comanda com segurança:", 1)
+	body = strings.Replace(body, "Se precisar continuar fora do WhatsApp, toque no botão abaixo para abrir sua comanda com segurança:", "Toque no botão abaixo para continuar sua comanda com segurança:", 1)
 	body = strings.TrimSpace(body)
 	if body == "" {
-		body = "Abra sua comanda para continuar o pagamento."
+		body = "Abra sua comanda para continuar."
 	}
 
 	_, err := sender.SendInteractiveURLButton(
 		whatsapp.WithTenantID(ctx, tenantID),
 		to,
 		whatsapp.WithRestaurantHeader(uc.resolveTenantName(ctx, tenantID), body),
-		"Abrir pagamento",
+		displayText,
 		targetURL,
 	)
 	return true, err
 }
 
 func extractCheckoutURL(message string) string {
+	return extractURLContaining(message, "/checkout.html#")
+}
+
+func extractPortalURL(message string) string {
+	return extractURLContaining(message, "/portal.html#")
+}
+
+func extractSupportedExternalURL(message string) (string, string) {
+	if url := extractCheckoutURL(message); url != "" {
+		return url, "Abrir pagamento"
+	}
+	if url := extractPortalURL(message); url != "" {
+		return url, "Abrir no navegador"
+	}
+	return "", ""
+}
+
+func extractURLContaining(message, path string) string {
 	for _, field := range strings.Fields(message) {
 		candidate := strings.Trim(field, "<>.,;)")
-		if !strings.HasPrefix(strings.ToLower(candidate), "https://") || !strings.Contains(candidate, "/checkout.html#") {
+		if !strings.HasPrefix(strings.ToLower(candidate), "https://") || !strings.Contains(candidate, path) {
 			continue
 		}
 		return candidate
@@ -2622,6 +2654,7 @@ func buildMainMenuSections() []whatsapp.InteractiveListSection {
 				{ID: "4", Title: "Chamar garçom", Description: "Falar com nossa equipe"},
 				{ID: "5", Title: "Fechar conta", Description: "Pagar ou pedir fechamento"},
 				{ID: "6", Title: "QR Code de saída", Description: "Conferir se a comanda está fechada"},
+				{ID: "7", Title: "Continuar no navegador", Description: "Abrir a comanda fora do WhatsApp"},
 			},
 		},
 	}

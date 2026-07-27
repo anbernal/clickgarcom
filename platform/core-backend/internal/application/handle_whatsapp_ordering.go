@@ -335,9 +335,39 @@ func (uc *HandleWhatsAppMessageUseCase) handleMainMenuSimplified(
 	case "6":
 		return uc.handleExitQRCode(ctx, sess)
 
+	case "7":
+		return uc.handlePortalAccess(ctx, sess)
+
 	default:
 		return uc.repeatCurrentPrompt(ctx, sess)
 	}
+}
+
+func (uc *HandleWhatsAppMessageUseCase) handlePortalAccess(
+	ctx context.Context,
+	sess *session.Session,
+) (string, session.ConversationState, error) {
+	userTab := uc.findSessionOpenTab(ctx, sess)
+	if userTab == nil {
+		return "🌐 *Continuar no navegador*\n\nNão encontrei uma comanda aberta vinculada a este atendimento.\n\n" + whatsapp.MainMenuMessage(),
+			session.StateMainMenu, nil
+	}
+	if uc.portalAccess == nil {
+		return "🌐 *Continuar no navegador*\n\nEsse acesso está temporariamente indisponível. Peça apoio à equipe.\n\n" + whatsapp.MainMenuMessage(),
+			session.StateMainMenu, nil
+	}
+
+	portalURL, err := uc.portalAccess.CreatePortalAccess(ctx, sess.TenantID, userTab.ID)
+	if err != nil || strings.TrimSpace(portalURL) == "" {
+		if err != nil {
+			uc.logger.Warn("failed to create portal access from main menu", zap.Error(err), zap.String("tab_id", userTab.ID.String()))
+		}
+		return "🌐 *Continuar no navegador*\n\nNão consegui preparar esse acesso agora. Tente novamente em instantes ou peça apoio à equipe.\n\n" + whatsapp.MainMenuMessage(),
+			session.StateMainMenu, nil
+	}
+
+	return "🌐 *Continuar no navegador*\n\nSe precisar continuar fora do WhatsApp, toque no botão abaixo para abrir sua comanda com segurança:\n" + strings.TrimSpace(portalURL),
+		session.StateMainMenu, nil
 }
 
 func (uc *HandleWhatsAppMessageUseCase) handleExitQRCode(

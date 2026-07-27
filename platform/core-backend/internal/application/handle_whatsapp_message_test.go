@@ -908,11 +908,49 @@ func TestSendTenantMessageUsesInteractiveMainMenuList(t *testing.T) {
 	if len(message.Sections) != 1 {
 		t.Fatalf("expected 1 section, got %d", len(message.Sections))
 	}
-	if len(message.Sections[0].Rows) != 6 {
-		t.Fatalf("expected 6 rows, got %d", len(message.Sections[0].Rows))
+	if len(message.Sections[0].Rows) != 7 {
+		t.Fatalf("expected 7 rows, got %d", len(message.Sections[0].Rows))
 	}
-	if message.Sections[0].Rows[5].ID != "6" {
-		t.Fatalf("expected last row id %q, got %q", "6", message.Sections[0].Rows[5].ID)
+	if message.Sections[0].Rows[6].ID != "7" {
+		t.Fatalf("expected last row id %q, got %q", "7", message.Sections[0].Rows[6].ID)
+	}
+}
+
+func TestSendTenantMessageUsesPortalURLButton(t *testing.T) {
+	ctx := context.Background()
+	tenantID := uuid.New()
+	sender := &testExternalURLSender{}
+	uc := NewHandleWhatsAppMessageUseCase(
+		nil,
+		&testTenantRepo{tenant: testTenant(tenantID)},
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		sender,
+		"",
+		zap.NewNop(),
+	)
+
+	portalURL := "https://clickgarcom.example/portal.html#access_token=secret"
+	if err := uc.sendTenantMessage(ctx, "5511999999999", tenantID, "🌐 *Continuar no navegador*\n\n"+portalURL); err != nil {
+		t.Fatalf("sendTenantMessage() error = %v", err)
+	}
+
+	if len(sender.urlMessages) != 1 {
+		t.Fatalf("expected one portal URL action, got %d", len(sender.urlMessages))
+	}
+	if sender.urlMessages[0].URL != portalURL {
+		t.Fatalf("expected portal URL %q, got %q", portalURL, sender.urlMessages[0].URL)
+	}
+	if sender.urlMessages[0].DisplayText != "Abrir no navegador" {
+		t.Fatalf("expected browser button label, got %q", sender.urlMessages[0].DisplayText)
+	}
+	if strings.Contains(sender.urlMessages[0].Body, portalURL) {
+		t.Fatalf("portal URL must not be visible in button body: %q", sender.urlMessages[0].Body)
 	}
 }
 
@@ -3041,6 +3079,26 @@ type testWhatsAppSender struct {
 	interactiveMessages       []testInteractiveMessage
 	listMessages              []testInteractiveListMessage
 	sendInteractiveButtonsErr error
+}
+
+type testExternalURLMessage struct {
+	Body        string
+	DisplayText string
+	URL         string
+}
+
+type testExternalURLSender struct {
+	testWhatsAppSender
+	urlMessages []testExternalURLMessage
+}
+
+func (s *testExternalURLSender) SendInteractiveURLButton(_ context.Context, to, bodyText, displayText, targetURL string) (string, error) {
+	s.urlMessages = append(s.urlMessages, testExternalURLMessage{
+		Body:        bodyText,
+		DisplayText: displayText,
+		URL:         targetURL,
+	})
+	return "", nil
 }
 
 func (s *testWhatsAppSender) SendText(_ context.Context, to string, message string) error {

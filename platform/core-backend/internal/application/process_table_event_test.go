@@ -203,7 +203,7 @@ func TestProcessTableEventOpensIndependentComanda(t *testing.T) {
 	}
 }
 
-func TestProcessTableEventSendsPortalLinkAfterApproval(t *testing.T) {
+func TestProcessTableEventDoesNotPushPortalLinkAfterApproval(t *testing.T) {
 	ctx := context.Background()
 	tenantID := uuid.New()
 	requestID := uuid.New()
@@ -221,7 +221,6 @@ func TestProcessTableEventSendsPortalLinkAfterApproval(t *testing.T) {
 	}
 	tabRepo := &testProcessTabRepo{}
 	sender := &testWhatsAppSender{}
-	issuer := &testPortalAccessIssuer{url: "https://clickgarcom.example/portal.html#access_token=secret"}
 	uc := NewProcessTableEventUseCase(
 		tableRepo,
 		tabRepo,
@@ -229,7 +228,6 @@ func TestProcessTableEventSendsPortalLinkAfterApproval(t *testing.T) {
 		&testTenantRepo{tenant: testTenant(tenantID)},
 		sender,
 		zap.NewNop(),
-		issuer,
 	)
 
 	payload, err := json.Marshal(TableEventPayload{RequestID: requestID.String(), Action: "APPROVE"})
@@ -243,11 +241,11 @@ func TestProcessTableEventSendsPortalLinkAfterApproval(t *testing.T) {
 	if len(sender.interactiveMessages) != 1 {
 		t.Fatalf("expected approval interactive message, got %d", len(sender.interactiveMessages))
 	}
-	if len(sender.textMessages) != 1 || !strings.Contains(sender.textMessages[0], issuer.url) {
-		t.Fatalf("expected separate portal link message, got %+v", sender.textMessages)
+	if len(sender.textMessages) != 0 {
+		t.Fatalf("expected no separate portal link message, got %+v", sender.textMessages)
 	}
-	if len(tabRepo.createdTabs) != 1 || issuer.tabID != tabRepo.createdTabs[0].ID || issuer.tenantID != tenantID {
-		t.Fatalf("expected portal issuer scoped to the created tab, got tenant=%s tab=%s", issuer.tenantID, issuer.tabID)
+	if len(tabRepo.createdTabs) != 1 {
+		t.Fatalf("expected the comanda to be created without pushing portal access, got %d", len(tabRepo.createdTabs))
 	}
 }
 
@@ -374,18 +372,6 @@ func (r *testProcessTableRepo) UpdateRequest(_ context.Context, req *table.Table
 
 type testProcessTabRepo struct {
 	createdTabs []*tab.Tab
-}
-
-type testPortalAccessIssuer struct {
-	url      string
-	tenantID uuid.UUID
-	tabID    uuid.UUID
-}
-
-func (i *testPortalAccessIssuer) CreatePortalAccess(_ context.Context, tenantID, tabID uuid.UUID) (string, error) {
-	i.tenantID = tenantID
-	i.tabID = tabID
-	return i.url, nil
 }
 
 func (r *testProcessTabRepo) FindByID(_ context.Context, id uuid.UUID, tenantID uuid.UUID) (*tab.Tab, error) {
