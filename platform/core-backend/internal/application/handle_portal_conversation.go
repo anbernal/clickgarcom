@@ -15,11 +15,19 @@ import (
 const portalAuthorizedTabContextKey = "portal_authorized_tab_id"
 const portalBootstrapActionID = "__PORTAL_BOOTSTRAP__"
 
+type portalConversationContextKey struct{}
+
+func isPortalConversationContext(ctx context.Context) bool {
+	value, _ := ctx.Value(portalConversationContextKey{}).(bool)
+	return value
+}
+
 func (uc *HandleWhatsAppMessageUseCase) ExecutePortal(
 	ctx context.Context,
 	input domainconversation.Input,
 	inputStore domainconversation.InputStore,
 ) error {
+	ctx = context.WithValue(ctx, portalConversationContextKey{}, true)
 	if err := input.Validate(); err != nil {
 		return fmt.Errorf("invalid portal conversation input: %w", err)
 	}

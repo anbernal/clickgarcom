@@ -954,6 +954,43 @@ func TestSendTenantMessageUsesPortalURLButton(t *testing.T) {
 	}
 }
 
+func TestPortalMainMenuOmitsBrowserOption(t *testing.T) {
+	ctx := context.WithValue(context.Background(), portalConversationContextKey{}, true)
+	tenantID := uuid.New()
+	sender := &testWhatsAppSender{}
+	uc := NewHandleWhatsAppMessageUseCase(
+		nil,
+		&testTenantRepo{tenant: testTenant(tenantID)},
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		sender,
+		"",
+		zap.NewNop(),
+	)
+
+	if err := uc.sendTenantMessage(ctx, "portal:tab", tenantID, whatsapp.MainMenuMessage()); err != nil {
+		t.Fatalf("sendTenantMessage() error = %v", err)
+	}
+
+	if len(sender.listMessages) != 1 {
+		t.Fatalf("expected one portal menu message, got %d", len(sender.listMessages))
+	}
+	rows := sender.listMessages[0].Sections[0].Rows
+	if len(rows) != 6 {
+		t.Fatalf("expected 6 portal menu rows, got %d", len(rows))
+	}
+	for _, row := range rows {
+		if row.ID == "7" {
+			t.Fatal("portal menu must not expose the browser continuation option")
+		}
+	}
+}
+
 func TestHandleWhatsAppMessageMainMenuOptionShowsInteractiveTabSummary(t *testing.T) {
 	ctx := context.Background()
 	tenantID := uuid.New()

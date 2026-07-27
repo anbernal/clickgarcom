@@ -2344,6 +2344,9 @@ func (uc *HandleWhatsAppMessageUseCase) sendTenantMessage(
 	}
 
 	resolvedMessage := uc.resolveTenantMessage(message, tenantObj)
+	if isPortalConversationContext(ctx) {
+		resolvedMessage = removePortalMenuOption(resolvedMessage)
+	}
 	decorated := whatsapp.WithRestaurantHeader(uc.resolveTenantName(ctx, tenantID), appendMainMenuBackOption(resolvedMessage))
 	ctx = whatsapp.WithTenantID(ctx, tenantID)
 	return uc.sender.SendText(ctx, to, decorated)
@@ -2621,7 +2624,7 @@ func (uc *HandleWhatsAppMessageUseCase) sendInteractiveMainMenu(
 	body := uc.composeMainMenuBody(tenantObj, prefix)
 	decorated := whatsapp.WithRestaurantHeader(uc.resolveTenantName(ctx, tenantID), body)
 	ctx = whatsapp.WithTenantID(ctx, tenantID)
-	_, err := uc.sender.SendInteractiveList(ctx, to, decorated, mainMenuListButtonText, buildMainMenuSections())
+	_, err := uc.sender.SendInteractiveList(ctx, to, decorated, mainMenuListButtonText, buildMainMenuSections(!isPortalConversationContext(ctx)))
 	return err
 }
 
@@ -2643,21 +2646,42 @@ func (uc *HandleWhatsAppMessageUseCase) composeMainMenuBody(
 	return strings.TrimSpace(prefix) + "\n\n" + body
 }
 
-func buildMainMenuSections() []whatsapp.InteractiveListSection {
+func buildMainMenuSections(includePortalAccess bool) []whatsapp.InteractiveListSection {
+	rows := []whatsapp.InteractiveListRow{
+		{ID: "1", Title: "Fazer pedido", Description: "Ver os itens do cardápio"},
+		{ID: "2", Title: "Ver minha comanda", Description: "Consultar itens e valores"},
+		{ID: "3", Title: "Repetir última rodada", Description: "Refazer seu último pedido"},
+		{ID: "4", Title: "Chamar garçom", Description: "Falar com nossa equipe"},
+		{ID: "5", Title: "Fechar conta", Description: "Pagar ou pedir fechamento"},
+		{ID: "6", Title: "QR Code de saída", Description: "Conferir se a comanda está fechada"},
+	}
+	if includePortalAccess {
+		rows = append(rows, whatsapp.InteractiveListRow{
+			ID:          "7",
+			Title:       "Continuar no navegador",
+			Description: "Abrir a comanda fora do WhatsApp",
+		})
+	}
+
 	return []whatsapp.InteractiveListSection{
 		{
 			Title: "Atendimento",
-			Rows: []whatsapp.InteractiveListRow{
-				{ID: "1", Title: "Fazer pedido", Description: "Ver os itens do cardápio"},
-				{ID: "2", Title: "Ver minha comanda", Description: "Consultar itens e valores"},
-				{ID: "3", Title: "Repetir última rodada", Description: "Refazer seu último pedido"},
-				{ID: "4", Title: "Chamar garçom", Description: "Falar com nossa equipe"},
-				{ID: "5", Title: "Fechar conta", Description: "Pagar ou pedir fechamento"},
-				{ID: "6", Title: "QR Code de saída", Description: "Conferir se a comanda está fechada"},
-				{ID: "7", Title: "Continuar no navegador", Description: "Abrir a comanda fora do WhatsApp"},
-			},
+			Rows:  rows,
 		},
 	}
+}
+
+func removePortalMenuOption(message string) string {
+	const portalMenuOption = "*7* - 🌐 Continuar no navegador"
+	lines := strings.Split(message, "\n")
+	filtered := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if strings.TrimSpace(line) == portalMenuOption {
+			continue
+		}
+		filtered = append(filtered, line)
+	}
+	return strings.TrimSpace(strings.Join(filtered, "\n"))
 }
 
 func (uc *HandleWhatsAppMessageUseCase) sendTabSummaryMenu(
