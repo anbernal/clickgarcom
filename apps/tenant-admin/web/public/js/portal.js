@@ -146,6 +146,11 @@
         return /(pedido aceito|pedido pronto|já está pronto|pedido entregue|pedido cancelado|pagamento confirmado)/i.test(text);
     }
 
+    function getPortalVisibleActions(message) {
+        const actions = Array.isArray(message?.actions) ? message.actions : [];
+        return actions.filter((action) => String(action?.id || '') !== '7');
+    }
+
     function normalizeActionUrl(value) {
         const raw = String(value || '').trim();
         if (!/^https?:\/\//i.test(raw)) return '';
@@ -199,7 +204,7 @@
         const senderType = String(message.senderType || '').toUpperCase();
         const isCustomer = senderType === 'CUSTOMER';
         const isStaff = senderType === 'STAFF';
-        const actions = Array.isArray(message.actions) ? message.actions : [];
+        const actions = getPortalVisibleActions(message);
         const showActions = !isCustomer && index === activeActionIndex && actions.length > 0;
         const catalogKind = showActions ? resolveCatalogActionKind(actions) : '';
         const presented = presentMessage(message);
@@ -280,7 +285,7 @@
     function renderCatalogPicker(messages) {
         if (activePanel !== 'actions') return '';
         const message = messages[activeActionMessageIndex];
-        const actions = Array.isArray(message?.actions) ? message.actions : [];
+        const actions = getPortalVisibleActions(message);
         const kind = resolveCatalogActionKind(actions);
         if (!kind) return '';
 
