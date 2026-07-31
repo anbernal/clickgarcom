@@ -171,12 +171,13 @@ func (uc *CreateOrderUseCase) Execute(ctx context.Context, input CreateOrderInpu
 		}
 
 		orderItem := order.OrderItem{
-			ID:           uuid.New(),
-			MenuItemID:   menuItem.ID,
-			Quantity:     inputItem.Quantity,
-			UnitPrice:    menuItem.Price + extrasPerUnit,
-			Observations: inputItem.Observations,
-			CreatedAt:    time.Now(),
+			ID:               uuid.New(),
+			MenuItemID:       menuItem.ID,
+			Quantity:         inputItem.Quantity,
+			UnitPrice:        menuItem.Price + extrasPerUnit,
+			Observations:     inputItem.Observations,
+			ItemNameSnapshot: menuItem.Name,
+			CreatedAt:        time.Now(),
 		}
 		orderItem.SetSelectedOptions(selectedOptions)
 		groupedItems[dest] = append(groupedItems[dest], orderItem)

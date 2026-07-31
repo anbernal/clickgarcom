@@ -132,6 +132,10 @@ function renderConsultaResult(detail) {
           </div>
         `).join('') : '<div class="consulta-detail-empty">Nenhum evento registrado.</div>'}
       </div>
+      <div class="consulta-dialog-actions" style="margin-top:14px">
+        <button class="btn-sm btn-outline" type="button" onclick="openTabDocuments('${escapeHTML(String(detail?.id || ''))}')">Documentos e reimpressões</button>
+        <button class="btn-sm btn-primary" type="button" onclick="issueAndPrintTabDocument('${escapeHTML(String(detail?.id || ''))}')">Emitir comprovante</button>
+      </div>
     </section>
   `;
 }
@@ -279,5 +283,68 @@ function loadConsultaComanda() {
   openComandaConsultation();
 }
 
+function operationalDocumentHtml(documentData) {
+  const snapshot = documentData?.snapshot || {};
+  const financial = snapshot.financial || {};
+  const items = Array.isArray(snapshot.items) ? snapshot.items : [];
+  const itemRows = items.map((item) => `
+    <tr><td>${escapeHTML(`${item.quantity || 0}x ${item.name || 'Item'}`)}</td><td style="text-align:right">${escapeHTML(formatCurrency(item.lineSubtotal || 0))}</td></tr>
+  `).join('');
+  return `<div style="font-family:Arial,sans-serif;max-width:680px;margin:auto;color:#111">
+    <h2 style="margin-bottom:4px">Comprovante de consumo</h2>
+    <div style="color:#555;font-size:12px">Comanda ${escapeHTML(snapshot.publicCode || snapshot.tabId || '')}${snapshot.tableNumber ? ` · Mesa ${escapeHTML(snapshot.tableNumber)}` : ''}</div>
+    <hr><table style="width:100%;border-collapse:collapse"><tbody>${itemRows}</tbody></table>
+    <hr><div style="display:flex;justify-content:space-between"><span>Subtotal</span><strong>${escapeHTML(formatCurrency(financial.subtotal || 0))}</strong></div>
+    <div style="display:flex;justify-content:space-between"><span>Taxa</span><strong>${escapeHTML(formatCurrency(financial.serviceFee || 0))}</strong></div>
+    <div style="display:flex;justify-content:space-between;font-size:18px;margin-top:8px"><strong>Total</strong><strong>${escapeHTML(formatCurrency(financial.total || 0))}</strong></div>
+    <p style="color:#666;font-size:11px;margin-top:18px">Documento operacional não fiscal · hash ${escapeHTML(String(documentData.contentHash || '').slice(0, 24))}</p>
+  </div>`;
+}
+
+function printOperationalDocument(documentData) {
+  const win = window.open('', '_blank', 'width=760,height=900');
+  if (!win) throw new Error('Permita pop-ups para imprimir o comprovante.');
+  win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Comprovante operacional</title><style>body{padding:28px}@media print{body{padding:0}@page{margin:12mm}}</style></head><body>${operationalDocumentHtml(documentData)}</body></html>`);
+  win.document.close();
+  win.focus();
+  setTimeout(() => win.print(), 200);
+}
+
+async function issueAndPrintTabDocument(tabId) {
+  try {
+    const documentData = await api.post(`/tables/tabs/${tabId}/documents/consumption`, {});
+    printOperationalDocument(documentData);
+    showToast('Comprovante operacional preparado para impressão.');
+  } catch (error) {
+    showToast(`Erro ao emitir comprovante: ${error.message}`, 'error');
+  }
+}
+
+async function openTabDocuments(tabId) {
+  openModal('<div class="modal-header"><h3>Documentos da comanda</h3><button class="modal-close" onclick="closeModal()">✕</button></div><div class="modal-body"><div class="loading"><div class="spinner"></div> Carregando documentos...</div></div>');
+  try {
+    const documents = await api.get(`/tables/tabs/${tabId}/documents`);
+    const rows = (Array.isArray(documents) ? documents : []).map((doc) => `
+      <div class="consulta-detail-line"><div><strong>${escapeHTML(doc.documentNumber || 'Comprovante operacional')}</strong><span>${escapeHTML(`${doc.status || 'ISSUED'} · ${formatDateTime(doc.issuedAt)} · ${doc.issuedByUserName || 'sistema'} · ${doc.printCount || 0} impressão(ões)`)}</span></div><button class="btn-sm btn-outline" onclick="reprintTabDocument('${escapeHTML(String(tabId))}','${escapeHTML(String(doc.id))}')">Reimprimir</button></div>
+    `).join('');
+    openModal(`<div class="modal-header"><h3>Documentos da comanda</h3><button class="modal-close" onclick="closeModal()">✕</button></div><div class="modal-body">${rows || '<div class="consulta-detail-empty">Nenhum documento emitido.</div>'}</div><div class="modal-footer"><button class="btn-sm btn-primary" onclick="issueAndPrintTabDocument('${escapeHTML(String(tabId))}')">Emitir novo comprovante</button></div>`);
+  } catch (error) {
+    openModal(`<div class="modal-header"><h3>Erro ao carregar documentos</h3><button class="modal-close" onclick="closeModal()">✕</button></div><div class="modal-body">${escapeHTML(error.message)}</div>`);
+  }
+}
+
+async function reprintTabDocument(tabId, documentId) {
+  try {
+    const documentData = await api.post(`/tables/tabs/${tabId}/documents/${documentId}/reprint`, {});
+    printOperationalDocument(documentData);
+    showToast('Reimpressão registrada no histórico.');
+  } catch (error) {
+    showToast(`Erro ao reimprimir: ${error.message}`, 'error');
+  }
+}
+
 window.openComandaConsultation = openComandaConsultation;
 window.stopConsultaScanner = stopConsultaScanner;
+window.issueAndPrintTabDocument = issueAndPrintTabDocument;
+window.openTabDocuments = openTabDocuments;
+window.reprintTabDocument = reprintTabDocument;

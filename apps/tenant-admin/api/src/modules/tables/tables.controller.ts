@@ -241,6 +241,32 @@ export class TablesController {
         return this.tablesService.getTabDetails(tabId, req.user.tenantId, req.user?.role);
     }
 
+    @Get('tabs/:tabId/documents')
+    @Roles(...TENANT_TABLE_READ_ROLES)
+    async listTabDocuments(@Request() req, @Param('tabId') tabId: string) {
+        return this.tablesService.listTabDocuments(tabId, req.user.tenantId);
+    }
+
+    @Post('tabs/:tabId/documents/consumption')
+    @Roles(...TENANT_TAB_OPERATION_ROLES)
+    async issueConsumptionDocument(@Request() req, @Param('tabId') tabId: string) {
+        return this.tablesService.issueConsumptionDocument(tabId, req.user.tenantId, {
+            userId: req.user?.id,
+            userName: req.user?.name,
+            userRole: req.user?.role,
+        });
+    }
+
+    @Post('tabs/:tabId/documents/:documentId/reprint')
+    @Roles(...TENANT_TAB_OPERATION_ROLES)
+    async reprintTabDocument(@Request() req, @Param('tabId') tabId: string, @Param('documentId') documentId: string) {
+        return this.tablesService.reprintTabDocument(tabId, documentId, req.user.tenantId, {
+            userId: req.user?.id,
+            userName: req.user?.name,
+            userRole: req.user?.role,
+        });
+    }
+
     @Post('tabs/:tabId/reopen')
     @Roles(...TENANT_CLOSED_TAB_MUTATION_ROLES)
     async reopenTab(@Request() req, @Param('tabId') tabId: string, @Body('reason') reason?: string) {

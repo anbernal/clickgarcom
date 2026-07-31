@@ -59,6 +59,12 @@ type OrderItem struct {
 	Quantity           int              `json:"quantity" gorm:"not null"`
 	UnitPrice          float64          `json:"unit_price" gorm:"type:decimal(10,2);not null"`
 	Observations       string           `json:"observations,omitempty" gorm:"type:text"`
+	ItemNameSnapshot   string           `json:"item_name_snapshot,omitempty" gorm:"type:varchar(255)"`
+	VoidedQuantity     int              `json:"voided_quantity,omitempty" gorm:"not null;default:0"`
+	VoidedReason       string           `json:"voided_reason,omitempty" gorm:"type:text"`
+	VoidedAt           *time.Time       `json:"voided_at,omitempty"`
+	VoidedByUserID     *uuid.UUID       `json:"voided_by_user_id,omitempty" gorm:"type:uuid"`
+	VoidedByUserName   string           `json:"voided_by_user_name,omitempty" gorm:"type:varchar(255)"`
 	SelectedOptionsRaw string           `json:"-" gorm:"column:selected_options;type:jsonb"`
 	SelectedOptions    []SelectedOption `json:"selected_options,omitempty" gorm:"-"`
 	CreatedAt          time.Time        `json:"created_at"`
@@ -130,7 +136,11 @@ func (o *Order) UpdateStatus(newStatus Status) error {
 func (o *Order) CalculateTotal() float64 {
 	total := 0.0
 	for _, item := range o.Items {
-		total += item.UnitPrice * float64(item.Quantity)
+		effectiveQuantity := item.Quantity - item.VoidedQuantity
+		if effectiveQuantity < 0 {
+			effectiveQuantity = 0
+		}
+		total += item.UnitPrice * float64(effectiveQuantity)
 	}
 	return total
 }

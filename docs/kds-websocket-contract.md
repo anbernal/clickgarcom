@@ -113,6 +113,13 @@ Emitido quando o status operacional do pedido muda.
 }
 ```
 
+### 3. `order.updated` e `order.item_voided`
+
+Emitidos quando o Atendimento altera um pedido manual pendente ou anula uma quantidade.
+O payload mantém o mesmo formato de `data` de `order.created`, com `items` já refletindo a quantidade efetiva e, quando disponível, `original_quantity` e `voided_quantity`.
+
+Clientes KDS devem substituir o pedido existente pelo payload recebido. `order.item_voided` é um evento complementar para auditoria visual; não deve gerar um segundo card.
+
 ## Campos do payload `data`
 
 Campos relevantes para clientes KDS:
@@ -154,7 +161,6 @@ Esse e exatamente o comportamento do KDS web atual.
 
 Os tipos abaixo existem no dominio Go, mas hoje nao sao emitidos de forma operacional pelo fluxo principal do KDS:
 
-- `order.updated`
 - `order.canceled`
 
 Clientes nao devem depender deles por enquanto.

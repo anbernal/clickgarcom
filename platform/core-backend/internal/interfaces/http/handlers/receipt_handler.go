@@ -92,17 +92,24 @@ func (h *ReceiptHandler) GetReceiptImage(c *fiber.Ctx) error {
 
 	for _, o := range orders {
 		for _, item := range o.Items {
+			effectiveQuantity := item.Quantity - item.VoidedQuantity
+			if effectiveQuantity <= 0 {
+				continue
+			}
 			key := itemKey{MenuItemID: item.MenuItemID, UnitPrice: item.UnitPrice}
 			if existing, ok := aggregated[key]; ok {
-				existing.Quantity += item.Quantity
+				existing.Quantity += effectiveQuantity
 			} else {
-				name := menuNameMap[item.MenuItemID]
+				name := item.ItemNameSnapshot
+				if name == "" {
+					name = menuNameMap[item.MenuItemID]
+				}
 				if name == "" {
 					name = "Item"
 				}
 				aggregated[key] = &receipt.ReceiptItem{
 					Name:     name,
-					Quantity: item.Quantity,
+					Quantity: effectiveQuantity,
 					Price:    item.UnitPrice,
 				}
 				aggregatedOrder = append(aggregatedOrder, key)

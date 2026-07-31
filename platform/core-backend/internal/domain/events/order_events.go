@@ -13,6 +13,7 @@ type EventType string
 const (
 	EventOrderCreated       EventType = "order.created"
 	EventOrderUpdated       EventType = "order.updated"
+	EventOrderItemVoided    EventType = "order.item_voided"
 	EventOrderStatusChanged EventType = "order.status_changed"
 	EventOrderCanceled      EventType = "order.canceled"
 )

@@ -135,6 +135,8 @@ let waiterChatMessagesById = new Map();
 let activeWaiterChatId = null;
 let closeBillRequests = [];
 let operationsSummary = null;
+let manualOpenTabs = [];
+let manualOpenTabsSearch = '';
 const PANEL_ORDER = ['kitchen', 'bar', 'salao'];
 const SALAO_STATS_CARD_DEFINITIONS = [
   {
@@ -323,6 +325,7 @@ function refreshKdsRealtimeState() {
     loadPendingRequests();
     loadWaiterChats();
     loadCloseRequests();
+    loadManualOpenTabs();
   }
   if (KDS_ACCESS.canLoadTables) {
     loadTableState();
@@ -344,7 +347,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   const startupTasks = [];
   if (KDS_ACCESS.canViewSalao) {
-    startupTasks.push(loadPendingRequests(), loadWaiterChats(), loadCloseRequests());
+    startupTasks.push(loadPendingRequests(), loadWaiterChats(), loadCloseRequests(), loadManualOpenTabs());
   }
   if (KDS_ACCESS.canLoadTables) {
     startupTasks.push(loadTableState());
@@ -355,6 +358,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setInterval(() => {
       if (KDS_ACCESS.canViewSalao) {
         loadPendingRequests();
+        loadManualOpenTabs();
       }
       if (KDS_ACCESS.canLoadTables) {
         loadTableState();
@@ -643,6 +647,13 @@ function handleWSEvent(event) {
     renderAll();
     refreshOperationsSummary();
   }
+
+  if (event.type === 'order.updated' || event.type === 'order.item_voided') {
+    const order = normalizeOrder(event.data);
+    allOrders[order.id] = order;
+    renderAll();
+    refreshOperationsSummary();
+  }
 }
 
 // ─── RENDER ────────────────────────────────────────────────────
@@ -790,7 +801,7 @@ function buildCardHTML(order, stage = getOrderStageSnapshot(order)) {
 
   let actions = '';
   if (order.status === 'PENDING') {
-    actions = `<button class="action-btn reject-btn" onclick="openModal('${order.id}','reject')">${KDS_ICONS.x} Recusar</button><button class="action-btn accept-btn" onclick="openModal('${order.id}','accept')">${KDS_ICONS.check} Aceitar</button>`;
+    actions = `${KDS_ACCESS.canViewSalao ? `<button class="action-btn" onclick="openManualEditOrderModal('${order.id}')">✎ Editar</button>` : ''}<button class="action-btn reject-btn" onclick="openModal('${order.id}','reject')">${KDS_ICONS.x} Recusar</button><button class="action-btn accept-btn" onclick="openModal('${order.id}','accept')">${KDS_ICONS.check} Aceitar</button>`;
   } else if (order.status === 'ACCEPTED') {
     actions = `<button class="action-btn done-btn" onclick="updateStatus('${order.id}','READY')">${KDS_ICONS.check} Pronto</button>`;
   } else if (order.status === 'READY') {
@@ -961,6 +972,7 @@ function renderSalao() {
   renderCloseBillRequests();
   renderWaiterChats();
   renderSalaoTables();
+  renderManualOpenTabs();
 }
 
 function getSalaoStatsValues() {
@@ -971,6 +983,274 @@ function getSalaoStatsValues() {
     openChats: waiterChats.filter((chat) => chat.status === 'OPEN').length,
     closeBillRequests: closeBillRequests.length,
   };
+}
+
+function renderManualOpenTabs() {
+  const list = document.getElementById('salao-tabs-list');
+  const count = document.getElementById('salao-tabs-count');
+  if (!list) return;
+  if (count) count.textContent = String(manualOpenTabs.length);
+  const search = String(manualOpenTabsSearch || '').trim().toLowerCase();
+  const visibleTabs = manualOpenTabs.filter((tab) => {
+    if (!search) return true;
+    return [tab.publicCode, tab.tableNumber, tab.userPhone, tab.customerInstagram]
+      .map((value) => String(value || '').toLowerCase())
+      .join(' ')
+      .includes(search);
+  });
+  if (!manualOpenTabs.length) {
+    list.innerHTML = `<div class="empty-state" style="padding:20px 12px"><div class="empty-icon">🧾</div>Nenhuma comanda aberta<div class="empty-sub">Abra uma comanda para lançar o consumo.</div></div>`;
+    return;
+  }
+  list.innerHTML = `
+    <div style="display:flex;gap:8px;align-items:end;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap">
+      <label style="flex:1;min-width:180px"><span class="modal-label">Buscar comanda</span><input class="input" type="search" value="${escapeHTML(manualOpenTabsSearch)}" placeholder="Código, mesa ou cliente" oninput="manualOpenTabsSearch=this.value;renderManualOpenTabs()"></label>
+      <button class="action-btn accept-btn" onclick="openManualOrderModal()">+ Lançar pedido</button>
+    </div>
+    ${visibleTabs.length ? visibleTabs.map((tab) => `
+      <div class="ready-item" style="align-items:center">
+        <div style="font-size:20px;flex-shrink:0">🧾</div>
+        <div class="ready-item-left">
+          <div class="ready-item-title">${escapeHTML(tab.publicCode || shortId(tab.id))}</div>
+          <div class="ready-item-sub">${tab.tableNumber ? `Mesa ${escapeHTML(String(tab.tableNumber))}` : 'Sem mesa'} · ${escapeHTML(formatMoney(tab.total || 0))}</div>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+          <button class="action-btn accept-btn" onclick="openManualOrderModal('${escapeHTML(tab.id)}')">Lançar</button>
+          <button class="action-btn" onclick="openManualTabHistory('${escapeHTML(tab.id)}')">Histórico</button>
+          <button class="action-btn" onclick="printTabConsumption('${escapeHTML(tab.id)}')">Imprimir</button>
+        </div>
+      </div>
+    `).join('') : '<div class="empty-state" style="padding:20px 12px">Nenhuma comanda encontrada para esta busca.</div>'}
+  `;
+}
+
+async function loadManualOpenTabs() {
+  if (!KDS_ACCESS.canViewSalao) return;
+  try {
+    const data = await apiGet('/tables/tabs/open');
+    manualOpenTabs = Array.isArray(data) ? data : [];
+    if (activePanel === 'salao') renderManualOpenTabs();
+  } catch (error) {
+    console.warn('Failed to load open tabs for manual orders:', error);
+  }
+}
+
+var manualOrderDraft = { tabId: '', lines: [], notes: '' };
+
+function openManualOrderModal(tabId) {
+  if (!KDS_ACCESS.canViewSalao) {
+    toast('t-error', 'Acesso negado', 'Seu perfil não pode lançar pedidos manuais.');
+    return;
+  }
+  var selectedTab = manualOpenTabs.find(function (tab) {
+    return String(tab.id) === String(tabId || '');
+  }) || manualOpenTabs[0];
+  if (!selectedTab) {
+    toast('t-error', 'Nenhuma comanda aberta', 'Abra uma comanda antes de lançar o consumo.');
+    return;
+  }
+  manualOrderDraft = { tabId: String(selectedTab.id), lines: [{ menuItemId: '', quantity: 1, observations: '' }], notes: '' };
+  var old = document.getElementById('manualOrderModal');
+  if (old) old.remove();
+  var overlay = document.createElement('div');
+  overlay.id = 'manualOrderModal';
+  overlay.className = 'modal-overlay open';
+  var tabOptions = manualOpenTabs.map(function (tab) {
+    var label = String(tab.publicCode || shortId(tab.id));
+    if (tab.tableNumber) label += ' · Mesa ' + String(tab.tableNumber);
+    return '<option value="' + escapeHTML(tab.id) + '"' + (String(tab.id) === manualOrderDraft.tabId ? ' selected' : '') + '>' + escapeHTML(label) + '</option>';
+  }).join('');
+  overlay.innerHTML = '<div class="modal" style="width:min(720px,96vw)">' +
+    '<div class="modal-header"><div><div class="modal-title">Lançar pedido manual</div><div style="font-size:12px;color:var(--muted);margin-top:4px">O lançamento ficará registrado com seu usuário.</div></div><button class="modal-close" onclick="closeManualOrderModal()">✕</button></div>' +
+    '<div class="modal-body"><label class="modal-label">Comanda</label><select id="manual-order-tab" class="input" onchange="manualOrderDraft.tabId=this.value">' + tabOptions + '</select>' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin:18px 0 8px"><div class="modal-label" style="margin:0">Itens</div><button class="action-btn accept-btn" onclick="addManualOrderLine()">+ Item</button></div>' +
+    '<div id="manual-order-lines"></div><label class="modal-label" style="margin-top:16px">Observação do pedido</label><textarea id="manual-order-notes" class="input" rows="3" placeholder="Observação geral"></textarea></div>' +
+    '<div class="modal-actions"><button class="btn btn-ghost" onclick="closeManualOrderModal()">Cancelar</button><button class="btn btn-green" onclick="submitManualOrder()">Lançar na cozinha/bar</button></div></div>';
+  overlay.addEventListener('click', function (event) {
+    if (event.target === overlay) closeManualOrderModal();
+  });
+  document.body.appendChild(overlay);
+  renderManualOrderLines();
+}
+
+function renderManualOrderLines() {
+  var container = document.getElementById('manual-order-lines');
+  if (!container) return;
+  var items = Array.from(menuItemMetaById.values()).filter(function (item) {
+    return item && item.available !== false;
+  }).sort(function (a, b) {
+    return String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR');
+  });
+  var options = '<option value="">Selecione um item</option>' + items.map(function (item) {
+    return '<option value="' + escapeHTML(item.id) + '">' + escapeHTML(item.name || 'Item') + ' · ' + escapeHTML(formatMoney(item.price || 0)) + '</option>';
+  }).join('');
+  container.innerHTML = manualOrderDraft.lines.map(function (line, index) {
+    var selectedOptions = options.replace('value="' + escapeHTML(line.menuItemId) + '"', 'value="' + escapeHTML(line.menuItemId) + '" selected');
+    return '<div style="display:grid;grid-template-columns:minmax(0,1fr) 76px 38px;gap:8px;align-items:start;margin-bottom:10px">' +
+      '<div><select class="input" onchange="manualOrderDraft.lines[' + index + '].menuItemId=this.value">' + selectedOptions + '</select>' +
+      '<input class="input" style="margin-top:6px" value="' + escapeHTML(line.observations || '') + '" placeholder="Observação do item" oninput="manualOrderDraft.lines[' + index + '].observations=this.value"></div>' +
+      '<input class="input" type="number" min="1" max="99" value="' + escapeHTML(line.quantity) + '" onchange="manualOrderDraft.lines[' + index + '].quantity=Number(this.value)">' +
+      '<button class="action-btn reject-btn" onclick="removeManualOrderLine(' + index + ')">✕</button></div>';
+  }).join('');
+}
+
+function addManualOrderLine() {
+  manualOrderDraft.lines.push({ menuItemId: '', quantity: 1, observations: '' });
+  renderManualOrderLines();
+}
+
+function removeManualOrderLine(index) {
+  manualOrderDraft.lines.splice(index, 1);
+  if (!manualOrderDraft.lines.length) manualOrderDraft.lines.push({ menuItemId: '', quantity: 1, observations: '' });
+  renderManualOrderLines();
+}
+
+function closeManualOrderModal() {
+  var modal = document.getElementById('manualOrderModal');
+  if (modal) modal.remove();
+  manualOrderDraft = { tabId: '', lines: [], notes: '' };
+}
+
+async function submitManualOrder() {
+  var lines = manualOrderDraft.lines.filter(function (line) { return line.menuItemId; });
+  if (!manualOrderDraft.tabId || !lines.length) {
+    toast('t-error', 'Lançamento incompleto', 'Selecione a comanda e pelo menos um item.');
+    return;
+  }
+  try {
+    await apiPost('/orders/manual', {
+      tab_id: manualOrderDraft.tabId,
+      notes: document.getElementById('manual-order-notes')?.value || '',
+      items: lines.map(function (line) {
+        return { menu_item_id: line.menuItemId, quantity: Number(line.quantity || 1), observations: line.observations || '' };
+      }),
+    });
+    closeManualOrderModal();
+    toast('t-success', 'Pedido lançado', 'O lançamento foi registrado e enviado aos setores de preparo.');
+    await Promise.all([loadOrders(), loadManualOpenTabs(), loadTableState()]);
+    broadcastKdsSync('manual.order.created');
+  } catch (error) {
+    toast('t-error', 'Erro ao lançar pedido', error.message);
+  }
+}
+
+function openManualEditOrderModal(orderId) {
+  var order = allOrders[orderId];
+  if (!order || order.status !== 'PENDING') return;
+  var old = document.getElementById('manualEditOrderModal');
+  if (old) old.remove();
+  var overlay = document.createElement('div');
+  overlay.id = 'manualEditOrderModal';
+  overlay.className = 'modal-overlay open';
+  var rows = (order.items || []).map(function (item) {
+    return '<div style="display:grid;grid-template-columns:minmax(0,1fr) 76px auto;gap:8px;align-items:center;margin-bottom:10px">' +
+      '<div><strong>' + escapeHTML(resolveItemName(item)) + '</strong><input id="manual-edit-obs-' + escapeHTML(item.id) + '" class="input" style="margin-top:5px" value="' + escapeHTML(item.observations || '') + '" placeholder="Observação"></div>' +
+      '<input id="manual-edit-qty-' + escapeHTML(item.id) + '" class="input" type="number" min="1" max="99" value="' + escapeHTML(item.quantity) + '">' +
+      '<div style="display:flex;gap:5px"><button class="action-btn accept-btn" onclick="saveManualOrderItem(\'' + escapeHTML(order.id) + '\',\'' + escapeHTML(item.id) + '\')">Salvar</button><button class="action-btn reject-btn" onclick="voidManualOrderItem(\'' + escapeHTML(order.id) + '\',\'' + escapeHTML(item.id) + '\')">Anular</button></div></div>';
+  }).join('');
+  overlay.innerHTML = '<div class="modal" style="width:min(680px,96vw)"><div class="modal-header"><div><div class="modal-title">Editar pedido #' + escapeHTML(getOrderDisplayCode(order)) + '</div><div style="font-size:12px;color:var(--muted);margin-top:4px">Somente pedidos pendentes podem ser editados diretamente.</div></div><button class="modal-close" onclick="closeManualEditOrderModal()">✕</button></div>' +
+    '<div class="modal-body">' + (rows || '<div class="empty-state">Nenhum item ativo.</div>') + '<label class="modal-label" style="margin-top:16px">Observação geral</label><textarea id="manual-edit-notes" class="input" rows="3">' + escapeHTML(order.notes || '') + '</textarea></div>' +
+    '<div class="modal-actions"><button class="btn btn-ghost" onclick="closeManualEditOrderModal()">Fechar</button><button class="btn btn-green" onclick="saveManualOrderNotes(\'' + escapeHTML(order.id) + '\')">Salvar observação</button></div></div>';
+  overlay.addEventListener('click', function (event) {
+    if (event.target === overlay) closeManualEditOrderModal();
+  });
+  document.body.appendChild(overlay);
+}
+
+function closeManualEditOrderModal() {
+  var modal = document.getElementById('manualEditOrderModal');
+  if (modal) modal.remove();
+}
+
+async function saveManualOrderItem(orderId, itemId) {
+  try {
+    await apiPatch('/orders/' + orderId + '/items/' + itemId + '/manual', {
+      quantity: Number(document.getElementById('manual-edit-qty-' + itemId)?.value || 0),
+      observations: document.getElementById('manual-edit-obs-' + itemId)?.value || '',
+    });
+    await loadOrders();
+    closeManualEditOrderModal();
+    toast('t-success', 'Item atualizado', 'A alteração foi registrada no histórico.');
+  } catch (error) {
+    toast('t-error', 'Erro ao atualizar item', error.message);
+  }
+}
+
+async function voidManualOrderItem(orderId, itemId) {
+  var reason = window.prompt('Informe o motivo da anulação:');
+  if (!reason || !reason.trim()) return;
+  try {
+    await apiPost('/orders/' + orderId + '/items/' + itemId + '/void', { reason: reason.trim() });
+    await loadOrders();
+    closeManualEditOrderModal();
+    toast('t-success', 'Item anulado', 'A anulação foi registrada com usuário e motivo.');
+  } catch (error) {
+    toast('t-error', 'Erro ao anular item', error.message);
+  }
+}
+
+async function saveManualOrderNotes(orderId) {
+  try {
+    await apiPatch('/orders/' + orderId + '/manual', { notes: document.getElementById('manual-edit-notes')?.value || '' });
+    await loadOrders();
+    closeManualEditOrderModal();
+    toast('t-success', 'Pedido atualizado', 'A observação foi registrada no histórico.');
+  } catch (error) {
+    toast('t-error', 'Erro ao atualizar pedido', error.message);
+  }
+}
+
+async function printTabConsumption(tabId) {
+  try {
+    var documentData = await apiPost('/tables/tabs/' + tabId + '/documents/consumption', {});
+    printDocumentSnapshot(documentData);
+    toast('t-success', 'Comprovante preparado', 'A janela de impressão foi aberta.');
+  } catch (error) {
+    toast('t-error', 'Erro ao emitir comprovante', error.message);
+  }
+}
+
+async function openManualTabHistory(tabId) {
+  try {
+    var detail = await apiGet('/tables/tabs/' + tabId + '/details');
+    var history = Array.isArray(detail?.history) ? detail.history : [];
+    var old = document.getElementById('manualTabHistoryModal');
+    if (old) old.remove();
+    var overlay = document.createElement('div');
+    overlay.id = 'manualTabHistoryModal';
+    overlay.className = 'modal-overlay open';
+    var rows = history.map(function (event) {
+      var actor = event.actorName ? ' · por ' + event.actorName : ' · sistema';
+      var timestamp = event.createdAt ? new Date(event.createdAt).toLocaleString('pt-BR') : 'Horário não informado';
+      return '<div class="ready-item" style="align-items:flex-start"><div style="font-size:18px">•</div><div class="ready-item-left"><div class="ready-item-title">' + escapeHTML(event.label || 'Evento') + '</div><div class="ready-item-sub">' + escapeHTML((event.description || 'Sem detalhes') + actor) + '</div><div style="font-size:10px;color:var(--text-3);margin-top:3px">' + escapeHTML(timestamp) + '</div></div></div>';
+    }).join('');
+    overlay.innerHTML = '<div class="modal" style="width:min(680px,96vw)"><div class="modal-header"><div><div class="modal-title">Histórico da comanda ' + escapeHTML(detail.publicCode || tabId) + '</div><div style="font-size:12px;color:var(--muted);margin-top:4px">Trilha operacional imutável do atendimento.</div></div><button class="modal-close" onclick="closeManualTabHistory()">✕</button></div><div class="modal-body" style="max-height:65vh;overflow:auto">' + (rows || '<div class="empty-state">Nenhum evento registrado.</div>') + '</div><div class="modal-actions"><button class="btn btn-ghost" onclick="closeManualTabHistory()">Fechar</button></div></div>';
+    overlay.addEventListener('click', function (event) { if (event.target === overlay) closeManualTabHistory(); });
+    document.body.appendChild(overlay);
+  } catch (error) {
+    toast('t-error', 'Erro ao carregar histórico', error.message);
+  }
+}
+
+function closeManualTabHistory() {
+  var modal = document.getElementById('manualTabHistoryModal');
+  if (modal) modal.remove();
+}
+
+function printDocumentSnapshot(documentData) {
+  var snapshot = documentData?.snapshot || {};
+  var items = Array.isArray(snapshot.items) ? snapshot.items : [];
+  var financial = snapshot.financial || {};
+  var win = window.open('', '_blank', 'width=420,height=760');
+  if (!win) throw new Error('Permita pop-ups para imprimir o comprovante.');
+  var itemHtml = items.map(function (item) {
+    return '<div class="line"><span>' + escapeHTML(String(item.quantity) + 'x ' + (item.name || 'Item')) + '</span><span>' + escapeHTML(formatMoney(item.lineSubtotal || 0)) + '</span></div>';
+  }).join('');
+  var tableLabel = snapshot.tableNumber ? ' · Mesa ' + escapeHTML(String(snapshot.tableNumber)) : '';
+  win.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Comprovante ' + escapeHTML(snapshot.publicCode || '') + '</title><style>body{font-family:Arial,sans-serif;width:72mm;margin:0 auto;padding:4mm;color:#111;font-size:12px}h1{text-align:center;font-size:16px;margin:0 0 8px}.muted{color:#555;font-size:10px}.line{display:flex;justify-content:space-between;gap:8px;margin:5px 0}.total{font-weight:700;font-size:15px;border-top:1px dashed #111;padding-top:8px;margin-top:8px}@media print{@page{size:80mm auto;margin:0}body{width:auto}}</style></head><body><h1>Comprovante de consumo</h1><div class="muted">Comanda ' + escapeHTML(snapshot.publicCode || '') + tableLabel + '</div><hr>' + itemHtml + '<div class="line"><span>Subtotal</span><span>' + escapeHTML(formatMoney(financial.subtotal || 0)) + '</span></div><div class="line"><span>Taxa</span><span>' + escapeHTML(formatMoney(financial.serviceFee || 0)) + '</span></div><div class="line total"><span>Total</span><span>' + escapeHTML(formatMoney(financial.total || 0)) + '</span></div><p class="muted">Documento operacional não fiscal · Hash ' + escapeHTML(String(documentData.contentHash || '').slice(0, 16)) + '</p></body></html>');
+  win.document.close();
+  win.focus();
+  setTimeout(function () { win.print(); }, 250);
 }
 
 function renderSalaoPendingRequests() {

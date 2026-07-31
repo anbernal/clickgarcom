@@ -173,9 +173,11 @@ function renderComandasResults() {
           const outstanding = Math.max(0, total - paidAmount);
           const statusLabel = isClosedView ? 'Finalizada' : 'Aberta';
           const actionButtons = isClosedView
-            ? `<button class="btn-sm btn-outline" type="button" onclick="openComandaConsultation('${code}')">Consultar</button>`
+            ? `<button class="btn-sm btn-outline" type="button" onclick="openComandaConsultation('${code}')">Consultar</button>
+               <button class="btn-sm btn-outline" type="button" onclick="issueAndPrintTabDocument('${escapeHTML(tab.id)}')">Imprimir</button>`
             : `
               <button class="btn-sm btn-outline" type="button" onclick="openComandaConsultation('${code}')">Consultar</button>
+              <button class="btn-sm btn-outline" type="button" onclick="issueAndPrintTabDocument('${escapeHTML(tab.id)}')">Imprimir</button>
               <button class="btn-sm btn-outline" type="button" onclick="openComandaPortalAccess('${escapeHTML(tab.id)}')">QR do portal</button>
               <button class="btn-sm btn-outline" type="button" onclick="openEditComandaTable('${escapeHTML(tab.id)}')">${tab.tableId ? 'Alterar mesa' : 'Vincular mesa'}</button>
               ${canFinalize ? `<button class="btn-sm btn-danger" type="button" onclick="finalizeComandaFromPanel('${escapeHTML(tab.id)}')">Finalizar</button>` : ''}

@@ -7,7 +7,14 @@ import { Tenant } from '../../entities/tenant.entity';
 import { UserAccessAuditLog } from '../../entities/user-access-audit-log.entity';
 import { DEFAULT_MESSAGE_TEMPLATES, resolveMessageTemplate } from '../../shared/message-templates';
 import { AmqpService } from '../amqp/amqp.service';
-import { TENANT_ORDER_CANCEL_ROLES, normalizeTenantRole } from '../auth/roles';
+import { TENANT_MANUAL_ORDER_ROLES, TENANT_ORDER_CANCEL_ROLES, normalizeTenantRole } from '../auth/roles';
+import {
+    CreateManualOrderDto,
+    UpdateManualOrderDto,
+    UpdateManualOrderItemDto,
+    VoidManualOrderItemDto,
+} from './dto/create-manual-order.dto';
+import { v4 as uuidv4 } from 'uuid';
 
 const OUTBOX_TEMPLATE_INTERACTIVE_MAIN_MENU = 'interactive_main_menu';
 
@@ -86,6 +93,12 @@ type OrderOperationalStage = keyof typeof ORDER_SLA_MINUTES;
 type OrderStationKey = keyof typeof ORDER_STATION_SLA_MINUTES;
 type CancelCategory = 'stock' | 'operational' | 'customer' | 'other';
 
+type OrderActor = {
+    userId?: string;
+    userName?: string;
+    userRole?: string;
+};
+
 type PortalNotificationAction = {
     id: string;
     label: string;
@@ -163,15 +176,281 @@ export class OrdersService {
                 where.status = In(statuses);
             }
         }
-        return this.orderRepo.find({
+        const orders = await this.orderRepo.find({
             where,
             relations: ['items'],
             order: { createdAt: 'DESC' },
         });
+        return orders.map((order) => this.projectOperationalOrder(order));
     }
 
     async findOne(id: string, tenantId: string) {
         return this.orderRepo.findOne({ where: { id, tenantId }, relations: ['items'] });
+    }
+
+    async createManualOrder(tenantId: string, input: CreateManualOrderDto, actor: OrderActor) {
+        this.assertCanCreateManualOrder(actor.userRole);
+        if (!input?.tab_id || !Array.isArray(input.items) || input.items.length === 0) {
+            throw new BadRequestException('Informe a comanda e pelo menos um item.');
+        }
+        if (input.items.length > 100) {
+            throw new BadRequestException('Um lançamento pode conter no máximo 100 linhas.');
+        }
+
+        const queryRunner = this.dataSource.createQueryRunner();
+        await queryRunner.connect();
+        await queryRunner.startTransaction();
+
+        try {
+            const tabRows = await queryRunner.query(
+                `SELECT id, user_phone, status
+                   FROM tabs
+                  WHERE id = $1
+                    AND tenant_id = $2
+                  LIMIT 1
+                  FOR UPDATE`,
+                [input.tab_id, tenantId],
+            );
+            const tab = tabRows?.[0];
+            if (!tab) throw new BadRequestException('Comanda não encontrada.');
+            if (String(tab.status || '').toUpperCase() !== 'OPEN') {
+                throw new BadRequestException('Somente comandas abertas podem receber lançamentos.');
+            }
+
+            const normalizedItems = input.items.map((item) => ({
+                menuItemId: String(item?.menu_item_id || '').trim(),
+                quantity: Number(item?.quantity || 0),
+                observations: String(item?.observations || '').trim().slice(0, 1000),
+                selectedOptions: Array.isArray(item?.selected_options) ? item.selected_options : [],
+            }));
+            if (normalizedItems.some((item) => !item.menuItemId || !Number.isInteger(item.quantity) || item.quantity <= 0 || item.quantity > 99)) {
+                throw new BadRequestException('Cada item precisa ter uma quantidade inteira entre 1 e 99.');
+            }
+
+            const menuRows = await queryRunner.query(
+                `SELECT id, name, price, destination, available, option_groups
+                   FROM menu_items
+                  WHERE tenant_id = $1
+                    AND id = ANY($2::uuid[])
+                  FOR SHARE`,
+                [tenantId, normalizedItems.map((item) => item.menuItemId)],
+            );
+            const menuById = new Map<string, any>((menuRows || []).map((row: any) => [String(row.id), row]));
+            const grouped = new Map<string, Array<Record<string, unknown>>>();
+
+            for (const requested of normalizedItems) {
+                const menuItem = menuById.get(requested.menuItemId);
+                if (!menuItem) throw new BadRequestException('Um dos itens não pertence a este restaurante.');
+                if (menuItem.available === false) throw new BadRequestException(`O item ${menuItem.name} está indisponível.`);
+                const destination = String(menuItem.destination || '').toUpperCase();
+                if (!['KITCHEN', 'BAR'].includes(destination)) {
+                    throw new BadRequestException(`O item ${menuItem.name} não possui destino de preparo válido.`);
+                }
+                const options = this.validateManualSelectedOptions(menuItem, requested.selectedOptions);
+                const rows = grouped.get(destination) || [];
+                rows.push({
+                    menuItemId: requested.menuItemId,
+                    quantity: requested.quantity,
+                    observations: requested.observations || null,
+                    itemName: String(menuItem.name || 'Item'),
+                    unitPrice: this.roundMoney(Number(menuItem.price || 0) + options.priceDelta),
+                    selectedOptions: options.selected,
+                });
+                grouped.set(destination, rows);
+            }
+
+            const batchId = uuidv4();
+            await queryRunner.query(
+                `INSERT INTO order_batches (id, tenant_id, tab_id, customer_phone, status, created_at, updated_at)
+                 VALUES ($1, $2, $3, $4, 'PENDING', NOW(), NOW())`,
+                [batchId, tenantId, input.tab_id, tab.user_phone || null],
+            );
+
+            const createdOrderIds: string[] = [];
+            for (const [destination, items] of grouped.entries()) {
+                const orderId = uuidv4();
+                await queryRunner.query(
+                    `INSERT INTO orders (id, tenant_id, tab_id, batch_id, destination, status, notes, created_at)
+                     VALUES ($1, $2, $3, $4, $5, 'PENDING', $6, NOW())`,
+                    [orderId, tenantId, input.tab_id, batchId, destination, String(input.notes || '').trim().slice(0, 2000) || 'Lançamento manual pelo Atendimento'],
+                );
+                for (const item of items) {
+                    await queryRunner.query(
+                        `INSERT INTO order_items
+                            (id, order_id, menu_item_id, quantity, unit_price, observations, selected_options, item_name_snapshot, created_at)
+                         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6::jsonb, $7, NOW())`,
+                        [orderId, item.menuItemId, item.quantity, item.unitPrice, item.observations, JSON.stringify(item.selectedOptions || []), item.itemName],
+                    );
+                }
+                createdOrderIds.push(orderId);
+            }
+
+            await this.recordOrderTabEvent(queryRunner, tenantId, input.tab_id, 'TAB_ORDER_CREATED', actor, {
+                source: 'KDS',
+                batch_id: batchId,
+                order_ids: createdOrderIds,
+                item_count: normalizedItems.length,
+                notes: String(input.notes || '').trim() || null,
+            });
+            await queryRunner.commitTransaction();
+
+            await this.recalculateTabTotals(input.tab_id, tenantId);
+            const orders = await Promise.all(createdOrderIds.map((id) => this.findOne(id, tenantId)));
+            for (const order of orders.filter(Boolean) as Order[]) {
+                await this.publishOrderCreated(order);
+            }
+            return { batchId, orderIds: createdOrderIds, orders: orders.filter(Boolean).map((order) => this.projectOperationalOrder(order as Order)) };
+        } catch (error) {
+            await queryRunner.rollbackTransaction();
+            throw error;
+        } finally {
+            await queryRunner.release();
+        }
+    }
+
+    async updateManualOrder(id: string, tenantId: string, input: UpdateManualOrderDto, actor: OrderActor) {
+        this.assertCanCreateManualOrder(actor.userRole);
+        const order = await this.findOne(id, tenantId);
+        if (!order) throw new BadRequestException('Pedido não encontrado.');
+        if (order.status !== 'PENDING') throw new BadRequestException('Somente pedidos pendentes podem ser editados.');
+        const notes = String(input?.notes || '').trim().slice(0, 2000);
+        const previousNotes = order.notes || null;
+        order.notes = notes || null;
+        const saved = await this.orderRepo.save(order);
+        await this.recordOrderAuditEvent(tenantId, saved, 'ORDER_UPDATED', actor, {
+            source: 'KDS',
+            before: { notes: previousNotes },
+            after: { notes: saved.notes || null },
+        });
+        await this.publishOrderUpdated(saved);
+        return this.projectOperationalOrder(saved);
+    }
+
+    async updateManualOrderItem(id: string, itemId: string, tenantId: string, input: UpdateManualOrderItemDto, actor: OrderActor) {
+        this.assertCanCreateManualOrder(actor.userRole);
+        const queryRunner = this.dataSource.createQueryRunner();
+        await queryRunner.connect();
+        await queryRunner.startTransaction();
+        try {
+            const rows = await queryRunner.query(
+                `SELECT oi.id, oi.quantity, oi.observations, oi.voided_quantity, o.id AS order_id, o.tab_id, o.status
+                   FROM order_items oi
+                   JOIN orders o ON o.id = oi.order_id AND o.tenant_id = $1
+                  WHERE o.id = $2 AND oi.id = $3
+                  LIMIT 1
+                  FOR UPDATE`,
+                [tenantId, id, itemId],
+            );
+            const current = rows?.[0];
+            if (!current) throw new BadRequestException('Item do pedido não encontrado.');
+            if (String(current.status) !== 'PENDING') throw new BadRequestException('Somente itens de pedidos pendentes podem ser editados.');
+            const quantity = Number(input?.quantity || 0);
+            if (!Number.isInteger(quantity) || quantity <= 0 || quantity > 99) throw new BadRequestException('Quantidade inválida.');
+            const allocatedRows = await queryRunner.query(
+                `SELECT COALESCE(SUM(allocated_quantity), 0)::int AS total
+                   FROM payment_item_allocations
+                  WHERE order_item_id = $1`,
+                [itemId],
+            ).catch(() => [{ total: 0 }]);
+            const allocated = Number(allocatedRows?.[0]?.total || 0);
+            const voidedQuantity = Number(current.voided_quantity || 0);
+            if (quantity < allocated || quantity < voidedQuantity) {
+                throw new BadRequestException('A quantidade não pode ficar abaixo do que já foi paga ou anulada.');
+            }
+            const previous = { quantity: Number(current.quantity), observations: current.observations || null };
+            await queryRunner.query(
+                `UPDATE order_items
+                    SET quantity = $1,
+                        observations = $2
+                  WHERE id = $3`,
+                [quantity, String(input?.observations || '').trim().slice(0, 1000) || null, itemId],
+            );
+            await this.recordOrderTabEvent(queryRunner, tenantId, current.tab_id, 'ORDER_ITEM_UPDATED', actor, {
+                source: 'KDS', order_id: id, order_item_id: itemId, before: previous,
+                after: { quantity, observations: String(input?.observations || '').trim().slice(0, 1000) || null },
+            });
+            await queryRunner.commitTransaction();
+            await this.recalculateTabTotals(current.tab_id, tenantId);
+            const saved = await this.findOne(id, tenantId);
+            if (saved) {
+                await this.recordOrderAuditEvent(tenantId, saved, 'ORDER_ITEM_UPDATED', actor, {
+                    source: 'KDS', orderItemId: itemId, before: previous,
+                    after: { quantity, observations: String(input?.observations || '').trim().slice(0, 1000) || null },
+                });
+                await this.publishOrderUpdated(saved);
+            }
+            return saved ? this.projectOperationalOrder(saved) : null;
+        } catch (error) {
+            await queryRunner.rollbackTransaction();
+            throw error;
+        } finally {
+            await queryRunner.release();
+        }
+    }
+
+    async voidManualOrderItem(id: string, itemId: string, tenantId: string, input: VoidManualOrderItemDto, actor: OrderActor) {
+        this.assertCanCreateManualOrder(actor.userRole);
+        const reason = String(input?.reason || '').trim().slice(0, 500);
+        if (!reason) throw new BadRequestException('Informe o motivo da anulação.');
+        const queryRunner = this.dataSource.createQueryRunner();
+        await queryRunner.connect();
+        await queryRunner.startTransaction();
+        try {
+            const rows = await queryRunner.query(
+                `SELECT oi.id, oi.quantity, oi.voided_quantity, o.id AS order_id, o.tab_id, o.status
+                   FROM order_items oi
+                   JOIN orders o ON o.id = oi.order_id AND o.tenant_id = $1
+                  WHERE o.id = $2 AND oi.id = $3
+                  LIMIT 1
+                  FOR UPDATE`,
+                [tenantId, id, itemId],
+            );
+            const current = rows?.[0];
+            if (!current) throw new BadRequestException('Item do pedido não encontrado.');
+            if (['DELIVERED', 'CANCELED'].includes(String(current.status))) throw new BadRequestException('Este pedido não pode mais ser alterado.');
+            const allocatedRows = await queryRunner.query(
+                `SELECT COALESCE(SUM(allocated_quantity), 0)::int AS total
+                   FROM payment_item_allocations
+                  WHERE order_item_id = $1`,
+                [itemId],
+            ).catch(() => [{ total: 0 }]);
+            const allocated = Number(allocatedRows?.[0]?.total || 0);
+            const currentVoided = Number(current.voided_quantity || 0);
+            const remaining = Number(current.quantity || 0) - currentVoided - allocated;
+            const voidQuantity = input?.quantity === undefined ? remaining : Number(input.quantity);
+            if (!Number.isInteger(voidQuantity) || voidQuantity <= 0 || voidQuantity > remaining) {
+                throw new BadRequestException('A quantidade a anular é inválida ou já está alocada em pagamento.');
+            }
+            await queryRunner.query(
+                `UPDATE order_items
+                    SET voided_quantity = voided_quantity + $1,
+                        voided_reason = $2,
+                        voided_at = NOW(),
+                        voided_by_user_id = $3::uuid,
+                        voided_by_user_name = $4
+                  WHERE id = $5`,
+                [voidQuantity, reason, this.normalizeUuidOrNull(actor.userId), this.normalizeTextOrNull(actor.userName), itemId],
+            );
+            await this.recordOrderTabEvent(queryRunner, tenantId, current.tab_id, 'ORDER_ITEM_VOIDED', actor, {
+                source: 'KDS', order_id: id, order_item_id: itemId, quantity: voidQuantity, reason,
+            });
+            await queryRunner.commitTransaction();
+            await this.recalculateTabTotals(current.tab_id, tenantId);
+            const saved = await this.findOne(id, tenantId);
+            if (saved) {
+                await this.recordOrderAuditEvent(tenantId, saved, 'ORDER_ITEM_VOIDED', actor, {
+                    source: 'KDS', orderItemId: itemId, quantity: voidQuantity, reason,
+                });
+                await this.publishOrderUpdated(saved);
+                await this.publishOrderEvent(saved, 'order.item_voided');
+            }
+            return saved ? this.projectOperationalOrder(saved) : null;
+        } catch (error) {
+            await queryRunner.rollbackTransaction();
+            throw error;
+        } finally {
+            await queryRunner.release();
+        }
     }
 
     async getOperationsSummary(tenantId: string) {
@@ -303,6 +582,167 @@ export class OrdersService {
         });
 
         return saved;
+    }
+
+    private assertCanCreateManualOrder(actorRole?: string) {
+        const normalizedRole = normalizeTenantRole(actorRole);
+        const canCreate = TENANT_MANUAL_ORDER_ROLES
+            .map((role) => normalizeTenantRole(role))
+            .includes(normalizedRole);
+        if (!canCreate) {
+            throw new BadRequestException('Seu perfil não pode fazer lançamentos manuais.');
+        }
+    }
+
+    private projectOperationalOrder(order: Order) {
+        return {
+            ...order,
+            items: (order.items || [])
+                .map((item: any) => ({
+                    ...item,
+                    quantity: Math.max(0, Number(item.quantity || 0) - Number(item.voidedQuantity || 0)),
+                    originalQuantity: Number(item.quantity || 0),
+                    voidedQuantity: Number(item.voidedQuantity || 0),
+                }))
+                .filter((item: any) => item.quantity > 0),
+        };
+    }
+
+    private validateManualSelectedOptions(menuItem: any, rawOptions: unknown) {
+        const selected = Array.isArray(rawOptions) ? rawOptions : [];
+        if (!selected.length) return { selected: [], priceDelta: 0 };
+
+        let groups: any[] = menuItem.option_groups;
+        if (typeof groups === 'string') {
+            try { groups = JSON.parse(groups); } catch (_error) { groups = []; }
+        }
+        if (!Array.isArray(groups)) throw new BadRequestException(`O item ${menuItem.name} não aceita opções neste momento.`);
+
+        const normalized: Array<{ group_name: string; option_name: string; price_delta: number }> = [];
+        let priceDelta = 0;
+        for (const raw of selected) {
+            const groupName = String(raw?.group_name || raw?.groupName || '').trim();
+            const optionName = String(raw?.option_name || raw?.optionName || '').trim();
+            if (!groupName || !optionName) throw new BadRequestException('Opção de item inválida.');
+            const group = groups.find((candidate) => String(candidate?.name || '').trim() === groupName);
+            const option = group?.options?.find((candidate: any) => String(candidate?.name || '').trim() === optionName && candidate?.available !== false);
+            if (!option) throw new BadRequestException(`A opção ${optionName} não está disponível para ${menuItem.name}.`);
+            const delta = this.roundMoney(Number(option.price_delta ?? option.priceDelta ?? 0));
+            normalized.push({ group_name: groupName, option_name: optionName, price_delta: delta });
+            priceDelta += delta;
+        }
+
+        return { selected: normalized, priceDelta: this.roundMoney(priceDelta) };
+    }
+
+    private async recordOrderTabEvent(
+        queryRunner: any,
+        tenantId: string,
+        tabId: string,
+        eventType: string,
+        actor: OrderActor,
+        details: Record<string, unknown>,
+    ) {
+        await queryRunner.query(
+            `INSERT INTO tab_events
+                (id, tenant_id, tab_id, event_type, actor_user_id, actor_name, details, created_at)
+             VALUES (gen_random_uuid(), $1, $2, $3, $4::uuid, $5, $6::jsonb, NOW())`,
+            [
+                tenantId,
+                tabId,
+                eventType,
+                this.normalizeUuidOrNull(actor.userId),
+                this.normalizeTextOrNull(actor.userName),
+                JSON.stringify({ ...details, actor_role: normalizeTenantRole(actor.userRole), actor_user_id: actor.userId || null, actor_name: actor.userName || null }),
+            ],
+        );
+    }
+
+    private async recordOrderAuditEvent(
+        tenantId: string,
+        order: Order,
+        eventType: string,
+        actor: OrderActor,
+        metadata: Record<string, unknown>,
+    ) {
+        const log = this.userAccessAuditLogRepository.create({
+            tenantId,
+            actorUserId: this.normalizeUuidOrNull(actor.userId),
+            actorName: this.normalizeTextOrNull(actor.userName),
+            actorRole: this.normalizeTextOrNull(actor.userRole, 20),
+            targetUserId: null,
+            targetUserName: null,
+            eventType,
+            description: `Pedido ${this.resolveOrderMessageCode(order)} alterado pelo Atendimento.`,
+            metadata: {
+                orderId: order.id,
+                tabId: order.tabId,
+                batchId: order.batchId || null,
+                source: 'KDS',
+                ...metadata,
+            },
+        });
+        await this.userAccessAuditLogRepository.save(log);
+    }
+
+    private async publishOrderCreated(order: Order) {
+        await this.publishOrderEvent(order, 'order.created');
+    }
+
+    private async publishOrderUpdated(order: Order) {
+        await this.publishOrderEvent(order, 'order.updated');
+    }
+
+    private async publishOrderEvent(order: Order, type: string) {
+        const payload = this.buildOrderEventPayload(order, type);
+        try {
+            await this.broadcastKDSEventToGoCore(payload);
+        } catch (error) {
+            this.logger.warn(`Failed to relay ${type} to go-core for ${order.id}: ${(error as Error).message}`);
+        }
+        try {
+            await this.amqpService.publishKDSEvent(payload, type);
+        } catch (error) {
+            this.logger.warn(`Failed to publish ${type} for ${order.id}: ${(error as Error).message}`);
+        }
+    }
+
+    private buildOrderEventPayload(order: Order, type: string) {
+        return {
+            type,
+            timestamp: new Date().toISOString(),
+            tenant_id: order.tenantId,
+            data: {
+                id: order.id,
+                tenant_id: order.tenantId,
+                tab_id: order.tabId,
+                batch_id: order.batchId,
+                batch_display_code: this.resolveOrderMessageCode(order),
+                destination: order.destination,
+                status: order.status,
+                notes: order.notes,
+                created_at: order.createdAt,
+                accepted_at: order.acceptedAt,
+                ready_at: order.readyAt,
+                delivered_at: order.deliveredAt,
+                canceled_at: order.canceledAt,
+                cancel_reason: order.cancelReason,
+                items: (order.items || [])
+                    .map((item: any) => ({
+                        id: item.id,
+                        order_id: item.orderId,
+                        menu_item_id: item.menuItemId,
+                        quantity: Math.max(0, Number(item.quantity || 0) - Number(item.voidedQuantity || 0)),
+                        original_quantity: Number(item.quantity || 0),
+                        voided_quantity: Number(item.voidedQuantity || 0),
+                        unit_price: this.normalizeMoneyValue(item.unitPrice),
+                        observations: item.observations,
+                        selected_options: this.normalizeOrderItemSelectedOptions(item.selectedOptions),
+                        created_at: item.createdAt,
+                    }))
+                    .filter((item) => item.quantity > 0),
+            },
+        };
     }
 
     private assertCanCancelOrder(actorRole?: string) {
@@ -563,7 +1003,7 @@ export class OrdersService {
 
     private async recalculateTabTotals(tabId: string, tenantId: string): Promise<void> {
         const subtotalRows = await this.dataSource.query(
-            `SELECT COALESCE(SUM(oi.quantity * oi.unit_price), 0) AS subtotal
+            `SELECT COALESCE(SUM(GREATEST(oi.quantity - COALESCE(oi.voided_quantity, 0), 0) * oi.unit_price), 0) AS subtotal
                FROM orders o
                JOIN order_items oi ON oi.order_id = o.id
               WHERE o.tab_id = $1
@@ -1224,41 +1664,7 @@ export class OrdersService {
     }
 
     private buildOrderStatusChangedEventPayload(order: Order) {
-        return {
-            type: 'order.status_changed',
-            timestamp: new Date().toISOString(),
-            tenant_id: order.tenantId,
-            data: {
-                id: order.id,
-                tenant_id: order.tenantId,
-                tab_id: order.tabId,
-                batch_id: order.batchId,
-                batch_display_code: this.resolveOrderMessageCode(order),
-                destination: order.destination,
-                status: order.status,
-                notes: order.notes,
-                created_at: order.createdAt,
-                accepted_at: order.acceptedAt,
-                ready_at: order.readyAt,
-                delivered_at: order.deliveredAt,
-                canceled_at: order.canceledAt,
-                cancel_reason: order.cancelReason,
-                cancel_reason_code: order.cancelReasonCode,
-                cancel_category: order.cancelCategory,
-                canceled_by_user_id: order.canceledByUserId,
-                canceled_by_user_name: order.canceledByUserName,
-                items: (order.items || []).map((item) => ({
-                    id: item.id,
-                    order_id: item.orderId,
-                    menu_item_id: item.menuItemId,
-                    quantity: Number(item.quantity || 0),
-                    unit_price: this.normalizeMoneyValue(item.unitPrice),
-                    observations: item.observations,
-                    selected_options: this.normalizeOrderItemSelectedOptions(item.selectedOptions),
-                    created_at: item.createdAt,
-                })),
-            },
-        };
+        return this.buildOrderEventPayload(order, 'order.status_changed');
     }
 
     private async recordOrderStatusAuditEvent(input: {

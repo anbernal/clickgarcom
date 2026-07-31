@@ -601,9 +601,9 @@ export class TablesService {
                 );
                 for (const item of items) {
                     await queryRunner.query(
-                        `INSERT INTO order_items (id, order_id, menu_item_id, quantity, unit_price, created_at)
-                         VALUES (gen_random_uuid(), $1, $2, $3, $4, NOW())`,
-                        [orderId, item.id, item.quantity, item.price],
+                    `INSERT INTO order_items (id, order_id, menu_item_id, quantity, unit_price, item_name_snapshot, created_at)
+                         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, NOW())`,
+                        [orderId, item.id, item.quantity, item.price, item.name],
                     );
                 }
                 createdOrderIds.push(orderId);
@@ -1798,6 +1798,7 @@ export class TablesService {
                         oi.order_id,
                         oi.menu_item_id,
                         oi.quantity,
+                        oi.voided_quantity,
                         oi.unit_price,
                         oi.observations,
                         oi.selected_options,
@@ -1816,7 +1817,8 @@ export class TablesService {
                   WHERE o.tenant_id = $1
                     AND o.tab_id = $2
                     AND o.status <> 'CANCELED'
-                  GROUP BY oi.id, oi.order_id, oi.menu_item_id, oi.quantity, oi.unit_price, oi.observations, oi.selected_options, oi.created_at, o.created_at, o.status, mi.name
+                    AND GREATEST(oi.quantity - COALESCE(oi.voided_quantity, 0), 0) > 0
+                  GROUP BY oi.id, oi.order_id, oi.menu_item_id, oi.quantity, oi.voided_quantity, oi.unit_price, oi.observations, oi.selected_options, oi.created_at, o.created_at, o.status, mi.name
                   ORDER BY o.created_at ASC, oi.created_at ASC`,
                 [tenantId, tabId],
             ).catch(() => []),
@@ -1913,7 +1915,9 @@ export class TablesService {
         const allocationCount = Number(allocationRows?.[0]?.allocation_count || 0);
         const tenantSettings = this.parseTenantSettings(tab.tenant_settings);
         const items = (itemRows || []).map((row: any) => {
-            const quantity = Number(row.quantity || 0);
+            const originalQuantity = Number(row.quantity || 0);
+            const voidedQuantity = Math.max(0, Math.min(originalQuantity, Number(row.voided_quantity || 0)));
+            const quantity = Math.max(0, originalQuantity - voidedQuantity);
             const allocatedQuantity = Math.max(0, Math.min(quantity, Number(row.allocated_quantity || 0)));
             const unitPrice = this.roundMoney(Number.parseFloat(String(row.unit_price ?? '0')) || 0);
             return {
@@ -1922,6 +1926,8 @@ export class TablesService {
                 menuItemId: row.menu_item_id ? String(row.menu_item_id) : null,
                 name: String(row.menu_item_name || 'Item sem nome'),
                 quantity,
+                originalQuantity,
+                voidedQuantity,
                 unitPrice,
                 lineSubtotal: this.roundMoney(quantity * unitPrice),
                 allocatedQuantity,
@@ -1980,6 +1986,115 @@ export class TablesService {
                     currentUserRole,
                 ),
             },
+        };
+    }
+
+    async listTabDocuments(tabId: string, tenantId: string) {
+        const rows = await this.dataSource.query(
+            `SELECT id, tab_id, document_type, status, document_number, snapshot, total,
+                    issued_at, issued_by_user_id, issued_by_user_name, source,
+                    original_document_id, print_count, content_hash
+               FROM tab_documents
+              WHERE id IS NOT NULL
+                AND tenant_id = $1
+                AND tab_id = $2
+              ORDER BY issued_at DESC`,
+            [tenantId, tabId],
+        );
+        return (rows || []).map((row: any) => this.mapTabDocument(row));
+    }
+
+    async issueConsumptionDocument(tabId: string, tenantId: string, actor: TabActorContext) {
+        const detail = await this.getTabDetails(tabId, tenantId, actor.userRole);
+        const snapshot = {
+            documentType: 'CONSUMPTION_STATEMENT',
+            publicCode: detail.publicCode,
+            tableNumber: detail.tableNumber,
+            serviceMode: detail.serviceMode,
+            status: detail.status,
+            openedAt: detail.openedAt,
+            closedAt: detail.closedAt,
+            items: detail.items,
+            financial: detail.financial,
+            payments: detail.payments,
+        };
+        const serialized = JSON.stringify(snapshot);
+        const contentHash = createHash('sha256').update(serialized).digest('hex');
+        const rows = await this.dataSource.query(
+            `INSERT INTO tab_documents
+                (id, tenant_id, tab_id, document_type, status, snapshot, total,
+                 issued_by_user_id, issued_by_user_name, source, content_hash)
+             VALUES (gen_random_uuid(), $1, $2, 'CONSUMPTION_STATEMENT', 'ISSUED', $3::jsonb, $4, $5::uuid, $6, 'KDS', $7)
+             RETURNING id, tab_id, document_type, status, document_number, snapshot, total,
+                       issued_at, issued_by_user_id, issued_by_user_name, source,
+                       original_document_id, print_count, content_hash`,
+            [
+                tenantId,
+                tabId,
+                serialized,
+                Number(detail.financial?.total || 0),
+                this.normalizeUuidOrNull(actor.userId),
+                this.normalizeTextOrNull(actor.userName),
+                contentHash,
+            ],
+        );
+        await this.recordTabEvent(this.dataSource, tenantId, tabId, 'DOCUMENT_PRINTED', {
+            actorUserId: actor.userId,
+            actorName: actor.userName,
+            details: {
+                document_id: rows?.[0]?.id || null,
+                document_type: 'CONSUMPTION_STATEMENT',
+                source: 'KDS',
+                total: Number(detail.financial?.total || 0),
+                content_hash: contentHash,
+            },
+        });
+        return this.mapTabDocument(rows?.[0]);
+    }
+
+    async reprintTabDocument(tabId: string, documentId: string, tenantId: string, actor: TabActorContext) {
+        const rows = await this.dataSource.query(
+            `UPDATE tab_documents
+                SET print_count = print_count + 1
+              WHERE id = $1
+                AND tenant_id = $2
+                AND tab_id = $3
+             RETURNING id, tab_id, document_type, status, document_number, snapshot, total,
+                       issued_at, issued_by_user_id, issued_by_user_name, source,
+                       original_document_id, print_count, content_hash`,
+            [documentId, tenantId, tabId],
+        );
+        if (!rows?.[0]) throw new NotFoundException('Documento da comanda não encontrado.');
+        await this.recordTabEvent(this.dataSource, tenantId, tabId, 'DOCUMENT_REPRINTED', {
+            actorUserId: actor.userId,
+            actorName: actor.userName,
+            details: {
+                document_id: documentId,
+                document_type: rows[0].document_type,
+                source: 'KDS',
+                print_count: Number(rows[0].print_count || 0),
+            },
+        });
+        return this.mapTabDocument(rows[0]);
+    }
+
+    private mapTabDocument(row: any) {
+        if (!row) return null;
+        return {
+            id: String(row.id),
+            tabId: String(row.tab_id),
+            documentType: String(row.document_type || ''),
+            status: String(row.status || 'ISSUED'),
+            documentNumber: row.document_number || null,
+            snapshot: this.parseJsonObject(row.snapshot),
+            total: this.roundMoney(Number.parseFloat(String(row.total ?? '0')) || 0),
+            issuedAt: row.issued_at,
+            issuedByUserId: row.issued_by_user_id || null,
+            issuedByUserName: String(row.issued_by_user_name || '').trim() || null,
+            source: String(row.source || 'KDS'),
+            originalDocumentId: row.original_document_id || null,
+            printCount: Number(row.print_count || 1),
+            contentHash: String(row.content_hash || '').trim() || null,
         };
     }
 
@@ -3065,6 +3180,11 @@ export class TablesService {
         if (eventType === 'TAB_REOPENED') return 'Comanda reaberta';
         if (eventType === 'TAB_CUSTOMER_UPDATED') return 'Cliente atualizado';
         if (eventType === 'TAB_TABLE_UPDATED') return 'Mesa da comanda alterada';
+        if (eventType === 'TAB_ORDER_CREATED') return 'Pedido lançado na comanda';
+        if (eventType === 'ORDER_ITEM_UPDATED') return 'Item do pedido alterado';
+        if (eventType === 'ORDER_ITEM_VOIDED') return 'Item do pedido anulado';
+        if (eventType === 'DOCUMENT_PRINTED') return 'Comprovante impresso';
+        if (eventType === 'DOCUMENT_REPRINTED') return 'Comprovante reimpresso';
         if (eventType === 'PAYMENT_RETRY_CREATED') return 'Nova cobrança PIX gerada';
         if (eventType === 'PAYMENT_REFUND_PREPARED') return 'Estorno preparado';
         return 'Evento da comanda';
@@ -3114,6 +3234,22 @@ export class TablesService {
                 return `Comanda desvinculada da mesa ${previousTableNumber}`;
             }
             return 'Mesa da comanda atualizada pela equipe';
+        }
+        if (eventType === 'TAB_ORDER_CREATED') {
+            const count = Number(details?.item_count || 0);
+            return `Lançamento manual com ${count} linha(s) de item`;
+        }
+        if (eventType === 'ORDER_ITEM_UPDATED') {
+            const before = details?.before?.quantity;
+            const after = details?.after?.quantity;
+            return `Quantidade alterada de ${before ?? '?'} para ${after ?? '?'}`;
+        }
+        if (eventType === 'ORDER_ITEM_VOIDED') {
+            return `Quantidade anulada: ${Number(details?.quantity || 0)} · motivo: ${String(details?.reason || 'não informado')}`;
+        }
+        if (eventType === 'DOCUMENT_PRINTED' || eventType === 'DOCUMENT_REPRINTED') {
+            const count = details?.print_count ? ` · cópia ${details.print_count}` : '';
+            return `Documento ${String(details?.document_type || 'da comanda')}${count}`;
         }
         if (eventType === 'PAYMENT_RETRY_CREATED') {
             const amountDue = this.roundMoney(Number(details?.amount_due || 0));

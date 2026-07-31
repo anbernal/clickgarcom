@@ -796,6 +796,8 @@ function renderComandaCard(detail, idx, tableId, tableNumber) {
       </div>
 
       <div style="display:flex; justify-content:flex-end; gap:10px; flex-wrap:wrap;">
+        <button class="btn-sm btn-outline" onclick="openTabDocuments('${escapeHTML(String(detail.id))}')">Documentos</button>
+        <button class="btn-sm btn-outline" onclick="issueAndPrintTabDocument('${escapeHTML(String(detail.id))}')">Imprimir consumo</button>
         ${detail?.status !== 'CLOSED' ? `
           ${canPerformAction('manageSettlement') ? `
             <button class="btn-sm btn-primary" onclick="finalizeTabFromModal('${escapeHTML(String(detail.id))}', '${escapeHTML(String(tableId))}', '${escapeHTML(String(tableNumber))}')">

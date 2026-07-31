@@ -69,7 +69,7 @@ export function buildApiMetadata() {
             auth: 'JWT required. Browser clients should connect with ?token=<jwt>; backend middleware also accepts Authorization: Bearer.',
             required_query: ['tenant_id'],
             bootstrap_http_base_path: ADMIN_API_VERSIONED_BASE_PATH,
-            event_types: ['connected', 'order.created', 'order.status_changed'],
+            event_types: ['connected', 'order.created', 'order.updated', 'order.item_voided', 'order.status_changed'],
         },
     };
 }

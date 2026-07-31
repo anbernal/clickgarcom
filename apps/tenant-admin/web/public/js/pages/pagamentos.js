@@ -189,6 +189,7 @@ function renderPagamentosDivergences(rows) {
             </div>
             <div style="display:flex;gap:8px;margin-top:14px">
               <button class="btn-sm btn-outline" onclick="openPagamentoTabDetail('${tab.tabId}')">Ver detalhe</button>
+              <button class="btn-sm btn-outline" onclick="issueAndPrintTabDocument('${tab.tabId}')">Imprimir consumo</button>
             </div>
           </div>
         `;
@@ -252,6 +253,7 @@ function renderPagamentosTable(rows) {
                   <div style="display:flex;gap:6px;justify-content:flex-end">
                     <button class="btn-sm btn-outline" onclick="refreshPagamentoStatus('${payment.id}')">Atualizar</button>
                     <button class="btn-sm btn-outline" onclick="openPagamentoTabDetail('${payment.tabId}')">Detalhe</button>
+                    <button class="btn-sm btn-outline" onclick="issueAndPrintTabDocument('${payment.tabId}')">Comprovante</button>
                   </div>
                 </td>
               </tr>
@@ -321,6 +323,8 @@ function renderPagamentoTabDetailModal(detail) {
     </div>
     <div class="modal-footer">
       <button class="btn-sm btn-outline" onclick="closeModal()">Fechar</button>
+      <button class="btn-sm btn-outline" onclick="openTabDocuments('${escapeHTML(String(detail?.id || ''))}')">Documentos</button>
+      <button class="btn-sm btn-outline" onclick="issueAndPrintTabDocument('${escapeHTML(String(detail?.id || ''))}')">Imprimir consumo</button>
       ${refreshablePayment ? `<button class="btn-sm btn-outline" onclick="refreshPagamentoStatus('${refreshablePayment.id}', '${detail.id}')">Atualizar status</button>` : ''}
       ${retryablePayment ? `<button class="btn-sm btn-outline" onclick="retryPagamentoPix('${retryablePayment.id}')">Gerar novo PIX</button>` : ''}
       ${refundablePayment ? `<button class="btn-sm btn-outline" onclick="openPrepareRefundModal('${detail.id}', '${refundablePayment.id}')">${refundablePayment.refundPreparation ? 'Revisar estorno' : 'Preparar estorno'}</button>` : ''}
