@@ -283,39 +283,21 @@ function loadConsultaComanda() {
   openComandaConsultation();
 }
 
-function operationalDocumentHtml(documentData) {
-  const snapshot = documentData?.snapshot || {};
-  const financial = snapshot.financial || {};
-  const items = Array.isArray(snapshot.items) ? snapshot.items : [];
-  const itemRows = items.map((item) => `
-    <tr><td>${escapeHTML(`${item.quantity || 0}x ${item.name || 'Item'}`)}</td><td style="text-align:right">${escapeHTML(formatCurrency(item.lineSubtotal || 0))}</td></tr>
-  `).join('');
-  return `<div style="font-family:Arial,sans-serif;max-width:680px;margin:auto;color:#111">
-    <h2 style="margin-bottom:4px">Comprovante de consumo</h2>
-    <div style="color:#555;font-size:12px">Comanda ${escapeHTML(snapshot.publicCode || snapshot.tabId || '')}${snapshot.tableNumber ? ` · Mesa ${escapeHTML(snapshot.tableNumber)}` : ''}</div>
-    <hr><table style="width:100%;border-collapse:collapse"><tbody>${itemRows}</tbody></table>
-    <hr><div style="display:flex;justify-content:space-between"><span>Subtotal</span><strong>${escapeHTML(formatCurrency(financial.subtotal || 0))}</strong></div>
-    <div style="display:flex;justify-content:space-between"><span>Taxa</span><strong>${escapeHTML(formatCurrency(financial.serviceFee || 0))}</strong></div>
-    <div style="display:flex;justify-content:space-between;font-size:18px;margin-top:8px"><strong>Total</strong><strong>${escapeHTML(formatCurrency(financial.total || 0))}</strong></div>
-    <p style="color:#666;font-size:11px;margin-top:18px">Documento operacional não fiscal · hash ${escapeHTML(String(documentData.contentHash || '').slice(0, 24))}</p>
-  </div>`;
-}
-
-function printOperationalDocument(documentData) {
-  const win = window.open('', '_blank', 'width=760,height=900');
-  if (!win) throw new Error('Permita pop-ups para imprimir o comprovante.');
-  win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Comprovante operacional</title><style>body{padding:28px}@media print{body{padding:0}@page{margin:12mm}}</style></head><body>${operationalDocumentHtml(documentData)}</body></html>`);
-  win.document.close();
-  win.focus();
-  setTimeout(() => win.print(), 200);
+function printOperationalDocument(documentData, printWindow) {
+  if (!window.ClickGarcomReceipt) throw new Error('O modelo de comprovante não foi carregado.');
+  window.ClickGarcomReceipt.print(documentData, { targetWindow: printWindow });
 }
 
 async function issueAndPrintTabDocument(tabId) {
+  let printWindow = null;
   try {
+    if (!window.ClickGarcomReceipt) throw new Error('O modelo de comprovante não foi carregado.');
+    printWindow = window.ClickGarcomReceipt.openWindow();
     const documentData = await api.post(`/tables/tabs/${tabId}/documents/consumption`, {});
-    printOperationalDocument(documentData);
+    printOperationalDocument(documentData, printWindow);
     showToast('Comprovante operacional preparado para impressão.');
   } catch (error) {
+    if (printWindow && !printWindow.closed) printWindow.close();
     showToast(`Erro ao emitir comprovante: ${error.message}`, 'error');
   }
 }
@@ -334,11 +316,15 @@ async function openTabDocuments(tabId) {
 }
 
 async function reprintTabDocument(tabId, documentId) {
+  let printWindow = null;
   try {
+    if (!window.ClickGarcomReceipt) throw new Error('O modelo de comprovante não foi carregado.');
+    printWindow = window.ClickGarcomReceipt.openWindow();
     const documentData = await api.post(`/tables/tabs/${tabId}/documents/${documentId}/reprint`, {});
-    printOperationalDocument(documentData);
+    printOperationalDocument(documentData, printWindow);
     showToast('Reimpressão registrada no histórico.');
   } catch (error) {
+    if (printWindow && !printWindow.closed) printWindow.close();
     showToast(`Erro ao reimprimir: ${error.message}`, 'error');
   }
 }

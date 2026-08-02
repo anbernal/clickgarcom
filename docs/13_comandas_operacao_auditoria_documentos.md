@@ -78,9 +78,10 @@ O comprovante interno deve ser identificado como documento operacional não fisc
 
 1. Um garçom consegue operar a comanda do início ao fim sem NFC-e/NF-e.
 2. O cliente consegue receber ou imprimir o consumo sem documento fiscal.
-3. O comprovante mostra itens válidos, anulados, subtotal, taxa, total e pagamentos.
-4. Toda impressão e reimpressão fica associada ao usuário e ao snapshot emitido.
-5. A ausência de impressora fiscal não impede nenhuma operação do restaurante.
+3. O comprovante mostra a identificação cadastral do restaurante, itens válidos, subtotal, taxa, total e pagamentos.
+4. Nome, CPF/CNPJ, endereço e contato do restaurante ficam preservados no snapshot emitido.
+5. Toda impressão e reimpressão fica associada ao usuário e ao snapshot emitido.
+6. A ausência de impressora fiscal não impede nenhuma operação do restaurante.
 
 ## Tasks
 
@@ -95,6 +96,7 @@ O comprovante interno deve ser identificado como documento operacional não fisc
 - [x] Recalcular snapshot financeiro da comanda após cada mutação.
 - [x] Emitir eventos `order.created`, `order.updated` e `order.item_voided` para o KDS.
 - [x] Implementar geração de comprovante operacional autenticado.
+- [x] Preservar dados cadastrais do restaurante e número operacional no snapshot do comprovante.
 - [x] Implementar registro de impressão e reimpressão.
 - [x] Cobrir cálculo após anulação e cenários de validação no checklist de homologação; testes de concorrência dependem de banco de integração disponível.
 
@@ -106,6 +108,7 @@ O comprovante interno deve ser identificado como documento operacional não fisc
 - [x] Adicionar edição/anulação respeitando o status do pedido.
 - [x] Adicionar timeline de auditoria com usuário e horário no KDS.
 - [x] Adicionar impressão de prévia e comprovante operacional.
+- [x] Padronizar o comprovante térmico com cabeçalho do restaurante, itens, pagamentos, operador e aviso não fiscal.
 - [x] Consumir eventos de pedido atualizado em tempo real.
 
 ### Frontend administrativo

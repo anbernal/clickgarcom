@@ -116,7 +116,7 @@ Resultado esperado: status, usuário, horário, total e pagamentos permanecem co
 
 Emitir comprovante em comanda aberta e fechada.
 
-Resultado esperado: documento mostra itens efetivos, subtotal, taxa, total e pagamentos; contém identificação de “documento operacional não fiscal”.
+Resultado esperado: documento mostra nome, CPF/CNPJ, endereço e contato cadastrados do restaurante; número operacional, comanda, mesa, emissão, atendente, itens efetivos com quantidade/valor unitário/total, subtotal, taxa, total e pagamentos; contém identificação clara de “documento não fiscal” e não apresenta NFC-e, chave de acesso ou protocolo fiscal.
 
 ### CT-11 — Impressão e reimpressão
 
@@ -126,6 +126,10 @@ Resultado esperado: documento mostra itens efetivos, subtotal, taxa, total e pag
 4. Salvar como PDF.
 
 Resultado esperado: impressão funciona sem impressora fiscal; snapshot permanece igual; hash, origem, ator e contador de impressão são preservados; eventos `DOCUMENT_PRINTED` e `DOCUMENT_REPRINTED` aparecem no histórico.
+
+5. Alterar os dados cadastrais do restaurante depois da emissão e reimprimir o documento anterior.
+
+Resultado esperado: a reimpressão conserva os dados cadastrais que estavam no snapshot original; somente um novo comprovante usa o cadastro atualizado.
 
 ### CT-12 — Tempo real
 

@@ -513,6 +513,27 @@ Critérios de aceite:
 - ações permanecem associadas à comanda correta;
 - campos dos modais do KDS usam o mesmo padrão visual da área administrativa.
 
+## Épico 8 — Comprovante operacional identificado
+
+### KDS-DOC-070 — Aplicar cadastro do restaurante na impressão
+
+- Prioridade: P0
+- Tipo: BE/FE/QA
+- Status: concluída
+- Incluir nome, CPF/CNPJ, endereço e contato do restaurante no snapshot da emissão.
+- Gerar número próprio para o comprovante operacional.
+- Exibir comanda, mesa, emissão, atendente, quantidade, descrição, valor unitário, total e pagamentos.
+- Compartilhar o mesmo modelo térmico entre KDS e consulta administrativa.
+- Identificar o documento como não fiscal, sem NFC-e, chave de acesso ou protocolo fiscal.
+
+Critérios de aceite:
+
+- uma reimpressão conserva os dados cadastrais do snapshot original;
+- o comprovante funciona em impressão comum, térmica de 80 mm ou PDF;
+- campos ausentes não deixam rótulos vazios ou quebram o layout;
+- conteúdo dinâmico é escapado antes de entrar na janela de impressão;
+- a emissão continua registrada com usuário, hash e contador de impressão.
+
 ## Execução paralela recomendada
 
 Após KDS-UX-001, KDS-UX-002 e KDS-UX-003, o trabalho pode seguir em paralelo:

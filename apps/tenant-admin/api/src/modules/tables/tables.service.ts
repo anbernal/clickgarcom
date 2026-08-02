@@ -1704,6 +1704,8 @@ export class TablesService {
                         tb.reopened_by_user_id,
                         tb.reopened_by_user_name,
                         t.number AS table_number,
+                        tn.name AS tenant_name,
+                        tn.whatsapp_number AS tenant_whatsapp_number,
                         tn.settings AS tenant_settings
                    FROM tabs tb
                    LEFT JOIN tables t
@@ -1943,6 +1945,12 @@ export class TablesService {
         return {
             id: String(tab.id),
             tenantId: String(tab.tenant_id),
+            restaurant: {
+                name: String(tab.tenant_name || '').trim() || 'Restaurante',
+                document: String(tenantSettings.document || '').trim() || null,
+                address: String(tenantSettings.address || '').trim() || null,
+                phone: String(tab.tenant_whatsapp_number || '').trim() || null,
+            },
             tableId: tab.table_id ? String(tab.table_id) : null,
             tableNumber: tab.table_number || null,
             publicCode: String(tab.public_code || '').trim() || null,
@@ -2006,14 +2014,29 @@ export class TablesService {
 
     async issueConsumptionDocument(tabId: string, tenantId: string, actor: TabActorContext) {
         const detail = await this.getTabDetails(tabId, tenantId, actor.userRole);
+        const issuedAt = new Date();
+        const datePart = issuedAt.toISOString().slice(0, 10).replace(/-/g, '');
+        const tabPart = String(detail.publicCode || tabId)
+            .replace(/[^a-zA-Z0-9]/g, '')
+            .slice(0, 20)
+            .toUpperCase() || 'COMANDA';
+        const documentNumber = `OP-${datePart}-${tabPart}-${randomBytes(2).toString('hex').toUpperCase()}`;
         const snapshot = {
             documentType: 'CONSUMPTION_STATEMENT',
+            documentNumber,
+            issuedAt: issuedAt.toISOString(),
+            issuedByUserName: this.normalizeTextOrNull(actor.userName),
+            restaurant: detail.restaurant,
             publicCode: detail.publicCode,
             tableNumber: detail.tableNumber,
             serviceMode: detail.serviceMode,
             status: detail.status,
             openedAt: detail.openedAt,
             closedAt: detail.closedAt,
+            customer: {
+                phone: detail.userPhone,
+                instagram: detail.customerInstagram,
+            },
             items: detail.items,
             financial: detail.financial,
             payments: detail.payments,
@@ -2022,15 +2045,16 @@ export class TablesService {
         const contentHash = createHash('sha256').update(serialized).digest('hex');
         const rows = await this.dataSource.query(
             `INSERT INTO tab_documents
-                (id, tenant_id, tab_id, document_type, status, snapshot, total,
+                (id, tenant_id, tab_id, document_type, status, document_number, snapshot, total,
                  issued_by_user_id, issued_by_user_name, source, content_hash)
-             VALUES (gen_random_uuid(), $1, $2, 'CONSUMPTION_STATEMENT', 'ISSUED', $3::jsonb, $4, $5::uuid, $6, 'KDS', $7)
+             VALUES (gen_random_uuid(), $1, $2, 'CONSUMPTION_STATEMENT', 'ISSUED', $3, $4::jsonb, $5, $6::uuid, $7, 'KDS', $8)
              RETURNING id, tab_id, document_type, status, document_number, snapshot, total,
                        issued_at, issued_by_user_id, issued_by_user_name, source,
                        original_document_id, print_count, content_hash`,
             [
                 tenantId,
                 tabId,
+                documentNumber,
                 serialized,
                 Number(detail.financial?.total || 0),
                 this.normalizeUuidOrNull(actor.userId),
@@ -2043,6 +2067,7 @@ export class TablesService {
             actorName: actor.userName,
             details: {
                 document_id: rows?.[0]?.id || null,
+                document_number: documentNumber,
                 document_type: 'CONSUMPTION_STATEMENT',
                 source: 'KDS',
                 total: Number(detail.financial?.total || 0),

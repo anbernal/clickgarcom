@@ -149,6 +149,49 @@ test('comandas mantém somente a página visível com 300 registros e campos pad
   expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
 });
 
+test('comprovante não fiscal usa o snapshot cadastral completo do restaurante', async ({ page }) => {
+  await prepareKds(page, { role: 'WAITER' });
+  await page.goto('/kds.html');
+
+  const html = await page.evaluate(() => window.ClickGarcomReceipt.buildHtml({
+    documentNumber: 'OP-20260802-CMD42-A1B2',
+    issuedAt: '2026-08-02T18:30:00.000Z',
+    issuedByUserName: 'Maria Garçonete',
+    contentHash: 'abcdef0123456789abcdef0123456789',
+    snapshot: {
+      publicCode: 'CMD-42',
+      tableNumber: '12',
+      restaurant: {
+        name: 'Restaurante Teste & Filhos',
+        document: '24.696.391/0001-99',
+        address: 'Rua Jacarandá, 70 — Monte Verde, Santa Cruz do Sul/RS',
+        phone: '(51) 99999-0000',
+      },
+      customer: { phone: '(51) 98888-0000' },
+      items: [{
+        quantity: 2,
+        name: 'Coca-Cola 2L',
+        unitPrice: 8,
+        lineSubtotal: 16,
+        observations: 'Sem gelo',
+      }],
+      financial: { subtotal: 16, serviceFee: 1.6, total: 17.6, paidAmount: 17.6, amountDue: 0 },
+      payments: [{ status: 'CONFIRMED', methodLabel: 'Cartão de crédito', amount: 17.6 }],
+    },
+  }));
+
+  expect(html).toContain('Restaurante Teste &amp; Filhos');
+  expect(html).toContain('CPF/CNPJ: 24.696.391/0001-99');
+  expect(html).toContain('Rua Jacarandá, 70 — Monte Verde, Santa Cruz do Sul/RS');
+  expect(html).toContain('COMPROVANTE OPERACIONAL DE CONSUMO');
+  expect(html).toContain('DOCUMENTO NÃO FISCAL');
+  expect(html).toContain('Coca-Cola 2L');
+  expect(html).toContain('Cartão de crédito');
+  expect(html).toContain('Emitido por: Maria Garçonete');
+  expect(html).toContain('Este documento não possui validade fiscal.');
+  expect(html).not.toContain('NFC-e');
+});
+
 test('resumo local mantém opções separadas, ignora anulação e suporta 60 pedidos', async ({ page }) => {
   const orders = Array.from({ length: 60 }, (_, index) => ({
     id: `order-${index}`,

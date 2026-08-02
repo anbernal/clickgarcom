@@ -1808,11 +1808,15 @@ async function saveManualOrderNotes(orderId) {
 }
 
 async function printTabConsumption(tabId) {
+  var printWindow = null;
   try {
+    if (!window.ClickGarcomReceipt) throw new Error('O modelo de comprovante não foi carregado.');
+    printWindow = window.ClickGarcomReceipt.openWindow();
     var documentData = await apiPost('/tables/tabs/' + tabId + '/documents/consumption', {});
-    printDocumentSnapshot(documentData);
+    printDocumentSnapshot(documentData, printWindow);
     toast('t-success', 'Comprovante preparado', 'A janela de impressão foi aberta.');
   } catch (error) {
+    if (printWindow && !printWindow.closed) printWindow.close();
     toast('t-error', 'Erro ao emitir comprovante', error.message);
   }
 }
@@ -1844,20 +1848,9 @@ function closeManualTabHistory() {
   if (modal) modal.remove();
 }
 
-function printDocumentSnapshot(documentData) {
-  var snapshot = documentData?.snapshot || {};
-  var items = Array.isArray(snapshot.items) ? snapshot.items : [];
-  var financial = snapshot.financial || {};
-  var win = window.open('', '_blank', 'width=420,height=760');
-  if (!win) throw new Error('Permita pop-ups para imprimir o comprovante.');
-  var itemHtml = items.map(function (item) {
-    return '<div class="line"><span>' + escapeHTML(String(item.quantity) + 'x ' + (item.name || 'Item')) + '</span><span>' + escapeHTML(formatMoney(item.lineSubtotal || 0)) + '</span></div>';
-  }).join('');
-  var tableLabel = snapshot.tableNumber ? ' · Mesa ' + escapeHTML(String(snapshot.tableNumber)) : '';
-  win.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Comprovante ' + escapeHTML(snapshot.publicCode || '') + '</title><style>body{font-family:Arial,sans-serif;width:72mm;margin:0 auto;padding:4mm;color:#111;font-size:12px}h1{text-align:center;font-size:16px;margin:0 0 8px}.muted{color:#555;font-size:10px}.line{display:flex;justify-content:space-between;gap:8px;margin:5px 0}.total{font-weight:700;font-size:15px;border-top:1px dashed #111;padding-top:8px;margin-top:8px}@media print{@page{size:80mm auto;margin:0}body{width:auto}}</style></head><body><h1>Comprovante de consumo</h1><div class="muted">Comanda ' + escapeHTML(snapshot.publicCode || '') + tableLabel + '</div><hr>' + itemHtml + '<div class="line"><span>Subtotal</span><span>' + escapeHTML(formatMoney(financial.subtotal || 0)) + '</span></div><div class="line"><span>Taxa</span><span>' + escapeHTML(formatMoney(financial.serviceFee || 0)) + '</span></div><div class="line total"><span>Total</span><span>' + escapeHTML(formatMoney(financial.total || 0)) + '</span></div><p class="muted">Documento operacional não fiscal · Hash ' + escapeHTML(String(documentData.contentHash || '').slice(0, 16)) + '</p></body></html>');
-  win.document.close();
-  win.focus();
-  setTimeout(function () { win.print(); }, 250);
+function printDocumentSnapshot(documentData, printWindow) {
+  if (!window.ClickGarcomReceipt) throw new Error('O modelo de comprovante não foi carregado.');
+  window.ClickGarcomReceipt.print(documentData, { targetWindow: printWindow });
 }
 
 function renderSalaoPendingRequests() {
