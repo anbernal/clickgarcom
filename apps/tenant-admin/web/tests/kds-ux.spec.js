@@ -112,6 +112,43 @@ test('salão separa responsabilidades, preserva aba e prioriza pendências', asy
   await expect(page.locator('#salao-chat-list .ready-item-title').first()).toContainText('2222');
 });
 
+test('comandas mantém somente a página visível com 300 registros e campos padronizados', async ({ page }) => {
+  const tabs = Array.from({ length: 300 }, (_, index) => ({
+    id: `tab-${index + 1}`,
+    publicCode: `CMD-${String(index + 1).padStart(4, '0')}`,
+    tableNumber: index % 2 === 0 ? String((index % 40) + 1) : null,
+    total: (index + 1) * 3.5,
+    userPhone: `551199${String(index).padStart(6, '0')}`,
+    customerName: `Cliente ${index + 1}`,
+    customerInstagram: `cliente${index + 1}`,
+    openedAt: minutesAgo(index + 1),
+  }));
+  await prepareKds(page, { role: 'WAITER', tabs });
+  await page.goto('/kds.html');
+  await page.getByRole('tab', { name: /Comandas/ }).click();
+
+  await expect(page.locator('.kds-comandas-table-row')).toHaveCount(25);
+  await expect(page.locator('#kds-comandas-results-summary')).toContainText('1–25');
+  await expect(page.locator('.kds-comandas-page-status')).toContainText('1 de 12');
+  await expect(page.locator('#kds-comandas-search')).toHaveCSS('font-family', /Sora/);
+  await expect(page.locator('#kds-comandas-search')).toHaveCSS('min-height', '40px');
+
+  await page.locator('#kds-comandas-search').fill('CMD-0150');
+  await expect(page.locator('.kds-comandas-table-row')).toHaveCount(1);
+  await expect(page.locator('.kds-comandas-code')).toContainText('CMD-0150');
+
+  await page.locator('#kds-comandas-search').fill('');
+  await page.locator('#kds-comandas-location-filter').selectOption('counter');
+  await expect(page.locator('#kds-comandas-results-summary')).toContainText('150 de 300');
+  await expect(page.locator('.kds-comandas-table-row')).toHaveCount(25);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
+
+  await page.setViewportSize({ width: 720, height: 900 });
+  await expect(page.locator('.kds-comandas-table-head')).toBeHidden();
+  await expect(page.locator('.kds-comandas-btn.primary').first()).toHaveCSS('min-height', '44px');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
+});
+
 test('resumo local mantém opções separadas, ignora anulação e suporta 60 pedidos', async ({ page }) => {
   const orders = Array.from({ length: 60 }, (_, index) => ({
     id: `order-${index}`,

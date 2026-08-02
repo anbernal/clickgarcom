@@ -233,6 +233,7 @@ A suíte cobre:
 - estados de mesa e prioridade de conversas aguardando resposta;
 - agregação por prato/opções, exclusão de item anulado e ausência de duplicação;
 - cenário com `60` pedidos e verificação de rolagem horizontal.
+- cenário com `300` comandas, paginação de `25` linhas, busca, filtro por local e responsividade.
 
 ## 14. Evidência de desempenho local — 02/08/2026
 

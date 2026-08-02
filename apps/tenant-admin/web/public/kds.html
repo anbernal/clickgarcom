@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ClickGarçom — KDS</title>
     <link
-        href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap"
+        href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&family=JetBrains+Mono:wght@400;500;600;700&family=Sora:wght@400;500;600;700;800&display=swap"
         rel="stylesheet">
     <script src="/_config.js"></script>
     <style>
@@ -32,6 +32,9 @@
             --orange-bg: #fff7ed;
             --purple: #8b5cf6;
             --purple-bg: #f5f3ff;
+            --teal: #1abc9c;
+            --teal-dark: #16a085;
+            --teal-bg: #e8faf6;
             --shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 4px 16px rgba(0, 0, 0, 0.04);
             --shadow-lg: 0 10px 40px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.06);
             --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04), 0 2px 8px rgba(0, 0, 0, 0.03);
@@ -74,6 +77,43 @@
         summary:focus-visible {
             outline: 3px solid rgba(59, 130, 246, 0.4);
             outline-offset: 2px;
+        }
+
+        .input {
+            width: 100%;
+            min-height: 40px;
+            padding: 9px 12px;
+            border: 1px solid var(--border);
+            border-radius: 9px;
+            outline: none;
+            background: var(--surface-2);
+            color: var(--text);
+            font: 500 13px 'Sora', sans-serif;
+            line-height: 1.35;
+            transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+        }
+
+        select.input {
+            cursor: pointer;
+        }
+
+        textarea.input {
+            min-height: 84px;
+            resize: vertical;
+        }
+
+        .input::placeholder {
+            color: var(--text-3);
+        }
+
+        .input:hover {
+            border-color: #cfc9c0;
+        }
+
+        .input:focus {
+            border-color: var(--teal);
+            background: var(--surface);
+            box-shadow: 0 0 0 3px rgba(26, 188, 156, 0.12);
         }
 
         .app {
@@ -2177,6 +2217,289 @@
 
         .salao-workspace-card .salao-card-body {
             max-height: none;
+            overflow: visible;
+        }
+
+        .salao-workspace-card {
+            overflow: visible;
+        }
+
+        #salao-tabs-list {
+            padding: 0;
+        }
+
+        .kds-comandas-workspace {
+            font-family: 'Sora', sans-serif;
+        }
+
+        .kds-comandas-toolbar {
+            display: grid;
+            grid-template-columns: minmax(260px, 1fr) 150px 160px 110px;
+            gap: 10px;
+            padding: 16px 18px;
+            border-bottom: 1px solid var(--border);
+            background: var(--surface);
+        }
+
+        .kds-comandas-field {
+            display: flex;
+            min-width: 0;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .kds-comandas-field > span {
+            color: var(--text-2);
+            font-size: 9px;
+            font-weight: 800;
+            letter-spacing: 0.55px;
+            text-transform: uppercase;
+        }
+
+        .kds-comandas-search-control {
+            position: relative;
+        }
+
+        .kds-comandas-search-control > span {
+            position: absolute;
+            top: 50%;
+            left: 12px;
+            color: var(--text-3);
+            font-size: 14px;
+            transform: translateY(-50%);
+            pointer-events: none;
+        }
+
+        .kds-comandas-search-control .input {
+            padding-left: 36px;
+        }
+
+        .kds-comandas-results-summary {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            min-height: 42px;
+            padding: 10px 18px;
+            color: var(--text-2);
+            font-size: 11px;
+        }
+
+        .kds-comandas-results-summary strong {
+            color: var(--text);
+        }
+
+        .kds-comandas-filter-state {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .kds-comandas-filter-state button {
+            padding: 0;
+            border: 0;
+            background: transparent;
+            color: var(--teal-dark);
+            font: 700 10px 'Sora', sans-serif;
+            cursor: pointer;
+        }
+
+        .kds-comandas-table {
+            margin: 0 18px;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            background: var(--surface);
+        }
+
+        .kds-comandas-table-head,
+        .kds-comandas-table-row {
+            display: grid;
+            grid-template-columns: 125px minmax(170px, 1.2fr) 105px 110px 125px minmax(205px, auto);
+            align-items: center;
+            gap: 12px;
+        }
+
+        .kds-comandas-table-head {
+            position: sticky;
+            top: 0;
+            z-index: 5;
+            min-height: 38px;
+            padding: 0 14px;
+            border-bottom: 1px solid var(--border);
+            border-radius: 12px 12px 0 0;
+            background: #f8fafc;
+            color: var(--text-2);
+            font-size: 8px;
+            font-weight: 800;
+            letter-spacing: 0.55px;
+            text-transform: uppercase;
+        }
+
+        .kds-comandas-table-row {
+            min-height: 66px;
+            padding: 10px 14px;
+            border-bottom: 1px solid var(--border);
+            transition: background 0.15s;
+        }
+
+        .kds-comandas-table-row:last-child {
+            border-bottom: 0;
+            border-radius: 0 0 12px 12px;
+        }
+
+        .kds-comandas-table-row:hover {
+            background: #fafbfc;
+        }
+
+        .kds-comandas-code,
+        .kds-comandas-client,
+        .kds-comandas-location,
+        .kds-comandas-total,
+        .kds-comandas-opened {
+            min-width: 0;
+        }
+
+        .kds-comandas-code strong {
+            display: block;
+            overflow: hidden;
+            color: var(--text);
+            font: 800 15px 'JetBrains Mono', monospace;
+            letter-spacing: 0.4px;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .kds-comandas-open-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            margin-top: 5px;
+            padding: 3px 7px;
+            border-radius: 999px;
+            background: var(--teal-bg);
+            color: var(--teal-dark);
+            font-size: 8px;
+            font-weight: 800;
+            text-transform: uppercase;
+        }
+
+        .kds-comandas-open-pill::before {
+            content: '';
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--teal);
+        }
+
+        .kds-comandas-primary-text,
+        .kds-comandas-secondary-text {
+            display: block;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .kds-comandas-primary-text {
+            color: var(--text);
+            font-size: 11px;
+            font-weight: 700;
+        }
+
+        .kds-comandas-secondary-text {
+            margin-top: 4px;
+            color: var(--text-2);
+            font-size: 9px;
+        }
+
+        .kds-comandas-total strong {
+            display: block;
+            color: var(--text);
+            font: 700 13px 'JetBrains Mono', monospace;
+        }
+
+        .kds-comandas-actions {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 6px;
+        }
+
+        .kds-comandas-btn {
+            min-height: 36px;
+            padding: 7px 10px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--surface);
+            color: var(--text);
+            font: 700 10px 'Sora', sans-serif;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+            white-space: nowrap;
+            transition: background 0.15s, border-color 0.15s, color 0.15s;
+        }
+
+        .kds-comandas-btn:hover {
+            border-color: #cfd5db;
+            background: var(--surface-2);
+        }
+
+        .kds-comandas-btn.primary {
+            border-color: var(--teal);
+            background: var(--teal);
+            color: white;
+        }
+
+        .kds-comandas-btn.primary:hover {
+            border-color: var(--teal-dark);
+            background: var(--teal-dark);
+        }
+
+        .kds-comandas-btn:disabled {
+            cursor: not-allowed;
+            opacity: 0.45;
+        }
+
+        .kds-comandas-pagination {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 8px;
+            padding: 14px 18px 18px;
+        }
+
+        .kds-comandas-page-status {
+            min-width: 110px;
+            color: var(--text-2);
+            font-size: 10px;
+            text-align: center;
+        }
+
+        .kds-comandas-page-status strong {
+            color: var(--text);
+        }
+
+        .kds-comandas-empty {
+            padding: 52px 20px;
+            text-align: center;
+            color: var(--text-2);
+        }
+
+        .kds-comandas-empty strong,
+        .kds-comandas-empty span {
+            display: block;
+        }
+
+        .kds-comandas-empty strong {
+            color: var(--text);
+            font-size: 13px;
+        }
+
+        .kds-comandas-empty span {
+            margin-top: 4px;
+            font-size: 11px;
         }
 
         .salao-tab-actions {
@@ -2217,6 +2540,15 @@
             box-shadow: var(--shadow-lg);
         }
 
+        .kds-comandas-actions .salao-action-menu-items {
+            min-width: 210px;
+        }
+
+        .kds-comandas-actions .salao-action-menu-items .kds-comandas-btn {
+            width: 100%;
+            justify-content: flex-start;
+        }
+
         .salao-tables-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -2244,6 +2576,45 @@
         .table-status-badge.unavailable { color: var(--text-2); background: var(--surface-2); }
 
         @media (max-width: 900px) {
+            .kds-comandas-btn {
+                min-height: 44px;
+            }
+
+            .kds-comandas-toolbar {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+
+            .kds-comandas-field:first-child {
+                grid-column: 1 / -1;
+            }
+
+            .kds-comandas-table {
+                border: 0;
+                background: transparent;
+            }
+
+            .kds-comandas-table-head {
+                display: none;
+            }
+
+            .kds-comandas-table-row {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 10px;
+                margin-bottom: 9px;
+                border: 1px solid var(--border);
+                border-radius: 11px;
+                background: var(--surface);
+            }
+
+            .kds-comandas-table-row:last-child {
+                border-bottom: 1px solid var(--border);
+                border-radius: 11px;
+            }
+
+            .kds-comandas-actions {
+                grid-column: 1 / -1;
+            }
+
             .salao-now-list {
                 grid-template-columns: 1fr;
             }
@@ -2260,6 +2631,41 @@
         }
 
         @media (max-width: 560px) {
+            .kds-comandas-toolbar {
+                grid-template-columns: 1fr;
+            }
+
+            .kds-comandas-field:first-child {
+                grid-column: auto;
+            }
+
+            .kds-comandas-table,
+            .kds-comandas-results-summary {
+                margin-right: 10px;
+                margin-left: 10px;
+            }
+
+            .kds-comandas-table-row {
+                grid-template-columns: 1fr;
+            }
+
+            .kds-comandas-actions {
+                grid-column: auto;
+                justify-content: stretch;
+            }
+
+            .kds-comandas-actions > .kds-comandas-btn,
+            .kds-comandas-actions > .salao-action-menu,
+            .kds-comandas-actions > .salao-action-menu > summary {
+                flex: 1;
+                width: 100%;
+            }
+
+            .kds-comandas-pagination {
+                justify-content: center;
+                flex-wrap: wrap;
+            }
+
             .salao-view-tabs {
                 width: 100%;
             }

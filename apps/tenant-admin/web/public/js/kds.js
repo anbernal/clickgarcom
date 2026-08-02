@@ -137,6 +137,10 @@ let closeBillRequests = [];
 let operationsSummary = null;
 let manualOpenTabs = [];
 let manualOpenTabsSearch = '';
+let manualOpenTabsPage = 1;
+let manualOpenTabsPageSize = 25;
+let manualOpenTabsLocationFilter = 'all';
+let manualOpenTabsSort = 'recent';
 let activeSalaoView = 'agora';
 const pendingOrderTransitions = new Set();
 const stationPresentationByPanel = { kitchen: 'orders', bar: 'orders' };
@@ -1403,51 +1407,228 @@ function renderManualOpenTabs() {
   const count = document.getElementById('salao-tabs-count');
   if (!list) return;
   if (count) count.textContent = String(manualOpenTabs.length);
-  const search = String(manualOpenTabsSearch || '').trim().toLowerCase();
-  const visibleTabs = manualOpenTabs.filter((tab) => {
-    if (!search) return true;
-    return [tab.publicCode, tab.tableNumber, tab.userPhone, tab.customerInstagram]
-      .map((value) => String(value || '').toLowerCase())
-      .join(' ')
-      .includes(search);
-  });
-  if (!manualOpenTabs.length) {
-    list.innerHTML = `<div class="empty-state" style="padding:20px 12px"><div class="empty-icon">🧾</div>Nenhuma comanda aberta<div class="empty-sub">Abra uma comanda para lançar o consumo.</div></div>`;
-    return;
-  }
+  ensureManualTabsWorkspace(list);
+  syncManualTabsControls();
+  renderManualTabsResults();
+}
+
+function ensureManualTabsWorkspace(list) {
+  if (list.dataset.comandasWorkspace === 'true') return;
+  list.classList.add('kds-comandas-workspace');
   list.innerHTML = `
-    <div style="display:flex;gap:8px;align-items:end;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap">
-      <label style="flex:1;min-width:180px"><span class="modal-label">Buscar comanda</span><input class="input" type="search" value="${escapeHTML(manualOpenTabsSearch)}" placeholder="Código, mesa ou cliente" oninput="manualOpenTabsSearch=this.value;renderManualOpenTabs()"></label>
-      <button class="action-btn accept-btn" onclick="openManualOrderModal()">+ Lançar pedido</button>
+    <div class="kds-comandas-toolbar" aria-label="Filtros de comandas">
+      <label class="kds-comandas-field">
+        <span>Buscar comanda</span>
+        <div class="kds-comandas-search-control">
+          <span aria-hidden="true">⌕</span>
+          <input id="kds-comandas-search" class="input" type="search" autocomplete="off" placeholder="Código, mesa, telefone ou cliente" oninput="setManualOpenTabsSearch(this.value)">
+        </div>
+      </label>
+      <label class="kds-comandas-field">
+        <span>Local</span>
+        <select id="kds-comandas-location-filter" class="input" onchange="setManualOpenTabsLocationFilter(this.value)">
+          <option value="all">Todas</option>
+          <option value="table">Com mesa</option>
+          <option value="counter">Sem mesa</option>
+        </select>
+      </label>
+      <label class="kds-comandas-field">
+        <span>Ordenar por</span>
+        <select id="kds-comandas-sort" class="input" onchange="setManualOpenTabsSort(this.value)">
+          <option value="recent">Mais recentes</option>
+          <option value="oldest">Mais antigas</option>
+          <option value="table">Número da mesa</option>
+          <option value="value">Maior consumo</option>
+        </select>
+      </label>
+      <label class="kds-comandas-field">
+        <span>Por página</span>
+        <select id="kds-comandas-page-size" class="input" onchange="setManualOpenTabsPageSize(this.value)">
+          <option value="15">15</option>
+          <option value="25">25</option>
+          <option value="50">50</option>
+        </select>
+      </label>
     </div>
-    ${visibleTabs.length ? visibleTabs.map((tab) => {
-      const editableOrders = Object.values(allOrders).filter((order) => (
-        getOrderTabId(order) === String(tab.id) && order.status === 'PENDING'
-      ));
-      const editActions = editableOrders.map((order) => `
-        <button class="action-btn secondary-btn" onclick="openManualEditOrderModal('${escapeHTML(order.id)}')">Editar pedido #${escapeHTML(getOrderDisplayCode(order))}</button>
-      `).join('');
-      return `
-      <div class="ready-item" style="align-items:center">
-        <div style="font-size:20px;flex-shrink:0">🧾</div>
-        <div class="ready-item-left">
-          <div class="ready-item-title">${escapeHTML(tab.publicCode || shortId(tab.id))}</div>
-          <div class="ready-item-sub">${tab.tableNumber ? `Mesa ${escapeHTML(String(tab.tableNumber))}` : 'Sem mesa'} · ${escapeHTML(formatMoney(tab.total || 0))}</div>
-        </div>
-        <div class="salao-tab-actions">
-          <button class="action-btn action-primary accept-btn" onclick="openManualOrderModal('${escapeHTML(tab.id)}')">Lançar item</button>
-          <details class="salao-action-menu">
-            <summary class="action-btn secondary-btn">Mais ações</summary>
-            <div class="salao-action-menu-items">
-              ${editActions}
-              <button class="action-btn secondary-btn" onclick="openManualTabHistory('${escapeHTML(tab.id)}')">Histórico</button>
-              <button class="action-btn secondary-btn" onclick="printTabConsumption('${escapeHTML(tab.id)}')">Imprimir consumo</button>
-            </div>
-          </details>
-        </div>
+    <div class="kds-comandas-results-summary" id="kds-comandas-results-summary"></div>
+    <div class="kds-comandas-table" role="table" aria-label="Comandas abertas">
+      <div class="kds-comandas-table-head" role="row">
+        <span role="columnheader">Comanda</span>
+        <span role="columnheader">Cliente</span>
+        <span role="columnheader">Local</span>
+        <span role="columnheader">Consumo</span>
+        <span role="columnheader">Abertura</span>
+        <span role="columnheader" style="text-align:right">Ações</span>
       </div>
-    `; }).join('') : '<div class="empty-state" style="padding:20px 12px">Nenhuma comanda encontrada para esta busca.</div>'}
-  `;
+      <div id="kds-comandas-table-body" role="rowgroup"></div>
+    </div>
+    <div class="kds-comandas-pagination" id="kds-comandas-pagination" aria-label="Paginação de comandas"></div>`;
+  list.dataset.comandasWorkspace = 'true';
+}
+
+function syncManualTabsControls() {
+  const searchInput = document.getElementById('kds-comandas-search');
+  const locationFilter = document.getElementById('kds-comandas-location-filter');
+  const sort = document.getElementById('kds-comandas-sort');
+  const pageSize = document.getElementById('kds-comandas-page-size');
+  if (searchInput && searchInput !== document.activeElement) searchInput.value = manualOpenTabsSearch;
+  if (locationFilter) locationFilter.value = manualOpenTabsLocationFilter;
+  if (sort) sort.value = manualOpenTabsSort;
+  if (pageSize) pageSize.value = String(manualOpenTabsPageSize);
+}
+
+function setManualOpenTabsSearch(value) {
+  manualOpenTabsSearch = String(value || '');
+  manualOpenTabsPage = 1;
+  renderManualTabsResults();
+}
+
+function setManualOpenTabsLocationFilter(value) {
+  manualOpenTabsLocationFilter = ['all', 'table', 'counter'].includes(value) ? value : 'all';
+  manualOpenTabsPage = 1;
+  renderManualTabsResults();
+}
+
+function setManualOpenTabsSort(value) {
+  manualOpenTabsSort = ['recent', 'oldest', 'table', 'value'].includes(value) ? value : 'recent';
+  manualOpenTabsPage = 1;
+  renderManualTabsResults();
+}
+
+function setManualOpenTabsPageSize(value) {
+  const nextSize = Number(value);
+  manualOpenTabsPageSize = [15, 25, 50].includes(nextSize) ? nextSize : 25;
+  manualOpenTabsPage = 1;
+  renderManualTabsResults();
+}
+
+function setManualOpenTabsPage(page) {
+  manualOpenTabsPage = Math.max(1, Number(page) || 1);
+  renderManualTabsResults();
+  document.getElementById('salao-view-comandas')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function clearManualOpenTabsFilters() {
+  manualOpenTabsSearch = '';
+  manualOpenTabsLocationFilter = 'all';
+  manualOpenTabsSort = 'recent';
+  manualOpenTabsPage = 1;
+  syncManualTabsControls();
+  renderManualTabsResults();
+  document.getElementById('kds-comandas-search')?.focus();
+}
+
+function getFilteredManualOpenTabs() {
+  const search = normalizeManualTabSearchText(manualOpenTabsSearch);
+  const filtered = manualOpenTabs.filter((tab) => {
+    const hasTable = Boolean(String(tab.tableNumber || '').trim());
+    if (manualOpenTabsLocationFilter === 'table' && !hasTable) return false;
+    if (manualOpenTabsLocationFilter === 'counter' && hasTable) return false;
+    if (!search) return true;
+    return normalizeManualTabSearchText([
+      tab.publicCode,
+      tab.tableNumber,
+      tab.userPhone,
+      tab.customerName,
+      tab.customerInstagram,
+    ].filter(Boolean).join(' ')).includes(search);
+  });
+
+  filtered.sort((a, b) => {
+    if (manualOpenTabsSort === 'oldest') return getManualTabTimestamp(a) - getManualTabTimestamp(b);
+    if (manualOpenTabsSort === 'table') {
+      return String(a.tableNumber || '999999').localeCompare(String(b.tableNumber || '999999'), 'pt-BR', { numeric: true });
+    }
+    if (manualOpenTabsSort === 'value') return Number(b.total || 0) - Number(a.total || 0);
+    return getManualTabTimestamp(b) - getManualTabTimestamp(a);
+  });
+  return filtered;
+}
+
+function normalizeManualTabSearchText(value) {
+  return String(value || '').trim().toLocaleLowerCase('pt-BR').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+function getManualTabTimestamp(tab) {
+  const value = tab?.openedAt || tab?.opened_at || tab?.createdAt || tab?.created_at;
+  const timestamp = value ? new Date(value).getTime() : 0;
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function formatManualTabOpenedAt(tab) {
+  const timestamp = getManualTabTimestamp(tab);
+  if (!timestamp) return { primary: 'Não informado', secondary: '' };
+  const date = new Date(timestamp);
+  return {
+    primary: date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
+    secondary: date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+  };
+}
+
+function renderManualTabsResults() {
+  const body = document.getElementById('kds-comandas-table-body');
+  const summary = document.getElementById('kds-comandas-results-summary');
+  const pagination = document.getElementById('kds-comandas-pagination');
+  if (!body || !summary || !pagination) return;
+
+  const filteredTabs = getFilteredManualOpenTabs();
+  const totalPages = Math.max(1, Math.ceil(filteredTabs.length / manualOpenTabsPageSize));
+  manualOpenTabsPage = Math.min(Math.max(1, manualOpenTabsPage), totalPages);
+  const startIndex = (manualOpenTabsPage - 1) * manualOpenTabsPageSize;
+  const endIndex = Math.min(startIndex + manualOpenTabsPageSize, filteredTabs.length);
+  const pageTabs = filteredTabs.slice(startIndex, endIndex);
+  const hasFilters = Boolean(manualOpenTabsSearch.trim()) || manualOpenTabsLocationFilter !== 'all';
+
+  summary.innerHTML = `
+    <span><strong>${filteredTabs.length}</strong> de ${manualOpenTabs.length} comanda(s) encontrada(s)${filteredTabs.length ? ` · exibindo ${startIndex + 1}–${endIndex}` : ''}</span>
+    ${hasFilters ? '<span class="kds-comandas-filter-state">Filtros ativos <button onclick="clearManualOpenTabsFilters()">Limpar filtros</button></span>' : '<span>Use a busca para localizar rapidamente entre muitas comandas.</span>'}`;
+
+  body.innerHTML = pageTabs.length
+    ? pageTabs.map(renderManualTabTableRow).join('')
+    : `<div class="kds-comandas-empty"><strong>${manualOpenTabs.length ? 'Nenhuma comanda encontrada' : 'Nenhuma comanda aberta'}</strong><span>${manualOpenTabs.length ? 'Ajuste a busca ou limpe os filtros.' : 'As comandas abertas aparecerão aqui.'}</span></div>`;
+
+  pagination.innerHTML = `
+    <button class="kds-comandas-btn" onclick="setManualOpenTabsPage(1)" ${manualOpenTabsPage <= 1 ? 'disabled' : ''} aria-label="Primeira página">«</button>
+    <button class="kds-comandas-btn" onclick="setManualOpenTabsPage(${manualOpenTabsPage - 1})" ${manualOpenTabsPage <= 1 ? 'disabled' : ''}>Anterior</button>
+    <span class="kds-comandas-page-status">Página <strong>${manualOpenTabsPage}</strong> de <strong>${totalPages}</strong></span>
+    <button class="kds-comandas-btn" onclick="setManualOpenTabsPage(${manualOpenTabsPage + 1})" ${manualOpenTabsPage >= totalPages ? 'disabled' : ''}>Próxima</button>
+    <button class="kds-comandas-btn" onclick="setManualOpenTabsPage(${totalPages})" ${manualOpenTabsPage >= totalPages ? 'disabled' : ''} aria-label="Última página">»</button>`;
+}
+
+function renderManualTabTableRow(tab) {
+  const editableOrders = Object.values(allOrders).filter((order) => (
+    getOrderTabId(order) === String(tab.id) && order.status === 'PENDING'
+  ));
+  const editActions = editableOrders.map((order) => `
+    <button class="kds-comandas-btn" onclick="openManualEditOrderModal('${escapeHTML(order.id)}')">Editar pedido #${escapeHTML(getOrderDisplayCode(order))}</button>
+  `).join('');
+  const openedAt = formatManualTabOpenedAt(tab);
+  const customerPrimary = tab.customerName || tab.userPhone || 'Cliente não identificado';
+  const customerSecondary = tab.customerInstagram
+    ? `@${String(tab.customerInstagram).replace(/^@/, '')}`
+    : (tab.customerName && tab.userPhone ? tab.userPhone : 'Sem identificação adicional');
+  const location = tab.tableNumber ? `Mesa ${formatTableNumber(tab.tableNumber)}` : 'Sem mesa';
+  const locationDetail = tab.tableNumber ? 'Atendimento no salão' : 'Balcão / retirada';
+
+  return `
+    <div class="kds-comandas-table-row" role="row" data-tab-id="${escapeHTML(tab.id)}">
+      <div class="kds-comandas-code" role="cell"><strong>${escapeHTML(tab.publicCode || shortId(tab.id))}</strong><span class="kds-comandas-open-pill">Aberta</span></div>
+      <div class="kds-comandas-client" role="cell"><span class="kds-comandas-primary-text">${escapeHTML(customerPrimary)}</span><span class="kds-comandas-secondary-text">${escapeHTML(customerSecondary)}</span></div>
+      <div class="kds-comandas-location" role="cell"><span class="kds-comandas-primary-text">${escapeHTML(location)}</span><span class="kds-comandas-secondary-text">${escapeHTML(locationDetail)}</span></div>
+      <div class="kds-comandas-total" role="cell"><strong>${escapeHTML(formatMoney(tab.total || 0))}</strong><span class="kds-comandas-secondary-text">Consumo atual</span></div>
+      <div class="kds-comandas-opened" role="cell"><span class="kds-comandas-primary-text">${escapeHTML(openedAt.primary)}</span><span class="kds-comandas-secondary-text">${escapeHTML(openedAt.secondary)}</span></div>
+      <div class="kds-comandas-actions" role="cell">
+        <button class="kds-comandas-btn primary" onclick="openManualOrderModal('${escapeHTML(tab.id)}')">+ Lançar item</button>
+        <details class="salao-action-menu">
+          <summary class="kds-comandas-btn" aria-label="Mais ações da comanda ${escapeHTML(tab.publicCode || shortId(tab.id))}">Mais ações</summary>
+          <div class="salao-action-menu-items">
+            ${editActions}
+            <button class="kds-comandas-btn" onclick="openManualTabHistory('${escapeHTML(tab.id)}')">Histórico completo</button>
+            <button class="kds-comandas-btn" onclick="printTabConsumption('${escapeHTML(tab.id)}')">Imprimir consumo</button>
+          </div>
+        </details>
+      </div>
+    </div>`;
 }
 
 async function loadManualOpenTabs() {

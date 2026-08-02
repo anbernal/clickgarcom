@@ -49,6 +49,7 @@ Atualizado em 02/08/2026.
 - [x] KDS-UX-032 — medição documentada; endpoint não se justifica para até `60` pedidos.
 - [x] KDS-UX-040/042/043 — densidade persistida, foco/semântica e controle de tela cheia.
 - [x] KDS-UX-050/051/052 — suíte automatizada de cartões, acesso, navegação e carga visual.
+- [x] KDS-UX-060 — Comandas paginadas, filtráveis e alinhadas ao design system; validado com `300` registros.
 - [ ] KDS-UX-053/054/055 — homologação física, fluxo integrado e comparação final com operadores.
 - [x] KDS-UX-056 — smoke pós-deploy aprovado em 02/08/2026; KDS, JavaScript, configuração e healthchecks responderam `200`.
 
@@ -490,6 +491,27 @@ Critérios de aceite:
 - Validar login, Cozinha, Bar, Salão, WebSocket e transições.
 - Validar que as demais telas administrativas continuam operacionais.
 - Monitorar logs durante a primeira janela de operação.
+
+## Épico 7 — Escalabilidade da visão de Comandas
+
+### KDS-UX-060 — Otimizar gerenciamento de alto volume
+
+- Prioridade: P0
+- Tipo: FE/UX/QA
+- Paginar localmente as comandas retornadas pela API, mantendo no DOM apenas a página atual.
+- Permitir busca por código, mesa, telefone ou cliente.
+- Permitir filtro por atendimento com/sem mesa, ordenação e tamanho da página.
+- Aplicar campos, tipografia, cores, botões e tabela do design system do painel administrativo.
+- Preservar lançamento, edição/anulação, histórico e impressão.
+
+Critérios de aceite:
+
+- `300` comandas geram no máximo `50` linhas simultâneas no DOM;
+- busca mantém foco durante digitação;
+- filtros e troca de página não recarregam a aplicação;
+- tabela não produz rolagem horizontal em desktop ou tablet;
+- ações permanecem associadas à comanda correta;
+- campos dos modais do KDS usam o mesmo padrão visual da área administrativa.
 
 ## Execução paralela recomendada
 
