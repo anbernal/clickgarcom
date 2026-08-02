@@ -137,6 +137,11 @@ let closeBillRequests = [];
 let operationsSummary = null;
 let manualOpenTabs = [];
 let manualOpenTabsSearch = '';
+let activeSalaoView = 'agora';
+const pendingOrderTransitions = new Set();
+const stationPresentationByPanel = { kitchen: 'orders', bar: 'orders' };
+const stationSummaryStageByPanel = { kitchen: 'ACCEPTED', bar: 'ACCEPTED' };
+let currentKdsDensity = 'comfortable';
 const PANEL_ORDER = ['kitchen', 'bar', 'salao'];
 const SALAO_STATS_CARD_DEFINITIONS = [
   {
@@ -181,6 +186,7 @@ const SALAO_STATS_CARD_DEFINITIONS = [
   },
 ];
 const STATION_STATS_CARD_KEYS = ['pending', 'accepted', 'ready', 'total', 'delayed', 'avgPreparation', 'bottleneck'];
+const STATION_MODE_STATS_CARD_KEYS = ['pending', 'accepted', 'ready', 'delayed'];
 const KDS_ROLE_ALIASES = {
   ADMINISTRATOR: 'ADMIN',
   ADMIN: 'ADMIN',
@@ -235,7 +241,9 @@ function getPanelsAllowedForRole(role) {
 
 function buildKdsAccess() {
   const role = getCurrentKdsRole();
-  const requestedPanel = resolveRequestedPanel(new URLSearchParams(window.location.search).get('panel'));
+  const searchParams = new URLSearchParams(window.location.search);
+  const requestedPanel = resolveRequestedPanel(searchParams.get('panel'));
+  const requestedMode = String(searchParams.get('mode') || '').trim().toLowerCase();
   const rolePanels = getPanelsAllowedForRole(role);
   const hasFullKdsAccess = ['ADMIN', 'MANAGER'].includes(role);
   const availablePanels = hasFullKdsAccess
@@ -243,15 +251,22 @@ function buildKdsAccess() {
     : (requestedPanel && rolePanels.includes(requestedPanel)
       ? [requestedPanel]
       : rolePanels);
+  const roleDefaultPanel = role === 'WAITER' && rolePanels.includes('salao') ? 'salao' : (availablePanels[0] || 'kitchen');
   const defaultPanel = requestedPanel && rolePanels.includes(requestedPanel)
     ? requestedPanel
-    : (availablePanels[0] || 'kitchen');
+    : roleDefaultPanel;
+  const isDedicatedStationRole = role === 'KITCHEN' || role === 'BAR';
+  const stationMode = isDedicatedStationRole
+    || (hasFullKdsAccess && requestedMode === 'station' && ['kitchen', 'bar'].includes(defaultPanel));
 
   return {
     role,
     requestedPanel,
+    requestedMode,
     availablePanels,
     defaultPanel,
+    stationMode,
+    canExitStationMode: stationMode && hasFullKdsAccess,
     canViewSalao: rolePanels.includes('salao'),
     canLoadTables: ['ADMIN', 'MANAGER', 'WAITER'].includes(role),
   };
@@ -260,6 +275,13 @@ function buildKdsAccess() {
 function applyKdsPanelAccess() {
   const allowedPanels = new Set(KDS_ACCESS.availablePanels);
 
+  document.body.classList.toggle('station-mode', KDS_ACCESS.stationMode);
+  document.body.dataset.kdsRole = KDS_ACCESS.role || 'UNKNOWN';
+  const exitStationButton = document.getElementById('exit-station-mode');
+  if (exitStationButton) {
+    exitStationButton.hidden = !KDS_ACCESS.canExitStationMode;
+  }
+
   document.querySelectorAll('[data-panel]').forEach((element) => {
     element.style.display = allowedPanels.has(element.dataset.panel) ? '' : 'none';
   });
@@ -267,6 +289,70 @@ function applyKdsPanelAccess() {
   document.querySelectorAll('.screen-panel').forEach((panel) => {
     const panelName = String(panel.id || '').replace('panel-', '');
     panel.style.display = allowedPanels.has(panelName) ? '' : 'none';
+  });
+}
+
+function exitStationMode() {
+  const url = new URL(window.location.href);
+  url.searchParams.delete('mode');
+  window.location.href = url.toString();
+}
+
+function initializeKdsDisplayPreferences() {
+  try {
+    const storedDensity = localStorage.getItem('clickgarcom_kds_density');
+    if (storedDensity === 'compact' || storedDensity === 'comfortable') {
+      currentKdsDensity = storedDensity;
+    }
+  } catch (error) {
+    console.warn('KDS density preference unavailable:', error);
+  }
+  applyKdsDensity();
+  updateFullscreenButtons();
+}
+
+function setKdsDensity(density) {
+  if (!['comfortable', 'compact'].includes(density)) return;
+  currentKdsDensity = density;
+  try {
+    localStorage.setItem('clickgarcom_kds_density', density);
+  } catch (error) {
+    console.warn('KDS density preference unavailable:', error);
+  }
+  applyKdsDensity();
+}
+
+function applyKdsDensity() {
+  document.body.classList.toggle('density-compact', currentKdsDensity === 'compact');
+  document.querySelectorAll('[data-kds-density]').forEach((button) => {
+    const active = button.dataset.kdsDensity === currentKdsDensity;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', active ? 'true' : 'false');
+  });
+}
+
+async function toggleKdsFullscreen() {
+  if (!document.fullscreenEnabled || !document.documentElement.requestFullscreen) {
+    toast('t-info', 'Tela cheia indisponível', 'Este navegador não permite ativar tela cheia por aqui.');
+    return;
+  }
+  try {
+    if (document.fullscreenElement) {
+      await document.exitFullscreen();
+    } else {
+      await document.documentElement.requestFullscreen();
+    }
+  } catch (error) {
+    toast('t-error', 'Não foi possível alternar a tela', error.message);
+  }
+}
+
+function updateFullscreenButtons() {
+  document.querySelectorAll('[data-fullscreen-button]').forEach((button) => {
+    const label = button.querySelector('span');
+    if (label) label.textContent = document.fullscreenElement ? 'Sair da tela cheia' : 'Tela cheia';
+    button.setAttribute('aria-pressed', document.fullscreenElement ? 'true' : 'false');
+    button.disabled = !document.fullscreenEnabled;
   });
 }
 
@@ -336,6 +422,11 @@ function refreshKdsRealtimeState() {
 document.addEventListener('DOMContentLoaded', () => {
   initKdsRealtimeSync();
   applyKdsPanelAccess();
+  initializeKdsDisplayPreferences();
+  document.querySelectorAll('.salao-view-tab[data-salao-view]').forEach((tab) => {
+    tab.addEventListener('keydown', handleSalaoTabKeydown);
+  });
+  document.addEventListener('fullscreenchange', updateFullscreenButtons);
   switchPanel(resolveInitialPanel());
   applySidebarTenantName();
   startClock();
@@ -585,15 +676,11 @@ function stopPolling() {
 }
 
 function setConnectionStatus(online) {
-  const el = document.getElementById('ws-status');
-  const txt = el.querySelector('.status-text');
-  if (online) {
-    el.classList.remove('offline');
-    txt.textContent = 'Sistema online';
-  } else {
-    el.classList.add('offline');
-    txt.textContent = 'Reconectando…';
-  }
+  document.querySelectorAll('[data-connection-status]').forEach((el) => {
+    const txt = el.querySelector('.status-text');
+    el.classList.toggle('offline', !online);
+    if (txt) txt.textContent = online ? 'Sistema online' : 'Reconectando…';
+  });
 }
 
 function shouldHandleWSEvent(event) {
@@ -680,6 +767,13 @@ function renderPanel(panel, destination) {
   const accepted = orders.filter(o => o.status === 'ACCEPTED');
   const ready = orders.filter(o => o.status === 'READY');
   const stationSummary = getStationOperations(destination);
+  const localDelayedCount = orders.filter((order) => getOrderStageSnapshot(order).elapsed.severity === 'critical').length;
+  const localWarningCount = orders.filter((order) => getOrderStageSnapshot(order).elapsed.severity === 'warning').length;
+  const effectiveStationSummary = {
+    ...(stationSummary || {}),
+    delayedCount: Math.max(Number(stationSummary?.delayedCount || 0), localDelayedCount),
+    warningCount: Math.max(Number(stationSummary?.warningCount || 0), localWarningCount),
+  };
 
   const prefix = panel === 'kitchen' ? 'k' : 'b';
   renderColumn(`col-${prefix}-pending`, pending, 'PENDING');
@@ -690,7 +784,131 @@ function renderPanel(panel, destination) {
   document.getElementById(`cc-${prefix}-accepted`).textContent = accepted.length;
   document.getElementById(`cc-${prefix}-ready`).textContent = ready.length;
 
-  renderStats(`stats-${panel}`, pending.length, accepted.length, ready.length, destination, stationSummary);
+  if (activePanel === panel) {
+    const lateCount = document.getElementById('station-late-count');
+    if (lateCount) {
+      const delayedCount = effectiveStationSummary.delayedCount;
+      lateCount.textContent = String(delayedCount);
+      lateCount.closest('.station-late-indicator')?.classList.toggle('has-late-orders', delayedCount > 0);
+    }
+  }
+
+  renderStats(`stats-${panel}`, pending.length, accepted.length, ready.length, destination, effectiveStationSummary);
+  renderProductionSummary(panel, destination, orders);
+  applyStationPresentation(panel);
+}
+
+function switchStationPresentation(presentation) {
+  if (!['orders', 'summary'].includes(presentation) || !['kitchen', 'bar'].includes(activePanel)) return;
+  stationPresentationByPanel[activePanel] = presentation;
+  applyStationPresentation(activePanel);
+}
+
+function setStationSummaryStage(stage) {
+  if (!['PENDING', 'ACCEPTED', 'READY'].includes(stage) || !['kitchen', 'bar'].includes(activePanel)) return;
+  stationSummaryStageByPanel[activePanel] = stage;
+  renderCurrentPanel();
+}
+
+function applyStationPresentation(panel) {
+  if (!['kitchen', 'bar'].includes(panel)) return;
+  const presentation = stationPresentationByPanel[panel] || 'orders';
+  const toolbar = document.querySelector(`[data-station-toolbar="${panel}"]`);
+  const orders = document.querySelector(`[data-station-orders="${panel}"]`);
+  const summary = document.querySelector(`[data-station-summary="${panel}"]`);
+  if (!toolbar || !orders || !summary) return;
+
+  toolbar.querySelectorAll('[data-station-presentation]').forEach((button) => {
+    const active = button.dataset.stationPresentation === presentation;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', active ? 'true' : 'false');
+  });
+  const stageControls = toolbar.querySelector('[data-station-stage-controls]');
+  if (stageControls) stageControls.hidden = presentation !== 'summary';
+  toolbar.querySelectorAll('[data-station-summary-stage]').forEach((button) => {
+    const active = button.dataset.stationSummaryStage === stationSummaryStageByPanel[panel];
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', active ? 'true' : 'false');
+  });
+  orders.hidden = presentation !== 'orders';
+  summary.hidden = presentation !== 'summary';
+}
+
+function renderProductionSummary(panel, destination, stationOrders) {
+  const container = document.querySelector(`[data-station-summary="${panel}"]`);
+  if (!container) return;
+  const startedAt = performance.now();
+  const stage = stationSummaryStageByPanel[panel] || 'ACCEPTED';
+  const stageLabels = { PENDING: 'Novos pedidos', ACCEPTED: 'Em preparo', READY: 'Prontos para entrega' };
+  const aggregate = aggregateProductionItems(
+    stationOrders.filter((order) => order.destination === destination && order.status === stage)
+  );
+  const totalQuantity = aggregate.reduce((total, item) => total + item.quantity, 0);
+
+  container.innerHTML = `
+    <div class="production-summary-heading">
+      <div><h2>${escapeHTML(stageLabels[stage])}</h2><p>Consolidado para apoio à bancada; os pedidos continuam disponíveis na visão principal.</p></div>
+      <span class="production-summary-total">${escapeHTML(totalQuantity)} unidade(s)</span>
+    </div>
+    <div class="production-summary-grid">
+      ${aggregate.length ? aggregate.map((item) => `
+        <article class="production-summary-item">
+          <div class="production-summary-qty">${escapeHTML(item.quantity)}x</div>
+          <div><div class="production-summary-name">${escapeHTML(item.name)}</div>${item.details ? `<div class="production-summary-details">${escapeHTML(item.details)}</div>` : ''}</div>
+        </article>
+      `).join('') : '<div class="empty-state" style="grid-column:1/-1">Nenhum item neste estágio.</div>'}
+    </div>`;
+  container.dataset.renderDurationMs = (performance.now() - startedAt).toFixed(2);
+  container.dataset.aggregateRows = String(aggregate.length);
+}
+
+function aggregateProductionItems(orders) {
+  const aggregate = new Map();
+  orders.forEach((order) => {
+    (order.items || []).forEach((item) => {
+      if (isVoidedOrderItem(item)) return;
+      const quantity = Number(item.quantity || 0);
+      if (!Number.isFinite(quantity) || quantity <= 0) return;
+      const name = resolveItemName(item);
+      const details = buildProductionItemDetails(item);
+      const signature = [name.trim().toLowerCase(), buildProductionOptionSignature(item), details.trim().toLowerCase()].join('|');
+      const current = aggregate.get(signature) || { name, details, quantity: 0 };
+      current.quantity += quantity;
+      aggregate.set(signature, current);
+    });
+  });
+  return Array.from(aggregate.values()).sort((a, b) => (
+    b.quantity - a.quantity || a.name.localeCompare(b.name, 'pt-BR')
+  ));
+}
+
+function isVoidedOrderItem(item) {
+  const status = String(item?.status || '').trim().toUpperCase();
+  return status === 'VOIDED' || status === 'CANCELED' || Boolean(item?.voided_at || item?.voidedAt || item?.is_voided || item?.isVoided);
+}
+
+function buildProductionOptionSignature(item) {
+  const options = Array.isArray(item?.selected_options || item?.selectedOptions)
+    ? (item.selected_options || item.selectedOptions)
+    : [];
+  return options.map((option) => [
+    option?.group_name || option?.groupName || option?.group || '',
+    option?.option_name || option?.optionName || option?.name || '',
+    Number(option?.price_delta ?? option?.priceDelta ?? 0),
+  ].map((value) => String(value).trim().toLowerCase()).join(':')).sort().join('|');
+}
+
+function buildProductionItemDetails(item) {
+  const selectedOptions = item.selected_options || item.selectedOptions;
+  const formattedOptions = formatSelectedOptionsSummary(selectedOptions)
+    || (Array.isArray(selectedOptions)
+      ? selectedOptions.map((option) => option?.option_name || option?.optionName || option?.name || '').filter(Boolean).join(', ')
+      : '');
+  return [
+    resolveComboSummary(item) ? `Combo: ${resolveComboSummary(item)}` : '',
+    formattedOptions ? `Opções: ${formattedOptions}` : '',
+    item.observations ? `Obs.: ${item.observations}` : '',
+  ].filter(Boolean).join(' · ');
 }
 
 function renderColumn(containerId, orders, status) {
@@ -707,16 +925,17 @@ function renderColumn(containerId, orders, status) {
     }
   });
 
-  // Add/update cards
-  orders.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  // Atrasos e pedidos em atenção aparecem primeiro; dentro da mesma urgência,
+  // preservamos a fila por tempo de entrada no estágio.
+  orders.sort(compareOrdersByOperationalUrgency);
   orders.forEach(o => {
     let card = container.querySelector(`[data-id="${o.id}"]`);
     if (!card) {
       card = createOrderCard(o);
-      container.appendChild(card);
     } else {
       updateOrderCard(card, o);
     }
+    container.appendChild(card);
   });
 
   if (orders.length === 0 && !container.querySelector('.empty-state')) {
@@ -725,6 +944,31 @@ function renderColumn(containerId, orders, status) {
     const empty = container.querySelector('.empty-state');
     if (empty) empty.remove();
   }
+}
+
+function compareOrdersByOperationalUrgency(a, b) {
+  const severityWeight = { critical: 0, warning: 1, normal: 2 };
+  const stageA = getOrderStageSnapshot(a);
+  const stageB = getOrderStageSnapshot(b);
+  const severityDifference = (severityWeight[stageA.elapsed.severity] ?? 2)
+    - (severityWeight[stageB.elapsed.severity] ?? 2);
+  if (severityDifference !== 0) return severityDifference;
+
+  const startedAtA = new Date(stageA.startedAt || a.created_at || 0).getTime();
+  const startedAtB = new Date(stageB.startedAt || b.created_at || 0).getTime();
+  return startedAtA - startedAtB;
+}
+
+function reorderOrderColumn(container) {
+  if (!container) return;
+  const cards = Array.from(container.querySelectorAll('.order-card'));
+  cards.sort((cardA, cardB) => {
+    const orderA = allOrders[cardA.dataset.id];
+    const orderB = allOrders[cardB.dataset.id];
+    if (!orderA || !orderB) return 0;
+    return compareOrdersByOperationalUrgency(orderA, orderB);
+  });
+  cards.forEach((card) => container.appendChild(card));
 }
 
 function createOrderCard(order) {
@@ -794,41 +1038,53 @@ function buildCardHTML(order, stage = getOrderStageSnapshot(order)) {
 
   let itemsHtml = '';
   if (order.items && order.items.length) {
-    itemsHtml = order.items.map(i =>
-      `<div class="order-item"><span class="item-qty">${escapeHTML(i.quantity)}x</span><span class="item-name">${escapeHTML(resolveItemName(i))}</span>${resolveComboSummary(i) ? `<span class="item-note">• ${escapeHTML(resolveComboSummary(i))}</span>` : ''}${formatSelectedOptionsSummary(i.selected_options || i.selectedOptions) ? `<span class="item-note">+ ${escapeHTML(formatSelectedOptionsSummary(i.selected_options || i.selectedOptions))}</span>` : ''}${i.observations ? `<span class="item-note">${escapeHTML(i.observations)}</span>` : ''}</div>`
-    ).join('');
+    itemsHtml = order.items.map((item) => {
+      const comboSummary = resolveComboSummary(item);
+      const optionsSummary = formatSelectedOptionsSummary(item.selected_options || item.selectedOptions);
+      const details = [
+        comboSummary ? `<div class="item-modifier">Combo: ${escapeHTML(comboSummary)}</div>` : '',
+        optionsSummary ? `<div class="item-modifier">Adicionais: ${escapeHTML(optionsSummary)}</div>` : '',
+        item.observations ? `<div class="item-observation"><span aria-hidden="true">⚠</span><span>${escapeHTML(item.observations)}</span></div>` : '',
+      ].filter(Boolean).join('');
+
+      return `
+        <div class="order-item">
+          <div class="item-main">
+            <span class="item-qty">${escapeHTML(item.quantity)}x</span>
+            <span class="item-name">${escapeHTML(resolveItemName(item))}</span>
+          </div>
+          ${details ? `<div class="item-details">${details}</div>` : ''}
+        </div>`;
+    }).join('');
   }
 
   let actions = '';
   if (order.status === 'PENDING') {
-    actions = `${KDS_ACCESS.canViewSalao ? `<button class="action-btn" onclick="openManualEditOrderModal('${order.id}')">✎ Editar</button>` : ''}<button class="action-btn reject-btn" onclick="openModal('${order.id}','reject')">${KDS_ICONS.x} Recusar</button><button class="action-btn accept-btn" onclick="openModal('${order.id}','accept')">${KDS_ICONS.check} Aceitar</button>`;
+    const secondaryActions = `${KDS_ACCESS.canViewSalao ? `<button class="action-btn secondary-btn" onclick="openManualEditOrderModal('${order.id}')">✎ Editar</button>` : ''}<button class="action-btn reject-btn" onclick="openModal('${order.id}','reject')">${KDS_ICONS.x} Recusar</button>`;
+    actions = `<div class="order-secondary-actions">${secondaryActions}</div><button class="action-btn action-primary accept-btn" onclick="openModal('${order.id}','accept')">${KDS_ICONS.check} Aceitar</button>`;
   } else if (order.status === 'ACCEPTED') {
-    actions = `<button class="action-btn done-btn" onclick="updateStatus('${order.id}','READY')">${KDS_ICONS.check} Pronto</button>`;
+    actions = `<button class="action-btn action-primary done-btn" onclick="updateStatus('${order.id}','READY')">${KDS_ICONS.check} Marcar pronto</button>`;
   } else if (order.status === 'READY') {
-    actions = `<button class="action-btn deliver-btn" onclick="updateStatus('${order.id}','DELIVERED')">${KDS_ICONS.package} Entregar</button>`;
+    actions = `<button class="action-btn action-primary deliver-btn" onclick="updateStatus('${order.id}','DELIVERED')">${KDS_ICONS.package} Confirmar entrega</button>`;
   }
 
   return `
     <div class="order-card-header">
-      <span class="order-id">#${escapeHTML(getOrderDisplayCode(order))}</span>
       <span class="table-badge">${escapeHTML(getOrderTableLabel(order))}</span>
+      <span class="order-id">Pedido #${escapeHTML(getOrderDisplayCode(order))}</span>
       <span class="order-type-badge ${badge}">${destLabel}</span>
     </div>
     <div class="order-items">${itemsHtml || '<div class="order-item"><span class="item-name" style="color:var(--text-3)">Sem itens</span></div>'}</div>
     <div class="order-card-footer">
-      <div style="display:flex; flex-direction:column; gap:6px;">
-        <span class="order-stage-badge ${stage.elapsed.severity === 'critical' ? 'critical' : stage.elapsed.severity === 'warning' ? 'warning' : ''}">
-          ${escapeHTML(stage.label)} · SLA ${escapeHTML(String(stage.criticalMinutes))} min
-        </span>
-        <span
-          class="order-timer ${stage.elapsed.warning ? 'warning' : ''} ${stage.elapsed.urgent ? 'urgent' : ''}"
-          data-start="${escapeHTML(stage.startedAt || '')}"
-          data-stage="${escapeHTML(stage.key)}"
-          data-station="${escapeHTML(stage.stationKey || 'ATTENDANCE')}"
-        >
-          ⏱ ${escapeHTML(stage.label)} ${escapeHTML(stage.elapsed.text)}
-        </span>
-      </div>
+      <span
+        class="order-timer ${stage.elapsed.warning ? 'warning' : ''} ${stage.elapsed.urgent ? 'urgent' : ''}"
+        data-start="${escapeHTML(stage.startedAt || '')}"
+        data-stage="${escapeHTML(stage.key)}"
+        data-station="${escapeHTML(stage.stationKey || 'ATTENDANCE')}"
+        data-severity="${escapeHTML(stage.elapsed.severity)}"
+      >
+        ⏱ ${escapeHTML(stage.label)} ${escapeHTML(stage.elapsed.text)} · limite ${escapeHTML(String(stage.criticalMinutes))} min
+      </span>
       <div class="order-actions">${actions}</div>
     </div>`;
 }
@@ -914,9 +1170,15 @@ function buildStationStatsValues(pending, accepted, ready, destination, stationS
 }
 
 function ensureStationStatsCards(container, destination) {
-  if (container.dataset.initialized === 'true' && container.dataset.destination === destination) return;
+  const visibleKeys = getVisibleStationStatsCardKeys();
+  const presentationMode = KDS_ACCESS.stationMode ? 'station' : 'full';
+  if (
+    container.dataset.initialized === 'true'
+    && container.dataset.destination === destination
+    && container.dataset.presentationMode === presentationMode
+  ) return;
 
-  container.innerHTML = STATION_STATS_CARD_KEYS.map((key) => `
+  container.innerHTML = visibleKeys.map((key) => `
     <div class="stat-card" data-station-stat="${key}">
       <div class="stat-icon" data-role="icon"></div>
       <div>
@@ -927,10 +1189,11 @@ function ensureStationStatsCards(container, destination) {
   `).join('');
   container.dataset.initialized = 'true';
   container.dataset.destination = destination;
+  container.dataset.presentationMode = presentationMode;
 }
 
 function updateStationStatsCards(container, values) {
-  STATION_STATS_CARD_KEYS.forEach((key) => {
+  getVisibleStationStatsCardKeys().forEach((key) => {
     const card = container.querySelector(`[data-station-stat="${key}"]`);
     const value = values[key];
     if (!card || !value) return;
@@ -963,16 +1226,166 @@ function updateStationStatsCards(container, values) {
   });
 }
 
-function renderSalao() {
-  renderSalaoStats(getSalaoStatsValues());
-  renderSalaoPendingRequests();
-  renderSalaoReadyOrders();
+function getVisibleStationStatsCardKeys() {
+  return KDS_ACCESS.stationMode ? STATION_MODE_STATS_CARD_KEYS : STATION_STATS_CARD_KEYS;
+}
 
-  // --- Fechar Conta + Chats + Mesas ---
-  renderCloseBillRequests();
+function renderSalao() {
+  applySalaoViewState();
+  updateSalaoNavigationCounters();
+  renderSalaoNow();
   renderWaiterChats();
   renderSalaoTables();
   renderManualOpenTabs();
+}
+
+function switchSalaoView(view) {
+  const allowedViews = ['agora', 'comandas', 'mesas', 'conversas'];
+  if (!allowedViews.includes(view)) return;
+  activeSalaoView = view;
+  applySalaoViewState();
+}
+
+function applySalaoViewState() {
+  document.querySelectorAll('.salao-view-tab[data-salao-view]').forEach((tab) => {
+    const active = tab.dataset.salaoView === activeSalaoView;
+    tab.classList.toggle('active', active);
+    tab.setAttribute('aria-selected', active ? 'true' : 'false');
+    tab.tabIndex = active ? 0 : -1;
+  });
+  document.querySelectorAll('.salao-view[data-salao-view-panel]').forEach((panel) => {
+    const active = panel.dataset.salaoViewPanel === activeSalaoView;
+    panel.classList.toggle('active', active);
+    panel.hidden = !active;
+  });
+}
+
+function handleSalaoTabKeydown(event) {
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+  const tabs = Array.from(document.querySelectorAll('.salao-view-tab[data-salao-view]'));
+  const currentIndex = tabs.indexOf(event.currentTarget);
+  if (currentIndex < 0) return;
+  event.preventDefault();
+  let nextIndex = currentIndex;
+  if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % tabs.length;
+  if (event.key === 'ArrowLeft') nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+  if (event.key === 'Home') nextIndex = 0;
+  if (event.key === 'End') nextIndex = tabs.length - 1;
+  const nextTab = tabs[nextIndex];
+  switchSalaoView(nextTab.dataset.salaoView);
+  nextTab.focus();
+}
+
+function updateSalaoNavigationCounters() {
+  const readyOrders = Object.values(allOrders).filter((order) => order.status === 'READY').length;
+  const values = {
+    agora: readyOrders + pendingRequests.length + closeBillRequests.length,
+    comandas: manualOpenTabs.length,
+    mesas: tableMetrics.available,
+    conversas: waiterChats.filter((chat) => chat.status === 'OPEN').length,
+  };
+  Object.entries(values).forEach(([key, value]) => {
+    const counter = document.getElementById(`salao-nav-${key}-count`);
+    if (counter) counter.textContent = String(value);
+  });
+}
+
+function renderSalaoNow() {
+  const list = document.getElementById('salao-now-list');
+  if (!list) return;
+
+  const tasks = [];
+  Object.values(allOrders).filter((order) => order.status === 'READY').forEach((order) => {
+    const stage = getOrderStageSnapshot(order);
+    tasks.push({ type: 'delivery', timestamp: stage.startedAt, severity: stage.elapsed.severity, order, elapsed: stage.elapsed });
+  });
+  pendingRequests.forEach((request) => {
+    const timestamp = request.createdAt || request.created_at;
+    tasks.push({ type: 'attendance', timestamp, severity: getElapsed(timestamp).severity, request, elapsed: getElapsed(timestamp) });
+  });
+  closeBillRequests.forEach((request) => {
+    const timestamp = request.createdAt || request.created_at;
+    tasks.push({ type: 'closing', timestamp, severity: getElapsed(timestamp).severity, request, elapsed: getElapsed(timestamp) });
+  });
+
+  const severityWeight = { critical: 0, warning: 1, normal: 2 };
+  tasks.sort((a, b) => {
+    const severityDifference = (severityWeight[a.severity] ?? 2) - (severityWeight[b.severity] ?? 2);
+    if (severityDifference !== 0) return severityDifference;
+    return new Date(a.timestamp || 0).getTime() - new Date(b.timestamp || 0).getTime();
+  });
+
+  if (!tasks.length) {
+    list.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="empty-icon">✓</div>Nenhuma ação urgente agora<div class="empty-sub">Novas entregas e solicitações aparecerão aqui.</div></div>';
+    return;
+  }
+
+  list.innerHTML = tasks.map(renderSalaoNowTask).join('');
+}
+
+function renderSalaoNowTask(task) {
+  if (task.type === 'delivery') return renderSalaoDeliveryTask(task);
+  if (task.type === 'attendance') return renderSalaoAttendanceTask(task);
+  return renderSalaoClosingTask(task);
+}
+
+function renderSalaoDeliveryTask({ order, elapsed, severity }) {
+  const tableCode = getOrderTableCode(order);
+  const location = tableCode ? `Mesa ${tableCode}` : `Comanda #${getOrderDisplayCode(order)}`;
+  const dishes = (order.items || []).map((item) => `
+    <div class="salao-ready-dish"><strong>${escapeHTML(item.quantity)}x</strong><span>${escapeHTML(resolveItemName(item))}</span></div>
+  `).join('') || '<div class="salao-ready-dish"><span></span><span>Itens não informados</span></div>';
+  return `
+    <article class="salao-now-card delivery ${escapeHTML(severity)}">
+      <div class="salao-now-kind" aria-hidden="true">${order.destination === 'BAR' ? '🍹' : '🍽'}</div>
+      <div class="salao-now-content">
+        <div class="salao-now-location">${escapeHTML(location)}</div>
+        <div class="salao-now-label">Entregar · Pedido #${escapeHTML(getOrderDisplayCode(order))}</div>
+        <div class="salao-ready-dishes">${dishes}</div>
+        <div class="salao-now-meta">Pronto há ${escapeHTML(elapsed.text)}</div>
+      </div>
+      <div class="salao-now-actions"><button class="action-btn action-primary deliver-btn" onclick="updateStatus('${order.id}','DELIVERED')">Confirmar entrega</button></div>
+    </article>`;
+}
+
+function renderSalaoAttendanceTask({ request, elapsed, severity }) {
+  const phone = String(request.userPhone || request.user_phone || 'Cliente');
+  const tableId = request.tableId || request.table_id || null;
+  const tableNumber = request.table?.number || request.table_number || null;
+  const pax = request.paxCount || request.pax_count || '?';
+  const location = tableNumber ? `Mesa ${formatTableNumber(tableNumber)}` : `Nova comanda · ${phone.slice(-4)}`;
+  const approveAction = tableId
+    ? `openAssignModal('${escapeHTML(request.id)}','${escapeHTML(phone)}','${escapeHTML(pax)}')`
+    : `approvePendingRequest('${escapeHTML(request.id)}')`;
+  const approveLabel = tableId ? 'Alocar mesa' : 'Abrir comanda';
+  return `
+    <article class="salao-now-card attendance ${escapeHTML(severity)}">
+      <div class="salao-now-kind" aria-hidden="true">👤</div>
+      <div class="salao-now-content">
+        <div class="salao-now-location">${escapeHTML(location)}</div>
+        <div class="salao-now-label">Novo atendimento</div>
+        <div class="salao-now-meta">${escapeHTML(String(pax))} pessoa(s) · aguardando há ${escapeHTML(elapsed.text)}</div>
+      </div>
+      <div class="salao-now-actions">
+        <button class="action-btn reject-btn" onclick="openRequestRejectModal('${escapeHTML(request.id)}')">Recusar</button>
+        <button class="action-btn action-primary accept-btn" onclick="${approveAction}">${approveLabel}</button>
+      </div>
+    </article>`;
+}
+
+function renderSalaoClosingTask({ request, elapsed, severity }) {
+  const tableRaw = String(request.tableNumber || '').trim();
+  const location = tableRaw ? `Mesa ${formatTableNumber(tableRaw)}` : `Comanda · ${String(request.userPhone || '').slice(-4) || 'sem mesa'}`;
+  return `
+    <article class="salao-now-card closing ${escapeHTML(severity)}">
+      <div class="salao-now-kind" aria-hidden="true">💰</div>
+      <div class="salao-now-content">
+        <div class="salao-now-location">${escapeHTML(location)}</div>
+        <div class="salao-now-label">Fechar conta</div>
+        <div class="salao-now-meta">${escapeHTML(formatMoney(request.amountDue || 0))} pendente · solicitado há ${escapeHTML(elapsed.text)}</div>
+      </div>
+      <div class="salao-now-actions"><button class="action-btn action-primary accept-btn" onclick="finalizeCloseBillRequest('${escapeHTML(request.id)}')">Conta finalizada</button></div>
+    </article>`;
 }
 
 function getSalaoStatsValues() {
@@ -1007,20 +1420,33 @@ function renderManualOpenTabs() {
       <label style="flex:1;min-width:180px"><span class="modal-label">Buscar comanda</span><input class="input" type="search" value="${escapeHTML(manualOpenTabsSearch)}" placeholder="Código, mesa ou cliente" oninput="manualOpenTabsSearch=this.value;renderManualOpenTabs()"></label>
       <button class="action-btn accept-btn" onclick="openManualOrderModal()">+ Lançar pedido</button>
     </div>
-    ${visibleTabs.length ? visibleTabs.map((tab) => `
+    ${visibleTabs.length ? visibleTabs.map((tab) => {
+      const editableOrders = Object.values(allOrders).filter((order) => (
+        getOrderTabId(order) === String(tab.id) && order.status === 'PENDING'
+      ));
+      const editActions = editableOrders.map((order) => `
+        <button class="action-btn secondary-btn" onclick="openManualEditOrderModal('${escapeHTML(order.id)}')">Editar pedido #${escapeHTML(getOrderDisplayCode(order))}</button>
+      `).join('');
+      return `
       <div class="ready-item" style="align-items:center">
         <div style="font-size:20px;flex-shrink:0">🧾</div>
         <div class="ready-item-left">
           <div class="ready-item-title">${escapeHTML(tab.publicCode || shortId(tab.id))}</div>
           <div class="ready-item-sub">${tab.tableNumber ? `Mesa ${escapeHTML(String(tab.tableNumber))}` : 'Sem mesa'} · ${escapeHTML(formatMoney(tab.total || 0))}</div>
         </div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
-          <button class="action-btn accept-btn" onclick="openManualOrderModal('${escapeHTML(tab.id)}')">Lançar</button>
-          <button class="action-btn" onclick="openManualTabHistory('${escapeHTML(tab.id)}')">Histórico</button>
-          <button class="action-btn" onclick="printTabConsumption('${escapeHTML(tab.id)}')">Imprimir</button>
+        <div class="salao-tab-actions">
+          <button class="action-btn action-primary accept-btn" onclick="openManualOrderModal('${escapeHTML(tab.id)}')">Lançar item</button>
+          <details class="salao-action-menu">
+            <summary class="action-btn secondary-btn">Mais ações</summary>
+            <div class="salao-action-menu-items">
+              ${editActions}
+              <button class="action-btn secondary-btn" onclick="openManualTabHistory('${escapeHTML(tab.id)}')">Histórico</button>
+              <button class="action-btn secondary-btn" onclick="printTabConsumption('${escapeHTML(tab.id)}')">Imprimir consumo</button>
+            </div>
+          </details>
         </div>
       </div>
-    `).join('') : '<div class="empty-state" style="padding:20px 12px">Nenhuma comanda encontrada para esta busca.</div>'}
+    `; }).join('') : '<div class="empty-state" style="padding:20px 12px">Nenhuma comanda encontrada para esta busca.</div>'}
   `;
 }
 
@@ -1029,7 +1455,7 @@ async function loadManualOpenTabs() {
   try {
     const data = await apiGet('/tables/tabs/open');
     manualOpenTabs = Array.isArray(data) ? data : [];
-    if (activePanel === 'salao') renderManualOpenTabs();
+    if (activePanel === 'salao') renderSalao();
   } catch (error) {
     console.warn('Failed to load open tabs for manual orders:', error);
   }
@@ -1385,14 +1811,28 @@ function ensureSalaoStatsCards(statsEl) {
 
 // --- Table capacity filter ---
 let salaoTableFilter = 'all';
+let salaoTableStatusFilter = 'all';
 
 function setSalaoTableFilter(filter) {
   salaoTableFilter = filter;
   renderSalaoTables();
 }
 
+function setSalaoTableStatusFilter(filter) {
+  salaoTableStatusFilter = filter;
+  renderSalaoTables();
+}
+
 function renderSalaoTables() {
-  // Filter tabs
+  const statusFiltersEl = document.getElementById('salao-table-status-filters');
+  if (statusFiltersEl) {
+    const statuses = ['all', 'AVAILABLE', 'OCCUPIED', 'CLEANING'];
+    const labels = { all: 'Todos os estados', AVAILABLE: 'Livres', OCCUPIED: 'Ocupadas', CLEANING: 'Em limpeza' };
+    statusFiltersEl.innerHTML = statuses.map((status) => `
+      <button class="table-filter-tab ${salaoTableStatusFilter === status ? 'active' : ''}" onclick="setSalaoTableStatusFilter('${status}')">${labels[status]}</button>
+    `).join('');
+  }
+
   const filtersEl = document.getElementById('salao-table-filters');
   if (filtersEl) {
     const capacities = ['all', '2', '4', '8+'];
@@ -1402,11 +1842,15 @@ function renderSalaoTables() {
     ).join('');
   }
 
-  // Filter tables
-  let filtered = availableTables;
-  if (salaoTableFilter === '2') filtered = availableTables.filter(t => (t.capacity || 0) <= 2);
-  else if (salaoTableFilter === '4') filtered = availableTables.filter(t => (t.capacity || 0) >= 3 && (t.capacity || 0) <= 6);
-  else if (salaoTableFilter === '8+') filtered = availableTables.filter(t => (t.capacity || 0) >= 7);
+  let filtered = tablesSnapshot.length ? [...tablesSnapshot] : [...availableTables];
+  if (salaoTableStatusFilter !== 'all') {
+    filtered = filtered.filter((table) => String(table.status || '').toUpperCase() === salaoTableStatusFilter);
+  }
+  if (salaoTableFilter === '2') filtered = filtered.filter(t => (t.capacity || 0) <= 2);
+  else if (salaoTableFilter === '4') filtered = filtered.filter(t => (t.capacity || 0) >= 3 && (t.capacity || 0) <= 6);
+  else if (salaoTableFilter === '8+') filtered = filtered.filter(t => (t.capacity || 0) >= 7);
+
+  filtered.sort((a, b) => String(a.number || '').localeCompare(String(b.number || ''), 'pt-BR', { numeric: true }));
 
   const tablesList = document.getElementById('salao-tables-list');
   if (!tablesList) return;
@@ -1414,25 +1858,32 @@ function renderSalaoTables() {
   if (filtered.length === 0) {
     tablesList.innerHTML = `<div class="empty-state" style="padding:24px 16px;">
       <div class="empty-icon">🪑</div>
-      Nenhuma mesa disponível
-      <div class="empty-sub">${salaoTableFilter !== 'all' ? 'Tente outro filtro de capacidade' : 'Todas as mesas estão ocupadas'}</div>
+      Nenhuma mesa encontrada
+      <div class="empty-sub">Ajuste os filtros de estado ou capacidade.</div>
     </div>`;
   } else {
     tablesList.innerHTML = filtered.map(table => {
       const cap = table.capacity || '?';
       const section = table.section || table.location || '';
       const meta = [cap + ' lugares', section].filter(Boolean).join(' · ');
+      const status = String(table.status || 'UNAVAILABLE').toUpperCase();
+      const statusConfig = {
+        AVAILABLE: { label: 'Livre', className: 'available' },
+        OCCUPIED: { label: 'Ocupada', className: 'occupied' },
+        CLEANING: { label: 'Em limpeza', className: 'cleaning' },
+      }[status] || { label: 'Indisponível', className: 'unavailable' };
       return `<div class="table-row">
         <div class="table-row-icon">🪑</div>
         <div class="table-row-info">
           <div class="table-row-name">Mesa ${escapeHTML(table.number || '--')}</div>
           <div class="table-row-meta">${escapeHTML(meta)}</div>
         </div>
-        <span class="table-row-cap">${escapeHTML(String(cap))} lug.</span>
+        <span class="table-status-badge ${statusConfig.className}">${statusConfig.label}</span>
       </div>`;
     }).join('');
   }
-  document.getElementById('salao-tables-count').textContent = availableTables.length;
+  const count = document.getElementById('salao-tables-count');
+  if (count) count.textContent = String(tablesSnapshot.length || availableTables.length);
 }
 
 function updateNavBadges() {
@@ -1446,6 +1897,13 @@ function updateNavBadges() {
 
 // ─── ACTIONS ───────────────────────────────────────────────────
 async function updateStatus(orderId, newStatus, cancelReason, prepMinutes, cancelReasonCode, cancelCategory) {
+  if (pendingOrderTransitions.has(orderId)) return;
+  pendingOrderTransitions.add(orderId);
+  const orderCard = document.querySelector(`.order-card[data-id="${orderId}"]`);
+  orderCard?.querySelectorAll('.action-btn').forEach((button) => {
+    button.disabled = true;
+  });
+
   try {
     const orderRef = allOrders[orderId];
     const displayCode = getOrderDisplayCode(orderRef || { id: orderId });
@@ -1472,6 +1930,12 @@ async function updateStatus(orderId, newStatus, cancelReason, prepMinutes, cance
     toast('t-success', `✅ Pedido ${labels[newStatus]}!`, `#${displayCode}`);
   } catch (e) {
     toast('t-error', '❌ Erro', e.message);
+  } finally {
+    pendingOrderTransitions.delete(orderId);
+    const currentOrderCard = document.querySelector(`.order-card[data-id="${orderId}"]`);
+    currentOrderCard?.querySelectorAll('.action-btn').forEach((button) => {
+      button.disabled = false;
+    });
   }
 }
 
@@ -1681,7 +2145,10 @@ function getOrderDisplayCode(order) {
 }
 
 function getElapsed(dateStr) {
-  return getElapsedWithSla(dateStr);
+  return getElapsedWithSla(dateStr, {
+    warningMinutes: CONFIG.WARNING_MINUTES,
+    criticalMinutes: CONFIG.URGENT_MINUTES,
+  });
 }
 
 function getElapsedWithSla(dateStr, slaConfig) {
@@ -1707,13 +2174,29 @@ function getElapsedWithSla(dateStr, slaConfig) {
 
 function startTimerUpdates() {
   timerInterval = setInterval(() => {
+    let shouldRefreshOperationalCounters = false;
     document.querySelectorAll('.order-timer[data-start][data-stage]').forEach(el => {
       const stage = getStageSlaConfig(el.dataset.stage, el.dataset.station);
       const elapsed = getElapsedWithSla(el.dataset.start, stage);
-      el.textContent = `⏱ ${stage.label} ${elapsed.text}`;
+      const previousSeverity = el.dataset.severity || 'normal';
+      el.textContent = `⏱ ${stage.label} ${elapsed.text} · limite ${stage.criticalMinutes} min`;
       el.classList.toggle('warning', elapsed.warning);
       el.classList.toggle('urgent', elapsed.urgent);
+      el.dataset.severity = elapsed.severity;
+
+      const card = el.closest('.order-card');
+      if (card) {
+        card.classList.toggle('sla-warning', elapsed.severity === 'warning');
+        card.classList.toggle('sla-critical', elapsed.severity === 'critical');
+        if (previousSeverity !== elapsed.severity) {
+          reorderOrderColumn(card.closest('.column-body'));
+          shouldRefreshOperationalCounters = true;
+        }
+      }
     });
+    if (shouldRefreshOperationalCounters && ['kitchen', 'bar'].includes(activePanel)) {
+      renderCurrentPanel();
+    }
   }, 1000);
 }
 
@@ -1790,6 +2273,7 @@ const TITLES = {
 function switchPanel(name) {
   const nextPanel = KDS_ACCESS.availablePanels.includes(name) ? name : KDS_ACCESS.defaultPanel;
   activePanel = nextPanel;
+  document.body.dataset.activePanel = nextPanel;
   document.querySelectorAll('.screen-panel').forEach(p => p.classList.remove('active'));
   document.getElementById('panel-' + nextPanel).classList.add('active');
   document.querySelectorAll('.screen-tab[data-panel]').forEach((tab) => tab.classList.toggle('active', tab.dataset.panel === nextPanel));
@@ -1872,8 +2356,7 @@ async function loadPendingRequests() {
     const data = await apiGet('/tables/requests/pending');
     pendingRequests = Array.isArray(data) ? data : [];
     if (activePanel === 'salao') {
-      renderSalaoStats(getSalaoStatsValues());
-      renderSalaoPendingRequests();
+      renderSalao();
     }
     updateNavBadges();
   } catch (e) {
@@ -1980,8 +2463,7 @@ async function loadWaiterChats() {
     const data = await apiGet('/tables/waiter/chats/open');
     waiterChats = Array.isArray(data) ? data : [];
     if (activePanel === 'salao') {
-      renderSalaoStats(getSalaoStatsValues());
-      renderWaiterChats();
+      renderSalao();
     }
     updateNavBadges();
 
@@ -2003,8 +2485,7 @@ async function loadCloseRequests() {
     const data = await apiGet('/tables/waiter/close-requests');
     closeBillRequests = Array.isArray(data) ? data : [];
     if (activePanel === 'salao') {
-      renderSalaoStats(getSalaoStatsValues());
-      renderCloseBillRequests();
+      renderSalao();
     }
     updateNavBadges();
   } catch (e) {
@@ -2028,7 +2509,14 @@ function renderWaiterChats() {
     return;
   }
 
-  list.innerHTML = waiterChats.map((chat) => {
+  const prioritizedChats = [...waiterChats].sort((a, b) => {
+    const waitingA = Number(a.unreadCount || a.unread_count || 0) > 0 || String(a.lastSenderType || '').toUpperCase() === 'CUSTOMER';
+    const waitingB = Number(b.unreadCount || b.unread_count || 0) > 0 || String(b.lastSenderType || '').toUpperCase() === 'CUSTOMER';
+    if (waitingA !== waitingB) return waitingA ? -1 : 1;
+    return new Date(a.lastMessageAt || a.openedAt || 0).getTime() - new Date(b.lastMessageAt || b.openedAt || 0).getTime();
+  });
+
+  list.innerHTML = prioritizedChats.map((chat) => {
     const lastAt = chat.lastMessageAt || chat.openedAt;
     const elapsed = getElapsed(lastAt);
     const tableRaw = String(chat.tableNumber || '').trim();
@@ -2036,17 +2524,19 @@ function renderWaiterChats() {
     const lastText = String(chat.lastMessage || 'Aguardando mensagem do cliente...');
     const sender = String(chat.lastSenderType || '').toUpperCase() === 'STAFF' ? 'Equipe' :
       String(chat.lastSenderType || '').toUpperCase() === 'SYSTEM' ? 'Sistema' : 'Cliente';
+    const waitingReply = Number(chat.unreadCount || chat.unread_count || 0) > 0
+      || String(chat.lastSenderType || '').toUpperCase() === 'CUSTOMER';
 
-    return `<div class="ready-item">
+    return `<div class="ready-item ${waitingReply ? 'chat-waiting-reply' : ''}">
       <div style="font-size:20px;flex-shrink:0">💬</div>
       <div class="ready-item-left">
         <div class="ready-item-title">${escapeHTML(chat.userPhone || '')} · ${escapeHTML(tableLabel)}</div>
         <div class="ready-item-sub">${escapeHTML(sender)}: ${escapeHTML(lastText)}</div>
-        <div class="waiter-chat-meta">Atualizado há ${escapeHTML(elapsed.text)}</div>
+        <div class="waiter-chat-meta">${waitingReply ? 'Aguardando resposta · ' : ''}Atualizado há ${escapeHTML(elapsed.text)}</div>
       </div>
       <div class="waiter-chat-actions">
-        <button class="action-btn accept-btn" style="flex-shrink:0" onclick="openWaiterChat('${escapeHTML(chat.id)}')">Abrir chat</button>
-        <button class="action-btn reject-btn" style="flex-shrink:0" onclick="closeWaiterChat('${escapeHTML(chat.id)}')">Encerrar</button>
+        <button class="action-btn action-primary accept-btn" style="flex-shrink:0" onclick="openWaiterChat('${escapeHTML(chat.id)}')">Abrir conversa</button>
+        <button class="action-btn secondary-btn" style="flex-shrink:0" onclick="closeWaiterChat('${escapeHTML(chat.id)}')">Encerrar</button>
       </div>
     </div>`;
   }).join('');

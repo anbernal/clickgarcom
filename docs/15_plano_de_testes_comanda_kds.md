@@ -213,3 +213,37 @@ Observação:
 ## 12. Bloqueios conhecidos
 
 Sem PostgreSQL, RabbitMQ e WebSocket disponíveis, é possível executar apenas build, testes unitários, validação estática e revisão de contrato. Os testes de transação, auditoria persistida, concorrência e impressão com snapshot dependem do ambiente integrado.
+
+## 13. Testes automatizados de UX do KDS
+
+Executar:
+
+```bash
+cd apps/tenant-admin/web
+npm install
+npm run test:kds-ux
+```
+
+A suíte cobre:
+
+- modo estação automático para Cozinha/Bar;
+- quatro contadores operacionais e remoção da navegação redundante;
+- tamanho de quantidade, prato, observação e ação touch;
+- navegação do Salão por perfil e preservação da aba ativa;
+- estados de mesa e prioridade de conversas aguardando resposta;
+- agregação por prato/opções, exclusão de item anulado e ausência de duplicação;
+- cenário com `60` pedidos e verificação de rolagem horizontal.
+
+## 14. Evidência de desempenho local — 02/08/2026
+
+Ambiente: Chrome headless, viewport `1366×768`, seis itens por pedido.
+
+| Pedidos ativos | Carga até cartões visíveis | 10 renderizações | Agregação local | Cards únicos | Overflow horizontal |
+|---:|---:|---:|---:|---:|---:|
+| 15 | 962 ms | 11,8 ms | 0,1 ms | 15/15 | Não |
+| 30 | 959 ms | 9,6 ms | < 0,1 ms | 30/30 | Não |
+| 60 | 1.085 ms | 19,5 ms | < 0,1 ms | 60/60 | Não |
+
+Decisão: manter a agregação no navegador nesta etapa. O custo medido com `60` pedidos não justifica criar endpoint agregado; reavaliar somente se a carga real superar esse cenário ou se dispositivos de bancada apresentarem desempenho significativamente inferior.
+
+Essas medições não substituem o teste em monitor físico a aproximadamente três metros nem o smoke test após publicação.

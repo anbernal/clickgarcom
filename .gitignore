@@ -45,6 +45,8 @@ docker-compose.override.yml
 node_modules/
 npm-debug.log
 yarn-error.log
+playwright-report/
+test-results/
 /platform/core-backend/test_create_order
 /platform/core-backend/worker
 /platform/core-backend/api

@@ -4,6 +4,10 @@
   "private": true,
   "description": "Static web client for ClickGarcom admin and KDS",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test:kds-ux": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0"
   }
 }

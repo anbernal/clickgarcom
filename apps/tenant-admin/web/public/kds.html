@@ -35,12 +35,24 @@
             --shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 4px 16px rgba(0, 0, 0, 0.04);
             --shadow-lg: 0 10px 40px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.06);
             --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04), 0 2px 8px rgba(0, 0, 0, 0.03);
+            --kds-touch-target: 48px;
+            --kds-station-header-height: 54px;
+            --kds-quantity-size: 30px;
+            --kds-dish-size: 20px;
+            --kds-detail-size: 13px;
+            --kds-table-size: 17px;
+            --kds-timer-size: 13px;
+            --kds-card-gap: 10px;
         }
 
         * {
             box-sizing: border-box;
             margin: 0;
             padding: 0;
+        }
+
+        [hidden] {
+            display: none !important;
         }
 
         body {
@@ -52,6 +64,16 @@
             user-select: none;
             -webkit-font-smoothing: antialiased;
             -moz-osx-font-smoothing: grayscale;
+        }
+
+        button:focus-visible,
+        a:focus-visible,
+        input:focus-visible,
+        textarea:focus-visible,
+        select:focus-visible,
+        summary:focus-visible {
+            outline: 3px solid rgba(59, 130, 246, 0.4);
+            outline-offset: 2px;
         }
 
         .app {
@@ -392,6 +414,47 @@
             gap: 10px;
         }
 
+        .topbar-station-status,
+        .station-late-indicator,
+        .exit-station-mode {
+            display: none;
+        }
+
+        .exit-station-mode[hidden] {
+            display: none !important;
+        }
+
+        .topbar-station-status {
+            padding: 6px 10px;
+            border-radius: 8px;
+        }
+
+        .station-late-indicator {
+            align-items: center;
+            gap: 7px;
+            min-height: 34px;
+            padding: 5px 10px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-2);
+            background: var(--surface);
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .station-late-indicator.has-late-orders {
+            color: var(--red);
+            background: var(--red-bg);
+            border-color: #f0c4be;
+        }
+
+        .station-late-count {
+            min-width: 20px;
+            font-family: 'DM Mono', monospace;
+            font-size: 14px;
+            text-align: center;
+        }
+
         .btn {
             display: inline-flex;
             align-items: center;
@@ -454,7 +517,7 @@
         }
 
         .screen-tabs {
-            display: flex;
+            display: none;
             background: var(--surface);
             border: 1px solid var(--border);
             border-radius: 10px;
@@ -557,6 +620,126 @@
             gap: 16px;
         }
 
+        .station-view-toolbar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-height: 38px;
+            margin-bottom: 10px;
+        }
+
+        .station-segment {
+            display: inline-flex;
+            align-items: center;
+            gap: 3px;
+            padding: 3px;
+            border: 1px solid var(--border);
+            border-radius: 9px;
+            background: var(--surface);
+        }
+
+        .station-segment-btn,
+        .station-icon-button {
+            min-height: 32px;
+            padding: 6px 10px;
+            border: 0;
+            border-radius: 7px;
+            background: transparent;
+            color: var(--text-2);
+            font: 600 11px 'DM Sans', sans-serif;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .station-segment-btn:hover,
+        .station-icon-button:hover {
+            color: var(--text);
+            background: var(--surface-2);
+        }
+
+        .station-segment-btn.active {
+            color: white;
+            background: var(--accent);
+        }
+
+        .station-toolbar-spacer {
+            flex: 1;
+        }
+
+        .station-icon-button {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            border: 1px solid var(--border);
+            background: var(--surface);
+        }
+
+        .production-summary {
+            min-height: 240px;
+        }
+
+        .production-summary-heading {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 10px;
+        }
+
+        .production-summary-heading h2 {
+            font-size: 17px;
+        }
+
+        .production-summary-heading p {
+            margin-top: 2px;
+            color: var(--text-2);
+            font-size: 11px;
+        }
+
+        .production-summary-total {
+            padding: 6px 10px;
+            border-radius: 8px;
+            background: var(--surface-2);
+            font: 700 12px 'DM Mono', monospace;
+        }
+
+        .production-summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 10px;
+        }
+
+        .production-summary-item {
+            display: grid;
+            grid-template-columns: 64px minmax(0, 1fr);
+            gap: 12px;
+            align-items: center;
+            min-height: 86px;
+            padding: 13px;
+            border: 1px solid var(--border);
+            border-radius: 11px;
+            background: var(--surface);
+            box-shadow: var(--shadow-card);
+        }
+
+        .production-summary-qty {
+            font: 800 30px/1 'DM Mono', monospace;
+            text-align: center;
+        }
+
+        .production-summary-name {
+            font-size: 17px;
+            line-height: 1.2;
+            font-weight: 800;
+        }
+
+        .production-summary-details {
+            margin-top: 5px;
+            color: var(--text-2);
+            font-size: 12px;
+            line-height: 1.35;
+        }
+
         .order-column {
             background: var(--surface-2);
             border: 1px solid var(--border);
@@ -644,13 +827,15 @@
         }
 
         .order-card.sla-warning {
-            box-shadow: 0 0 0 1px rgba(245, 200, 66, 0.25);
-            background: #fffdf5;
+            border-color: #e5b91f;
+            box-shadow: 0 0 0 2px rgba(234, 179, 8, 0.18);
+            background: #fffdf0;
         }
 
         .order-card.sla-critical {
-            box-shadow: 0 0 0 1px rgba(224, 92, 75, 0.2);
-            background: #fff7f5;
+            border-color: var(--red);
+            box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2);
+            background: #fff4f2;
         }
 
         .order-card-header {
@@ -662,7 +847,7 @@
 
         .order-id {
             font-family: 'DM Mono', monospace;
-            font-size: 12px;
+            font-size: 11px;
             font-weight: 500;
             color: var(--text-2);
         }
@@ -670,11 +855,10 @@
         .table-badge {
             background: var(--accent);
             color: white;
-            font-size: 11px;
-            font-weight: 600;
-            padding: 2px 8px;
-            border-radius: 6px;
-            font-family: 'DM Mono', monospace;
+            font-size: var(--kds-table-size);
+            font-weight: 700;
+            padding: 4px 9px;
+            border-radius: 8px;
         }
 
         .order-type-badge {
@@ -702,42 +886,69 @@
         }
 
         .order-item {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 5px 0;
+            display: block;
+            padding: 9px 0;
             border-bottom: 1px dashed var(--border);
-            font-size: 13px;
         }
 
         .order-item:last-child {
             border-bottom: none;
         }
 
+        .item-main {
+            display: grid;
+            grid-template-columns: minmax(42px, auto) minmax(0, 1fr);
+            align-items: baseline;
+            gap: 10px;
+        }
+
         .item-qty {
             font-family: 'DM Mono', monospace;
-            font-size: 12px;
-            color: var(--text-2);
-            background: var(--surface-2);
-            padding: 1px 6px;
-            border-radius: 5px;
-            font-weight: 500;
+            font-size: 18px;
+            line-height: 1;
+            color: var(--text);
+            font-weight: 800;
             flex-shrink: 0;
         }
 
         .item-name {
-            flex: 1;
+            min-width: 0;
+            font-size: 16px;
+            line-height: 1.25;
+            font-weight: 700;
         }
 
-        .item-note {
-            font-size: 11px;
-            color: var(--orange);
-            font-style: italic;
+        .item-details {
+            margin: 7px 0 0 52px;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .item-modifier {
+            color: var(--text-2);
+            font-size: var(--kds-detail-size);
+            line-height: 1.35;
+        }
+
+        .item-observation {
+            display: flex;
+            align-items: flex-start;
+            gap: 6px;
+            padding: 7px 9px;
+            border-left: 3px solid var(--red);
+            border-radius: 6px;
+            background: var(--red-bg);
+            color: #b42318;
+            font-size: var(--kds-detail-size);
+            line-height: 1.35;
+            font-weight: 700;
         }
 
         .order-card-footer {
             display: flex;
             align-items: center;
+            flex-wrap: wrap;
             gap: 8px;
             margin-top: 10px;
             padding-top: 10px;
@@ -757,11 +968,11 @@
 
         .order-timer {
             font-family: 'DM Mono', monospace;
-            font-size: 11px;
+            font-size: var(--kds-timer-size);
             background: var(--yellow-bg);
             color: #8a6e00;
-            padding: 3px 8px;
-            border-radius: 6px;
+            padding: 6px 9px;
+            border-radius: 8px;
             border: 1px solid #e8d870;
             font-weight: 500;
         }
@@ -808,13 +1019,20 @@
         .order-actions {
             margin-left: auto;
             display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .order-secondary-actions {
+            display: flex;
             gap: 6px;
         }
 
         .action-btn {
-            padding: 6px 12px;
+            min-height: 38px;
+            padding: 8px 12px;
             border-radius: 8px;
-            font-size: 11px;
+            font-size: 12px;
             font-weight: 600;
             cursor: pointer;
             border: none;
@@ -825,8 +1043,25 @@
             gap: 4px;
         }
 
+        .secondary-btn {
+            color: var(--text-2);
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+        }
+
+        .action-primary {
+            justify-content: center;
+            font-weight: 700;
+        }
+
         .action-btn:active {
             transform: scale(0.96);
+        }
+
+        .action-btn:disabled {
+            cursor: wait;
+            opacity: 0.55;
+            transform: none;
         }
 
         .accept-btn {
@@ -1541,6 +1776,11 @@
             margin-top: 2px;
         }
 
+        .ready-item.chat-waiting-reply {
+            border-left: 4px solid var(--blue);
+            background: var(--blue-bg);
+        }
+
         .waiter-chat-meta {
             font-size: 10px;
             color: var(--text-3);
@@ -1725,6 +1965,315 @@
             flex-shrink: 0;
         }
 
+        /* Salão: uma responsabilidade principal por visão. */
+        .salao-view-tabs {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 14px;
+            padding: 5px;
+            width: fit-content;
+            max-width: 100%;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            background: var(--surface);
+            overflow-x: auto;
+        }
+
+        .salao-view-tab {
+            min-height: 40px;
+            padding: 8px 13px;
+            border: 0;
+            border-radius: 9px;
+            background: transparent;
+            color: var(--text-2);
+            font: 600 13px 'DM Sans', sans-serif;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            white-space: nowrap;
+        }
+
+        .salao-view-tab:hover {
+            background: var(--surface-2);
+            color: var(--text);
+        }
+
+        .salao-view-tab:focus-visible {
+            outline: 3px solid rgba(59, 130, 246, 0.35);
+            outline-offset: 2px;
+        }
+
+        .salao-view-tab.active {
+            background: var(--accent);
+            color: var(--accent-text);
+        }
+
+        .salao-view-count {
+            min-width: 22px;
+            height: 22px;
+            padding: 0 6px;
+            border-radius: 999px;
+            background: var(--surface-2);
+            color: var(--text-2);
+            font: 700 11px 'DM Mono', monospace;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .salao-view-count.urgent:not(:empty) {
+            color: var(--red);
+            background: var(--red-bg);
+        }
+
+        .salao-view-tab.active .salao-view-count {
+            color: white;
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .salao-view {
+            display: none;
+            animation: fadeIn 0.2s ease;
+        }
+
+        .salao-view .action-btn {
+            min-height: 44px;
+        }
+
+        .salao-view.active {
+            display: block;
+        }
+
+        .salao-view-heading {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            margin-bottom: 12px;
+        }
+
+        .salao-view-heading h2 {
+            font-size: 18px;
+            line-height: 1.2;
+        }
+
+        .salao-view-heading p,
+        .salao-card-header p {
+            margin-top: 3px;
+            color: var(--text-2);
+            font-size: 12px;
+        }
+
+        .salao-view-heading .live-dot {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            color: var(--text-2);
+            font-size: 11px;
+        }
+
+        .salao-view-heading .live-dot::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--green);
+            animation: livePulse 2s ease-in-out infinite;
+        }
+
+        .salao-now-list {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .salao-now-card {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            min-width: 0;
+            padding: 14px;
+            border: 1px solid var(--border);
+            border-left: 5px solid var(--blue);
+            border-radius: 12px;
+            background: var(--surface);
+            box-shadow: var(--shadow-card);
+        }
+
+        .salao-now-card.delivery { border-left-color: var(--green); }
+        .salao-now-card.attendance { border-left-color: var(--yellow); }
+        .salao-now-card.closing { border-left-color: var(--purple); }
+        .salao-now-card.warning { background: var(--yellow-bg); border-color: #e5b91f; }
+        .salao-now-card.critical { background: var(--red-bg); border-color: var(--red); }
+
+        .salao-now-kind {
+            width: 42px;
+            height: 42px;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 10px;
+            background: var(--surface-2);
+            font-size: 20px;
+        }
+
+        .salao-now-content {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .salao-now-location {
+            font-size: 18px;
+            line-height: 1.2;
+            font-weight: 800;
+        }
+
+        .salao-now-label {
+            margin-top: 2px;
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--text-2);
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+        }
+
+        .salao-ready-dishes {
+            display: grid;
+            gap: 3px;
+            margin-top: 8px;
+        }
+
+        .salao-ready-dish {
+            display: grid;
+            grid-template-columns: 34px minmax(0, 1fr);
+            gap: 7px;
+            font-size: 14px;
+            line-height: 1.3;
+        }
+
+        .salao-ready-dish strong {
+            font-family: 'DM Mono', monospace;
+        }
+
+        .salao-now-meta {
+            margin-top: 7px;
+            color: var(--text-2);
+            font: 500 11px 'DM Mono', monospace;
+        }
+
+        .salao-now-actions {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-shrink: 0;
+        }
+
+        .salao-workspace-card .salao-card-header > div:nth-child(2) {
+            flex: 1;
+        }
+
+        .salao-workspace-card .salao-card-body {
+            max-height: none;
+        }
+
+        .salao-tab-actions {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+        }
+
+        .salao-action-menu {
+            position: relative;
+        }
+
+        .salao-action-menu summary {
+            list-style: none;
+        }
+
+        .salao-action-menu summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .salao-action-menu[open] .salao-action-menu-items {
+            display: flex;
+        }
+
+        .salao-action-menu-items {
+            display: none;
+            position: absolute;
+            z-index: 20;
+            right: 0;
+            top: calc(100% + 5px);
+            flex-direction: column;
+            min-width: 190px;
+            gap: 5px;
+            padding: 7px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: var(--surface);
+            box-shadow: var(--shadow-lg);
+        }
+
+        .salao-tables-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 10px;
+            padding: 14px 16px 18px;
+        }
+
+        .salao-tables-grid .table-row {
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 12px;
+        }
+
+        .table-status-badge {
+            padding: 4px 8px;
+            border-radius: 999px;
+            font-size: 10px;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .table-status-badge.available { color: #15803d; background: var(--green-bg); }
+        .table-status-badge.occupied { color: #b45309; background: var(--yellow-bg); }
+        .table-status-badge.cleaning { color: var(--blue); background: var(--blue-bg); }
+        .table-status-badge.unavailable { color: var(--text-2); background: var(--surface-2); }
+
+        @media (max-width: 900px) {
+            .salao-now-list {
+                grid-template-columns: 1fr;
+            }
+
+            .salao-now-card {
+                align-items: flex-start;
+                flex-wrap: wrap;
+            }
+
+            .salao-now-actions {
+                width: 100%;
+                justify-content: flex-end;
+            }
+        }
+
+        @media (max-width: 560px) {
+            .salao-view-tabs {
+                width: 100%;
+            }
+
+            .salao-view-heading .live-dot {
+                display: none;
+            }
+
+            .salao-tab-actions {
+                width: 100%;
+                justify-content: flex-end;
+            }
+        }
+
         .toast-container {
             position: fixed;
             bottom: 24px;
@@ -1810,6 +2359,309 @@
             font-size: 13px;
         }
 
+        /* Modo Estação: leitura rápida e operação touch para Cozinha/Bar. */
+        body.station-mode .sidebar,
+        body.station-mode .screen-tabs,
+        body.station-mode .topbar-sub {
+            display: none;
+        }
+
+        body.station-mode .topbar {
+            height: var(--kds-station-header-height);
+            padding: 0 16px;
+            gap: 12px;
+        }
+
+        body.station-mode .topbar-title {
+            font-size: 20px;
+        }
+
+        body.station-mode .topbar-station-status,
+        body.station-mode .station-late-indicator,
+        body.station-mode .exit-station-mode:not([hidden]) {
+            display: flex;
+        }
+
+        body.station-mode .topbar-station-status .status-text {
+            font-size: 11px;
+        }
+
+        body.station-mode .time-display {
+            padding: 6px 10px;
+            font-size: 14px;
+        }
+
+        body.station-mode .content {
+            padding: 10px 12px 12px;
+            overflow: hidden;
+        }
+
+        body.station-mode .screen-panel.active {
+            height: 100%;
+        }
+
+        body.station-mode .stats-row {
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        body.station-mode .stat-card {
+            min-width: 0;
+            padding: 8px 11px;
+            gap: 9px;
+            border-radius: 10px;
+            box-shadow: none;
+        }
+
+        body.station-mode .stat-card:hover {
+            transform: none;
+            box-shadow: none;
+        }
+
+        body.station-mode .stat-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            font-size: 15px;
+        }
+
+        body.station-mode .stat-value {
+            font-size: 20px;
+        }
+
+        body.station-mode .stat-label {
+            margin-top: 1px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        body.station-mode .orders-grid {
+            grid-template-columns: minmax(300px, 32fr) minmax(390px, 48fr) minmax(250px, 20fr);
+            gap: var(--kds-card-gap);
+            height: calc(100% - 108px);
+            min-height: 0;
+        }
+
+        body.station-mode .order-column {
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+            min-height: 0;
+            border-radius: 12px;
+        }
+
+        body.station-mode .column-header {
+            padding: 10px 13px;
+            flex-shrink: 0;
+        }
+
+        body.station-mode .column-title {
+            font-size: 14px;
+        }
+
+        body.station-mode .column-body {
+            min-height: 0;
+            flex: 1;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+            padding: 8px;
+        }
+
+        body.station-mode .order-card {
+            padding: 13px;
+            border-radius: 11px;
+        }
+
+        body.station-mode .order-card.pending {
+            border-left-width: 5px;
+        }
+
+        body.station-mode .order-card.accepted {
+            border-left-width: 5px;
+        }
+
+        body.station-mode .order-card.ready {
+            border-left-width: 5px;
+        }
+
+        body.station-mode .order-card-header {
+            margin-bottom: 6px;
+        }
+
+        body.station-mode .table-badge {
+            font-size: var(--kds-table-size);
+            padding: 5px 10px;
+        }
+
+        body.station-mode .order-type-badge {
+            display: none;
+        }
+
+        body.station-mode .order-id {
+            font-size: 11px;
+        }
+
+        body.station-mode .order-item {
+            padding: 10px 0;
+        }
+
+        body.station-mode .item-main {
+            grid-template-columns: 58px minmax(0, 1fr);
+            gap: 10px;
+        }
+
+        body.station-mode .item-qty {
+            font-size: var(--kds-quantity-size);
+            letter-spacing: -1.5px;
+        }
+
+        body.station-mode .item-name {
+            font-size: var(--kds-dish-size);
+            line-height: 1.15;
+        }
+
+        body.station-mode .item-details {
+            margin-left: 68px;
+        }
+
+        body.station-mode .order-card-footer {
+            align-items: stretch;
+        }
+
+        body.station-mode .order-timer {
+            display: inline-flex;
+            align-items: center;
+            min-height: 36px;
+        }
+
+        body.station-mode .order-actions {
+            flex: 1 1 auto;
+            justify-content: flex-end;
+        }
+
+        body.station-mode .action-btn {
+            min-height: var(--kds-touch-target);
+            padding: 10px 14px;
+            font-size: 14px;
+        }
+
+        body.station-mode .action-primary {
+            min-width: 126px;
+        }
+
+        body.station-mode .production-summary {
+            height: calc(100% - 108px);
+            overflow-y: auto;
+        }
+
+        body.density-compact.station-mode {
+            --kds-quantity-size: 24px;
+            --kds-dish-size: 17px;
+            --kds-detail-size: 11px;
+            --kds-table-size: 14px;
+            --kds-card-gap: 7px;
+        }
+
+        body.density-compact.station-mode .order-card {
+            padding: 9px 10px;
+        }
+
+        body.density-compact.station-mode .order-item {
+            padding: 7px 0;
+        }
+
+        body.density-compact.station-mode .item-main {
+            grid-template-columns: 48px minmax(0, 1fr);
+        }
+
+        body.density-compact.station-mode .item-details {
+            margin-left: 58px;
+        }
+
+        body.density-compact.station-mode .order-card-footer {
+            margin-top: 6px;
+            padding-top: 7px;
+        }
+
+        @media (max-width: 1100px) {
+            body.station-mode .content {
+                overflow-y: auto;
+            }
+
+            body.station-mode .screen-panel.active,
+            body.station-mode .orders-grid,
+            body.station-mode .production-summary {
+                height: auto;
+            }
+
+            body.station-mode .orders-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+
+            body.station-mode .order-column:last-child {
+                grid-column: 1 / -1;
+            }
+
+            body.station-mode .column-body {
+                max-height: 60vh;
+            }
+
+            .station-view-toolbar {
+                flex-wrap: wrap;
+            }
+
+            .station-toolbar-spacer {
+                display: none;
+            }
+        }
+
+        @media (max-width: 760px) {
+            body.station-mode .topbar-station-status .status-text,
+            body.station-mode .station-late-indicator .station-late-label,
+            body.station-mode .exit-station-mode {
+                display: none;
+            }
+
+            body.station-mode .topbar {
+                padding: 0 10px;
+                gap: 7px;
+            }
+
+            body.station-mode .topbar-title {
+                font-size: 16px;
+            }
+
+            body.station-mode .stats-row {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+
+            .density-control,
+            .station-icon-button span {
+                display: none;
+            }
+
+            body.station-mode .orders-grid {
+                grid-template-columns: 1fr;
+            }
+
+            body.station-mode .order-column:last-child {
+                grid-column: auto;
+            }
+
+            body.station-mode .order-card-footer,
+            body.station-mode .order-actions {
+                flex-direction: column;
+            }
+
+            body.station-mode .order-actions,
+            body.station-mode .order-secondary-actions,
+            body.station-mode .action-btn {
+                width: 100%;
+            }
+        }
+
         ::-webkit-scrollbar {
             width: 5px;
         }
@@ -1865,7 +2717,7 @@
                         class="nav-text">Salão</span> <span class="nav-badge" id="nb-salao">0</span></a>
             </nav>
             <div class="sidebar-footer">
-                <div class="station-status" id="ws-status">
+                <div class="station-status" id="ws-status" data-connection-status>
                     <div class="status-dot"></div><span class="status-text">Conectando…</span>
                 </div>
             </div>
@@ -1876,6 +2728,17 @@
                 <span class="topbar-title" id="topbar-title">Estação da Cozinha</span>
                 <span class="topbar-sub" id="topbar-sub">— aceite e gerencie os pedidos da cozinha</span>
                 <div class="topbar-actions">
+                    <div class="station-late-indicator" aria-label="Pedidos atrasados">
+                        <span aria-hidden="true">🔥</span>
+                        <span class="station-late-label">Atrasados</span>
+                        <span class="station-late-count" id="station-late-count">0</span>
+                    </div>
+                    <div class="station-status topbar-station-status" data-connection-status>
+                        <div class="status-dot"></div><span class="status-text">Conectando…</span>
+                    </div>
+                    <button class="btn btn-ghost exit-station-mode" id="exit-station-mode" onclick="exitStationMode()" hidden>
+                        Sair do modo estação
+                    </button>
                     <div class="time-display" id="clock">--:--:--</div>
                 </div>
             </div>
@@ -1890,7 +2753,24 @@
                 <!-- COZINHA -->
                 <div id="panel-kitchen" class="screen-panel active">
                     <div class="stats-row" id="stats-kitchen"></div>
-                    <div class="orders-grid">
+                    <div class="station-view-toolbar" data-station-toolbar="kitchen">
+                        <div class="station-segment" aria-label="Visualização da cozinha">
+                            <button class="station-segment-btn active" data-station-presentation="orders" onclick="switchStationPresentation('orders')">Pedidos</button>
+                            <button class="station-segment-btn" data-station-presentation="summary" onclick="switchStationPresentation('summary')">Resumo da bancada</button>
+                        </div>
+                        <div class="station-segment station-stage-segment" data-station-stage-controls hidden aria-label="Estágio do resumo">
+                            <button class="station-segment-btn" data-station-summary-stage="PENDING" onclick="setStationSummaryStage('PENDING')">Novos</button>
+                            <button class="station-segment-btn active" data-station-summary-stage="ACCEPTED" onclick="setStationSummaryStage('ACCEPTED')">Em preparo</button>
+                            <button class="station-segment-btn" data-station-summary-stage="READY" onclick="setStationSummaryStage('READY')">Prontos</button>
+                        </div>
+                        <div class="station-toolbar-spacer"></div>
+                        <div class="station-segment density-control" aria-label="Densidade dos cartões">
+                            <button class="station-segment-btn active" data-kds-density="comfortable" onclick="setKdsDensity('comfortable')">Confortável</button>
+                            <button class="station-segment-btn" data-kds-density="compact" onclick="setKdsDensity('compact')">Compacto</button>
+                        </div>
+                        <button class="station-icon-button" data-fullscreen-button onclick="toggleKdsFullscreen()" title="Alternar tela cheia">⛶ <span>Tela cheia</span></button>
+                    </div>
+                    <div class="orders-grid" data-station-orders="kitchen">
                         <div class="order-column">
                             <div class="column-header">
                                 <div class="column-dot" style="background:var(--red)"></div><span
@@ -1916,12 +2796,30 @@
                             <div class="column-body" id="col-k-ready"></div>
                         </div>
                     </div>
+                    <div class="production-summary" id="production-summary-kitchen" data-station-summary="kitchen" hidden></div>
                 </div>
 
                 <!-- BAR -->
                 <div id="panel-bar" class="screen-panel">
                     <div class="stats-row" id="stats-bar"></div>
-                    <div class="orders-grid">
+                    <div class="station-view-toolbar" data-station-toolbar="bar">
+                        <div class="station-segment" aria-label="Visualização do bar">
+                            <button class="station-segment-btn active" data-station-presentation="orders" onclick="switchStationPresentation('orders')">Pedidos</button>
+                            <button class="station-segment-btn" data-station-presentation="summary" onclick="switchStationPresentation('summary')">Resumo da bancada</button>
+                        </div>
+                        <div class="station-segment station-stage-segment" data-station-stage-controls hidden aria-label="Estágio do resumo">
+                            <button class="station-segment-btn" data-station-summary-stage="PENDING" onclick="setStationSummaryStage('PENDING')">Novos</button>
+                            <button class="station-segment-btn active" data-station-summary-stage="ACCEPTED" onclick="setStationSummaryStage('ACCEPTED')">Em preparo</button>
+                            <button class="station-segment-btn" data-station-summary-stage="READY" onclick="setStationSummaryStage('READY')">Prontos</button>
+                        </div>
+                        <div class="station-toolbar-spacer"></div>
+                        <div class="station-segment density-control" aria-label="Densidade dos cartões">
+                            <button class="station-segment-btn active" data-kds-density="comfortable" onclick="setKdsDensity('comfortable')">Confortável</button>
+                            <button class="station-segment-btn" data-kds-density="compact" onclick="setKdsDensity('compact')">Compacto</button>
+                        </div>
+                        <button class="station-icon-button" data-fullscreen-button onclick="toggleKdsFullscreen()" title="Alternar tela cheia">⛶ <span>Tela cheia</span></button>
+                    </div>
+                    <div class="orders-grid" data-station-orders="bar">
                         <div class="order-column">
                             <div class="column-header">
                                 <div class="column-dot" style="background:var(--red)"></div><span
@@ -1947,91 +2845,68 @@
                             <div class="column-body" id="col-b-ready"></div>
                         </div>
                     </div>
+                    <div class="production-summary" id="production-summary-bar" data-station-summary="bar" hidden></div>
                 </div>
 
                 <!-- SALÃO (unified) -->
                 <div id="panel-salao" class="screen-panel">
-                    <div class="stats-row" id="stats-salao"></div>
+                    <nav class="salao-view-tabs" role="tablist" aria-label="Áreas do salão">
+                        <button class="salao-view-tab active" id="salao-tab-agora" role="tab" aria-selected="true" aria-controls="salao-view-agora" data-salao-view="agora" onclick="switchSalaoView('agora')">
+                            <span>Agora</span><span class="salao-view-count urgent" id="salao-nav-agora-count">0</span>
+                        </button>
+                        <button class="salao-view-tab" id="salao-tab-comandas" role="tab" aria-selected="false" aria-controls="salao-view-comandas" data-salao-view="comandas" onclick="switchSalaoView('comandas')">
+                            <span>Comandas</span><span class="salao-view-count" id="salao-nav-comandas-count">0</span>
+                        </button>
+                        <button class="salao-view-tab" id="salao-tab-mesas" role="tab" aria-selected="false" aria-controls="salao-view-mesas" data-salao-view="mesas" onclick="switchSalaoView('mesas')">
+                            <span>Mesas</span><span class="salao-view-count" id="salao-nav-mesas-count">0</span>
+                        </button>
+                        <button class="salao-view-tab" id="salao-tab-conversas" role="tab" aria-selected="false" aria-controls="salao-view-conversas" data-salao-view="conversas" onclick="switchSalaoView('conversas')">
+                            <span>Conversas</span><span class="salao-view-count" id="salao-nav-conversas-count">0</span>
+                        </button>
+                    </nav>
 
-                    <div class="salao-layout">
-                        <!-- Left column: Primeiro Contato + Fechar Conta -->
-                        <div class="salao-col-left">
-                            <div class="section-card" style="flex:1">
-                                <div class="salao-card-header">
-                                    <div class="section-header-icon" style="background:var(--yellow-bg)">👤</div>
-                                    <h3>Primeiro Contato</h3>
-                                    <div class="live-dot">ao vivo</div>
-                                    <span class="header-count" id="salao-new-count"
-                                        style="background:var(--yellow-bg);color:#8a6e00;">0</span>
-                                </div>
-                                <div class="salao-card-body" id="salao-new-list"></div>
-                            </div>
-                            <div class="section-card" style="flex:1">
-                                <div class="salao-card-header">
-                                    <div class="section-header-icon" style="background:var(--red-bg)">💰</div>
-                                    <h3>Fechar Conta</h3>
-                                    <div class="live-dot">ao vivo</div>
-                                    <span class="header-count" id="salao-close-count"
-                                        style="background:var(--red-bg);color:var(--red);">0</span>
-                                </div>
-                                <div class="salao-card-body" id="salao-close-list"></div>
-                            </div>
+                    <section class="salao-view active" id="salao-view-agora" role="tabpanel" aria-labelledby="salao-tab-agora" data-salao-view-panel="agora">
+                        <div class="salao-view-heading">
+                            <div><h2>Ações de agora</h2><p>Entregas, novos atendimentos e contas aguardando sua equipe.</p></div>
+                            <span class="live-dot">Atualização ao vivo</span>
                         </div>
+                        <div class="salao-now-list" id="salao-now-list"></div>
+                    </section>
 
-                        <!-- Center column: Prontos para Entrega -->
-                        <div class="salao-col-center">
-                            <div class="section-card" style="height:100%">
-                                <div class="salao-card-header">
-                                    <div class="section-header-icon" style="background:var(--green-bg)">✅</div>
-                                    <h3>Prontos para Entrega</h3>
-                                    <div class="live-dot">ao vivo</div>
-                                    <span class="header-count" id="salao-ready-count"
-                                        style="background:var(--green-bg);color:var(--green);">0</span>
-                                </div>
-                                <div class="salao-card-body" id="salao-ready-list"></div>
+                    <section class="salao-view" id="salao-view-comandas" role="tabpanel" aria-labelledby="salao-tab-comandas" data-salao-view-panel="comandas" hidden>
+                        <div class="section-card salao-workspace-card">
+                            <div class="salao-card-header">
+                                <div class="section-header-icon" style="background:var(--purple-bg)">🧾</div>
+                                <div><h3>Comandas em atendimento</h3><p>Busque, lance consumo e consulte a trilha do atendimento.</p></div>
+                                <span class="header-count" id="salao-tabs-count">0</span>
                             </div>
+                            <div class="salao-card-body" id="salao-tabs-list"></div>
                         </div>
+                    </section>
 
-                        <!-- Right column: Mesas Livres Agora -->
-                        <div class="salao-col-right">
-                            <div class="section-card" style="height:100%">
-                                <div class="salao-card-header">
-                                    <div class="section-header-icon" style="background:var(--orange-bg, #fff7ed)">🪑
-                                    </div>
-                                    <h3>Mesas Livres Agora</h3>
-                                    <span class="header-count" id="salao-tables-count"
-                                        style="background:var(--orange-bg, #fff7ed);color:var(--orange, #f97316);">0</span>
-                                </div>
-                                <div class="table-filter-tabs" id="salao-table-filters"></div>
-                                <div class="tables-section-label">DISPONÍVEIS AGORA</div>
-                                <div id="salao-tables-list" style="overflow-y:auto; max-height:420px;"></div>
+                    <section class="salao-view" id="salao-view-mesas" role="tabpanel" aria-labelledby="salao-tab-mesas" data-salao-view-panel="mesas" hidden>
+                        <div class="section-card salao-workspace-card">
+                            <div class="salao-card-header">
+                                <div class="section-header-icon" style="background:var(--orange-bg)">🪑</div>
+                                <div><h3>Mapa operacional de mesas</h3><p>Consulte disponibilidade, ocupação e capacidade.</p></div>
+                                <span class="header-count" id="salao-tables-count">0</span>
                             </div>
+                            <div class="table-filter-tabs" id="salao-table-status-filters"></div>
+                            <div class="table-filter-tabs capacity-filters" id="salao-table-filters"></div>
+                            <div id="salao-tables-list" class="salao-tables-grid"></div>
                         </div>
+                    </section>
 
-                        <!-- Bottom: Conversas WhatsApp -->
-                        <div class="salao-bottom">
-                            <div class="section-card">
-                                <div class="salao-card-header">
-                                    <div class="section-header-icon" style="background:var(--purple-bg, #f3e8ff)">🧾</div>
-                                    <h3>Comandas em atendimento</h3>
-                                    <div class="live-dot">ao vivo</div>
-                                    <span class="header-count" id="salao-tabs-count"
-                                        style="background:var(--purple-bg, #f3e8ff);color:var(--purple, #7c3aed);">0</span>
-                                </div>
-                                <div class="salao-card-body" id="salao-tabs-list"></div>
+                    <section class="salao-view" id="salao-view-conversas" role="tabpanel" aria-labelledby="salao-tab-conversas" data-salao-view-panel="conversas" hidden>
+                        <div class="section-card salao-workspace-card">
+                            <div class="salao-card-header">
+                                <div class="section-header-icon" style="background:var(--blue-bg)">💬</div>
+                                <div><h3>Caixa de entrada WhatsApp</h3><p>Conversas aguardando resposta aparecem primeiro.</p></div>
+                                <span class="header-count" id="salao-chat-count">0</span>
                             </div>
-                            <div class="section-card">
-                                <div class="salao-card-header">
-                                    <div class="section-header-icon" style="background:var(--blue-bg)">💬</div>
-                                    <h3>Conversas WhatsApp</h3>
-                                    <div class="live-dot">ao vivo</div>
-                                    <span class="header-count" id="salao-chat-count"
-                                        style="background:var(--blue-bg);color:var(--blue);">0</span>
-                                </div>
-                                <div class="salao-card-body" id="salao-chat-list"></div>
-                            </div>
+                            <div class="salao-card-body" id="salao-chat-list"></div>
                         </div>
-                    </div>
+                    </section>
                 </div>
             </div>
         </main>
