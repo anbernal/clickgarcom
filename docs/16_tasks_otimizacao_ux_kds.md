@@ -50,7 +50,7 @@ Atualizado em 02/08/2026.
 - [x] KDS-UX-040/042/043 — densidade persistida, foco/semântica e controle de tela cheia.
 - [x] KDS-UX-050/051/052 — suíte automatizada de cartões, acesso, navegação e carga visual.
 - [ ] KDS-UX-053/054/055 — homologação física, fluxo integrado e comparação final com operadores.
-- [ ] KDS-UX-056 — smoke test pós-deploy.
+- [x] KDS-UX-056 — smoke pós-deploy aprovado em 02/08/2026; KDS, JavaScript, configuração e healthchecks responderam `200`.
 
 ## Épico 1 — Fundação e linha de base
 
