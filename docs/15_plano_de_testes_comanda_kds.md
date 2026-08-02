@@ -118,6 +118,10 @@ Emitir comprovante em comanda aberta e fechada.
 
 Resultado esperado: documento mostra nome, CPF/CNPJ, endereço e contato cadastrados do restaurante; número operacional, comanda, mesa, emissão, atendente, itens efetivos com quantidade/valor unitário/total, subtotal, taxa, total e pagamentos; contém identificação clara de “documento não fiscal” e não apresenta NFC-e, chave de acesso ou protocolo fiscal.
 
+Emitir pedidos com observação real, sem observação e com registros legados contendo `&lt;nil&gt;`.
+
+Resultado esperado: somente a observação real é exibida; valores nulos ou equivalentes não geram rótulo `Obs.` no KDS, edição, resumo ou comprovante.
+
 ### CT-11 — Impressão e reimpressão
 
 1. Imprimir pelo KDS.

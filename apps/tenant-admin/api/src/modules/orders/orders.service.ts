@@ -6,6 +6,7 @@ import { OrderBatch } from '../../entities/order-batch.entity';
 import { Tenant } from '../../entities/tenant.entity';
 import { UserAccessAuditLog } from '../../entities/user-access-audit-log.entity';
 import { DEFAULT_MESSAGE_TEMPLATES, resolveMessageTemplate } from '../../shared/message-templates';
+import { normalizeOptionalText } from '../../shared/optional-text';
 import { AmqpService } from '../amqp/amqp.service';
 import { TENANT_MANUAL_ORDER_ROLES, TENANT_ORDER_CANCEL_ROLES, normalizeTenantRole } from '../auth/roles';
 import {
@@ -220,7 +221,7 @@ export class OrdersService {
             const normalizedItems = input.items.map((item) => ({
                 menuItemId: String(item?.menu_item_id || '').trim(),
                 quantity: Number(item?.quantity || 0),
-                observations: String(item?.observations || '').trim().slice(0, 1000),
+                observations: normalizeOptionalText(item?.observations, 1000),
                 selectedOptions: Array.isArray(item?.selected_options) ? item.selected_options : [],
             }));
             if (normalizedItems.some((item) => !item.menuItemId || !Number.isInteger(item.quantity) || item.quantity <= 0 || item.quantity > 99)) {
@@ -251,7 +252,7 @@ export class OrdersService {
                 rows.push({
                     menuItemId: requested.menuItemId,
                     quantity: requested.quantity,
-                    observations: requested.observations || null,
+                    observations: requested.observations,
                     itemName: String(menuItem.name || 'Item'),
                     unitPrice: this.roundMoney(Number(menuItem.price || 0) + options.priceDelta),
                     selectedOptions: options.selected,
@@ -272,7 +273,7 @@ export class OrdersService {
                 await queryRunner.query(
                     `INSERT INTO orders (id, tenant_id, tab_id, batch_id, destination, status, notes, created_at)
                      VALUES ($1, $2, $3, $4, $5, 'PENDING', $6, NOW())`,
-                    [orderId, tenantId, input.tab_id, batchId, destination, String(input.notes || '').trim().slice(0, 2000) || 'Lançamento manual pelo Atendimento'],
+                    [orderId, tenantId, input.tab_id, batchId, destination, normalizeOptionalText(input.notes, 2000) || 'Lançamento manual pelo Atendimento'],
                 );
                 for (const item of items) {
                     await queryRunner.query(
@@ -290,7 +291,7 @@ export class OrdersService {
                 batch_id: batchId,
                 order_ids: createdOrderIds,
                 item_count: normalizedItems.length,
-                notes: String(input.notes || '').trim() || null,
+                notes: normalizeOptionalText(input.notes, 2000),
             });
             await queryRunner.commitTransaction();
 
@@ -313,9 +314,9 @@ export class OrdersService {
         const order = await this.findOne(id, tenantId);
         if (!order) throw new BadRequestException('Pedido não encontrado.');
         if (order.status !== 'PENDING') throw new BadRequestException('Somente pedidos pendentes podem ser editados.');
-        const notes = String(input?.notes || '').trim().slice(0, 2000);
-        const previousNotes = order.notes || null;
-        order.notes = notes || null;
+        const notes = normalizeOptionalText(input?.notes, 2000);
+        const previousNotes = normalizeOptionalText(order.notes);
+        order.notes = notes;
         const saved = await this.orderRepo.save(order);
         await this.recordOrderAuditEvent(tenantId, saved, 'ORDER_UPDATED', actor, {
             source: 'KDS',
@@ -357,17 +358,18 @@ export class OrdersService {
             if (quantity < allocated || quantity < voidedQuantity) {
                 throw new BadRequestException('A quantidade não pode ficar abaixo do que já foi paga ou anulada.');
             }
-            const previous = { quantity: Number(current.quantity), observations: current.observations || null };
+            const observations = normalizeOptionalText(input?.observations, 1000);
+            const previous = { quantity: Number(current.quantity), observations: normalizeOptionalText(current.observations) };
             await queryRunner.query(
                 `UPDATE order_items
                     SET quantity = $1,
                         observations = $2
                   WHERE id = $3`,
-                [quantity, String(input?.observations || '').trim().slice(0, 1000) || null, itemId],
+                [quantity, observations, itemId],
             );
             await this.recordOrderTabEvent(queryRunner, tenantId, current.tab_id, 'ORDER_ITEM_UPDATED', actor, {
                 source: 'KDS', order_id: id, order_item_id: itemId, before: previous,
-                after: { quantity, observations: String(input?.observations || '').trim().slice(0, 1000) || null },
+                after: { quantity, observations },
             });
             await queryRunner.commitTransaction();
             await this.recalculateTabTotals(current.tab_id, tenantId);
@@ -375,7 +377,7 @@ export class OrdersService {
             if (saved) {
                 await this.recordOrderAuditEvent(tenantId, saved, 'ORDER_ITEM_UPDATED', actor, {
                     source: 'KDS', orderItemId: itemId, before: previous,
-                    after: { quantity, observations: String(input?.observations || '').trim().slice(0, 1000) || null },
+                    after: { quantity, observations },
                 });
                 await this.publishOrderUpdated(saved);
             }
@@ -597,9 +599,11 @@ export class OrdersService {
     private projectOperationalOrder(order: Order) {
         return {
             ...order,
+            notes: normalizeOptionalText(order.notes),
             items: (order.items || [])
                 .map((item: any) => ({
                     ...item,
+                    observations: normalizeOptionalText(item.observations),
                     quantity: Math.max(0, Number(item.quantity || 0) - Number(item.voidedQuantity || 0)),
                     originalQuantity: Number(item.quantity || 0),
                     voidedQuantity: Number(item.voidedQuantity || 0),
@@ -720,7 +724,7 @@ export class OrdersService {
                 batch_display_code: this.resolveOrderMessageCode(order),
                 destination: order.destination,
                 status: order.status,
-                notes: order.notes,
+                notes: normalizeOptionalText(order.notes),
                 created_at: order.createdAt,
                 accepted_at: order.acceptedAt,
                 ready_at: order.readyAt,
@@ -736,7 +740,7 @@ export class OrdersService {
                         original_quantity: Number(item.quantity || 0),
                         voided_quantity: Number(item.voidedQuantity || 0),
                         unit_price: this.normalizeMoneyValue(item.unitPrice),
-                        observations: item.observations,
+                        observations: normalizeOptionalText(item.observations),
                         selected_options: this.normalizeOrderItemSelectedOptions(item.selectedOptions),
                         created_at: item.createdAt,
                     }))

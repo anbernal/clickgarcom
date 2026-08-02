@@ -37,6 +37,7 @@ test('modo estação respeita perfil, métricas e hierarquia touch', async ({ pa
       id: 'pending-critical', status: 'PENDING', destination: 'KITCHEN', created_at: minutesAgo(9),
       batch_display_code: '1042', items: [
         { id: 'item-1', quantity: 3, menu_item_name: 'Filé à parmegiana', observations: 'SEM CEBOLA — alergia' },
+        { id: 'item-2', quantity: 1, menu_item_name: 'Arroz branco', observations: '<nil>' },
       ],
     },
   ];
@@ -47,10 +48,12 @@ test('modo estação respeita perfil, métricas e hierarquia touch', async ({ pa
   await expect(page.locator('body')).toHaveClass(/station-mode/);
   await expect(page.locator('#kds-sidebar')).toBeHidden();
   await expect(page.locator('#stats-kitchen .stat-card')).toHaveCount(4);
-  await expect(page.locator('.item-qty')).toHaveCSS('font-size', '30px');
-  await expect(page.locator('.item-name')).toHaveCSS('font-size', '20px');
+  await expect(page.locator('.item-qty').first()).toHaveCSS('font-size', '30px');
+  await expect(page.locator('.item-name').first()).toHaveCSS('font-size', '20px');
   await expect(page.locator('.action-primary')).toHaveCSS('height', '48px');
   await expect(page.locator('.item-observation')).toContainText('alergia');
+  await expect(page.locator('.item-observation')).toHaveCount(1);
+  await expect(page.locator('body')).not.toContainText('<nil>');
   await expect(page.locator('#exit-station-mode')).toBeHidden();
 });
 
@@ -174,6 +177,12 @@ test('comprovante não fiscal usa o snapshot cadastral completo do restaurante',
         unitPrice: 8,
         lineSubtotal: 16,
         observations: 'Sem gelo',
+      }, {
+        quantity: 1,
+        name: 'Guardanapo',
+        unitPrice: 0,
+        lineSubtotal: 0,
+        observations: '<nil>',
       }],
       financial: { subtotal: 16, serviceFee: 1.6, total: 17.6, paidAmount: 17.6, amountDue: 0 },
       payments: [{ status: 'CONFIRMED', methodLabel: 'Cartão de crédito', amount: 17.6 }],
@@ -189,6 +198,7 @@ test('comprovante não fiscal usa o snapshot cadastral completo do restaurante',
   expect(html).toContain('Cartão de crédito');
   expect(html).toContain('Emitido por: Maria Garçonete');
   expect(html).toContain('Este documento não possui validade fiscal.');
+  expect(html).not.toContain('Obs.: &lt;nil&gt;');
   expect(html).not.toContain('NFC-e');
 });
 

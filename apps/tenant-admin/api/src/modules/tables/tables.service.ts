@@ -10,6 +10,7 @@ import { WalletService } from '../wallet/wallet.service';
 import { TenantUserRole } from '../auth/roles';
 import { v4 as uuidv4 } from 'uuid';
 import { createHash, randomBytes, randomInt } from 'crypto';
+import { normalizeOptionalText } from '../../shared/optional-text';
 
 type TabActorContext = {
     userId?: string;
@@ -1934,7 +1935,7 @@ export class TablesService {
                 lineSubtotal: this.roundMoney(quantity * unitPrice),
                 allocatedQuantity,
                 remainingQuantity: Math.max(0, quantity - allocatedQuantity),
-                observations: String(row.observations || '').trim() || null,
+                observations: normalizeOptionalText(row.observations),
                 selectedOptions: Array.isArray(row.selected_options) ? row.selected_options : [],
                 createdAt: row.created_at,
                 orderCreatedAt: row.order_created_at,

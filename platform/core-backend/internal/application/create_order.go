@@ -175,7 +175,7 @@ func (uc *CreateOrderUseCase) Execute(ctx context.Context, input CreateOrderInpu
 			MenuItemID:       menuItem.ID,
 			Quantity:         inputItem.Quantity,
 			UnitPrice:        menuItem.Price + extrasPerUnit,
-			Observations:     inputItem.Observations,
+			Observations:     normalizeOptionalText(inputItem.Observations),
 			ItemNameSnapshot: menuItem.Name,
 			CreatedAt:        time.Now(),
 		}
@@ -236,7 +236,7 @@ func (uc *CreateOrderUseCase) Execute(ctx context.Context, input CreateOrderInpu
 			BatchID:     batchID,
 			Destination: dest,
 			Status:      order.StatusPending,
-			Notes:       input.Notes,
+			Notes:       normalizeOptionalText(input.Notes),
 			Items:       items,
 			CreatedAt:   time.Now(),
 		}

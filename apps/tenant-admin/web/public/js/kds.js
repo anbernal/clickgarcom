@@ -908,10 +908,11 @@ function buildProductionItemDetails(item) {
     || (Array.isArray(selectedOptions)
       ? selectedOptions.map((option) => option?.option_name || option?.optionName || option?.name || '').filter(Boolean).join(', ')
       : '');
+  const observations = normalizeOptionalDisplayText(item.observations);
   return [
     resolveComboSummary(item) ? `Combo: ${resolveComboSummary(item)}` : '',
     formattedOptions ? `Opções: ${formattedOptions}` : '',
-    item.observations ? `Obs.: ${item.observations}` : '',
+    observations ? `Obs.: ${observations}` : '',
   ].filter(Boolean).join(' · ');
 }
 
@@ -1045,10 +1046,11 @@ function buildCardHTML(order, stage = getOrderStageSnapshot(order)) {
     itemsHtml = order.items.map((item) => {
       const comboSummary = resolveComboSummary(item);
       const optionsSummary = formatSelectedOptionsSummary(item.selected_options || item.selectedOptions);
+      const observations = normalizeOptionalDisplayText(item.observations);
       const details = [
         comboSummary ? `<div class="item-modifier">Combo: ${escapeHTML(comboSummary)}</div>` : '',
         optionsSummary ? `<div class="item-modifier">Adicionais: ${escapeHTML(optionsSummary)}</div>` : '',
-        item.observations ? `<div class="item-observation"><span aria-hidden="true">⚠</span><span>${escapeHTML(item.observations)}</span></div>` : '',
+        observations ? `<div class="item-observation"><span aria-hidden="true">⚠</span><span>${escapeHTML(observations)}</span></div>` : '',
       ].filter(Boolean).join('');
 
       return `
@@ -1751,12 +1753,12 @@ function openManualEditOrderModal(orderId) {
   overlay.className = 'modal-overlay open';
   var rows = (order.items || []).map(function (item) {
     return '<div style="display:grid;grid-template-columns:minmax(0,1fr) 76px auto;gap:8px;align-items:center;margin-bottom:10px">' +
-      '<div><strong>' + escapeHTML(resolveItemName(item)) + '</strong><input id="manual-edit-obs-' + escapeHTML(item.id) + '" class="input" style="margin-top:5px" value="' + escapeHTML(item.observations || '') + '" placeholder="Observação"></div>' +
+      '<div><strong>' + escapeHTML(resolveItemName(item)) + '</strong><input id="manual-edit-obs-' + escapeHTML(item.id) + '" class="input" style="margin-top:5px" value="' + escapeHTML(normalizeOptionalDisplayText(item.observations)) + '" placeholder="Observação"></div>' +
       '<input id="manual-edit-qty-' + escapeHTML(item.id) + '" class="input" type="number" min="1" max="99" value="' + escapeHTML(item.quantity) + '">' +
       '<div style="display:flex;gap:5px"><button class="action-btn accept-btn" onclick="saveManualOrderItem(\'' + escapeHTML(order.id) + '\',\'' + escapeHTML(item.id) + '\')">Salvar</button><button class="action-btn reject-btn" onclick="voidManualOrderItem(\'' + escapeHTML(order.id) + '\',\'' + escapeHTML(item.id) + '\')">Anular</button></div></div>';
   }).join('');
   overlay.innerHTML = '<div class="modal" style="width:min(680px,96vw)"><div class="modal-header"><div><div class="modal-title">Editar pedido #' + escapeHTML(getOrderDisplayCode(order)) + '</div><div style="font-size:12px;color:var(--muted);margin-top:4px">Somente pedidos pendentes podem ser editados diretamente.</div></div><button class="modal-close" onclick="closeManualEditOrderModal()">✕</button></div>' +
-    '<div class="modal-body">' + (rows || '<div class="empty-state">Nenhum item ativo.</div>') + '<label class="modal-label" style="margin-top:16px">Observação geral</label><textarea id="manual-edit-notes" class="input" rows="3">' + escapeHTML(order.notes || '') + '</textarea></div>' +
+    '<div class="modal-body">' + (rows || '<div class="empty-state">Nenhum item ativo.</div>') + '<label class="modal-label" style="margin-top:16px">Observação geral</label><textarea id="manual-edit-notes" class="input" rows="3">' + escapeHTML(normalizeOptionalDisplayText(order.notes)) + '</textarea></div>' +
     '<div class="modal-actions"><button class="btn btn-ghost" onclick="closeManualEditOrderModal()">Fechar</button><button class="btn btn-green" onclick="saveManualOrderNotes(\'' + escapeHTML(order.id) + '\')">Salvar observação</button></div></div>';
   overlay.addEventListener('click', function (event) {
     if (event.target === overlay) closeManualEditOrderModal();
@@ -2207,6 +2209,13 @@ function escapeHTML(str) {
     .replace(/'/g, '&#039;');
 }
 
+function normalizeOptionalDisplayText(value) {
+  if (value === null || value === undefined) return '';
+  const text = String(value).trim();
+  if (!text || ['<nil>', 'nil', 'null', '<null>', 'undefined'].includes(text.toLowerCase())) return '';
+  return text;
+}
+
 function shortId(id) {
   if (!id) return '???';
   return id.substring(0, 8);
@@ -2218,6 +2227,7 @@ function normalizeOrder(order) {
   const items = Array.isArray(order.items) ? order.items : [];
   return {
     ...order,
+    notes: normalizeOptionalDisplayText(order.notes),
     batch_id: order.batch_id || order.batchId || null,
     batchId: order.batchId || order.batch_id || null,
     batch_display_code: order.batch_display_code || order.batchDisplayCode || '',
@@ -2236,6 +2246,7 @@ function normalizeOrder(order) {
     canceled_by_user_name: order.canceled_by_user_name || order.canceledByUserName || '',
     items: items.map((item) => ({
       ...item,
+      observations: normalizeOptionalDisplayText(item.observations),
       menu_item_id: item.menu_item_id || item.menuItemId || null,
       menu_item_name: item.menu_item_name || item.menuItemName || item.name || item.menuItem?.name || '',
       unit_price: item.unit_price || item.unitPrice || item.price || null,

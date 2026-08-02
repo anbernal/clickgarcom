@@ -18,6 +18,13 @@
     }).format(Number(value || 0));
   }
 
+  function optionalText(value) {
+    if (value === null || value === undefined) return '';
+    const text = String(value).trim();
+    if (!text || ['<nil>', 'nil', 'null', '<null>', 'undefined'].includes(text.toLowerCase())) return '';
+    return text;
+  }
+
   function dateTime(value) {
     if (!value) return 'Não informada';
     const date = new Date(value);
@@ -76,7 +83,7 @@
       const unitPrice = Number(item?.unitPrice ?? item?.unit_price ?? 0);
       const lineTotal = Number(item?.lineSubtotal ?? item?.line_subtotal ?? quantity * unitPrice);
       const options = selectedOptionsLabel(item);
-      const observations = String(item?.observations || '').trim();
+      const observations = optionalText(item?.observations);
       return `
         <div class="receipt-item">
           <div class="receipt-item-main">

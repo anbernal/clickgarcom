@@ -892,9 +892,9 @@ func (uc *HandleWhatsAppMessageUseCase) getContextString(sess *session.Session, 
 	}
 	switch typed := value.(type) {
 	case string:
-		return strings.TrimSpace(typed)
+		return normalizeOptionalText(typed)
 	default:
-		return strings.TrimSpace(fmt.Sprintf("%v", typed))
+		return optionalTextFromAny(typed)
 	}
 }
 
@@ -916,7 +916,9 @@ func (uc *HandleWhatsAppMessageUseCase) getContextStringSlice(sess *session.Sess
 			if raw == nil {
 				continue
 			}
-			values = append(values, strings.TrimSpace(fmt.Sprintf("%v", raw)))
+			if value := optionalTextFromAny(raw); value != "" {
+				values = append(values, value)
+			}
 		}
 		return values
 	default:
@@ -1001,16 +1003,7 @@ func parseOrderingItemPreview(raw interface{}) orderingItemPreview {
 }
 
 func parseOrderingOptionalString(raw interface{}) string {
-	if raw == nil {
-		return ""
-	}
-
-	value := strings.TrimSpace(fmt.Sprintf("%v", raw))
-	if value == "" || value == "<nil>" {
-		return ""
-	}
-
-	return value
+	return optionalTextFromAny(raw)
 }
 
 func parseOrderingSelectedOptions(raw interface{}) []orderingSelectedOption {
@@ -1456,12 +1449,12 @@ func (uc *HandleWhatsAppMessageUseCase) getOrderingCart(sess *session.Session) [
 			}
 			cart = append(cart, orderingCartItem{
 				LineID:          parseOrderingOptionalString(entry["line_id"]),
-				MenuItemID:      strings.TrimSpace(fmt.Sprintf("%v", entry["menu_item_id"])),
+				MenuItemID:      parseOrderingOptionalString(entry["menu_item_id"]),
 				Quantity:        parseOrderingIntValue(entry["quantity"]),
-				Observations:    strings.TrimSpace(fmt.Sprintf("%v", entry["observations"])),
-				MenuItemName:    strings.TrimSpace(fmt.Sprintf("%v", entry["menu_item_name"])),
-				UnitPrice:       strings.TrimSpace(fmt.Sprintf("%v", entry["unit_price"])),
-				CategoryLabel:   strings.TrimSpace(fmt.Sprintf("%v", entry["category_label"])),
+				Observations:    parseOrderingOptionalString(entry["observations"]),
+				MenuItemName:    parseOrderingOptionalString(entry["menu_item_name"]),
+				UnitPrice:       parseOrderingOptionalString(entry["unit_price"]),
+				CategoryLabel:   parseOrderingOptionalString(entry["category_label"]),
 				SelectedOptions: parseOrderingSelectedOptions(entry["selected_options"]),
 			})
 		}
@@ -2023,7 +2016,7 @@ func (uc *HandleWhatsAppMessageUseCase) buildOrderingCartOrderInput(
 		inputs = append(inputs, OrderItemInput{
 			MenuItemID:      menuItem.ID,
 			Quantity:        entry.Quantity,
-			Observations:    strings.TrimSpace(entry.Observations),
+			Observations:    normalizeOptionalText(entry.Observations),
 			SelectedOptions: toOrderSelectedOptions(entry.SelectedOptions),
 		})
 	}
@@ -2794,7 +2787,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleRepeatLastRound(
 		repeatItems = append(repeatItems, OrderItemInput{
 			MenuItemID:      item.MenuItemID,
 			Quantity:        item.Quantity,
-			Observations:    item.Observations,
+			Observations:    normalizeOptionalText(item.Observations),
 			SelectedOptions: append([]order.SelectedOption(nil), item.EnsureSelectedOptions()...),
 		})
 	}

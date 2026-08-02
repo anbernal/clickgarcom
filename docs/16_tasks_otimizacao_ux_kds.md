@@ -534,6 +534,16 @@ Critérios de aceite:
 - conteúdo dinâmico é escapado antes de entrar na janela de impressão;
 - a emissão continua registrada com usuário, hash e contador de impressão.
 
+### KDS-DOC-071 — Ocultar observações nulas em todo o fluxo
+
+- Prioridade: P0
+- Tipo: Core/BE/FE/QA
+- Status: concluída
+- Normalizar valores nulos antes de criar pedidos no Core e no tenant-admin.
+- Limpar registros legados com `&lt;nil&gt;`, `nil`, `null` ou `undefined`.
+- Impedir novas persistências dessas representações por constraint.
+- Omitir a linha de observação no KDS, edição e comprovante quando não houver conteúdo real.
+
 ## Execução paralela recomendada
 
 Após KDS-UX-001, KDS-UX-002 e KDS-UX-003, o trabalho pode seguir em paralelo:
