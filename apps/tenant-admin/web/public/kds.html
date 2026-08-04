@@ -1714,7 +1714,7 @@
 
         .new-salao-tab-form {
             display: grid;
-            gap: 14px;
+            gap: 18px;
         }
 
         .new-salao-tab-form .form-help {
@@ -1740,8 +1740,14 @@
 
         .new-salao-tab-form .form-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
+            grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
+            gap: 16px;
+        }
+
+        .new-salao-tab-modal .modal-actions {
+            margin-top: 20px;
+            padding-top: 16px;
+            border-top: 1px solid var(--border);
         }
 
         @media (max-width: 560px) {
