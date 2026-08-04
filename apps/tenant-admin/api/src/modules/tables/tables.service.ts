@@ -325,7 +325,7 @@ export class TablesService {
         throw new BadRequestException('Não foi possível gerar um código único para a comanda. Tente novamente.');
     }
 
-    async createPortalAccess(tenantId: string, tabId: string, staffUserId?: string) {
+    async createPortalAccess(tenantId: string, tabId: string, staffUserId?: string, staffUserName?: string) {
         const queryRunner = this.dataSource.createQueryRunner();
         await queryRunner.connect();
         await queryRunner.startTransaction();
@@ -370,6 +370,7 @@ export class TablesService {
 
             await this.recordTabEvent(queryRunner, tenantId, tabId, 'PORTAL_ACCESS_CREATED', {
                 actorUserId: staffUserId,
+                actorName: staffUserName,
                 details: { credential_id: credentialId },
             });
             await queryRunner.commitTransaction();

@@ -26,6 +26,11 @@ async function prepareKds(page, options = {}) {
     else if (path.endsWith('/tables/waiter/chats/open')) response = options.chats || [];
     else if (path.endsWith('/tables/waiter/close-requests')) response = options.closeRequests || [];
     else if (path.endsWith('/tables/tabs/open') && route.request().method() === 'POST') response = options.openTabResponse || { id: 'new-tab', publicCode: 'NEW01' };
+    else if (path.endsWith('/portal-access') && route.request().method() === 'POST') response = options.portalAccessResponse || {
+      portalPath: '/portal.html#access_token=test-token',
+      portalUrl: 'https://clickgarcom.test/portal.html#access_token=test-token',
+      qrImagePath: '/api/portal/qr.png?access_token=test-token',
+    };
     else if (path.endsWith('/tables/tabs/open')) response = options.tabs || [];
     else if (path.endsWith('/tables')) response = tables;
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(response) });
@@ -184,6 +189,34 @@ test('salão permite abrir uma nova comanda com mesa e registra os dados do aten
     customer_instagram: '@cliente.teste',
   });
   await expect(page.locator('#newSalaoTabModal')).not.toHaveClass(/open/);
+});
+
+test('salão disponibiliza QR e link seguro do portal nas ações da comanda', async ({ page }) => {
+  const portalRequests = [];
+  await prepareKds(page, {
+    role: 'WAITER',
+    tabs: [{ id: 'tab-portal', publicCode: 'CMD-PORTAL', total: 20 }],
+    portalAccessResponse: {
+      portalPath: '/portal.html#access_token=portal-token',
+      portalUrl: 'https://clickgarcom.test/portal.html#access_token=portal-token',
+      qrImagePath: '/api/portal/qr.png?access_token=portal-token',
+    },
+  });
+  page.on('request', (request) => {
+    if (request.url().endsWith('/tables/tabs/tab-portal/portal-access') && request.method() === 'POST') {
+      portalRequests.push(request.postDataJSON());
+    }
+  });
+
+  await page.goto('/kds.html?panel=salao');
+  await page.getByRole('tab', { name: /Comandas/ }).click();
+  await page.locator('summary[aria-label="Mais ações da comanda CMD-PORTAL"]').click();
+  await page.getByRole('button', { name: 'QR do portal' }).click();
+  await expect.poll(() => portalRequests.length).toBe(1);
+  await expect(page.locator('#manualTabPortalModal')).toBeVisible();
+  await expect(page.locator('#manual-tab-portal-link')).toHaveValue('https://clickgarcom.test/portal.html#access_token=portal-token');
+  await expect(page.locator('.manual-tab-portal-qr')).toHaveAttribute('src', '/api/portal/qr.png?access_token=portal-token');
+  await expect(page.getByRole('link', { name: 'Testar portal' })).toHaveAttribute('href', '/portal.html#access_token=portal-token');
 });
 
 test('salão permite editar os dados e finalizar uma comanda com baixa manual rastreável', async ({ page }) => {

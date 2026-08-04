@@ -2661,15 +2661,43 @@
         }
 
         .manual-tab-data-modal .modal,
-        .manual-tab-finalize-modal .modal {
+        .manual-tab-finalize-modal .modal,
+        .manual-tab-portal-modal .modal {
             width: min(590px, 94vw);
         }
 
         .manual-tab-data-modal .modal-actions,
-        .manual-tab-finalize-modal .modal-actions {
+        .manual-tab-finalize-modal .modal-actions,
+        .manual-tab-portal-modal .modal-actions {
             margin-top: 22px;
             padding-top: 16px;
             border-top: 1px solid var(--border);
+        }
+
+        .manual-tab-portal-content {
+            display: grid;
+            gap: 14px;
+            text-align: center;
+        }
+
+        .manual-tab-portal-content p {
+            margin: 0;
+            color: var(--text-2);
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .manual-tab-portal-qr {
+            width: min(100%, 250px);
+            margin: auto;
+            padding: 12px;
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            background: #fff;
+        }
+
+        .manual-tab-portal-link {
+            font-family: 'DM Mono', monospace;
         }
 
         .manual-tab-modal-form {

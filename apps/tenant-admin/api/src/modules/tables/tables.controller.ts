@@ -232,7 +232,7 @@ export class TablesController {
     @Post('tabs/:tabId/portal-access')
     @Roles(...TENANT_TAB_OPERATION_ROLES)
     async createPortalAccess(@Request() req, @Param('tabId') tabId: string) {
-        return this.tablesService.createPortalAccess(req.user.tenantId, tabId, req.user?.id);
+        return this.tablesService.createPortalAccess(req.user.tenantId, tabId, req.user?.id, req.user?.name);
     }
 
     @Get('tabs/:tabId/details')

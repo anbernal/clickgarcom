@@ -1628,6 +1628,7 @@ function renderManualTabTableRow(tab) {
             ${editActions}
             <button class="kds-comandas-btn" onclick="openManualTabDataModal('${escapeHTML(tab.id)}')">Editar dados</button>
             <button class="kds-comandas-btn" onclick="openManualTabHistory('${escapeHTML(tab.id)}')">Histórico completo</button>
+            <button class="kds-comandas-btn" onclick="openManualTabPortalAccess('${escapeHTML(tab.id)}')">QR do portal</button>
             <button class="kds-comandas-btn" onclick="printTabConsumption('${escapeHTML(tab.id)}')">Imprimir consumo</button>
             <button class="kds-comandas-btn danger" onclick="openManualTabFinalizeModal('${escapeHTML(tab.id)}')">Finalizar comanda</button>
           </div>
@@ -1826,6 +1827,47 @@ async function openManualTabDataModal(tabId) {
 function closeManualTabDataModal() {
   document.getElementById('manualTabDataModal')?.remove();
   manualTabDataState = { tabId: '', userPhone: '', customerInstagram: '', tableId: '' };
+}
+
+async function openManualTabPortalAccess(tabId) {
+  const tab = findManualOpenTab(tabId);
+  if (!tab) {
+    toast('t-error', 'Comanda não encontrada', 'Atualize a lista e tente novamente.');
+    return;
+  }
+  try {
+    const access = await apiPost(`/tables/tabs/${tab.id}/portal-access`, {});
+    document.getElementById('manualTabPortalModal')?.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'manualTabPortalModal';
+    overlay.className = 'modal-overlay open manual-tab-portal-modal';
+    overlay.innerHTML = '<div class="modal">' +
+      '<div class="modal-header"><div><div class="modal-title">Portal da comanda</div><div style="font-size:12px;color:var(--muted);margin-top:4px">Comanda ' + escapeHTML(tab.publicCode || shortId(tab.id)) + '</div></div><button class="modal-close" onclick="closeManualTabPortalModal()" aria-label="Fechar">✕</button></div>' +
+      '<div class="modal-body"><div class="manual-tab-portal-content"><p>Mostre este QR Code ao cliente ou copie o link para encaminhar. O portal permite consultar e acompanhar a comanda sem precisar do WhatsApp.</p><img class="manual-tab-portal-qr" src="' + escapeHTML(access.qrImagePath || '') + '" alt="QR Code do portal da comanda"><input class="input manual-tab-portal-link" id="manual-tab-portal-link" readonly value="' + escapeHTML(access.portalUrl || '') + '" aria-label="Link do portal da comanda"><p style="font-size:11px">Ao gerar um novo acesso, o link anterior deixa de funcionar.</p></div></div>' +
+      '<div class="modal-actions"><button class="btn btn-ghost" type="button" onclick="closeManualTabPortalModal()">Fechar</button><button class="btn btn-green" type="button" onclick="copyManualTabPortalLink()">Copiar link</button><a class="btn btn-ghost" href="' + escapeHTML(access.portalPath || '#') + '" target="_blank" rel="noopener">Testar portal</a></div></div>';
+    overlay.addEventListener('click', (event) => { if (event.target === overlay) closeManualTabPortalModal(); });
+    document.body.appendChild(overlay);
+    toast('t-success', 'Acesso ao portal criado', 'Apresente o QR Code ou encaminhe o link ao cliente.');
+  } catch (exception) {
+    toast('t-error', 'Erro ao gerar QR do portal', exception.message);
+  }
+}
+
+function closeManualTabPortalModal() {
+  document.getElementById('manualTabPortalModal')?.remove();
+}
+
+async function copyManualTabPortalLink() {
+  const field = document.getElementById('manual-tab-portal-link');
+  const value = String(field?.value || '').trim();
+  if (!value) return;
+  try {
+    await navigator.clipboard.writeText(value);
+    toast('t-success', 'Link copiado', 'Agora você pode encaminhar o acesso ao cliente.');
+  } catch (_error) {
+    field?.select();
+    toast('t-success', 'Link selecionado', 'Copie o link para encaminhar ao cliente.');
+  }
 }
 
 async function saveManualTabData() {
