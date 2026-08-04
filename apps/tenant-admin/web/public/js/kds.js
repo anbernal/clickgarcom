@@ -575,7 +575,7 @@ async function apiPatch(path, body) {
   if (r.status === 401 || r.status === 403) window.location.href = loginPagePath;
   if (!r.ok) {
     const err = await r.json().catch(() => ({}));
-    throw new Error(err.error || `API ${r.status}`);
+    throw new Error(formatApiErrorMessage(err, r.status));
   }
   return r.json();
 }
@@ -592,9 +592,19 @@ async function apiPost(path, body) {
   if (r.status === 401 || r.status === 403) window.location.href = loginPagePath;
   if (!r.ok) {
     const err = await r.json().catch(() => ({}));
-    throw new Error(err.error || err.message || `API ${r.status}`);
+    throw new Error(formatApiErrorMessage(err, r.status));
   }
   return r.json().catch(() => ({}));
+}
+
+function formatApiErrorMessage(payload, status) {
+  const message = payload?.message;
+  if (Array.isArray(message) && message.length) {
+    return message.map((item) => String(item || '').trim()).filter(Boolean).join(' · ') || `API ${status}`;
+  }
+  if (typeof message === 'string' && message.trim()) return message.trim();
+  if (typeof payload?.error === 'string' && payload.error.trim()) return payload.error.trim();
+  return `API ${status}`;
 }
 
 async function loadOrders() {
@@ -2046,7 +2056,10 @@ function renderManualOrderLines() {
   var container = document.getElementById('manual-order-lines');
   if (!container) return;
   var items = Array.from(menuItemMetaById.values()).filter(function (item) {
-    return item && item.available !== false;
+    return item
+      && item.available !== false
+      && item.isCurrentlyAvailable !== false
+      && ['KITCHEN', 'BAR'].includes(String(item.destination || '').toUpperCase());
   }).sort(function (a, b) {
     return String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR');
   });
@@ -2099,6 +2112,7 @@ async function submitManualOrder() {
     await Promise.all([loadOrders(), loadManualOpenTabs(), loadTableState()]);
     broadcastKdsSync('manual.order.created');
   } catch (error) {
+    await Promise.all([loadManualOpenTabs(), loadTableState()]).catch(() => {});
     toast('t-error', 'Erro ao lançar pedido', error.message);
   }
 }
