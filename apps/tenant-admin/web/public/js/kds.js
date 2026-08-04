@@ -2016,10 +2016,13 @@ async function confirmManualTabFinalize(tabId) {
 
 var manualOrderDraft = { tabId: '', lines: [], notes: '' };
 
-function openManualOrderModal(tabId) {
+async function openManualOrderModal(tabId) {
   if (!KDS_ACCESS.canViewSalao) {
     toast('t-error', 'Acesso negado', 'Seu perfil não pode lançar pedidos manuais.');
     return;
+  }
+  if (!menuItemMetaById.size) {
+    await loadMenuItems();
   }
   var selectedTab = manualOpenTabs.find(function (tab) {
     return String(tab.id) === String(tabId || '');
@@ -2068,10 +2071,10 @@ function renderManualOrderLines() {
   }).join('');
   container.innerHTML = manualOrderDraft.lines.map(function (line, index) {
     var selectedOptions = options.replace('value="' + escapeHTML(line.menuItemId) + '"', 'value="' + escapeHTML(line.menuItemId) + '" selected');
-    return '<div style="display:grid;grid-template-columns:minmax(0,1fr) 76px 38px;gap:8px;align-items:start;margin-bottom:10px">' +
-      '<div><select class="input" onchange="manualOrderDraft.lines[' + index + '].menuItemId=this.value">' + selectedOptions + '</select>' +
-      '<input class="input" style="margin-top:6px" value="' + escapeHTML(line.observations || '') + '" placeholder="Observação do item" oninput="manualOrderDraft.lines[' + index + '].observations=this.value"></div>' +
-      '<input class="input" type="number" min="1" max="99" value="' + escapeHTML(line.quantity) + '" onchange="manualOrderDraft.lines[' + index + '].quantity=Number(this.value)">' +
+    return '<div data-manual-order-line="' + index + '" style="display:grid;grid-template-columns:minmax(0,1fr) 76px 38px;gap:8px;align-items:start;margin-bottom:10px">' +
+      '<div><select data-manual-order-item class="input" onchange="manualOrderDraft.lines[' + index + '].menuItemId=this.value">' + selectedOptions + '</select>' +
+      '<input data-manual-order-observations class="input" style="margin-top:6px" value="' + escapeHTML(line.observations || '') + '" placeholder="Observação do item" oninput="manualOrderDraft.lines[' + index + '].observations=this.value"></div>' +
+      '<input data-manual-order-quantity class="input" type="number" min="1" max="99" value="' + escapeHTML(line.quantity) + '" onchange="manualOrderDraft.lines[' + index + '].quantity=Number(this.value)">' +
       '<button class="action-btn reject-btn" onclick="removeManualOrderLine(' + index + ')">✕</button></div>';
   }).join('');
 }
@@ -2094,6 +2097,19 @@ function closeManualOrderModal() {
 }
 
 async function submitManualOrder() {
+  var tabField = document.getElementById('manual-order-tab');
+  if (tabField) manualOrderDraft.tabId = String(tabField.value || '').trim();
+  var lineContainer = document.getElementById('manual-order-lines');
+  if (lineContainer) {
+    lineContainer.querySelectorAll('[data-manual-order-line]').forEach(function (row) {
+      var index = Number(row.dataset.manualOrderLine);
+      var line = manualOrderDraft.lines[index];
+      if (!line) return;
+      line.menuItemId = String(row.querySelector('[data-manual-order-item]')?.value || '').trim();
+      line.quantity = Number(row.querySelector('[data-manual-order-quantity]')?.value || 0);
+      line.observations = row.querySelector('[data-manual-order-observations]')?.value || '';
+    });
+  }
   var lines = manualOrderDraft.lines.filter(function (line) { return line.menuItemId; });
   if (!manualOrderDraft.tabId || !lines.length) {
     toast('t-error', 'Lançamento incompleto', 'Selecione a comanda e pelo menos um item.');
