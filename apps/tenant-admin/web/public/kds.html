@@ -1671,6 +1671,99 @@
             padding: 0 6px;
         }
 
+        .salao-header-actions {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 8px;
+            margin-left: auto;
+        }
+
+        .salao-panel-toolbar {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 14px;
+        }
+
+        .salao-panel-toolbar .salao-view-tabs {
+            margin-bottom: 0;
+        }
+
+        .salao-header-action {
+            min-height: 36px;
+            padding: 8px 12px;
+            border: 1px solid var(--green);
+            border-radius: 9px;
+            background: var(--green);
+            color: #fff;
+            font: 700 12px 'DM Sans', sans-serif;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: background 0.15s, transform 0.15s;
+        }
+
+        .salao-header-action:hover {
+            background: #2d8f5c;
+            transform: translateY(-1px);
+        }
+
+        .new-salao-tab-modal .modal {
+            width: min(520px, 94vw);
+        }
+
+        .new-salao-tab-form {
+            display: grid;
+            gap: 14px;
+        }
+
+        .new-salao-tab-form .form-help {
+            margin: -6px 0 2px;
+            color: var(--text-3);
+            font-size: 11px;
+            line-height: 1.4;
+        }
+
+        .new-salao-tab-form .form-field {
+            display: flex;
+            flex-direction: column;
+            gap: 7px;
+        }
+
+        .new-salao-tab-form .form-field > label {
+            color: var(--text-2);
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: 0.55px;
+            text-transform: uppercase;
+        }
+
+        .new-salao-tab-form .form-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        @media (max-width: 560px) {
+            .salao-panel-toolbar {
+                align-items: stretch;
+                flex-direction: column;
+            }
+
+            .salao-panel-toolbar .salao-view-tabs {
+                width: 100%;
+            }
+
+            .salao-header-action {
+                min-height: 40px;
+                padding-inline: 10px;
+            }
+
+            .new-salao-tab-form .form-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
         .salao-card-body {
             padding: 16px 18px;
             flex: 1;
@@ -3256,20 +3349,23 @@
 
                 <!-- SALÃO (unified) -->
                 <div id="panel-salao" class="screen-panel">
-                    <nav class="salao-view-tabs" role="tablist" aria-label="Áreas do salão">
-                        <button class="salao-view-tab active" id="salao-tab-agora" role="tab" aria-selected="true" aria-controls="salao-view-agora" data-salao-view="agora" onclick="switchSalaoView('agora')">
-                            <span>Agora</span><span class="salao-view-count urgent" id="salao-nav-agora-count">0</span>
-                        </button>
-                        <button class="salao-view-tab" id="salao-tab-comandas" role="tab" aria-selected="false" aria-controls="salao-view-comandas" data-salao-view="comandas" onclick="switchSalaoView('comandas')">
-                            <span>Comandas</span><span class="salao-view-count" id="salao-nav-comandas-count">0</span>
-                        </button>
-                        <button class="salao-view-tab" id="salao-tab-mesas" role="tab" aria-selected="false" aria-controls="salao-view-mesas" data-salao-view="mesas" onclick="switchSalaoView('mesas')">
-                            <span>Mesas</span><span class="salao-view-count" id="salao-nav-mesas-count">0</span>
-                        </button>
-                        <button class="salao-view-tab" id="salao-tab-conversas" role="tab" aria-selected="false" aria-controls="salao-view-conversas" data-salao-view="conversas" onclick="switchSalaoView('conversas')">
-                            <span>Conversas</span><span class="salao-view-count" id="salao-nav-conversas-count">0</span>
-                        </button>
-                    </nav>
+                    <div class="salao-panel-toolbar">
+                        <nav class="salao-view-tabs" role="tablist" aria-label="Áreas do salão">
+                            <button class="salao-view-tab active" id="salao-tab-agora" role="tab" aria-selected="true" aria-controls="salao-view-agora" data-salao-view="agora" onclick="switchSalaoView('agora')">
+                                <span>Agora</span><span class="salao-view-count urgent" id="salao-nav-agora-count">0</span>
+                            </button>
+                            <button class="salao-view-tab" id="salao-tab-comandas" role="tab" aria-selected="false" aria-controls="salao-view-comandas" data-salao-view="comandas" onclick="switchSalaoView('comandas')">
+                                <span>Comandas</span><span class="salao-view-count" id="salao-nav-comandas-count">0</span>
+                            </button>
+                            <button class="salao-view-tab" id="salao-tab-mesas" role="tab" aria-selected="false" aria-controls="salao-view-mesas" data-salao-view="mesas" onclick="switchSalaoView('mesas')">
+                                <span>Mesas</span><span class="salao-view-count" id="salao-nav-mesas-count">0</span>
+                            </button>
+                            <button class="salao-view-tab" id="salao-tab-conversas" role="tab" aria-selected="false" aria-controls="salao-view-conversas" data-salao-view="conversas" onclick="switchSalaoView('conversas')">
+                                <span>Conversas</span><span class="salao-view-count" id="salao-nav-conversas-count">0</span>
+                            </button>
+                        </nav>
+                        <button type="button" class="salao-header-action" id="btn-open-salao-tab" onclick="openNewSalaoTabModal()">+ Nova comanda</button>
+                    </div>
 
                     <section class="salao-view active" id="salao-view-agora" role="tabpanel" aria-labelledby="salao-tab-agora" data-salao-view-panel="agora">
                         <div class="salao-view-heading">
@@ -3284,7 +3380,9 @@
                             <div class="salao-card-header">
                                 <div class="section-header-icon" style="background:var(--purple-bg)">🧾</div>
                                 <div><h3>Comandas em atendimento</h3><p>Busque, lance consumo e consulte a trilha do atendimento.</p></div>
-                                <span class="header-count" id="salao-tabs-count">0</span>
+                                <div class="salao-header-actions">
+                                    <span class="header-count" id="salao-tabs-count">0</span>
+                                </div>
                             </div>
                             <div class="salao-card-body" id="salao-tabs-list"></div>
                         </div>
@@ -3466,6 +3564,43 @@
             <div class="modal-actions">
                 <button class="btn btn-ghost" onclick="closeAssignModal()">Cancelar</button>
                 <button class="btn btn-green" onclick="confirmAssignTable()">✓ Confirmar Alocação</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: Abrir comanda pelo salão -->
+    <div class="modal-overlay new-salao-tab-modal" id="newSalaoTabModal">
+        <div class="modal">
+            <div class="modal-header">
+                <div>
+                    <div class="modal-title">Nova comanda</div>
+                    <div style="font-size:12px;color:var(--muted);margin-top:4px">A abertura ficará registrada com seu usuário.</div>
+                </div>
+                <button type="button" class="modal-close" onclick="closeNewSalaoTabModal()" aria-label="Fechar">✕</button>
+            </div>
+            <div class="modal-body">
+                <form class="new-salao-tab-form" id="newSalaoTabForm" onsubmit="event.preventDefault(); submitNewSalaoTab()">
+                    <div class="form-field">
+                        <label for="new-salao-tab-table">Mesa</label>
+                        <select id="new-salao-tab-table" class="input"></select>
+                        <div class="form-help" id="new-salao-tab-table-help">Sem mesa permite iniciar o atendimento no balcão ou definir a mesa depois.</div>
+                    </div>
+                    <div class="form-grid">
+                        <div class="form-field">
+                            <label for="new-salao-tab-phone">Telefone / WhatsApp <span style="font-weight:500;text-transform:none;letter-spacing:0">(opcional)</span></label>
+                            <input id="new-salao-tab-phone" class="input" type="tel" inputmode="tel" autocomplete="tel" placeholder="(11) 99999-9999">
+                        </div>
+                        <div class="form-field">
+                            <label for="new-salao-tab-instagram">Instagram <span style="font-weight:500;text-transform:none;letter-spacing:0">(opcional)</span></label>
+                            <input id="new-salao-tab-instagram" class="input" type="text" autocomplete="off" placeholder="@cliente">
+                        </div>
+                    </div>
+                    <div class="error-msg-inline" id="err-new-salao-tab"></div>
+                </form>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-ghost" onclick="closeNewSalaoTabModal()">Cancelar</button>
+                <button type="submit" class="btn btn-green" form="newSalaoTabForm" id="btn-submit-new-salao-tab">✓ Abrir comanda</button>
             </div>
         </div>
     </div>

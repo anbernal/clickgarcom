@@ -25,6 +25,7 @@ async function prepareKds(page, options = {}) {
     else if (path.endsWith('/tables/requests/pending')) response = options.pendingRequests || [];
     else if (path.endsWith('/tables/waiter/chats/open')) response = options.chats || [];
     else if (path.endsWith('/tables/waiter/close-requests')) response = options.closeRequests || [];
+    else if (path.endsWith('/tables/tabs/open') && route.request().method() === 'POST') response = options.openTabResponse || { id: 'new-tab', publicCode: 'NEW01' };
     else if (path.endsWith('/tables/tabs/open')) response = options.tabs || [];
     else if (path.endsWith('/tables')) response = tables;
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(response) });
@@ -150,6 +151,35 @@ test('comandas mantém somente a página visível com 300 registros e campos pad
   await expect(page.locator('.kds-comandas-table-head')).toBeHidden();
   await expect(page.locator('.kds-comandas-btn.primary').first()).toHaveCSS('min-height', '44px');
   expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
+});
+
+test('salão permite abrir uma nova comanda com mesa e registra os dados do atendimento', async ({ page }) => {
+  const requests = [];
+  await prepareKds(page, {
+    role: 'WAITER',
+    tables: [{ id: 'table-12', number: '12', capacity: 4, status: 'AVAILABLE', activeTabs: [] }],
+    tabs: [],
+    openTabResponse: { id: 'tab-new', publicCode: 'A1B2C' },
+  });
+  page.on('request', (request) => {
+    if (request.url().endsWith('/tables/tabs/open') && request.method() === 'POST') requests.push(request.postDataJSON());
+  });
+  await page.goto('/kds.html?panel=salao');
+  await page.getByRole('tab', { name: /Comandas/ }).click();
+  await page.getByRole('button', { name: /Nova comanda/ }).click();
+  await expect(page.locator('#newSalaoTabModal')).toHaveClass(/open/);
+  await expect(page.locator('#new-salao-tab-table option')).toHaveText(['Sem mesa', 'Mesa 12 · 4 lugares']);
+  await page.locator('#new-salao-tab-table').selectOption('table-12');
+  await page.locator('#new-salao-tab-phone').fill('(11) 99999-9999');
+  await page.locator('#new-salao-tab-instagram').fill('@cliente.teste');
+  await page.getByRole('button', { name: /Abrir comanda/ }).click();
+  await expect.poll(() => requests.length).toBe(1);
+  expect(requests[0]).toMatchObject({
+    table_id: 'table-12',
+    user_phone: '(11) 99999-9999',
+    customer_instagram: '@cliente.teste',
+  });
+  await expect(page.locator('#newSalaoTabModal')).not.toHaveClass(/open/);
 });
 
 test('comprovante não fiscal usa o snapshot cadastral completo do restaurante', async ({ page }) => {

@@ -1644,6 +1644,98 @@ async function loadManualOpenTabs() {
   }
 }
 
+function renderNewSalaoTabTableOptions() {
+  const select = document.getElementById('new-salao-tab-table');
+  const help = document.getElementById('new-salao-tab-table-help');
+  if (!select) return;
+  const options = ['<option value="">Sem mesa</option>'].concat(
+    [...availableTables]
+      .sort((a, b) => String(a.number || '').localeCompare(String(b.number || ''), 'pt-BR', { numeric: true }))
+      .map((table) => {
+        const number = formatTableNumber(table.number || '--');
+        const capacity = Number(table.capacity || 0);
+        const suffix = capacity > 0 ? ` · ${capacity} lugares` : '';
+        return `<option value="${escapeHTML(table.id)}">Mesa ${escapeHTML(number)}${escapeHTML(suffix)}</option>`;
+      }),
+  );
+  select.innerHTML = options.join('');
+  if (help) {
+    help.textContent = availableTables.length
+      ? 'Sem mesa permite iniciar no balcão; mesas livres aparecem nesta lista.'
+      : 'Nenhuma mesa livre no momento. A comanda será aberta sem mesa.';
+  }
+}
+
+async function openNewSalaoTabModal() {
+  if (!KDS_ACCESS.canViewSalao) {
+    toast('t-error', 'Acesso negado', 'Seu perfil não pode abrir comandas.');
+    return;
+  }
+  const modal = document.getElementById('newSalaoTabModal');
+  if (!modal) return;
+  const error = document.getElementById('err-new-salao-tab');
+  const form = document.getElementById('newSalaoTabForm');
+  if (form) form.reset();
+  if (error) {
+    error.textContent = '';
+    error.classList.remove('show');
+  }
+  await loadTableState();
+  renderNewSalaoTabTableOptions();
+  modal.classList.add('open');
+  document.getElementById('new-salao-tab-table')?.focus();
+}
+
+function closeNewSalaoTabModal() {
+  document.getElementById('newSalaoTabModal')?.classList.remove('open');
+}
+
+async function submitNewSalaoTab() {
+  const button = document.getElementById('btn-submit-new-salao-tab');
+  const error = document.getElementById('err-new-salao-tab');
+  const tableId = String(document.getElementById('new-salao-tab-table')?.value || '').trim();
+  const phone = String(document.getElementById('new-salao-tab-phone')?.value || '').trim();
+  const instagram = String(document.getElementById('new-salao-tab-instagram')?.value || '').trim();
+  if (error) {
+    error.textContent = '';
+    error.classList.remove('show');
+  }
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Abrindo…';
+  }
+  try {
+    const openedTab = await apiPost('/tables/tabs/open', {
+      table_id: tableId || undefined,
+      user_phone: phone || undefined,
+      customer_instagram: instagram || undefined,
+    });
+    closeNewSalaoTabModal();
+    await Promise.all([loadManualOpenTabs(), loadTableState()]);
+    switchSalaoView('comandas');
+    const code = openedTab?.publicCode || openedTab?.public_code || openedTab?.id || 'nova comanda';
+    const location = tableId ? `Mesa ${formatTableNumber(availableTables.find((table) => String(table.id) === tableId)?.number || '')}` : 'sem mesa';
+    toast('t-success', 'Comanda aberta', `${code} · ${location}`);
+    broadcastKdsSync('tab.opened.staff');
+  } catch (e) {
+    if (error) {
+      error.textContent = `⚠ ${e.message || 'Não foi possível abrir a comanda.'}`;
+      error.classList.add('show');
+    } else {
+      toast('t-error', 'Erro ao abrir comanda', e.message);
+    }
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = '✓ Abrir comanda';
+    }
+  }
+}
+
+document.getElementById('newSalaoTabModal')?.addEventListener('click', (event) => {
+  if (event.target.id === 'newSalaoTabModal') closeNewSalaoTabModal();
+});
+
 var manualOrderDraft = { tabId: '', lines: [], notes: '' };
 
 function openManualOrderModal(tabId) {
