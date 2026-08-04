@@ -171,9 +171,10 @@ test('salão permite abrir uma nova comanda com mesa e registra os dados do aten
   await expect(page.locator('#new-salao-tab-table option')).toHaveText(['Sem mesa', 'Mesa 12 · 4 lugares']);
   const phoneBox = await page.locator('#new-salao-tab-phone').boundingBox();
   const instagramBox = await page.locator('#new-salao-tab-instagram').boundingBox();
-  expect(phoneBox.width).toBeGreaterThan(instagramBox.width);
+  expect(Math.abs(phoneBox.width - instagramBox.width)).toBeLessThan(1);
   await page.locator('#new-salao-tab-table').selectOption('table-12');
-  await page.locator('#new-salao-tab-phone').fill('(11) 99999-9999');
+  await page.locator('#new-salao-tab-phone').fill('11999999999');
+  await expect(page.locator('#new-salao-tab-phone')).toHaveValue('(11) 99999-9999');
   await page.locator('#new-salao-tab-instagram').fill('@cliente.teste');
   await page.getByRole('button', { name: /Abrir comanda/ }).click();
   await expect.poll(() => requests.length).toBe(1);
