@@ -211,6 +211,7 @@ test('salão permite editar os dados e finalizar uma comanda com baixa manual ra
   await page.locator('summary[aria-label="Mais ações da comanda CMD-42"]').click();
   await page.getByRole('button', { name: 'Editar dados' }).click();
   await expect(page.locator('#manualTabDataModal')).toBeVisible();
+  await expect(page.locator('#manualTabDataModal .modal-actions')).toHaveCSS('margin-top', '22px');
   await expect(page.locator('#manual-tab-data-phone')).toHaveValue('+55 (11) 98888-7777');
   await page.locator('#manual-tab-data-phone').fill('11977776666');
   await expect(page.locator('#manual-tab-data-phone')).toHaveValue('(11) 97777-6666');
@@ -228,6 +229,7 @@ test('salão permite editar os dados e finalizar uma comanda com baixa manual ra
       body: { table_id: 'table-target' },
     }),
   ]));
+  await expect(page.locator('#manualTabDataModal')).toBeHidden();
 
   await page.locator('summary[aria-label="Mais ações da comanda CMD-42"]').click();
   await page.getByRole('button', { name: 'Finalizar comanda' }).click();
