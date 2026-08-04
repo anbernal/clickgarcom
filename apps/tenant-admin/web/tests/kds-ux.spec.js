@@ -232,6 +232,7 @@ test('salão permite editar os dados e finalizar uma comanda com baixa manual ra
   await page.locator('summary[aria-label="Mais ações da comanda CMD-42"]').click();
   await page.getByRole('button', { name: 'Finalizar comanda' }).click();
   await expect(page.locator('#manualTabFinalizeModal')).toBeVisible();
+  await expect(page.locator('#manualTabFinalizeModal .modal-actions')).toHaveCSS('margin-top', '22px');
   await expect(page.locator('#manual-tab-finalize-error')).toBeHidden();
   await page.getByRole('button', { name: 'Registrar baixa e finalizar' }).click();
   await expect(page.locator('#manual-tab-finalize-error')).toContainText('Informe a forma de pagamento');
