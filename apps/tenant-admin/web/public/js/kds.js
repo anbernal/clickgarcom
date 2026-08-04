@@ -141,6 +141,7 @@ let manualOpenTabsPage = 1;
 let manualOpenTabsPageSize = 25;
 let manualOpenTabsLocationFilter = 'all';
 let manualOpenTabsSort = 'recent';
+let manualTabDataState = { tabId: '', userPhone: '', customerInstagram: '', tableId: '' };
 let activeSalaoView = 'agora';
 const pendingOrderTransitions = new Set();
 const stationPresentationByPanel = { kitchen: 'orders', bar: 'orders' };
@@ -1625,8 +1626,10 @@ function renderManualTabTableRow(tab) {
           <summary class="kds-comandas-btn" aria-label="Mais ações da comanda ${escapeHTML(tab.publicCode || shortId(tab.id))}">Mais ações</summary>
           <div class="salao-action-menu-items">
             ${editActions}
+            <button class="kds-comandas-btn" onclick="openManualTabDataModal('${escapeHTML(tab.id)}')">Editar dados</button>
             <button class="kds-comandas-btn" onclick="openManualTabHistory('${escapeHTML(tab.id)}')">Histórico completo</button>
             <button class="kds-comandas-btn" onclick="printTabConsumption('${escapeHTML(tab.id)}')">Imprimir consumo</button>
+            <button class="kds-comandas-btn danger" onclick="openManualTabFinalizeModal('${escapeHTML(tab.id)}')">Finalizar comanda</button>
           </div>
         </details>
       </div>
@@ -1645,12 +1648,15 @@ async function loadManualOpenTabs() {
 }
 
 function formatBrazilianPhoneMask(value) {
-  const digits = String(value || '').replace(/\D/g, '').slice(0, 11);
+  let digits = String(value || '').replace(/\D/g, '').slice(0, 13);
   if (!digits) return '';
+  const hasBrazilCountryCode = digits.length >= 12 && digits.startsWith('55');
+  const prefix = hasBrazilCountryCode ? '+55 ' : '';
+  if (hasBrazilCountryCode) digits = digits.slice(2);
   if (digits.length <= 2) return `(${digits}`;
-  if (digits.length <= 6) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
-  if (digits.length <= 10) return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
-  return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
+  if (digits.length <= 6) return `${prefix}(${digits.slice(0, 2)}) ${digits.slice(2)}`;
+  if (digits.length <= 10) return `${prefix}(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
+  return `${prefix}(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
 }
 
 document.getElementById('new-salao-tab-phone')?.addEventListener('input', (event) => {
@@ -1748,6 +1754,213 @@ async function submitNewSalaoTab() {
 document.getElementById('newSalaoTabModal')?.addEventListener('click', (event) => {
   if (event.target.id === 'newSalaoTabModal') closeNewSalaoTabModal();
 });
+
+function findManualOpenTab(tabId) {
+  return manualOpenTabs.find((tab) => String(tab.id) === String(tabId || '')) || null;
+}
+
+function normalizeTabPhoneForComparison(value) {
+  return String(value || '').replace(/\D/g, '');
+}
+
+function normalizeTabInstagramForComparison(value) {
+  const username = String(value || '').trim().replace(/^@+/, '').toLocaleLowerCase('pt-BR');
+  return username ? `@${username}` : '';
+}
+
+function formatManualTabTableOption(table, currentTableId) {
+  const tableId = String(table?.id || '');
+  const number = formatTableNumber(table?.number || '--');
+  const status = String(table?.status || '').toUpperCase();
+  const suffix = tableId === String(currentTableId || '')
+    ? ' · atual'
+    : status === 'AVAILABLE'
+      ? ' · livre'
+      : status === 'OCCUPIED'
+        ? ' · ocupada'
+        : status === 'CLEANING'
+          ? ' · em limpeza'
+          : '';
+  return `<option value="${escapeHTML(tableId)}"${tableId === String(currentTableId || '') ? ' selected' : ''}>Mesa ${escapeHTML(number)}${escapeHTML(suffix)}</option>`;
+}
+
+async function openManualTabDataModal(tabId) {
+  const tab = findManualOpenTab(tabId);
+  if (!tab) {
+    toast('t-error', 'Comanda não encontrada', 'Atualize a lista e tente novamente.');
+    return;
+  }
+
+  await loadTableState();
+  manualTabDataState = {
+    tabId: String(tab.id),
+    userPhone: normalizeTabPhoneForComparison(tab.userPhone),
+    customerInstagram: normalizeTabInstagramForComparison(tab.customerInstagram),
+    tableId: String(tab.tableId || ''),
+  };
+
+  document.getElementById('manualTabDataModal')?.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'manualTabDataModal';
+  overlay.className = 'modal-overlay open manual-tab-data-modal';
+  const tableOptions = [...tablesSnapshot]
+    .sort((left, right) => String(left.number || '').localeCompare(String(right.number || ''), 'pt-BR', { numeric: true }))
+    .map((table) => formatManualTabTableOption(table, tab.tableId))
+    .join('');
+  overlay.innerHTML = '<div class="modal">' +
+    '<div class="modal-header"><div><div class="modal-title">Editar dados da comanda</div><div style="font-size:12px;color:var(--muted);margin-top:4px">Comanda ' + escapeHTML(tab.publicCode || shortId(tab.id)) + ' · toda alteração fica registrada no histórico.</div></div><button class="modal-close" onclick="closeManualTabDataModal()" aria-label="Fechar">✕</button></div>' +
+    '<div class="modal-body"><form class="manual-tab-modal-form" id="manualTabDataForm" onsubmit="event.preventDefault(); saveManualTabData()">' +
+    '<div class="form-grid"><div class="form-field"><label for="manual-tab-data-phone">Telefone / WhatsApp</label><input id="manual-tab-data-phone" class="input" type="tel" inputmode="tel" autocomplete="tel" maxlength="20" value="' + escapeHTML(formatBrazilianPhoneMask(tab.userPhone || '')) + '" placeholder="(11) 99999-9999"></div>' +
+    '<div class="form-field"><label for="manual-tab-data-instagram">Instagram</label><input id="manual-tab-data-instagram" class="input" type="text" autocomplete="off" value="' + escapeHTML(tab.customerInstagram || '') + '" placeholder="@cliente"></div></div>' +
+    '<div class="form-field"><label for="manual-tab-data-table">Mesa</label><select id="manual-tab-data-table" class="input"><option value="">Sem mesa</option>' + tableOptions + '</select></div>' +
+    '<div class="manual-tab-modal-note">Você pode identificar o cliente, vincular ou trocar a mesa. Os dados não podem duplicar outra comanda aberta e cada mudança registra o usuário responsável.</div>' +
+    '<div class="error-msg-inline" id="manual-tab-data-error"></div></form></div>' +
+    '<div class="modal-actions"><button class="btn btn-ghost" type="button" onclick="closeManualTabDataModal()">Cancelar</button><button class="btn btn-green" id="manual-tab-data-save" type="submit" form="manualTabDataForm">Salvar alterações</button></div></div>';
+  overlay.addEventListener('click', (event) => { if (event.target === overlay) closeManualTabDataModal(); });
+  document.body.appendChild(overlay);
+  document.getElementById('manual-tab-data-phone')?.addEventListener('input', (event) => {
+    event.target.value = formatBrazilianPhoneMask(event.target.value);
+  });
+}
+
+function closeManualTabDataModal() {
+  document.getElementById('manualTabDataModal')?.remove();
+  manualTabDataState = { tabId: '', userPhone: '', customerInstagram: '', tableId: '' };
+}
+
+async function saveManualTabData() {
+  const state = manualTabDataState;
+  const button = document.getElementById('manual-tab-data-save');
+  const error = document.getElementById('manual-tab-data-error');
+  const phone = String(document.getElementById('manual-tab-data-phone')?.value || '').trim();
+  const instagram = String(document.getElementById('manual-tab-data-instagram')?.value || '').trim();
+  const tableId = String(document.getElementById('manual-tab-data-table')?.value || '').trim();
+  const customerChanged = normalizeTabPhoneForComparison(phone) !== state.userPhone
+    || normalizeTabInstagramForComparison(instagram) !== state.customerInstagram;
+  const tableChanged = tableId !== state.tableId;
+
+  if (!customerChanged && !tableChanged) {
+    closeManualTabDataModal();
+    toast('t-success', 'Nenhuma alteração', 'Os dados da comanda já estavam atualizados.');
+    return;
+  }
+  if (error) {
+    error.textContent = '';
+    error.classList.remove('show');
+  }
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Salvando…';
+  }
+
+  let customerSaved = false;
+  try {
+    if (customerChanged) {
+      await apiPatch(`/tables/tabs/${state.tabId}/customer`, {
+        user_phone: phone || undefined,
+        customer_instagram: instagram || undefined,
+      });
+      customerSaved = true;
+    }
+    if (tableChanged) {
+      await apiPatch(`/tables/tabs/${state.tabId}/table`, { table_id: tableId || null });
+    }
+    closeManualTabDataModal();
+    await Promise.all([loadManualOpenTabs(), loadTableState()]);
+    broadcastKdsSync('tab.data.updated');
+    toast('t-success', 'Dados atualizados', 'A alteração foi registrada no histórico da comanda.');
+  } catch (exception) {
+    if (customerSaved) {
+      await Promise.all([loadManualOpenTabs(), loadTableState()]);
+      broadcastKdsSync('tab.data.updated.partial');
+    }
+    if (error) {
+      error.textContent = `⚠ ${customerSaved ? 'Cliente atualizado, mas a mesa não foi alterada: ' : ''}${exception.message || 'Não foi possível salvar os dados.'}`;
+      error.classList.add('show');
+    } else {
+      toast('t-error', 'Erro ao atualizar dados', exception.message);
+    }
+    if (button) {
+      button.disabled = false;
+      button.textContent = 'Salvar alterações';
+    }
+  }
+}
+
+function openManualTabFinalizeModal(tabId) {
+  const tab = findManualOpenTab(tabId);
+  if (!tab) {
+    toast('t-error', 'Comanda não encontrada', 'Atualize a lista e tente novamente.');
+    return;
+  }
+  const total = Number(tab.total || 0);
+  const paidAmount = Number(tab.paidAmount || 0);
+  const amountDue = Math.max(0, total - paidAmount);
+  document.getElementById('manualTabFinalizeModal')?.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'manualTabFinalizeModal';
+  overlay.className = 'modal-overlay open manual-tab-finalize-modal';
+  const paymentField = amountDue > 0
+    ? '<div class="form-field"><label for="manual-tab-finalize-method">Forma de pagamento recebida</label><select id="manual-tab-finalize-method" class="input"><option value="">Selecione a forma recebida</option><option value="CASH">Dinheiro</option><option value="PIX">Pix recebido pela equipe</option><option value="CREDIT_CARD">Cartão de crédito</option><option value="DEBIT_CARD">Cartão de débito</option><option value="OTHER">Outro meio</option></select></div>'
+    : '<div class="manual-tab-modal-note">Esta comanda não possui saldo pendente. A finalização apenas concluirá o atendimento e liberará a mesa quando aplicável.</div>';
+  overlay.innerHTML = '<div class="modal">' +
+    '<div class="modal-header"><div><div class="modal-title">Finalizar comanda</div><div style="font-size:12px;color:var(--muted);margin-top:4px">Comanda ' + escapeHTML(tab.publicCode || shortId(tab.id)) + '</div></div><button class="modal-close" onclick="closeManualTabFinalizeModal()" aria-label="Fechar">✕</button></div>' +
+    '<div class="modal-body"><div class="manual-tab-finalize-summary"><div><span>Total</span><strong>' + escapeHTML(formatMoney(total)) + '</strong></div><div><span>Já recebido</span><strong>' + escapeHTML(formatMoney(paidAmount)) + '</strong></div><div class="manual-tab-finalize-due"><span>Baixa a registrar</span><strong>' + escapeHTML(formatMoney(amountDue)) + '</strong></div></div>' +
+    '<form class="manual-tab-modal-form" id="manualTabFinalizeForm" onsubmit="event.preventDefault(); confirmManualTabFinalize(\'' + escapeHTML(tab.id) + '\')">' + paymentField +
+    '<div class="manual-tab-modal-note"><strong>Confira o pagamento antes de concluir.</strong><br>A confirmação registra a baixa manual, finaliza a comanda, libera a mesa quando possível e mantém a trilha com seu usuário.</div><div class="error-msg-inline" id="manual-tab-finalize-error"></div></form></div>' +
+    '<div class="modal-actions"><button class="btn btn-ghost" type="button" onclick="closeManualTabFinalizeModal()">Cancelar</button><button class="btn btn-red-solid" id="manual-tab-finalize-confirm" type="submit" form="manualTabFinalizeForm">Registrar baixa e finalizar</button></div></div>';
+  overlay.addEventListener('click', (event) => { if (event.target === overlay) closeManualTabFinalizeModal(); });
+  document.body.appendChild(overlay);
+}
+
+function closeManualTabFinalizeModal() {
+  document.getElementById('manualTabFinalizeModal')?.remove();
+}
+
+async function confirmManualTabFinalize(tabId) {
+  const tab = findManualOpenTab(tabId);
+  const button = document.getElementById('manual-tab-finalize-confirm');
+  const error = document.getElementById('manual-tab-finalize-error');
+  if (!tab) {
+    closeManualTabFinalizeModal();
+    toast('t-error', 'Comanda não encontrada', 'Atualize a lista e tente novamente.');
+    return;
+  }
+  const amountDue = Math.max(0, Number(tab.total || 0) - Number(tab.paidAmount || 0));
+  const paymentMethod = String(document.getElementById('manual-tab-finalize-method')?.value || '').trim();
+  if (amountDue > 0 && !paymentMethod) {
+    if (error) {
+      error.textContent = '⚠ Informe a forma de pagamento recebida para registrar a baixa.';
+      error.classList.add('show');
+    }
+    return;
+  }
+  if (button?.disabled) return;
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Finalizando…';
+  }
+  try {
+    await apiPost(`/tables/tabs/${tab.id}/finalize`, {
+      manual_payment_method: paymentMethod || undefined,
+    });
+    closeManualTabFinalizeModal();
+    await Promise.all([loadManualOpenTabs(), loadTableState(), loadCloseRequests()]);
+    broadcastKdsSync('tab.finalized.manual');
+    toast('t-success', 'Comanda finalizada', 'Baixa registrada e atendimento encerrado com sucesso.');
+  } catch (exception) {
+    if (error) {
+      error.textContent = `⚠ ${exception.message || 'Não foi possível finalizar a comanda.'}`;
+      error.classList.add('show');
+    } else {
+      toast('t-error', 'Erro ao finalizar comanda', exception.message);
+    }
+    if (button) {
+      button.disabled = false;
+      button.textContent = 'Registrar baixa e finalizar';
+    }
+  }
+}
 
 var manualOrderDraft = { tabId: '', lines: [], notes: '' };
 

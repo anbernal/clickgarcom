@@ -186,6 +186,67 @@ test('salão permite abrir uma nova comanda com mesa e registra os dados do aten
   await expect(page.locator('#newSalaoTabModal')).not.toHaveClass(/open/);
 });
 
+test('salão permite editar os dados e finalizar uma comanda com baixa manual rastreável', async ({ page }) => {
+  const mutations = [];
+  await prepareKds(page, {
+    role: 'WAITER',
+    tables: [
+      { id: 'table-current', number: '12', capacity: 4, status: 'OCCUPIED', activeTabs: [{ id: 'tab-managed' }] },
+      { id: 'table-target', number: '18', capacity: 6, status: 'AVAILABLE', activeTabs: [] },
+    ],
+    tabs: [{
+      id: 'tab-managed', publicCode: 'CMD-42', tableId: 'table-current', tableNumber: '12',
+      userPhone: '5511988887777', customerInstagram: '@cliente.antigo', total: 52, paidAmount: 0,
+    }],
+  });
+  page.on('request', (request) => {
+    const path = new URL(request.url()).pathname;
+    if (path.includes('/tables/tabs/tab-managed/') && ['PATCH', 'POST'].includes(request.method())) {
+      mutations.push({ method: request.method(), path, body: request.postDataJSON() });
+    }
+  });
+
+  await page.goto('/kds.html?panel=salao');
+  await page.getByRole('tab', { name: /Comandas/ }).click();
+  await page.locator('summary[aria-label="Mais ações da comanda CMD-42"]').click();
+  await page.getByRole('button', { name: 'Editar dados' }).click();
+  await expect(page.locator('#manualTabDataModal')).toBeVisible();
+  await expect(page.locator('#manual-tab-data-phone')).toHaveValue('+55 (11) 98888-7777');
+  await page.locator('#manual-tab-data-phone').fill('11977776666');
+  await expect(page.locator('#manual-tab-data-phone')).toHaveValue('(11) 97777-6666');
+  await page.locator('#manual-tab-data-instagram').fill('@cliente.novo');
+  await page.locator('#manual-tab-data-table').selectOption('table-target');
+  await page.getByRole('button', { name: 'Salvar alterações' }).click();
+  await expect.poll(() => mutations.filter((mutation) => mutation.method === 'PATCH').length).toBe(2);
+  expect(mutations).toEqual(expect.arrayContaining([
+    expect.objectContaining({
+      method: 'PATCH', path: '/admin/api/tables/tabs/tab-managed/customer',
+      body: { user_phone: '(11) 97777-6666', customer_instagram: '@cliente.novo' },
+    }),
+    expect.objectContaining({
+      method: 'PATCH', path: '/admin/api/tables/tabs/tab-managed/table',
+      body: { table_id: 'table-target' },
+    }),
+  ]));
+
+  await page.locator('summary[aria-label="Mais ações da comanda CMD-42"]').click();
+  await page.getByRole('button', { name: 'Finalizar comanda' }).click();
+  await expect(page.locator('#manualTabFinalizeModal')).toBeVisible();
+  await expect(page.locator('#manual-tab-finalize-error')).toBeHidden();
+  await page.getByRole('button', { name: 'Registrar baixa e finalizar' }).click();
+  await expect(page.locator('#manual-tab-finalize-error')).toContainText('Informe a forma de pagamento');
+  await page.locator('#manual-tab-finalize-method').selectOption('CASH');
+  await page.getByRole('button', { name: 'Registrar baixa e finalizar' }).click();
+  await expect.poll(() => mutations.filter((mutation) => mutation.path.endsWith('/finalize')).length).toBe(1);
+  expect(mutations).toEqual(expect.arrayContaining([
+    expect.objectContaining({
+      method: 'POST', path: '/admin/api/tables/tabs/tab-managed/finalize',
+      body: { manual_payment_method: 'CASH' },
+    }),
+  ]));
+  await expect(page.locator('#manualTabFinalizeModal')).toBeHidden();
+});
+
 test('comprovante não fiscal usa o snapshot cadastral completo do restaurante', async ({ page }) => {
   await prepareKds(page, { role: 'WAITER' });
   await page.goto('/kds.html');

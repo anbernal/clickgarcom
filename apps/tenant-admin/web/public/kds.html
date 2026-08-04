@@ -2556,6 +2556,18 @@
             background: var(--teal-dark);
         }
 
+        .kds-comandas-btn.danger {
+            border-color: #f1b6ae;
+            background: var(--red-bg);
+            color: #c13b2d;
+        }
+
+        .kds-comandas-btn.danger:hover {
+            border-color: var(--red);
+            background: var(--red);
+            color: #fff;
+        }
+
         .kds-comandas-btn:disabled {
             cursor: not-allowed;
             opacity: 0.45;
@@ -2646,6 +2658,104 @@
         .kds-comandas-actions .salao-action-menu-items .kds-comandas-btn {
             width: 100%;
             justify-content: flex-start;
+        }
+
+        .manual-tab-data-modal .modal,
+        .manual-tab-finalize-modal .modal {
+            width: min(590px, 94vw);
+        }
+
+        .manual-tab-modal-form {
+            display: grid;
+            gap: 16px;
+        }
+
+        .manual-tab-modal-form .form-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 14px;
+        }
+
+        .manual-tab-modal-form .form-field {
+            display: flex;
+            flex-direction: column;
+            gap: 7px;
+        }
+
+        .manual-tab-modal-form .form-field > label {
+            color: var(--text-2);
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: 0.55px;
+            text-transform: uppercase;
+        }
+
+        .manual-tab-modal-note {
+            padding: 11px 12px;
+            border: 1px solid var(--border);
+            border-radius: 9px;
+            background: var(--surface-2);
+            color: var(--text-2);
+            font-size: 11px;
+            line-height: 1.45;
+        }
+
+        .manual-tab-finalize-summary {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            overflow: hidden;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            margin-bottom: 16px;
+        }
+
+        .manual-tab-finalize-summary > div {
+            min-width: 0;
+            padding: 11px 12px;
+            background: var(--surface-2);
+        }
+
+        .manual-tab-finalize-summary > div + div {
+            border-left: 1px solid var(--border);
+        }
+
+        .manual-tab-finalize-summary span,
+        .manual-tab-finalize-summary strong {
+            display: block;
+        }
+
+        .manual-tab-finalize-summary span {
+            color: var(--text-2);
+            font-size: 9px;
+            font-weight: 800;
+            letter-spacing: 0.45px;
+            text-transform: uppercase;
+        }
+
+        .manual-tab-finalize-summary strong {
+            margin-top: 5px;
+            color: var(--text);
+            font: 800 14px 'DM Mono', monospace;
+        }
+
+        .manual-tab-finalize-summary .manual-tab-finalize-due {
+            background: var(--red-bg);
+        }
+
+        .manual-tab-finalize-summary .manual-tab-finalize-due strong {
+            color: #c13b2d;
+        }
+
+        @media (max-width: 560px) {
+            .manual-tab-modal-form .form-grid,
+            .manual-tab-finalize-summary {
+                grid-template-columns: 1fr;
+            }
+
+            .manual-tab-finalize-summary > div + div {
+                border-top: 1px solid var(--border);
+                border-left: 0;
+            }
         }
 
         .salao-tables-grid {
@@ -3594,7 +3704,7 @@
                     <div class="form-grid">
                         <div class="form-field">
                             <label for="new-salao-tab-phone">Telefone / WhatsApp <span style="font-weight:500;text-transform:none;letter-spacing:0">(opcional)</span></label>
-                            <input id="new-salao-tab-phone" class="input" type="tel" inputmode="tel" autocomplete="tel" maxlength="15" placeholder="(11) 99999-9999">
+                            <input id="new-salao-tab-phone" class="input" type="tel" inputmode="tel" autocomplete="tel" maxlength="20" placeholder="(11) 99999-9999">
                         </div>
                         <div class="form-field">
                             <label for="new-salao-tab-instagram">Instagram <span style="font-weight:500;text-transform:none;letter-spacing:0">(opcional)</span></label>
