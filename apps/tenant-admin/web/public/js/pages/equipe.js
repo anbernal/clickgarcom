@@ -628,7 +628,14 @@ async function toggleEquipeUserStatus(userId, nextActive) {
     if (!user) return;
 
     const actionLabel = nextActive ? 'reativar' : 'desativar';
-    if (!window.confirm(`Deseja ${actionLabel} o acesso de ${user.name}?`)) {
+    const confirmed = await showConfirmDialog({
+        title: `${nextActive ? 'Reativar' : 'Desativar'} acesso?`,
+        message: `${user.name} ${nextActive ? 'voltará a acessar o painel' : 'perderá o acesso ao painel'}.`,
+        detail: nextActive ? 'As permissões do perfil serão restauradas.' : 'O histórico e os registros deste usuário serão preservados.',
+        confirmLabel: nextActive ? 'Reativar acesso' : 'Desativar acesso',
+        variant: nextActive ? 'info' : 'danger',
+    });
+    if (!confirmed) {
         return;
     }
 

@@ -422,7 +422,13 @@ async function deletePurchaseEntry(purchaseId) {
     }
 
     const entry = comprasState.purchases.find((item) => item.id === purchaseId);
-    const confirmed = window.confirm(`Excluir o lançamento de ${entry?.supplierName || 'compra'}?`);
+    const confirmed = await showConfirmDialog({
+        title: 'Excluir lançamento de compra?',
+        message: `O lançamento de ${entry?.supplierName || 'compra'} será removido.`,
+        detail: 'Esta ação não pode ser desfeita.',
+        confirmLabel: 'Excluir compra',
+        variant: 'danger',
+    });
     if (!confirmed) return;
 
     try {

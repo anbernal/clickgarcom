@@ -509,7 +509,16 @@ async function issueDeliveryTracking(id) {
         const result = await api.command(`/deliveries/${encodeURIComponent(id)}/tracking-link`, { ttl_hours: 24 });
         const url = result?.tracking_url || '';
         try { await navigator.clipboard.writeText(url); showToast('Link seguro copiado. Ele expira em 24 horas.', 'success'); }
-        catch (_) { window.prompt('Copie o link seguro de acompanhamento:', url); }
+        catch (_) {
+            await showCopyDialog({
+                title: 'Copiar link de acompanhamento',
+                message: 'O navegador não permitiu a cópia automática.',
+                detail: 'O link é seguro e expira em 24 horas.',
+                inputLabel: 'Link de acompanhamento',
+                value: url,
+                successMessage: 'Link seguro copiado.',
+            });
+        }
     } catch (error) { showToast(error.message || 'Não foi possível gerar o link.', 'error'); }
     finally { deliveryState.busy.delete(id); }
 }
@@ -648,11 +657,26 @@ async function saveDeliverySettings() {
     };
     const currentEnabled = deliveryState.settings?.settings?.enabled === true;
     if (payload.enabled !== currentEnabled) {
-        const action = payload.enabled ? 'ativar' : 'desativar';
-        if (!window.confirm(`Confirma ${action} o módulo Delivery? Entregas ativas continuarão visíveis e a alteração vale para novos pedidos.`)) return;
+        const confirmed = await showConfirmDialog({
+            title: payload.enabled ? 'Ativar módulo Delivery?' : 'Desativar módulo Delivery?',
+            message: payload.enabled ? 'O restaurante poderá receber novos pedidos para entrega.' : 'O restaurante deixará de receber novos pedidos para entrega.',
+            detail: 'Entregas que já estão ativas continuarão visíveis até o encerramento.',
+            confirmLabel: payload.enabled ? 'Ativar Delivery' : 'Desativar Delivery',
+            variant: payload.enabled ? 'info' : 'warning',
+        });
+        if (!confirmed) return;
     }
     const reserved = Number((deliveryState.capacity?.data || deliveryState.capacity || {}).reserved || 0);
-    if (payload.own_available_couriers < reserved && !window.confirm(`A capacidade informada (${payload.own_available_couriers}) é menor que as reservas atuais (${reserved}). A disponibilidade ficará zerada até liberar reservas. Continuar?`)) return;
+    if (payload.own_available_couriers < reserved) {
+        const confirmed = await showConfirmDialog({
+            title: 'Capacidade abaixo das reservas atuais',
+            message: `A nova capacidade (${payload.own_available_couriers}) é menor que as reservas em andamento (${reserved}).`,
+            detail: 'A disponibilidade ficará zerada até que reservas suficientes sejam liberadas.',
+            confirmLabel: 'Salvar mesmo assim',
+            variant: 'warning',
+        });
+        if (!confirmed) return;
+    }
     const validation = validateDeliverySettings(payload);
     if (validation) return showToast(validation, 'error');
     const button = document.getElementById('delivery-save-settings');
@@ -823,7 +847,15 @@ async function saveDeliveryCustomerAddress() {
 
 async function removeDeliveryCustomerAddress(addressId) {
     const customer = deliveryCustomerManagerState.customer;
-    if (!customer || !window.confirm('Excluir este endereço? O histórico dos pedidos não será alterado.')) return;
+    if (!customer) return;
+    const confirmed = await showConfirmDialog({
+        title: 'Excluir endereço?',
+        message: 'O endereço deixará de aparecer entre as opções salvas do cliente.',
+        detail: 'O endereço registrado nos pedidos anteriores não será alterado.',
+        confirmLabel: 'Excluir endereço',
+        variant: 'danger',
+    });
+    if (!confirmed) return;
     try {
         await api.delete(`/delivery/customers/${encodeURIComponent(customer.id)}/addresses/${encodeURIComponent(addressId)}`);
         deliveryCustomerManagerState.addresses = await loadDeliveryCustomerAddresses(customer.id);

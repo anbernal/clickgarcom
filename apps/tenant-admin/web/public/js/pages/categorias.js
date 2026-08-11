@@ -151,7 +151,14 @@ async function deleteCategory(id) {
         showToast('Seu perfil nao pode alterar categorias.', 'error');
         return;
     }
-    if (!confirm('Tem certeza? Itens desta categoria ficarão sem categoria.')) return;
+    const confirmed = await showConfirmDialog({
+        title: 'Excluir categoria?',
+        message: 'Os itens vinculados ficarão sem categoria.',
+        detail: 'Os itens não serão excluídos e poderão ser reorganizados depois.',
+        confirmLabel: 'Excluir categoria',
+        variant: 'danger',
+    });
+    if (!confirmed) return;
     try {
         await api.delete(`/categories/${id}`);
         showToast('Categoria removida');

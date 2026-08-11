@@ -975,7 +975,14 @@ async function deleteMenuItem(itemId) {
     return;
   }
 
-  if (!confirm('Tem certeza que deseja remover este item?')) return;
+  const confirmed = await showConfirmDialog({
+    title: 'Remover item do cardápio?',
+    message: 'O item deixará de aparecer no cardápio do restaurante.',
+    detail: 'Pedidos anteriores não serão alterados.',
+    confirmLabel: 'Remover item',
+    variant: 'danger',
+  });
+  if (!confirmed) return;
 
   try {
     await api.delete(`/menu/${itemId}`);

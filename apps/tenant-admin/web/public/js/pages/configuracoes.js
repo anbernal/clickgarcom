@@ -673,13 +673,31 @@ async function rollbackBotFlow(flowKey, sourceFlowId) {
         return;
     }
 
-    const reason = window.prompt(`Motivo do rollback para ${getBotFlowVersionLabel(selectedVersion)}:`) || '';
+    const versionLabel = getBotFlowVersionLabel(selectedVersion);
+    const reason = await showPromptDialog({
+        title: 'Restaurar versão do fluxo?',
+        message: `Informe o motivo do rollback para ${versionLabel}.`,
+        detail: 'A justificativa e o usuário responsável ficarão registrados na auditoria.',
+        inputLabel: 'Motivo do rollback',
+        placeholder: 'Descreva por que esta versão deve ser restaurada',
+        confirmLabel: 'Continuar',
+        required: true,
+        requiredMessage: 'Informe um motivo para registrar o rollback.',
+        variant: 'warning',
+    });
+    if (reason === null) return;
     if (!reason.trim()) {
         showToast('Informe um motivo para registrar o rollback.', 'error');
         return;
     }
 
-    const confirmed = window.confirm(`Confirmar rollback do flow ${key} para ${getBotFlowVersionLabel(selectedVersion)}?`);
+    const confirmed = await showConfirmDialog({
+        title: 'Confirmar rollback?',
+        message: `O fluxo ${key} voltará para ${versionLabel}.`,
+        detail: 'A versão selecionada será publicada e passará a atender as próximas interações.',
+        confirmLabel: 'Publicar versão anterior',
+        variant: 'warning',
+    });
     if (!confirmed) return;
 
     try {

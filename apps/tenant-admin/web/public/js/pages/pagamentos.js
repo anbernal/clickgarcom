@@ -334,7 +334,13 @@ function renderPagamentoTabDetailModal(detail) {
 }
 
 async function finalizePagamentoTab(tabId) {
-  const confirmed = window.confirm('Confirmar a baixa manual e finalizar esta comanda?');
+  const confirmed = await showConfirmDialog({
+    title: 'Finalizar comanda?',
+    message: 'Confirme que o pagamento foi recebido antes de registrar a baixa.',
+    detail: 'A comanda será encerrada e a operação ficará registrada no histórico.',
+    confirmLabel: 'Registrar baixa e finalizar',
+    variant: 'warning',
+  });
   if (!confirmed) {
     return;
   }
