@@ -1,79 +1,337 @@
-# Roteiro de teste manual — Delivery V2
+# Plano de teste manual visual — Delivery V2
 
-Este roteiro valida o caminho feliz e as falhas principais usando o provider
-fake. O sandbox real do iFood fica para a homologação.
+Este roteiro é para validar o módulo visualmente no Admin, no KDS e no fluxo
+fake de Delivery. Ele não depende do sandbox do iFood. O objetivo é confirmar
+que o operador consegue configurar, criar, acompanhar e resolver entregas sem
+expor PII, credenciais, PIN ou detalhes técnicos ao usuário.
 
-## Pré-requisitos
+## 0. Resultado dos builds locais
 
-1. Aplicar migrations `000040` até `000045`.
-2. Subir PostgreSQL, RabbitMQ, Core Go e Tenant Admin.
-3. Definir `INTERNAL_SERVICE_TOKEN` e, para credenciais reais,
-   `DELIVERY_CREDENTIAL_ENCRYPTION_KEY`.
-4. Criar um usuário Admin/Manager e um usuário Dispatcher no mesmo tenant.
-5. Abrir o Admin em `/admin.html` e acessar **Entregas**.
+Executados antes do teste manual:
 
-Na tela **Configurar operação**, os modelos de taxa disponíveis são `NONE`,
-`FIXED`, `DISTANCE_BANDS`, `PER_KM` e `HYBRID`. Use o simulador antes de salvar
-e confirme que o valor exibido vem do endpoint autoritativo da API.
+```bash
+cd apps/tenant-admin/api && npm run build
+cd platform/core-backend && go build ./...
+cd apps/kds-mobile && npx tsc --noEmit
+```
 
-Modos do fake externo:
+Regressões automatizadas aprovadas:
 
-- padrão: `DELIVERY_FAKE_PROVIDER_MODE=SUCCESS`;
-- `FAIL_FIRST_N` com `DELIVERY_FAKE_PROVIDER_FAILURES=5` para esgotar um ciclo;
-- `TIMEOUT` para falha retryable contínua;
-- `DELIVERED` para simular conclusão imediata;
-- `DELIVERY_FAKE_PROVIDER_ACTUAL_COST=12.50` para validar ajuste financeiro.
+```text
+Core Go: go test ./...                 OK
+API smoke: 4/4                         OK
+API contrato: 4/4                     OK
+API segurança: 2/2                    OK
+Admin Delivery UX: 17/17              OK
+Admin/KDS UX: 9/9                     OK
+```
 
-## 1. Configuração própria
+O frontend Admin é estático e não possui etapa de compilação; o servidor é
+executado diretamente com `node server.js`.
+
+## 1. Preparar o ambiente
+
+### 1.1 Serviços
+
+Para o fluxo completo, iniciar PostgreSQL, RabbitMQ, Core Go, worker e API
+NestJS. As migrations são `000040` até `000045`.
+
+Variáveis mínimas:
+
+```bash
+DATABASE_HOST=localhost
+DATABASE_PORT=5432
+DATABASE_USER=postgres
+DATABASE_PASSWORD=postgres123
+DATABASE_NAME=clickgarcom_db
+RABBITMQ_HOST=localhost
+RABBITMQ_PORT=5672
+RABBITMQ_USER=clickgarcom
+RABBITMQ_PASSWORD=clickgarcom123
+RABBITMQ_VHOST=/
+INTERNAL_SERVICE_TOKEN=clickgarcom-internal-token
+DELIVERY_FAKE_PROVIDER_MODE=SUCCESS
+```
+
+O `DELIVERY_CREDENTIAL_ENCRYPTION_KEY` só é necessário para testar gravação de
+credenciais criptografadas. O fake não chama iFood, CEP ou Maps externos.
+
+### 1.2 Executar os processos
+
+Em terminais separados, a partir da raiz do projeto:
+
+```bash
+# API NestJS
+cd apps/tenant-admin/api
+npm run build
+ADMIN_WEB_ENABLED=false npm run start:prod
+```
+
+```bash
+# Core HTTP
+cd platform/core-backend
+go run ./cmd/api
+```
+
+```bash
+# Worker/outbox
+cd platform/core-backend
+go run ./cmd/worker
+```
+
+```bash
+# Admin Web
+cd apps/tenant-admin/web
+PORT=4318 node server.js
+```
+
+Abrir `http://localhost:4318/login.html`.
+
+Para visualizar o KDS mobile no navegador:
+
+```bash
+cd apps/kds-mobile
+npm run web
+```
+
+### 1.3 Dados QA
+
+Se o banco estiver disponível, executar:
+
+```bash
+cd apps/tenant-admin/api
+npm run seed:qa
+```
+
+Credenciais geradas pelo seed:
+
+```text
+Tenant: Anderson Restaurant
+Login: admin.qa@clickgarcom.local
+Senha: Teste@123
+```
+
+Criar depois um usuário `DISPATCHER` no Admin para validar o limite de
+permissões. Não usar telefone, endereço ou credencial real nas evidências.
+
+## 2. Configuração e acesso
+
+### T01 — Acesso por perfil
+
+1. Entrar como `ADMIN` e abrir **Entregas**.
+2. Confirmar que aparecem configuração, clientes/endereço, operação,
+   exceções, reservas e relatório.
+3. Entrar como `MANAGER`; confirmar operação e fallback, mas não gravação de
+   segredo.
+4. Entrar como `DISPATCHER`; confirmar saída/conclusão própria e fallback
+   autorizado, sem configurações sensíveis.
+5. Entrar como `KITCHEN`, `BAR` ou `CASHIER`; confirmar que o acesso é somente
+   o previsto pela matriz de permissões.
+6. Confirmar que usuário `DRIVER` não acessa a central administrativa.
+
+**Esperado:** nenhuma tela indevida aparece no menu e nenhuma credencial fica
+no DOM.
+
+### T02 — Ativar entrega própria
 
 1. Abrir **Configurar operação**.
-2. Ativar o módulo, selecionar **Entrega própria**, informar origem, raio e
-   quantidade de entregadores próprios.
-3. Salvar e recarregar a página; o snapshot deve permanecer igual.
-4. Confirmar que a disponibilidade mostra declarada, reservada e disponível.
-5. Simular uma taxa e verificar que o valor vem do endpoint da API.
+2. Ativar o módulo e selecionar **Entrega própria**.
+3. Informar origem, raio e quantidade de entregadores disponíveis.
+4. Configurar cada modelo de taxa: `NONE`, `FIXED`, `DISTANCE_BANDS`, `PER_KM`
+   e `HYBRID`.
+5. Usar o simulador e observar breakdown, centavos e valor final.
+6. Salvar, recarregar a página e comparar o snapshot salvo.
+7. Reduzir a capacidade abaixo das reservas exibidas; confirmar o alerta
+   persistente de capacidade insuficiente.
+8. Desativar o módulo e confirmar a janela de confirmação.
 
-## 2. Fluxo próprio
+**Esperado:** a configuração fica vinculada ao tenant, a taxa vem da API, não
+há seletor de entregador individual e a desativação não remove entregas já
+ativas.
 
-1. Criar um pedido Delivery pelo fluxo WhatsApp/Core ou pelo endpoint interno.
-2. Confirmar endereço e pagamento.
-3. Confirmar que o pedido aparece no board sem entregador individual.
-4. Iniciar o preparo e confirmar a transição para `READY_FOR_DISPATCH`.
-5. Usar **Marcar como saiu** e depois **Marcar entregue**.
-6. Repetir o clique rapidamente; não pode criar transição duplicada.
-7. Confirmar que a reserva de capacidade foi liberada.
+### T03 — Configurar operador externo fake
 
-## 3. Fluxo externo fake
+1. Selecionar **Operador externo** e manter `IFOOD` na ordem configurada.
+2. Abrir **Gerenciar credenciais**.
+3. Informar valores de teste e salvar.
+4. Reabrir o modal e confirmar que os segredos não retornam.
+5. Clicar em **Testar conexão fake**.
+6. Confirmar status `CONNECTED` e adapter `FAKE`.
 
-1. Selecionar **Operador externo** e manter `IFOOD` como ordem.
-2. Configurar o operador pelo botão **Gerenciar credenciais**; os segredos
-   devem desaparecer dos campos após o envio e nunca voltar no GET.
-3. Criar quote antes do pagamento e confirmar o checkout.
-4. Iniciar o preparo; confirmar que o scheduler executa as tentativas fake.
-5. Validar estados de busca, atribuição, rota e conclusão.
-6. Forçar falhas até o limite do ciclo e confirmar o alerta de ciclo esgotado.
+**Esperado:** nenhuma chamada para domínio externo, nenhum segredo no DOM ou
+no relatório, e a ordem do operador continua controlada pelo tenant.
 
-## 4. Fallback e concorrência
+## 3. Cliente, endereço e cotação
 
-1. Com ciclo externo esgotado, reiniciar o ciclo pelo perfil autorizado.
-2. Converter para própria e confirmar a exigência de capacidade.
-3. Tentar a mesma ação com usuário sem papel de override; deve retornar 403.
-4. Enviar duas ações com a mesma versão; uma deve vencer e a outra retornar
-   conflito sem corromper o estado.
+### T04 — Cadastro por telefone e CEP
 
-## 5. Endereço e privacidade
+1. Abrir **Clientes e endereços**.
+2. Buscar o telefone de teste `5511999999999`.
+3. Criar um endereço usando CEP `01311-000`.
+4. Confirmar preenchimento de logradouro, bairro, cidade e UF.
+5. Editar o número/complemento, salvar e definir como default.
+6. Excluir o endereço e confirmar a operação.
+7. Tentar criar um sexto endereço para o mesmo cliente.
 
-1. Resolver cliente por telefone e cadastrar endereço via CEP.
-2. Editar, selecionar default e excluir endereço.
-3. Tentar cadastrar um sexto endereço; a API deve rejeitar.
-4. Confirmar que o board mascara o nome e reduz o endereço à área segura.
-5. Confirmar que logs, notificações e métricas não exibem telefone, endereço,
-   token ou PIN.
+**Esperado:** o CEP preenche o formulário sem apagar dados manuais, o endereço
+é editável/excluível, o limite de cinco é respeitado e o histórico de entregas
+não muda.
 
-## 6. Evidências mínimas
+### T05 — Falha de CEP e confirmação manual
 
-- screenshots do painel próprio e externo;
-- IDs de Delivery/checkout sem dados pessoais;
-- resposta do endpoint interno de métricas;
-- resultado do `go test ./...`, build NestJS e Playwright;
-- qualquer divergência registrada antes de habilitar outro tenant.
+1. Informar um CEP inexistente ou simular resposta `NOT_FOUND`.
+2. Preencher o endereço manualmente.
+3. Confirmar o endereço e voltar ao checkout.
+
+**Esperado:** a falha não apaga o formulário; o endereço manual só fica
+disponível depois de confirmado e o cliente não vê erro técnico.
+
+### T06 — Cotação própria
+
+1. Selecionar uma área dentro do raio configurado.
+2. Solicitar a cotação.
+3. Repetir a cotação sem alterar o endereço.
+4. Testar uma distância fora da última faixa.
+
+**Esperado:** o mesmo input produz o mesmo valor, a faixa inválida fica
+indisponível e nenhuma fórmula é calculada pelo navegador.
+
+## 4. Fluxo de entrega própria
+
+### T07 — Checkout, capacidade e pagamento
+
+1. Criar um pedido Delivery próprio pelo fluxo WhatsApp/Core ou pelo endpoint
+   interno de QA.
+2. Confirmar endereço, frete e total.
+3. Confirmar o pagamento.
+4. Voltar ao board de Entregas.
+
+**Esperado:** o checkout cria hold/reserva de capacidade, o frete aparece
+separado, o preço fica congelado e o card não exibe motorista, GPS, PIN ou
+tracking próprio.
+
+### T08 — Sair e entregar
+
+1. Iniciar o preparo e aguardar `READY_FOR_DISPATCH`.
+2. Clicar em **Marcar como saiu**.
+3. Clicar em **Marcar entregue**.
+4. Repetir rapidamente os dois cliques.
+5. Abrir reservas de capacidade.
+
+**Esperado:** a jornada é `aguardando -> saiu -> entregue`, a segunda tentativa
+não cria nova transição e a reserva é liberada uma única vez.
+
+## 5. Fluxo externo fake
+
+### T09 — Quote antes do pagamento
+
+1. Reiniciar a API com `DELIVERY_FAKE_PROVIDER_MODE=SUCCESS`.
+2. Selecionar modalidade externa.
+3. Solicitar quote antes do pagamento.
+4. Confirmar o checkout e o pagamento.
+5. Iniciar o preparo no Core/KDS.
+
+**Esperado:** a contratação só inicia após `PREPARING`, o total do cliente não
+muda e o custo cotado fica separado do custo efetivo.
+
+### T10 — Atribuição, tracking e conclusão
+
+1. No board, observar `ALLOCATION_PENDING`, tentativas e atribuição.
+2. Confirmar tracking externo somente no detalhe autorizado.
+3. Confirmar que o código/PIN não aparece na listagem nem na API Admin.
+4. Usar o modo `DELIVERED` para simular conclusão imediata.
+
+**Esperado:** a timeline é cronológica, o link pertence à entrega correta e o
+modo próprio nunca gera tracking.
+
+### T11 — Cinco falhas e alerta
+
+1. Reiniciar a API com:
+
+   ```bash
+   DELIVERY_FAKE_PROVIDER_MODE=FAIL_FIRST_N \
+   DELIVERY_FAKE_PROVIDER_FAILURES=5
+   ```
+
+2. Iniciar o preparo de uma nova entrega externa.
+3. Acompanhar as tentativas 1 a 5 e a janela de 15 minutos.
+4. Abrir o **Centro de exceções**.
+5. Reconhecer o alerta e atualizar a tela.
+
+**Esperado:** não existe sexta tentativa, aparece `CYCLE_EXHAUSTED`/`NO_COURIER`,
+o pedido permanece válido, a mensagem é não técnica e o reconhecimento não
+encerra a exceção.
+
+## 6. Fallback, concorrência e relatórios
+
+### T12 — Fallback administrativo
+
+1. Com ciclo esgotado, reiniciar o ciclo pelo perfil autorizado.
+2. Confirmar motivo e observar a nova sequência `cycle 1 / attempt 1`.
+3. Converter a entrega para própria.
+4. Tentar converter sem capacidade disponível.
+5. Repetir a mesma ação com a versão antiga.
+
+**Esperado:** o preço do cliente permanece, o histórico é preservado, a falta
+de capacidade não gera mutação parcial e a segunda ação retorna conflito
+controlado.
+
+### T13 — Relatório operacional
+
+1. Abrir **Relatório operacional**.
+2. Filtrar período, modalidade `OWN`, operador `FAKE` e status de falha/retorno.
+3. Carregar o relatório.
+4. Exportar CSV.
+5. Repetir com um período acima de 500 registros fake, se disponível.
+
+**Esperado:** KPIs e valores em BRL conciliam com o detalhe, o alerta de volume
+alto aparece e o CSV não contém telefone, endereço, PIN ou credencial.
+
+### T14 — Responsividade e acessibilidade visual
+
+1. Repetir T02, T04 e T13 em viewport de 360 px.
+2. Repetir operação em tablet.
+3. Abrir e fechar cada modal usando teclado.
+4. Confirmar foco inicial no modal e retorno do foco ao acionador.
+5. Confirmar que botões principais têm alvo touch confortável.
+
+**Esperado:** sem rolagem horizontal acidental, sem conteúdo cortado, foco
+visível e mensagens de erro próximas ao campo correspondente.
+
+## 7. Regressão KDS/mobile
+
+1. Abrir o KDS Web e validar cozinha, bar, salão e comandas.
+2. Abrir uma nova comanda e confirmar alinhamento dos campos.
+3. Validar QR/link seguro e encerramento da comanda.
+4. Abrir o KDS mobile com `npm run web` e testar a tela de demonstração.
+5. Repetir em viewport de telefone.
+
+**Esperado:** Delivery não exige o app de entregador, e DINE_IN/TAKEOUT continuam
+operando sem alteração.
+
+## 8. Evidências e limpeza
+
+Para cada caso registrar:
+
+- número do caso (`T01`–`T14`);
+- screenshot ou gravação curta;
+- tenant fictício, `delivery_id` e `checkout_key` sem PII;
+- status observado e resultado esperado;
+- erro, horário e perfil usado, quando houver.
+
+Não registrar token, telefone real, endereço completo, PIN, credencial ou corpo
+bruto de webhook.
+
+Ao terminar:
+
+1. Desativar o módulo no tenant QA.
+2. Encerrar API, Core, worker e servidores Web.
+3. Restaurar `DELIVERY_FAKE_PROVIDER_MODE=SUCCESS`.
+4. Se o banco estiver disponível, remover/recriar somente o tenant QA usando o
+   seed; nunca limpar dados de outros tenants.
+
+## 9. Bloqueios conhecidos
+
+O adapter iFood real, sandbox, pagamento real, scanner axe/LGPD, métricas em
+infraestrutura e teste de carga com PostgreSQL/RabbitMQ continuam fora deste
+roteiro fake e devem ser executados na homologação.
