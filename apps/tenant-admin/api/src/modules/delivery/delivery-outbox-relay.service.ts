@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 
 import { DomainOutboxEvent } from '../../entities/domain-outbox-event.entity';
@@ -24,6 +25,7 @@ export class DeliveryOutboxRelayService implements OnModuleInit, OnModuleDestroy
 
     constructor(
         private readonly dataSource: DataSource,
+        @InjectRepository(DomainOutboxEvent)
         private readonly outboxRepository: Repository<DomainOutboxEvent>,
         private readonly amqpService: AmqpService,
     ) {}
