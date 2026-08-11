@@ -29,7 +29,7 @@ Documentos anteriores em `specs/delivery/requirements.md` e `specs/delivery/desi
 ### Progresso atual
 
 - **Pronto para teste manual sem serviços externos:** domínio/persistência V2, clientes e endereços, CEP/geocode fake, snapshots, tarifa própria, capacidade/hold, checkout próprio e externo fake, scheduler de cinco tentativas, webhook/reconciliação fake, fallback manual, operação própria, RBAC `DISPATCHER`, eventos/outbox/relay, Core/WhatsApp, painel Admin, relatórios/CSV e regressão KDS.
-- **Validação local executada:** `go build ./...`, `go test ./...`, `npm run build`, `npx tsc --noEmit` no KDS mobile, smoke fake (4/4), contrato (4/4), segurança (2/2), Delivery UX (17/17), KDS UX (9/9) e `git diff --check`.
+- **Validação local executada:** `go build ./...`, `go test ./...`, `npm run build`, `npx tsc --noEmit` e `npx expo export --platform web` no KDS mobile, smoke fake (4/4), contrato (4/4), segurança (2/2), Delivery UX (17/17), KDS UX (9/9) e `git diff --check`.
 - **Roteiro de execução manual:** `docs/delivery-manual-test-plan.md` cobre ativação do tenant, endereço/CEP, quote/checkout, capacidade própria, ciclo externo fake, fallback, operação própria, notificações e relatórios.
 
 ### Fechamento local e gates remanescentes
