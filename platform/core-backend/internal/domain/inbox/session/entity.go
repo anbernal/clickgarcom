@@ -28,6 +28,23 @@ const (
 	StateWaitingCollabChoice      ConversationState = "WAITING_COLLAB_CHOICE"   // Fase 14: Escolher Compartilhar vs Individual
 	StateWaitingJoinApproval      ConversationState = "WAITING_JOIN_APPROVAL"   // Fase 15: Client B aguarda opener aprovar
 	StateWaitingOpenerDecision    ConversationState = "WAITING_OPENER_DECISION" // Fase 15: Client A tem pedido pendente para decidir
+	// Delivery address states are intentionally separate from ordering states;
+	// a cancelled or expired delivery session must not leave an order half-built.
+	StateDeliveryAddressSelection    ConversationState = "DELIVERY_ADDRESS_SELECTION"
+	StateDeliveryPostalCode          ConversationState = "DELIVERY_POSTAL_CODE"
+	StateDeliveryStreet              ConversationState = "DELIVERY_STREET"
+	StateDeliveryNeighborhood        ConversationState = "DELIVERY_NEIGHBORHOOD"
+	StateDeliveryCity                ConversationState = "DELIVERY_CITY"
+	StateDeliveryState               ConversationState = "DELIVERY_STATE"
+	StateDeliveryAddressNumber       ConversationState = "DELIVERY_ADDRESS_NUMBER"
+	StateDeliveryAddressComplement   ConversationState = "DELIVERY_ADDRESS_COMPLEMENT"
+	StateDeliveryAddressReference    ConversationState = "DELIVERY_ADDRESS_REFERENCE"
+	StateDeliveryAddressLabel        ConversationState = "DELIVERY_ADDRESS_LABEL"
+	StateDeliveryAddressConfirmation ConversationState = "DELIVERY_ADDRESS_CONFIRMATION"
+	StateDeliveryAddressConsent      ConversationState = "DELIVERY_ADDRESS_CONSENT"
+	StateDeliveryReady               ConversationState = "DELIVERY_READY"
+	StateDeliveryCheckoutReview      ConversationState = "DELIVERY_CHECKOUT_REVIEW"
+	StateDeliveryAddressDelete       ConversationState = "DELIVERY_ADDRESS_DELETE"
 )
 
 type Session struct {

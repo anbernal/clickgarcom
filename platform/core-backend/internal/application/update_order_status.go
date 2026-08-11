@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
@@ -11,6 +12,7 @@ import (
 	"github.com/anbernal/clickgarcom/internal/domain/events"
 	"github.com/anbernal/clickgarcom/internal/domain/order"
 	"github.com/anbernal/clickgarcom/internal/domain/orderbatch"
+	"github.com/anbernal/clickgarcom/internal/infrastructure/nodeadmin"
 	"github.com/anbernal/clickgarcom/internal/infrastructure/websocket"
 )
 
@@ -30,9 +32,18 @@ type UpdateOrderStatusInput struct {
 type UpdateOrderStatusUseCase struct {
 	orderRepo      order.Repository
 	orderBatchRepo orderbatch.Repository
+	deliveryBatch  DeliveryOrderBatchGateway
 	whatsappSender WhatsAppSender
 	wsHub          *websocket.Hub
 	logger         *zap.Logger
+}
+
+// SetDeliveryOrderBatchGateway wires the level-triggered NestJS projection
+// boundary. The status update itself remains authoritative in Core; failures
+// from this optional integration are logged and retried by the delivery
+// maintenance/reconciliation flow instead of blocking kitchen operations.
+func (uc *UpdateOrderStatusUseCase) SetDeliveryOrderBatchGateway(gateway DeliveryOrderBatchGateway) {
+	uc.deliveryBatch = gateway
 }
 
 func NewUpdateOrderStatusUseCase(
@@ -94,9 +105,13 @@ func (uc *UpdateOrderStatusUseCase) Execute(ctx context.Context, input UpdateOrd
 	)
 
 	// 6. Recalcular status agregado do batch quando aplicável
-	if err := uc.syncOrderBatch(ctx, existingOrder); err != nil {
+	batch, batchChanged, err := uc.syncOrderBatch(ctx, existingOrder)
+	if err != nil {
 		uc.logger.Error("failed to sync order batch", zap.Error(err), zap.String("order_id", existingOrder.ID.String()))
 		return nil, fmt.Errorf("failed to sync order batch: %w", err)
+	}
+	if batchChanged && batch != nil && batch.ServiceType == orderbatch.ServiceTypeDelivery && batch.Status == orderbatch.StatusAccepted {
+		uc.publishDeliveryPreparingEvent(existingOrder, batch)
 	}
 
 	// 7. Broadcast evento WebSocket
@@ -115,26 +130,52 @@ func (uc *UpdateOrderStatusUseCase) Execute(ctx context.Context, input UpdateOrd
 	return existingOrder, nil
 }
 
-func (uc *UpdateOrderStatusUseCase) syncOrderBatch(ctx context.Context, currentOrder *order.Order) error {
+func (uc *UpdateOrderStatusUseCase) syncOrderBatch(ctx context.Context, currentOrder *order.Order) (*orderbatch.OrderBatch, bool, error) {
 	if uc.orderBatchRepo == nil || currentOrder == nil || currentOrder.BatchID == nil || *currentOrder.BatchID == uuid.Nil {
-		return nil
+		return nil, false, nil
 	}
 
 	batch, err := uc.orderBatchRepo.FindByID(ctx, *currentOrder.BatchID, currentOrder.TenantID)
 	if err != nil || batch == nil {
-		return err
+		return batch, false, err
 	}
 
 	orders, err := uc.orderRepo.FindByBatchID(ctx, *currentOrder.BatchID, currentOrder.TenantID)
 	if err != nil {
-		return err
+		return batch, false, err
 	}
 
 	if !applyAggregatedOrderBatchState(batch, orders) {
-		return nil
+		return batch, false, nil
 	}
 
-	return uc.orderBatchRepo.Update(ctx, batch)
+	if err := uc.orderBatchRepo.Update(ctx, batch); err != nil {
+		return batch, false, err
+	}
+	return batch, true, nil
+}
+
+func (uc *UpdateOrderStatusUseCase) publishDeliveryPreparingEvent(currentOrder *order.Order, batch *orderbatch.OrderBatch) {
+	if uc.deliveryBatch == nil || currentOrder == nil || batch == nil {
+		return
+	}
+	// A stable UUID makes retries/replays of the same order transition
+	// idempotent while allowing a later order in the same batch to emit its own
+	// correlation event when the aggregate first becomes accepted.
+	eventID := uuid.NewSHA1(uuid.Nil, []byte(fmt.Sprintf("delivery-preparing:%s:%s:%s", batch.TenantID, batch.ID, currentOrder.ID)))
+	input := nodeadmin.DeliveryOrderBatchReconcileInput{
+		TenantID: batch.TenantID,
+		BatchID:  batch.ID,
+		OrderID:  currentOrder.ID,
+		EventID:  eventID,
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if _, err := uc.deliveryBatch.Reconcile(ctx, input); err != nil {
+			uc.logger.Warn("delivery preparing event projection failed", zap.Error(err), zap.String("tenant_id", input.TenantID.String()), zap.String("batch_id", input.BatchID.String()), zap.String("event_id", input.EventID.String()))
+		}
+	}()
 }
 
 func (uc *UpdateOrderStatusUseCase) sendStatusNotification(o *order.Order) {

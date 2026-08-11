@@ -18,10 +18,13 @@ import (
 	"github.com/anbernal/clickgarcom/internal/application/auth"
 	"github.com/anbernal/clickgarcom/internal/config"
 	"github.com/anbernal/clickgarcom/internal/domain/events"
+	"github.com/anbernal/clickgarcom/internal/infrastructure/deliveryrealtime"
+	"github.com/anbernal/clickgarcom/internal/infrastructure/nodeadmin"
 	"github.com/anbernal/clickgarcom/internal/infrastructure/persistence/postgres"
 	"github.com/anbernal/clickgarcom/internal/infrastructure/queue/rabbitmq"
 	"github.com/anbernal/clickgarcom/internal/infrastructure/websocket"
 	"github.com/anbernal/clickgarcom/internal/infrastructure/whatsapp"
+	"github.com/anbernal/clickgarcom/internal/interfaces/http/handlers"
 	"github.com/anbernal/clickgarcom/internal/interfaces/http/routes"
 	"github.com/anbernal/clickgarcom/pkg/database"
 	"github.com/anbernal/clickgarcom/pkg/logger"
@@ -123,6 +126,15 @@ func main() {
 		logger.Fatal("Failed to start kds.events consumer", zap.Error(err))
 	}
 
+	// Delivery realtime is intentionally projected by a separate room hub. The
+	// HTTP route is only wired when a credential authorizer is configured; the
+	// consumer itself is safe to start independently of NestJS persistence.
+	deliveryHub := deliveryrealtime.NewHub()
+	deliveryRealtimeConsumer := deliveryrealtime.NewEventConsumer(deliveryHub, logger.Log)
+	if err := consumer.Consume("delivery.realtime.events", deliveryRealtimeConsumer.Handle); err != nil {
+		logger.Fatal("Failed to start delivery.realtime.events consumer", zap.Error(err))
+	}
+
 	// 9) Setup Auth
 	userRepo := postgres.NewUserRepository(db.DB)
 	authService := auth.NewService(userRepo, cfg.JWT.Secret, 24*time.Hour)
@@ -146,15 +158,27 @@ func main() {
 		whatsappAPI,
 		redisClient,
 	)
+	trackingAuthorizer := nodeadmin.NewDeliveryTrackingAuthorizer(
+		os.Getenv("ADMIN_INTERNAL_BASE_URL"),
+		os.Getenv("INTERNAL_SERVICE_TOKEN"),
+		logger.Log,
+	)
+	deliveryWebSocketHandler := handlers.NewDeliveryWebSocketHandler(
+		deliveryHub,
+		handlers.DeliveryAuthorizerFunc(trackingAuthorizer.Authorize),
+		logger.Log,
+	)
+	routes.RegisterDeliveryWebSocketRoutes(app.Group("/ws"), deliveryWebSocketHandler)
 
 	// 9) Endpoints básicos (opcional, mas útil)
 	api := app.Group("")
 
 	api.Get("/health", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{
-			"status":    "healthy",
-			"timestamp": time.Now().Unix(),
-			"database":  db.GetStats(),
+			"status":            "healthy",
+			"timestamp":         time.Now().Unix(),
+			"database":          db.GetStats(),
+			"delivery_realtime": deliveryHub.Health(),
 		})
 	})
 

@@ -5,6 +5,8 @@ export enum TenantUserRole {
     Kitchen = 'KITCHEN',
     Bar = 'BAR',
     Cashier = 'CASHIER',
+    Driver = 'DRIVER',
+    Dispatcher = 'DISPATCHER',
 }
 
 export const TENANT_ROLE_METADATA_KEY = 'tenant_roles';
@@ -23,6 +25,11 @@ const ROLE_ALIASES: Record<string, TenantUserRole> = {
     BAR: TenantUserRole.Bar,
     CASHIER: TenantUserRole.Cashier,
     CAIXA: TenantUserRole.Cashier,
+    DRIVER: TenantUserRole.Driver,
+    ENTREGADOR: TenantUserRole.Driver,
+    MOTORISTA: TenantUserRole.Driver,
+    DISPATCHER: TenantUserRole.Dispatcher,
+    DESPACHANTE: TenantUserRole.Dispatcher,
 };
 
 export const SUPPORTED_TENANT_ROLES = [
@@ -32,6 +39,8 @@ export const SUPPORTED_TENANT_ROLES = [
     TenantUserRole.Kitchen,
     TenantUserRole.Bar,
     TenantUserRole.Cashier,
+    TenantUserRole.Driver,
+    TenantUserRole.Dispatcher,
 ] as const;
 
 export const TENANT_FULL_ACCESS_ROLES = [
@@ -114,6 +123,34 @@ export const TENANT_WALLET_ROLES = [...TENANT_REPORT_ROLES] as const;
 export const TENANT_BOT_CONFIG_ROLES = [...TENANT_FULL_ACCESS_ROLES] as const;
 export const TENANT_PURCHASE_ROLES = [...TENANT_FULL_ACCESS_ROLES] as const;
 
+/**
+ * Delivery permission groups. The driver group is intentionally separate from
+ * read/dispatch groups: service methods must still scope a driver to its own
+ * assigned delivery, but this matrix prevents accidental access to unrelated
+ * administrative routes.
+ */
+export const TENANT_DELIVERY_READ_ROLES = [
+    TenantUserRole.Admin,
+    TenantUserRole.Manager,
+    TenantUserRole.Waiter,
+    TenantUserRole.Dispatcher,
+] as const;
+
+export const TENANT_DELIVERY_DISPATCH_ROLES = [
+    TenantUserRole.Admin,
+    TenantUserRole.Manager,
+    TenantUserRole.Waiter,
+    TenantUserRole.Dispatcher,
+] as const;
+
+export const TENANT_DELIVERY_SETTINGS_ROLES = [...TENANT_FULL_ACCESS_ROLES] as const;
+
+export const TENANT_DELIVERY_OVERRIDE_ROLES = [...TENANT_FULL_ACCESS_ROLES] as const;
+
+export const TENANT_DELIVERY_DRIVER_ROLES = [TenantUserRole.Driver] as const;
+
+export const TENANT_DELIVERY_REPORT_ROLES = [...TENANT_REPORT_ROLES] as const;
+
 export function normalizeTenantRole(role: unknown): string {
     const rawRole = String(role || '')
         .trim()
@@ -137,6 +174,10 @@ export function buildTenantRoleMetadata() {
             'GARÇOM': TenantUserRole.Waiter,
             COZINHA: TenantUserRole.Kitchen,
             CAIXA: TenantUserRole.Cashier,
+            ENTREGADOR: TenantUserRole.Driver,
+            MOTORISTA: TenantUserRole.Driver,
+            DISPATCHER: TenantUserRole.Dispatcher,
+            DESPACHANTE: TenantUserRole.Dispatcher,
         },
         route_groups: {
             full_access: [...TENANT_FULL_ACCESS_ROLES],
@@ -154,6 +195,12 @@ export function buildTenantRoleMetadata() {
             wallet: [...TENANT_WALLET_ROLES],
             bot_config: [...TENANT_BOT_CONFIG_ROLES],
             purchases: [...TENANT_PURCHASE_ROLES],
+            delivery_read: [...TENANT_DELIVERY_READ_ROLES],
+            delivery_dispatch: [...TENANT_DELIVERY_DISPATCH_ROLES],
+            delivery_settings: [...TENANT_DELIVERY_SETTINGS_ROLES],
+            delivery_override: [...TENANT_DELIVERY_OVERRIDE_ROLES],
+            delivery_driver: [...TENANT_DELIVERY_DRIVER_ROLES],
+            delivery_reports: [...TENANT_DELIVERY_REPORT_ROLES],
         },
     };
 }

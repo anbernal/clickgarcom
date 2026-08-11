@@ -1,0 +1,38 @@
+{
+  "title": "ClickGarçom — Delivery V2 piloto",
+  "schemaVersion": 39,
+  "editable": true,
+  "time": { "from": "now-6h", "to": "now" },
+  "tags": ["clickgarcom", "delivery", "pilot"],
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Outbox pendente",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "clickgarcom_outbox_pending_messages", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 100 }] } } },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Falhas de consumidores",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "sum by (queue) (rate(clickgarcom_consumer_messages_processed_total{status=\"error\"}[5m]))", "legendFormat": "{{queue}}", "refId": "A" }],
+      "gridPos": { "h": 8, "w": 12, "x": 6, "y": 0 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Eventos fulfillment por resultado",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "sum by (outcome) (rate(delivery_fulfillment_events_processed_total[5m]))", "legendFormat": "{{outcome}}", "refId": "A" }],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Latência do consumer fulfillment",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "histogram_quantile(0.95, sum by (le) (rate(delivery_fulfillment_event_processing_duration_seconds_bucket[5m])))", "legendFormat": "p95", "refId": "A" }],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 }
+    }
+  ]
+}

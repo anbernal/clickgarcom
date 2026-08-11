@@ -1,0 +1,55 @@
+package application
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"github.com/anbernal/clickgarcom/internal/infrastructure/nodeadmin"
+	"github.com/google/uuid"
+)
+
+// DeliveryPaidPaymentInput contains only server-side payment facts. It is
+// intentionally independent from a WhatsApp session because webhooks may be
+// delivered after the conversation has expired.
+type DeliveryPaidPaymentInput struct {
+	TenantID         uuid.UUID
+	CheckoutKey      string
+	OrderBatchID     uuid.UUID
+	PaymentReference string
+	PaidAmount       float64
+	EventID          uuid.UUID
+}
+
+type DeliveryPaymentCoordinator struct {
+	checkout *DeliveryCheckoutCoordinator
+	batch    DeliveryOrderBatchGateway
+}
+
+func NewDeliveryPaymentCoordinator(checkout *DeliveryCheckoutCoordinator, batch DeliveryOrderBatchGateway) *DeliveryPaymentCoordinator {
+	return &DeliveryPaymentCoordinator{checkout: checkout, batch: batch}
+}
+
+// ConfirmPaid projects the DELIVERY batch first and then confirms the
+// provider-approved amount against the immutable NestJS checkout. Both calls
+// are idempotent and can be retried after an ambiguous network failure.
+func (c *DeliveryPaymentCoordinator) ConfirmPaid(ctx context.Context, input DeliveryPaidPaymentInput) error {
+	if c == nil || c.checkout == nil || c.batch == nil {
+		return fmt.Errorf("delivery payment coordinator is not configured")
+	}
+	if input.TenantID == uuid.Nil || strings.TrimSpace(input.CheckoutKey) == "" || input.OrderBatchID == uuid.Nil || strings.TrimSpace(input.PaymentReference) == "" || !finiteNonNegative(input.PaidAmount) {
+		return fmt.Errorf("tenant, checkout, order batch, payment reference and paid amount are required")
+	}
+	if input.EventID == uuid.Nil {
+		return fmt.Errorf("delivery payment event id is required")
+	}
+	reconciled, err := c.batch.Reconcile(ctx, nodeadmin.DeliveryOrderBatchReconcileInput{TenantID: input.TenantID, BatchID: input.OrderBatchID, EventID: input.EventID})
+	if err != nil {
+		return err
+	}
+	if reconciled.DeliveryID == nil || *reconciled.DeliveryID == uuid.Nil {
+		return fmt.Errorf("delivery is not available for payment confirmation: %s", strings.TrimSpace(reconciled.Reason))
+	}
+	_, err = c.checkout.ConfirmPaid(ctx, input.TenantID, input.CheckoutKey, input.OrderBatchID, input.PaymentReference, input.PaidAmount, reconciled.DeliveryID)
+	return err
+}

@@ -23,6 +23,12 @@ export class OrderBatch {
     @Column({ type: 'varchar', length: 20 })
     status!: string;
 
+    @Column({ name: 'service_type', type: 'varchar', length: 20, default: 'DINE_IN' })
+    serviceType!: 'DINE_IN' | 'TAKEOUT' | 'DELIVERY';
+
+    @Column({ name: 'delivery_address_snapshot', type: 'jsonb', nullable: true })
+    deliveryAddressSnapshot!: Record<string, unknown> | null;
+
     @CreateDateColumn({ name: 'created_at' })
     createdAt!: Date;
 

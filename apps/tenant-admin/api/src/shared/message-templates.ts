@@ -81,6 +81,14 @@ Valor: R$ {total}
 
 Obrigado pela preferência! 
 Esperamos te receber novamente em breve! 😊`,
+    msg_delivery_accepted: '✅ Seu pedido *{codigo_pedido}* foi aceito pelo restaurante.',
+    msg_delivery_manual_acceptance: '⏳ Seu pedido *{codigo_pedido}* está aguardando confirmação do restaurante.',
+    msg_delivery_external_assigned: '🚚 Seu pedido *{codigo_pedido}* foi encaminhado para entrega.\n\nAcompanhe em tempo real: {link_rastreamento}\n\nCódigo de confirmação do operador: *{codigo_operador}*',
+    msg_delivery_picked_up: '🚚 Seu pedido *{codigo_pedido}* saiu para entrega.\n\nAcompanhe em tempo real: {link_rastreamento}\n\nCódigo de recebimento: *{pin_entrega}*',
+    msg_delivery_arrived: '📍 O entregador chegou com o pedido *{codigo_pedido}*.',
+    msg_delivery_delivered: '✅ Pedido *{codigo_pedido}* entregue. Obrigado!',
+    msg_delivery_rejected: '❌ O restaurante não conseguiu aceitar o pedido *{codigo_pedido}*.',
+    msg_delivery_cycle_exhausted: '⚠️ Não encontramos um entregador para o pedido *{codigo_pedido}*. O restaurante foi avisado e poderá assumir a entrega manualmente.',
 };
 
 export const MESSAGE_TEMPLATE_KEYS: Array<keyof MessageTemplates> = [
@@ -98,6 +106,14 @@ export const MESSAGE_TEMPLATE_KEYS: Array<keyof MessageTemplates> = [
     'msg_service_request',
     'msg_payment_pending',
     'msg_payment_confirmed',
+    'msg_delivery_accepted',
+    'msg_delivery_manual_acceptance',
+    'msg_delivery_external_assigned',
+    'msg_delivery_picked_up',
+    'msg_delivery_arrived',
+    'msg_delivery_delivered',
+    'msg_delivery_rejected',
+    'msg_delivery_cycle_exhausted',
 ];
 
 export function resolveMessageTemplate(

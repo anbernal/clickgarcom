@@ -127,10 +127,17 @@ function sendFile(req, res, filename, headOnly, requestBasePath) {
     }
 
     const ext = path.extname(filename).toLowerCase();
-    res.writeHead(200, {
+    const responseHeaders = {
       'Content-Type': CONTENT_TYPES[ext] || 'application/octet-stream',
       'Cache-Control': resolveCacheControl(ext),
-    });
+    };
+    if (path.basename(filename) === 'tracking.html') {
+      responseHeaders['Referrer-Policy'] = 'no-referrer';
+      responseHeaders['X-Content-Type-Options'] = 'nosniff';
+      responseHeaders['X-Frame-Options'] = 'DENY';
+      responseHeaders['Content-Security-Policy'] = "default-src 'self'; connect-src 'self' https: wss:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://*.tile.openstreetmap.org; script-src 'self' https://unpkg.com; base-uri 'none'; frame-ancestors 'none'; form-action 'none'";
+    }
+    res.writeHead(200, responseHeaders);
 
     if (headOnly) {
       res.end();

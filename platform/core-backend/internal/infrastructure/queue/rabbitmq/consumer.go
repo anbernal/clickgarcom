@@ -126,7 +126,7 @@ func (c *Consumer) Consume(queueName string, handler MessageHandler) error {
 
 func queueDeclareArgs(queueName string) amqp.Table {
 	switch queueName {
-	case "whatsapp.messages", "payment.webhooks", "notifications.send":
+	case "whatsapp.messages", "payment.webhooks", "notifications.send", "delivery.fulfillment.events", "delivery.domain.events":
 		return amqp.Table{
 			"x-dead-letter-exchange": "clickgarcom.dlx",
 			"x-queue-type":           "quorum",

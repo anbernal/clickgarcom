@@ -71,5 +71,20 @@ export function buildApiMetadata() {
             bootstrap_http_base_path: ADMIN_API_VERSIONED_BASE_PATH,
             event_types: ['connected', 'order.created', 'order.updated', 'order.item_voided', 'order.status_changed'],
         },
+        delivery: {
+            admin_base_path: `${ADMIN_API_VERSIONED_BASE_PATH}/deliveries`,
+            settings_path: `${ADMIN_API_VERSIONED_BASE_PATH}/delivery/settings`,
+            driver_base_path: `${ADMIN_API_VERSIONED_BASE_PATH}/driver/deliveries`,
+            tracking_snapshot_path: '/api/delivery/tracking/snapshot',
+            tracking_websocket_path: '/ws/delivery',
+            event_types: [
+                'delivery.created.v1',
+                'delivery.status_changed.v1',
+                'delivery.location_updated.v1',
+                'delivery.eta_updated.v1',
+                'delivery.route_updated.v1',
+                'delivery.completed.v1',
+            ],
+        },
     };
 }
