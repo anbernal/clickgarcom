@@ -174,6 +174,7 @@ test('salão permite abrir uma nova comanda com mesa e registra os dados do aten
   await page.getByRole('button', { name: /Nova comanda/ }).click();
   await expect(page.locator('#newSalaoTabModal')).toHaveClass(/open/);
   await expect(page.locator('#new-salao-tab-table option')).toHaveText(['Sem mesa', 'Mesa 12 · 4 lugares']);
+  await page.evaluate(async () => { if (document.fonts?.ready) await document.fonts.ready; });
   const phoneBox = await page.locator('#new-salao-tab-phone').boundingBox();
   const instagramBox = await page.locator('#new-salao-tab-instagram').boundingBox();
   expect(Math.abs(phoneBox.width - instagramBox.width)).toBeLessThan(1);
