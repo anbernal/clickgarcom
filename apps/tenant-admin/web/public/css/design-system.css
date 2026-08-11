@@ -1227,6 +1227,140 @@ tbody tr:last-child td {
   border-top: 1px solid var(--border);
 }
 
+/* ── STANDARD ACTION DIALOG ── */
+.app-dialog-overlay {
+  z-index: 1200;
+  background: rgba(15, 23, 42, 0.54);
+}
+
+.app-dialog {
+  width: 480px;
+  overflow: hidden;
+}
+
+.app-dialog .modal-header {
+  align-items: flex-start;
+}
+
+.app-dialog__body {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.app-dialog__icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: #e6f7f4;
+  color: var(--teal-dark);
+  font-size: 19px;
+  font-weight: 800;
+}
+
+.app-dialog__icon--warning {
+  background: #fff7e6;
+  color: #a15c00;
+}
+
+.app-dialog__icon--danger {
+  background: #fef2f2;
+  color: var(--accent-red);
+}
+
+.app-dialog__content {
+  min-width: 0;
+}
+
+.app-dialog__message {
+  margin: 0;
+  color: var(--dark);
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.55;
+  white-space: pre-line;
+}
+
+.app-dialog__detail {
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-line;
+}
+
+.app-dialog__field {
+  grid-column: 1 / -1;
+  margin-top: 4px;
+}
+
+.app-dialog__field label {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.app-dialog__field input,
+.app-dialog__field textarea {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: white;
+  color: var(--dark);
+  font-family: 'Sora', sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.app-dialog__field input:focus,
+.app-dialog__field textarea:focus {
+  border-color: var(--teal);
+  box-shadow: 0 0 0 3px rgba(18, 160, 137, 0.12);
+}
+
+.app-dialog__field textarea {
+  min-height: 104px;
+  resize: vertical;
+}
+
+.app-dialog__copy-input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+}
+
+@media (max-width: 560px) {
+  .app-dialog {
+    width: calc(100vw - 28px);
+  }
+
+  .app-dialog__body {
+    grid-template-columns: 36px minmax(0, 1fr);
+  }
+
+  .app-dialog__icon {
+    width: 36px;
+    height: 36px;
+  }
+
+  .app-dialog .modal-footer {
+    flex-direction: column-reverse;
+  }
+
+  .app-dialog .modal-footer .btn-sm {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
 .form-group {
   margin-bottom: 16px;
 }

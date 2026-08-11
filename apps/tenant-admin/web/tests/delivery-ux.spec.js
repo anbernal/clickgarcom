@@ -87,15 +87,23 @@ test('ativação e desativação exigem confirmação explícita', async ({ page
   await prepareAdmin(page);
   let settingsRequest = 0;
   page.on('request', (request) => { if (request.url().endsWith('/delivery/settings') && request.method() === 'PUT') settingsRequest += 1; });
-  page.on('dialog', async (dialog) => {
-    expect(dialog.message()).toMatch(/desativar o módulo Delivery/i);
-    await dialog.accept();
-  });
   await page.goto('/');
   await page.getByRole('button', { name: /Entregas/ }).click();
   await page.getByRole('button', { name: /Configurar operação/ }).click();
   await page.locator('#delivery-setting-enabled').uncheck();
   await page.locator('#delivery-save-settings').click();
+
+  const dialog = page.locator('#app-dialog-content');
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toHaveAttribute('role', 'alertdialog');
+  await expect(dialog).toContainText('Desativar módulo Delivery?');
+  await expect(page.locator('#delivery-setting-enabled')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Cancelar' }).click();
+  await expect(dialog).toBeHidden();
+  expect(settingsRequest).toBe(0);
+
+  await page.locator('#delivery-save-settings').click();
+  await dialog.getByRole('button', { name: 'Desativar Delivery' }).click();
   await expect.poll(() => settingsRequest).toBe(1);
 });
 

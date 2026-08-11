@@ -352,7 +352,13 @@ async function deleteTable(id) {
   }
 
   const tableNumber = formatTableNumber(table.number);
-  const confirmed = window.confirm(`Excluir a Mesa ${tableNumber}? Esta ação não pode ser desfeita.`);
+  const confirmed = await showConfirmDialog({
+    title: `Excluir Mesa ${tableNumber}?`,
+    message: 'A mesa será removida do mapa do salão.',
+    detail: 'Esta ação não pode ser desfeita.',
+    confirmLabel: 'Excluir mesa',
+    variant: 'danger',
+  });
   if (!confirmed) return;
 
   try {
@@ -877,7 +883,18 @@ async function reopenTabFromModal(tabId, tableId, tableNumber) {
     showToast('Somente administrador ou gerente pode alterar comandas fechadas.', 'error');
     return;
   }
-  const reason = (window.prompt('Informe o motivo da alteracao. A auditoria vai registrar o antes e o depois da reabertura:') || '').trim();
+  const reason = await showPromptDialog({
+    title: 'Reabrir comanda?',
+    message: 'Informe por que esta comanda precisa ser reaberta.',
+    detail: 'A auditoria registrará o estado anterior, o novo estado e o usuário responsável.',
+    inputLabel: 'Motivo da reabertura',
+    placeholder: 'Descreva o motivo operacional',
+    confirmLabel: 'Reabrir comanda',
+    required: true,
+    requiredMessage: 'Informe um motivo para registrar a reabertura da comanda.',
+    variant: 'warning',
+  });
+  if (reason === null) return;
   if (!reason) {
     showToast('Informe um motivo para registrar a reabertura da comanda.', 'error');
     return;
@@ -897,11 +914,13 @@ async function finalizeTabFromModal(tabId, tableId, tableNumber) {
     showToast('Seu perfil nao pode finalizar comandas.', 'error');
     return;
   }
-  const confirmed = window.confirm(
-    'Confirmar que o pagamento foi recebido e finalizar esta comanda?\n\n' +
-    'Depois de fechada e paga, qualquer alteracao corretiva exige perfil administrador ou gerente, motivo obrigatorio e trilha de auditoria. ' +
-    'Se o cliente voltar a consumir, o correto e abrir uma nova comanda.'
-  );
+  const confirmed = await showConfirmDialog({
+    title: 'Finalizar comanda?',
+    message: 'Confirme que o pagamento foi recebido.',
+    detail: 'Após o fechamento, uma correção exigirá administrador ou gerente, motivo obrigatório e auditoria. Se o cliente voltar a consumir, abra uma nova comanda.',
+    confirmLabel: 'Registrar baixa e finalizar',
+    variant: 'warning',
+  });
   if (!confirmed) return;
 
   try {

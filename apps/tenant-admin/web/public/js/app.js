@@ -263,6 +263,236 @@ function closeModal() {
     if (previousFocus && document.contains(previousFocus) && previousFocus.getClientRects().length) previousFocus.focus({ preventScroll: true });
 }
 
+// Standard action dialogs. They use a dedicated overlay so confirmations can
+// be displayed over an operation modal without discarding the form beneath it.
+let appDialogState = null;
+let appDialogPreviousFocus = null;
+let appDialogUnderlyingAriaHidden = null;
+
+function appDialogEscape(value) {
+    return escapeHTML(String(value ?? ''));
+}
+
+function appDialogIcon(variant) {
+    if (variant === 'danger') return '!';
+    if (variant === 'warning') return '!';
+    if (variant === 'success') return '✓';
+    return 'i';
+}
+
+function openAppDialog(html, options = {}) {
+    const modal = document.getElementById('app-dialog-content');
+    const overlay = document.getElementById('app-dialog-overlay');
+    if (!modal || !overlay) return false;
+
+    if (appDialogState) {
+        const previous = appDialogState;
+        appDialogState = null;
+        previous.resolve(previous.cancelValue);
+    }
+
+    appDialogPreviousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const operationModal = document.getElementById('modal-content');
+    if (document.getElementById('modal-overlay')?.classList.contains('active') && operationModal) {
+        appDialogUnderlyingAriaHidden = operationModal.getAttribute('aria-hidden');
+        operationModal.setAttribute('aria-hidden', 'true');
+    } else {
+        appDialogUnderlyingAriaHidden = null;
+    }
+    modal.innerHTML = html;
+    modal.setAttribute('role', options.role || 'alertdialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-label', options.title || modal.querySelector('h3')?.textContent?.trim() || 'Confirmação');
+    overlay.classList.add('active');
+    overlay.setAttribute('aria-hidden', 'false');
+    return true;
+}
+
+function closeAppDialog() {
+    const overlay = document.getElementById('app-dialog-overlay');
+    if (overlay) {
+        overlay.classList.remove('active');
+        overlay.setAttribute('aria-hidden', 'true');
+    }
+
+    const pending = appDialogState;
+    appDialogState = null;
+    if (pending) pending.resolve(pending.cancelValue);
+
+    const operationModal = document.getElementById('modal-content');
+    if (operationModal) {
+        if (appDialogUnderlyingAriaHidden === null) operationModal.removeAttribute('aria-hidden');
+        else operationModal.setAttribute('aria-hidden', appDialogUnderlyingAriaHidden);
+    }
+    appDialogUnderlyingAriaHidden = null;
+
+    const previousFocus = appDialogPreviousFocus;
+    appDialogPreviousFocus = null;
+    if (previousFocus && document.contains(previousFocus) && previousFocus.getClientRects().length) {
+        previousFocus.focus({ preventScroll: true });
+    }
+}
+
+function finishAppDialog(value) {
+    const pending = appDialogState;
+    appDialogState = null;
+    closeAppDialog();
+    if (pending) pending.resolve(value);
+}
+
+function appDialogMarkup(options, fieldHtml = '') {
+    const variant = ['danger', 'warning', 'success'].includes(options.variant) ? options.variant : 'info';
+    const iconClass = variant === 'info' || variant === 'success' ? '' : ` app-dialog__icon--${variant}`;
+    const confirmClass = variant === 'danger' ? 'btn-danger' : 'btn-primary';
+    const cancelButton = options.cancelLabel
+        ? `<button type="button" class="btn-sm btn-outline" id="app-dialog-cancel">${appDialogEscape(options.cancelLabel)}</button>`
+        : '';
+    return `
+        <div class="modal-header">
+            <div>
+                <h3>${appDialogEscape(options.title || 'Confirmação')}</h3>
+                ${options.subtitle ? `<div class="modal-header-subtitle">${appDialogEscape(options.subtitle)}</div>` : ''}
+            </div>
+            <button type="button" class="modal-close" id="app-dialog-close" aria-label="Fechar">✕</button>
+        </div>
+        <div class="modal-body app-dialog__body">
+            <div class="app-dialog__icon${iconClass}" aria-hidden="true">${appDialogIcon(variant)}</div>
+            <div class="app-dialog__content">
+                <p class="app-dialog__message">${appDialogEscape(options.message || '')}</p>
+                ${options.detail ? `<p class="app-dialog__detail">${appDialogEscape(options.detail)}</p>` : ''}
+            </div>
+            ${fieldHtml}
+        </div>
+        <div class="modal-footer">
+            ${cancelButton}
+            <button type="button" class="btn-sm ${confirmClass}" id="app-dialog-confirm">${appDialogEscape(options.confirmLabel || 'Confirmar')}</button>
+        </div>`;
+}
+
+function showConfirmDialog(options = {}) {
+    return new Promise((resolve) => {
+        const normalized = {
+            title: 'Confirmar ação',
+            message: 'Deseja continuar?',
+            confirmLabel: 'Confirmar',
+            cancelLabel: 'Cancelar',
+            ...options,
+        };
+        if (!openAppDialog(appDialogMarkup(normalized), normalized)) {
+            resolve(false);
+            return;
+        }
+        appDialogState = { resolve, cancelValue: false };
+        document.getElementById('app-dialog-confirm')?.addEventListener('click', () => finishAppDialog(true));
+        document.getElementById('app-dialog-cancel')?.addEventListener('click', () => finishAppDialog(false));
+        document.getElementById('app-dialog-close')?.addEventListener('click', closeAppDialog);
+        document.getElementById('app-dialog-cancel')?.focus({ preventScroll: true });
+    });
+}
+
+function showPromptDialog(options = {}) {
+    return new Promise((resolve) => {
+        const normalized = {
+            title: 'Informação necessária',
+            message: 'Preencha o campo para continuar.',
+            inputLabel: 'Informação',
+            confirmLabel: 'Continuar',
+            cancelLabel: 'Cancelar',
+            multiline: true,
+            maxLength: 500,
+            ...options,
+        };
+        const fieldControl = normalized.multiline
+            ? `<textarea id="app-dialog-input" maxlength="${Number(normalized.maxLength) || 500}" placeholder="${appDialogEscape(normalized.placeholder || '')}">${appDialogEscape(normalized.defaultValue || '')}</textarea>`
+            : `<input id="app-dialog-input" type="${appDialogEscape(normalized.inputType || 'text')}" maxlength="${Number(normalized.maxLength) || 500}" placeholder="${appDialogEscape(normalized.placeholder || '')}" value="${appDialogEscape(normalized.defaultValue || '')}">`;
+        const fieldHtml = `<div class="app-dialog__field"><label for="app-dialog-input">${appDialogEscape(normalized.inputLabel)}</label>${fieldControl}</div>`;
+        if (!openAppDialog(appDialogMarkup(normalized, fieldHtml), normalized)) {
+            resolve(null);
+            return;
+        }
+        appDialogState = { resolve, cancelValue: null };
+        const input = document.getElementById('app-dialog-input');
+        const submit = () => {
+            const value = String(input?.value || '').trim();
+            if (normalized.required && !value) {
+                input?.focus();
+                showToast(normalized.requiredMessage || 'Preencha o campo para continuar.', 'error');
+                return;
+            }
+            finishAppDialog(value);
+        };
+        document.getElementById('app-dialog-confirm')?.addEventListener('click', submit);
+        document.getElementById('app-dialog-cancel')?.addEventListener('click', () => finishAppDialog(null));
+        document.getElementById('app-dialog-close')?.addEventListener('click', closeAppDialog);
+        input?.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' && (!normalized.multiline || event.ctrlKey || event.metaKey)) {
+                event.preventDefault();
+                submit();
+            }
+        });
+        input?.focus({ preventScroll: true });
+    });
+}
+
+function showMessageDialog(options = {}) {
+    return new Promise((resolve) => {
+        const normalized = {
+            title: 'Aviso',
+            confirmLabel: 'Entendi',
+            cancelLabel: '',
+            ...options,
+        };
+        if (!openAppDialog(appDialogMarkup(normalized), normalized)) {
+            resolve();
+            return;
+        }
+        appDialogState = { resolve, cancelValue: undefined };
+        document.getElementById('app-dialog-confirm')?.addEventListener('click', () => finishAppDialog());
+        document.getElementById('app-dialog-close')?.addEventListener('click', closeAppDialog);
+        document.getElementById('app-dialog-confirm')?.focus({ preventScroll: true });
+    });
+}
+
+function showCopyDialog(options = {}) {
+    return new Promise((resolve) => {
+        const normalized = {
+            title: 'Copiar conteúdo',
+            message: 'Selecione e copie o conteúdo abaixo.',
+            confirmLabel: 'Copiar',
+            cancelLabel: 'Fechar',
+            ...options,
+        };
+        const fieldHtml = `<div class="app-dialog__field"><label for="app-dialog-copy">${appDialogEscape(normalized.inputLabel || 'Conteúdo')}</label><input class="app-dialog__copy-input" id="app-dialog-copy" readonly value="${appDialogEscape(normalized.value || '')}"></div>`;
+        if (!openAppDialog(appDialogMarkup(normalized, fieldHtml), normalized)) {
+            resolve(false);
+            return;
+        }
+        appDialogState = { resolve, cancelValue: false };
+        const input = document.getElementById('app-dialog-copy');
+        document.getElementById('app-dialog-confirm')?.addEventListener('click', async () => {
+            try {
+                await navigator.clipboard.writeText(String(normalized.value || ''));
+                showToast(normalized.successMessage || 'Conteúdo copiado.', 'success');
+                finishAppDialog(true);
+            } catch (_) {
+                input?.focus();
+                input?.select();
+                showToast('Use Ctrl+C ou ⌘C para copiar o conteúdo selecionado.', 'error');
+            }
+        });
+        document.getElementById('app-dialog-cancel')?.addEventListener('click', () => finishAppDialog(false));
+        document.getElementById('app-dialog-close')?.addEventListener('click', closeAppDialog);
+        input?.focus({ preventScroll: true });
+        input?.select();
+    });
+}
+
+window.showConfirmDialog = showConfirmDialog;
+window.showPromptDialog = showPromptDialog;
+window.showMessageDialog = showMessageDialog;
+window.showCopyDialog = showCopyDialog;
+window.closeAppDialog = closeAppDialog;
+
 function logout() {
     localStorage.removeItem('clickgarcom_auth');
     sessionStorage.removeItem('clickgarcom_auth');
@@ -501,6 +731,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.target === e.currentTarget) closeModal();
     });
 
+    document.getElementById('app-dialog-overlay').addEventListener('click', (e) => {
+        if (e.target === e.currentTarget) closeAppDialog();
+    });
+
     // Close profile drawer on overlay click
     document.getElementById('profile-drawer-overlay').addEventListener('click', (e) => {
         if (e.target === e.currentTarget) closeProfileDrawer();
@@ -509,6 +743,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // Keyboard escape
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
+            if (document.getElementById('app-dialog-overlay')?.classList.contains('active')) {
+                closeAppDialog();
+                return;
+            }
             closeModal();
             closeProfileDrawer();
         }

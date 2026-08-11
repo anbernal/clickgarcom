@@ -688,10 +688,20 @@ async function loadWallet() {
                     document.getElementById('wallet-qr-image').src = `data:image/png;base64,${pixRes.qr_code_base64}`;
                     document.getElementById('wallet-qr-copy-input').value = pixRes.qr_code;
                 } else {
-                    alert('Erro ao gerar PIX: ' + JSON.stringify(pixRes));
+                    await showMessageDialog({
+                        title: 'Não foi possível gerar o PIX',
+                        message: 'O provedor não retornou um QR Code válido.',
+                        detail: 'Tente novamente em alguns instantes. Se o problema continuar, verifique a configuração do gateway.',
+                        variant: 'warning',
+                    });
                 }
             } catch (err) {
-                alert('Falha na geracao: ' + err.message);
+                await showMessageDialog({
+                    title: 'Falha ao gerar o PIX',
+                    message: err.message || 'Ocorreu uma falha inesperada durante a geração.',
+                    detail: 'Nenhuma recarga foi confirmada.',
+                    variant: 'danger',
+                });
             } finally {
                 btn.disabled = false;
                 btn.innerText = originalText;
