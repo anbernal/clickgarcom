@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="description" content="Acompanhe sua entrega em tempo real">
+    <meta name="referrer" content="no-referrer">
+    <title>Sua entrega — ClickGarçom</title>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="/css/tracking.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="anonymous">
+</head>
+<body>
+    <main class="tracking-app" id="tracking-app" aria-live="polite">
+        <section class="tracking-loading" aria-busy="true">
+            <div class="tracking-loader-mark"><span>●</span></div>
+            <h1>Conectando à sua entrega</h1>
+            <p>Estamos preparando o acompanhamento seguro.</p>
+        </section>
+    </main>
+    <script src="/_config.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="anonymous"></script>
+    <script src="/js/tracking.js"></script>
+</body>
+</html>

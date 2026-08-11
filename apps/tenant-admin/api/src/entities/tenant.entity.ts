@@ -15,9 +15,18 @@ export interface MessageTemplates {
     msg_service_request?: string;
     msg_payment_pending?: string;
     msg_payment_confirmed?: string;
+    msg_delivery_accepted?: string;
+    msg_delivery_manual_acceptance?: string;
+    msg_delivery_external_assigned?: string;
+    msg_delivery_picked_up?: string;
+    msg_delivery_arrived?: string;
+    msg_delivery_delivered?: string;
+    msg_delivery_rejected?: string;
+    msg_delivery_cycle_exhausted?: string;
 }
 
 export interface TenantSettings {
+    delivery?: Record<string, unknown>;
     service_mode?: 'COM_MESA' | 'SEM_MESA';
     service_fee_percent?: number;
     split_enabled?: boolean;

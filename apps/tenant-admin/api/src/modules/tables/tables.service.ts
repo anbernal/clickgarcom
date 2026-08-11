@@ -1223,6 +1223,7 @@ export class TablesService {
                     p.tab_id,
                     p.status,
                     p.method,
+                    p.metadata,
                     p.expired_at,
                     la.status AS latest_attempt_status
                FROM payments p
@@ -1270,7 +1271,7 @@ export class TablesService {
             throw new NotFoundException('Comanda não encontrada');
         }
 
-        const amountDue = this.getAmountDue(tab.total, tab.paidAmount, tab.status);
+        const amountDue = await this.resolvePaymentAmount(tab, this.resolvePayerField(payment.metadata?.delivery_checkout_key, ''));
         if (amountDue <= 0) {
             return {
                 payment_id: paymentId,
@@ -1315,6 +1316,7 @@ export class TablesService {
         const retry = await this.walletService.createPixPayment(tenantId, {
             order_id: orderId,
             amount: amountDue,
+            delivery_checkout_key: this.resolvePayerField(payment.metadata?.delivery_checkout_key, ''),
             description: this.buildCheckoutDescription(tab),
             payer_email: 'cliente@email.com',
             payer_name: 'Cliente',
@@ -2443,7 +2445,7 @@ export class TablesService {
             throw new NotFoundException('Comanda não encontrada');
         }
 
-        const amountDue = this.getAmountDue(tab.total, tab.paidAmount, tab.status);
+        const amountDue = await this.resolvePaymentAmount(tab, this.resolvePayerField(payload['delivery_checkout_key'], ''));
         if (amountDue <= 0) {
             return {
                 status: 'approved',
@@ -2456,6 +2458,7 @@ export class TablesService {
         const response = await this.walletService.createPixPayment(tab.tenantId, {
             order_id: orderId,
             amount: amountDue,
+            delivery_checkout_key: this.resolvePayerField(payload['delivery_checkout_key'], ''),
             description: this.buildCheckoutDescription(tab),
             payer_email: this.resolvePayerField(payload['payer_email'], 'cliente@email.com'),
             payer_name: this.resolvePayerField(payload['payer_name'], 'Visitante'),
@@ -2479,7 +2482,7 @@ export class TablesService {
             throw new BadRequestException(cardCheckoutConfig.reason);
         }
 
-        const amountDue = this.getAmountDue(tab.total, tab.paidAmount, tab.status);
+        const amountDue = await this.resolvePaymentAmount(tab, this.resolvePayerField(payload['delivery_checkout_key'], ''));
         if (amountDue <= 0) {
             return {
                 status: 'approved',
@@ -2498,6 +2501,7 @@ export class TablesService {
         const cardPayload: Record<string, unknown> = {
             order_id: orderId,
             amount: amountDue,
+            delivery_checkout_key: this.resolvePayerField(payload['delivery_checkout_key'], ''),
             token: String(payload['token'] || '').trim(),
             description: this.buildCheckoutDescription(tab),
             installments: Math.max(1, Number(payload['installments'] || 1) || 1),
@@ -4309,6 +4313,33 @@ Esperamos te receber novamente em breve! 😊`;
             return 'production';
         }
         return '';
+    }
+
+    private async resolvePaymentAmount(tab: { tenantId: string; total: number; paidAmount: number; status: string }, checkoutKey: string) {
+        const normalizedKey = String(checkoutKey || '').trim();
+        if (!normalizedKey) {
+            return this.getAmountDue(tab.total, tab.paidAmount, tab.status);
+        }
+        const rows = await this.dataSource.query(
+            `SELECT total_amount, status, expires_at
+               FROM delivery_checkouts
+              WHERE tenant_id = $1
+                AND checkout_key = $2
+              LIMIT 1`,
+            [tab.tenantId, normalizedKey],
+        );
+        const checkout = rows?.[0];
+        if (!checkout) throw new BadRequestException('Checkout de entrega não encontrado');
+        const status = String(checkout.status || '').trim().toUpperCase();
+        if (status !== 'PENDING_PAYMENT' && status !== 'PAID') {
+            throw new BadRequestException('Checkout de entrega indisponível');
+        }
+        if (status === 'PENDING_PAYMENT' && checkout.expires_at && new Date(checkout.expires_at) <= new Date()) {
+            throw new BadRequestException('Checkout de entrega expirado');
+        }
+        const amount = Number(checkout.total_amount);
+        if (!Number.isFinite(amount) || amount < 0) throw new BadRequestException('Total do checkout de entrega inválido');
+        return this.roundMoney(amount);
     }
 
     private getAmountDue(total: number, paidAmount: number, status: string) {

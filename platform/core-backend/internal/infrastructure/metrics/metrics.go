@@ -18,6 +18,57 @@ var (
 		Help: "The total number of events broadcasted to clients",
 	}, []string{"tenant_id", "event_type"})
 
+	DeliveryTrackingConnections = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "delivery_tracking_active_connections",
+		Help: "The number of active customer delivery tracking WebSocket connections",
+	}, []string{"tenant_id", "delivery_id"})
+
+	DeliveryRealtimeEventsPublished = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "delivery_realtime_events_published_total",
+		Help: "The number of delivery realtime events projected to tracking clients",
+	}, []string{"tenant_id", "delivery_id", "event_type"})
+
+	DeliveryRealtimeEventsDropped = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "delivery_realtime_events_dropped_total",
+		Help: "The number of delivery realtime events dropped for slow clients",
+	}, []string{"tenant_id", "delivery_id"})
+
+	MapProviderRequests = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "delivery_map_provider_requests_total",
+		Help: "Map provider requests by operation and outcome",
+	}, []string{"operation", "provider", "outcome"})
+
+	MapProviderLatency = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Name: "delivery_map_provider_latency_seconds",
+		Help: "Map provider request latency",
+	}, []string{"operation", "provider", "outcome"})
+
+	MapFallbacks = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "delivery_map_fallback_total",
+		Help: "Number of route calculations served by fallback",
+	}, []string{"operation"})
+
+	DeliveryLocationAccepted = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "delivery_location_updates_accepted_total",
+		Help: "Driver location updates accepted by validation and assignment boundaries",
+	}, []string{"outcome"})
+
+	DeliveryLocationRejected = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "delivery_location_updates_rejected_total",
+		Help: "Driver location updates rejected by validation or persistence",
+	}, []string{"reason"})
+
+	DeliveryFulfillmentEvents = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "delivery_fulfillment_events_processed_total",
+		Help: "Delivery fulfillment events processed by the Core notification projection",
+	}, []string{"event_type", "outcome"})
+
+	DeliveryFulfillmentEventDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "delivery_fulfillment_event_processing_duration_seconds",
+		Help:    "Time spent validating and projecting Delivery fulfillment events",
+		Buckets: prometheus.DefBuckets,
+	}, []string{"event_type", "outcome"})
+
 	ConsumerActive = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "clickgarcom_consumer_active",
 		Help: "Whether the queue consumer loop is active for a given queue",
@@ -75,6 +126,44 @@ func DecActiveConnections(tenantID string) {
 // IncEventsPublished increments the events published counter
 func IncEventsPublished(tenantID, eventType string) {
 	EventsPublished.WithLabelValues(tenantID, eventType).Inc()
+}
+
+func IncDeliveryTrackingConnections(tenantID, deliveryID string) {
+	DeliveryTrackingConnections.WithLabelValues(tenantID, deliveryID).Inc()
+}
+
+func DecDeliveryTrackingConnections(tenantID, deliveryID string) {
+	DeliveryTrackingConnections.WithLabelValues(tenantID, deliveryID).Dec()
+}
+
+func IncDeliveryRealtimeEventsPublished(tenantID, deliveryID, eventType string) {
+	DeliveryRealtimeEventsPublished.WithLabelValues(tenantID, deliveryID, eventType).Inc()
+}
+
+func IncDeliveryRealtimeEventsDropped(tenantID, deliveryID string) {
+	DeliveryRealtimeEventsDropped.WithLabelValues(tenantID, deliveryID).Inc()
+}
+
+func ObserveMapProvider(operation, provider, outcome string, seconds float64) {
+	MapProviderRequests.WithLabelValues(operation, provider, outcome).Inc()
+	MapProviderLatency.WithLabelValues(operation, provider, outcome).Observe(seconds)
+}
+
+func IncMapFallback(operation string) {
+	MapFallbacks.WithLabelValues(operation).Inc()
+}
+
+func IncDeliveryLocationAccepted(outcome string) {
+	DeliveryLocationAccepted.WithLabelValues(outcome).Inc()
+}
+
+func IncDeliveryLocationRejected(reason string) {
+	DeliveryLocationRejected.WithLabelValues(reason).Inc()
+}
+
+func ObserveDeliveryFulfillmentEvent(eventType, outcome string, seconds float64) {
+	DeliveryFulfillmentEvents.WithLabelValues(eventType, outcome).Inc()
+	DeliveryFulfillmentEventDuration.WithLabelValues(eventType, outcome).Observe(seconds)
 }
 
 func SetConsumerActive(queue string, active bool) {

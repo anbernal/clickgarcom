@@ -3,12 +3,14 @@ package application
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 
 	"github.com/anbernal/clickgarcom/internal/domain/order"
 	"github.com/anbernal/clickgarcom/internal/domain/orderbatch"
+	"github.com/anbernal/clickgarcom/internal/infrastructure/nodeadmin"
 )
 
 func TestAggregateOrderBatchStatus(t *testing.T) {
@@ -74,6 +76,43 @@ func TestAggregateOrderBatchStatus(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestUpdateOrderStatusPublishesDeliveryPreparingEventAsynchronously(t *testing.T) {
+	ctx := context.Background()
+	tenantID, batchID, orderID, peerID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	repo := &testUpdateOrderStatusRepo{ordersByID: map[uuid.UUID]*order.Order{
+		orderID: {ID: orderID, TenantID: tenantID, BatchID: &batchID, Status: order.StatusPending},
+		peerID:  {ID: peerID, TenantID: tenantID, BatchID: &batchID, Status: order.StatusAccepted},
+	}, ordersByBatch: map[uuid.UUID][]*order.Order{}}
+	repo.ordersByBatch[batchID] = []*order.Order{repo.ordersByID[orderID], repo.ordersByID[peerID]}
+	batchRepo := &testUpdateOrderBatchRepo{batchesByID: map[uuid.UUID]*orderbatch.OrderBatch{
+		batchID: {ID: batchID, TenantID: tenantID, ServiceType: orderbatch.ServiceTypeDelivery, Status: orderbatch.StatusPending},
+	}}
+	gateway := &capturingDeliveryBatchGateway{called: make(chan nodeadmin.DeliveryOrderBatchReconcileInput, 1)}
+	uc := NewUpdateOrderStatusUseCase(repo, batchRepo, nil, nil, zap.NewNop())
+	uc.SetDeliveryOrderBatchGateway(gateway)
+
+	if _, err := uc.Execute(ctx, UpdateOrderStatusInput{OrderID: orderID, TenantID: tenantID, NewStatus: order.StatusAccepted}); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	select {
+	case input := <-gateway.called:
+		if input.TenantID != tenantID || input.BatchID != batchID || input.OrderID != orderID || input.EventID == uuid.Nil {
+			t.Fatalf("unexpected delivery event input: %+v", input)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected delivery preparing event")
+	}
+}
+
+type capturingDeliveryBatchGateway struct {
+	called chan nodeadmin.DeliveryOrderBatchReconcileInput
+}
+
+func (g *capturingDeliveryBatchGateway) Reconcile(_ context.Context, input nodeadmin.DeliveryOrderBatchReconcileInput) (nodeadmin.DeliveryOrderBatchReconcileResponse, error) {
+	g.called <- input
+	return nodeadmin.DeliveryOrderBatchReconcileResponse{BatchID: input.BatchID}, nil
 }
 
 func TestUpdateOrderStatusExecuteSyncsBatchStatus(t *testing.T) {

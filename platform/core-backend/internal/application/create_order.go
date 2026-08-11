@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -36,10 +37,12 @@ var (
 
 // CreateOrderInput representa os dados de entrada para criar um pedido
 type CreateOrderInput struct {
-	TenantID uuid.UUID
-	TabID    uuid.UUID
-	Items    []OrderItemInput
-	Notes    string
+	TenantID                uuid.UUID
+	TabID                   uuid.UUID
+	Items                   []OrderItemInput
+	Notes                   string
+	ServiceType             orderbatch.ServiceType
+	DeliveryAddressSnapshot map[string]interface{}
 }
 
 // OrderItemInput representa um item do pedido
@@ -202,14 +205,24 @@ func (uc *CreateOrderUseCase) Execute(ctx context.Context, input CreateOrderInpu
 	// 6. Criar o batch lógico do carrinho
 	var batchID *uuid.UUID
 	if uc.orderBatchRepo != nil {
+		serviceType := input.ServiceType
+		if serviceType == "" {
+			serviceType = orderbatch.ServiceTypeDineIn
+		}
+		addressSnapshot, marshalErr := json.Marshal(input.DeliveryAddressSnapshot)
+		if marshalErr != nil {
+			return nil, fmt.Errorf("failed to serialize delivery address snapshot: %w", marshalErr)
+		}
 		newBatch := &orderbatch.OrderBatch{
-			ID:            uuid.New(),
-			TenantID:      input.TenantID,
-			TabID:         input.TabID,
-			CustomerPhone: existingTab.UserPhone,
-			Status:        orderbatch.StatusPending,
-			CreatedAt:     time.Now(),
-			UpdatedAt:     time.Now(),
+			ID:                      uuid.New(),
+			TenantID:                input.TenantID,
+			TabID:                   input.TabID,
+			CustomerPhone:           existingTab.UserPhone,
+			Status:                  orderbatch.StatusPending,
+			ServiceType:             serviceType,
+			DeliveryAddressSnapshot: addressSnapshot,
+			CreatedAt:               time.Now(),
+			UpdatedAt:               time.Now(),
 		}
 		if err := uc.orderBatchRepo.Create(ctx, newBatch); err != nil {
 			uc.logger.Error("failed to create order batch", zap.Error(err))

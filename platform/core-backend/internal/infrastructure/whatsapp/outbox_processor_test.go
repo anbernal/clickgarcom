@@ -38,3 +38,9 @@ func TestComposeInteractiveMainMenuBodyFallsBackToPayloadWhenNoMenuMatch(t *test
 
 	require.Equal(t, payload, body)
 }
+
+func TestSanitizeMessagePreviewRedactsDeliveryPIN(t *testing.T) {
+	preview := sanitizeMessagePreview("Código de recebimento: 042391. Acompanhe em tempo real.")
+	require.NotContains(t, preview, "042391")
+	require.Contains(t, preview, "[REDACTED]")
+}

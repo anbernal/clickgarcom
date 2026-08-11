@@ -19,6 +19,7 @@ import (
 	sessiondomain "github.com/anbernal/clickgarcom/internal/domain/inbox/session"
 	"github.com/anbernal/clickgarcom/internal/domain/tenant"
 	whatsappDomain "github.com/anbernal/clickgarcom/internal/domain/whatsapp"
+	"github.com/anbernal/clickgarcom/internal/infrastructure/nodeadmin"
 	infraMP "github.com/anbernal/clickgarcom/internal/infrastructure/payment"
 	"github.com/anbernal/clickgarcom/internal/infrastructure/persistence/postgres"
 	"github.com/anbernal/clickgarcom/internal/infrastructure/websocket"
@@ -54,9 +55,18 @@ func SetupRoutes(
 
 	// WhatsApp sender
 	whatsappSender := whatsapp.NewSender(db.DB, apiClient, logger)
+	internalToken := strings.TrimSpace(os.Getenv("INTERNAL_SERVICE_TOKEN"))
+	if internalToken == "" {
+		internalToken = "clickgarcom-internal-token"
+	}
 
 	// Use cases
 	updateOrderStatusUC := application.NewUpdateOrderStatusUseCase(orderRepo, orderBatchRepo, whatsappSender, wsHub, logger)
+	updateOrderStatusUC.SetDeliveryOrderBatchGateway(nodeadmin.NewDeliveryOrderBatchClient(
+		os.Getenv("ADMIN_INTERNAL_BASE_URL"),
+		internalToken,
+		logger,
+	))
 
 	// Handlers
 	whatsappHandler := handlers.NewWhatsAppWebhookHandler(inboxRepo, tenantRepo, logRepo, rabbitMQ, logger)
@@ -72,11 +82,6 @@ func SetupRoutes(
 		return c.Next()
 	})
 
-	internalToken := strings.TrimSpace(os.Getenv("INTERNAL_SERVICE_TOKEN"))
-	if internalToken == "" {
-		internalToken = "clickgarcom-internal-token"
-	}
-
 	// Tenant-scoped routes must derive scope from the authenticated JWT.
 	jwtAuth := middleware.JWTAuth(authService)
 
@@ -87,6 +92,13 @@ func SetupRoutes(
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid internal token"})
 		}
 		return portalWebSocketHandler.HandleInternalEvent(c)
+	})
+	deliveryMaintenanceHandler := handlers.NewDeliveryMaintenanceHandler(redisClient.Client)
+	app.Post("/internal/deliveries/maintenance/redis-cleanup", func(c *fiber.Ctx) error {
+		if strings.TrimSpace(c.Get("X-Internal-Token")) != internalToken {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid internal token"})
+		}
+		return deliveryMaintenanceHandler.Cleanup(c)
 	})
 
 	// Auth routes
@@ -409,6 +421,34 @@ func SetupRoutes(
 		ws.Get("/portal", fiberws.New(portalWebSocketHandler.HandleConnection, fiberws.Config{
 			EnableCompression: true,
 		}))
+	}
+}
+
+// RegisterDeliveryWebSocketRoutes wires the isolated delivery room endpoint
+// when a credential authorizer is available. It is intentionally separate
+// from SetupRoutes so deployments without the NestJS tracking credential
+// contract cannot accidentally expose an unauthenticated socket.
+func RegisterDeliveryWebSocketRoutes(ws fiber.Router, handler *handlers.DeliveryWebSocketHandler) {
+	if ws == nil || handler == nil {
+		return
+	}
+	ws.Use("/delivery", handler.Authorize)
+	ws.Get("/delivery", fiberws.New(handler.HandleConnection, fiberws.Config{
+		EnableCompression: true,
+	}))
+}
+
+// RegisterDeliveryLocationRoutes is opt-in for deployments that provide both
+// a driver assignment authorizer and a tracking credential authorizer.
+func RegisterDeliveryLocationRoutes(api fiber.Router, locationHandler *handlers.DeliveryLocationHandler, latestHandler *handlers.DeliveryLatestLocationHandler) {
+	if api == nil {
+		return
+	}
+	if locationHandler != nil {
+		api.Post("/delivery/driver/deliveries/:deliveryId/locations", locationHandler.Ingest)
+	}
+	if latestHandler != nil {
+		api.Get("/delivery/tracking/latest-location", latestHandler.Get)
 	}
 }
 

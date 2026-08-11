@@ -92,7 +92,7 @@ func (c *MetaAPIClient) SendTextMessage(ctx context.Context, to, message string)
 
 	c.logger.Debug("sending whatsapp message",
 		zap.String("to", to),
-		zap.String("message", message),
+		zap.String("message", sanitizeMessagePreview(message)),
 	)
 
 	resp, err := c.httpClient.Do(req)

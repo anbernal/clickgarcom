@@ -8,6 +8,7 @@ const pages = {
         loader: loadExtratoMensagens,
     },
     pedidos: { title: 'Pedidos', sub: 'Fila de pedidos recebidos', loader: loadPedidos },
+    delivery: { title: 'Entregas', sub: 'Despacho, acompanhamento e experiência do cliente', loader: loadDeliveryPage },
     cardapio: { title: 'Cardápio', sub: 'Gerencie os itens do seu menu', loader: loadCardapio },
     categorias: { title: 'Categorias', sub: 'Organize o cardápio em categorias', loader: loadCategorias },
     comandas: { title: 'Comandas', sub: 'Abra e acompanhe as comandas do restaurante', loader: loadComandas },
@@ -125,6 +126,10 @@ function navigate(pageId, options = {}) {
     const page = pages[authorizedPageId];
     if (!page) return;
 
+    if (authorizedPageId !== 'delivery' && typeof window.destroyDeliveryPage === 'function') {
+        window.destroyDeliveryPage();
+    }
+
     if (typeof window.stopConsultaScanner === 'function') {
         window.stopConsultaScanner().catch(() => {});
     }
@@ -225,21 +230,37 @@ async function submitOwnPasswordChange() {
 }
 
 // Modal helpers
+let modalPreviousFocus = null;
+
 function openModal(html, options) {
     const modal = document.getElementById('modal-content');
+    const overlay = document.getElementById('modal-overlay');
+    modalPreviousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     modal.className = 'modal';
     if (options && options.size === 'lg') {
         modal.classList.add('modal--lg');
     }
     modal.innerHTML = html;
-    document.getElementById('modal-overlay').classList.add('active');
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-label', modal.querySelector('h3')?.textContent?.trim() || 'Janela de operação');
+    modal.setAttribute('tabindex', '-1');
+    overlay.classList.add('active');
+    overlay.setAttribute('aria-hidden', 'false');
+    const initialFocus = modal.querySelector('button, input, select, textarea, [tabindex]:not([tabindex="-1"])');
+    (initialFocus || modal).focus({ preventScroll: true });
 }
 
 function closeModal() {
     if (typeof window.stopConsultaScanner === 'function') {
         window.stopConsultaScanner().catch(() => {});
     }
-    document.getElementById('modal-overlay').classList.remove('active');
+    const overlay = document.getElementById('modal-overlay');
+    overlay.classList.remove('active');
+    overlay.setAttribute('aria-hidden', 'true');
+    const previousFocus = modalPreviousFocus;
+    modalPreviousFocus = null;
+    if (previousFocus && document.contains(previousFocus) && previousFocus.getClientRects().length) previousFocus.focus({ preventScroll: true });
 }
 
 function logout() {

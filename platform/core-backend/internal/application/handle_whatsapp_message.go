@@ -40,8 +40,26 @@ type HandleWhatsAppMessageUseCase struct {
 	createOrderUC         *CreateOrderUseCase
 	sender                WhatsAppSender
 	portalAccess          PortalAccessIssuer
+	deliveryCheckout      *DeliveryCheckoutCoordinator
+	deliveryCustomer      DeliveryCustomerGateway
+	deliveryQuote         DeliveryQuoteGateway
+	deliveryOrderBatch    DeliveryOrderBatchGateway
 	logger                *zap.Logger
 	publicCheckoutBaseURL string
+}
+
+// SetDeliveryCheckoutCoordinator wires the delivery checkout boundary after
+// construction without changing the long-standing constructor used by tests
+// and non-delivery conversations.
+func (uc *HandleWhatsAppMessageUseCase) SetDeliveryCheckoutCoordinator(coordinator *DeliveryCheckoutCoordinator) {
+	uc.deliveryCheckout = coordinator
+}
+
+// SetDeliveryOrderBatchGateway wires the level-triggered order-batch
+// reconciliation boundary. It is kept optional so non-delivery conversations
+// and existing tests do not need an HTTP dependency.
+func (uc *HandleWhatsAppMessageUseCase) SetDeliveryOrderBatchGateway(gateway DeliveryOrderBatchGateway) {
+	uc.deliveryOrderBatch = gateway
 }
 
 type WhatsAppSender interface {
@@ -389,6 +407,23 @@ func (uc *HandleWhatsAppMessageUseCase) processMessage(
 	case session.StateWaitingOpenerDecision:
 		return uc.handleOpenerDecision(ctx, sess, text)
 
+	case session.StateDeliveryAddressSelection:
+		return uc.handleDeliveryAddressSelection(ctx, sess, text)
+	case session.StateDeliveryPostalCode:
+		return uc.handleDeliveryPostalCode(ctx, sess, text)
+	case session.StateDeliveryStreet, session.StateDeliveryNeighborhood, session.StateDeliveryCity, session.StateDeliveryState, session.StateDeliveryAddressNumber, session.StateDeliveryAddressComplement, session.StateDeliveryAddressReference, session.StateDeliveryAddressLabel:
+		return uc.handleDeliveryDraftField(ctx, sess, text)
+	case session.StateDeliveryAddressConfirmation:
+		return uc.handleDeliveryAddressConfirmation(ctx, sess, text)
+	case session.StateDeliveryAddressConsent:
+		return uc.handleDeliveryAddressConsent(ctx, sess, text)
+	case session.StateDeliveryAddressDelete:
+		return uc.handleDeliveryAddressDelete(ctx, sess, text)
+	case session.StateDeliveryReady:
+		return uc.handleDeliveryReady(ctx, sess, text)
+	case session.StateDeliveryCheckoutReview:
+		return uc.handleDeliveryCheckoutReview(ctx, sess, text)
+
 	default:
 		return whatsapp.MainMenuMessage(), session.StateMainMenu, nil
 	}
@@ -429,6 +464,36 @@ func (uc *HandleWhatsAppMessageUseCase) repeatCurrentPrompt(
 		return uc.buildTabSummaryResponse(ctx, sess, false)
 	case session.StateClosingTab:
 		return uc.startClosingTabFlow(ctx, sess)
+	case session.StateDeliveryAddressSelection:
+		return formatDeliveryAddressSelectionPrompt(), session.StateDeliveryAddressSelection, nil
+	case session.StateDeliveryPostalCode:
+		return "Informe o CEP com 8 dígitos.\n\n" + deliveryPostalCodePrompt(), session.StateDeliveryPostalCode, nil
+	case session.StateDeliveryStreet:
+		return "Informe o logradouro (rua/avenida).", session.StateDeliveryStreet, nil
+	case session.StateDeliveryNeighborhood:
+		return "Informe o bairro.", session.StateDeliveryNeighborhood, nil
+	case session.StateDeliveryCity:
+		return "Informe a cidade.", session.StateDeliveryCity, nil
+	case session.StateDeliveryState:
+		return "Informe a UF com 2 letras, por exemplo *SP*.", session.StateDeliveryState, nil
+	case session.StateDeliveryAddressNumber:
+		return "Informe o número do endereço.", session.StateDeliveryAddressNumber, nil
+	case session.StateDeliveryAddressComplement:
+		return "Informe o complemento ou responda *pular*.", session.StateDeliveryAddressComplement, nil
+	case session.StateDeliveryAddressReference:
+		return "Informe uma referência ou responda *pular*.", session.StateDeliveryAddressReference, nil
+	case session.StateDeliveryAddressLabel:
+		return "Informe um nome para o endereço, como *Casa* ou *Trabalho*.", session.StateDeliveryAddressLabel, nil
+	case session.StateDeliveryAddressConfirmation:
+		return "Confira o endereço e responda *sim* ou *não*.", session.StateDeliveryAddressConfirmation, nil
+	case session.StateDeliveryAddressConsent:
+		return "Deseja salvar este endereço? Responda *sim* ou *0* para cancelar.", session.StateDeliveryAddressConsent, nil
+	case session.StateDeliveryAddressDelete:
+		return "Responda *sim* para excluir ou *não* para manter o endereço.", session.StateDeliveryAddressDelete, nil
+	case session.StateDeliveryReady:
+		return "✅ Endereço confirmado. O checkout pode consultar o frete.\n\nDigite *0* para cancelar.", session.StateDeliveryReady, nil
+	case session.StateDeliveryCheckoutReview:
+		return uc.repeatDeliveryCheckoutReview(sess), session.StateDeliveryCheckoutReview, nil
 	case session.StateServiceRequest:
 		return "🙋 *Olá! Como posso te ajudar?*\n\n" +
 				"Pode me contar por aqui que nossa equipe já vai te atender.\n\n" +

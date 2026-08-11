@@ -90,6 +90,8 @@ func main() {
 		{"whatsapp.messages", "whatsapp.message.received", true},
 		{"payment.webhooks", "payment.webhook.received", true},
 		{"notifications.send", "notification.*", true},
+		{"delivery.fulfillment.events", "delivery.fulfillment.*", true},
+		{"delivery.domain.events", "delivery.domain.*", true},
 		{"orders.dlq", "", false}, // DLQ não precisa de routing key
 	}
 

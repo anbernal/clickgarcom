@@ -84,12 +84,13 @@ func (h *PaymentHandler) CreatePixPayment(c *fiber.Ctx) error {
 	}
 
 	var reqBody struct {
-		OrderID     string  `json:"order_id"`
-		Amount      float64 `json:"amount"`
-		Description string  `json:"description"`
-		PayerEmail  string  `json:"payer_email"`
-		PayerName   string  `json:"payer_name"`
-		PayerCPF    string  `json:"payer_cpf"`
+		OrderID             string  `json:"order_id"`
+		Amount              float64 `json:"amount"`
+		DeliveryCheckoutKey string  `json:"delivery_checkout_key"`
+		Description         string  `json:"description"`
+		PayerEmail          string  `json:"payer_email"`
+		PayerName           string  `json:"payer_name"`
+		PayerCPF            string  `json:"payer_cpf"`
 	}
 
 	if err := c.BodyParser(&reqBody); err != nil {
@@ -112,6 +113,9 @@ func (h *PaymentHandler) CreatePixPayment(c *fiber.Ctx) error {
 
 	method := payment.MethodPix
 	localPayment := h.newLocalPayment(tenantID, tabID, orderID, reqBody.Amount, method, gateway.Provider, walletRecharge)
+	if err := h.attachDeliveryPaymentMetadata(c.Context(), localPayment, orderID, reqBody.DeliveryCheckoutKey); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
 	if err := h.paymentRepo.Create(c.Context(), localPayment); err != nil {
 		h.logger.Error("failed to create local pix payment", zap.Error(err))
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to create local payment"})
@@ -200,15 +204,16 @@ func (h *PaymentHandler) CreateCardPayment(c *fiber.Ctx) error {
 	}
 
 	var reqBody struct {
-		OrderID         string  `json:"order_id"`
-		Amount          float64 `json:"amount"`
-		Token           string  `json:"token"`
-		Description     string  `json:"description"`
-		Installments    int     `json:"installments"`
-		PaymentMethodID string  `json:"payment_method_id"`
-		IssuerID        string  `json:"issuer_id"`
-		PayerEmail      string  `json:"payer_email"`
-		PayerCPF        string  `json:"payer_cpf"`
+		OrderID             string  `json:"order_id"`
+		Amount              float64 `json:"amount"`
+		DeliveryCheckoutKey string  `json:"delivery_checkout_key"`
+		Token               string  `json:"token"`
+		Description         string  `json:"description"`
+		Installments        int     `json:"installments"`
+		PaymentMethodID     string  `json:"payment_method_id"`
+		IssuerID            string  `json:"issuer_id"`
+		PayerEmail          string  `json:"payer_email"`
+		PayerCPF            string  `json:"payer_cpf"`
 	}
 
 	if err := c.BodyParser(&reqBody); err != nil {
@@ -248,6 +253,9 @@ func (h *PaymentHandler) CreateCardPayment(c *fiber.Ctx) error {
 	}
 
 	localPayment := h.newLocalPayment(tenantID, tabID, orderID, reqBody.Amount, method, gateway.Provider, walletRecharge)
+	if err := h.attachDeliveryPaymentMetadata(c.Context(), localPayment, orderID, reqBody.DeliveryCheckoutKey); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
 	if err := h.paymentRepo.Create(c.Context(), localPayment); err != nil {
 		h.logger.Error("failed to create local card payment", zap.Error(err))
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to create local payment"})
@@ -599,6 +607,26 @@ func (h *PaymentHandler) newLocalPayment(
 			"method":   string(method),
 		},
 	}
+}
+
+func (h *PaymentHandler) attachDeliveryPaymentMetadata(ctx context.Context, localPayment *payment.Payment, orderID uuid.UUID, checkoutKey string) error {
+	checkoutKey = strings.TrimSpace(checkoutKey)
+	if checkoutKey == "" {
+		return nil
+	}
+	if localPayment == nil || orderID == uuid.Nil {
+		return errors.New("delivery checkout requires a valid order")
+	}
+	ord, err := h.orderRepo.FindByID(ctx, orderID, localPayment.TenantID)
+	if err != nil || ord == nil || ord.BatchID == nil || *ord.BatchID == uuid.Nil {
+		return errors.New("delivery checkout order batch not found")
+	}
+	if localPayment.Metadata == nil {
+		localPayment.Metadata = payment.JSONMap{}
+	}
+	localPayment.Metadata["delivery_checkout_key"] = checkoutKey
+	localPayment.Metadata["delivery_order_batch_id"] = ord.BatchID.String()
+	return nil
 }
 
 func (h *PaymentHandler) applyPixProviderResponse(

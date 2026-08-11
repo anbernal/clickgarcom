@@ -9,7 +9,7 @@ import { VersionedApiResponseInterceptor } from './shared/interceptors/versioned
 import { configureVersionedApiAliases, requestTargetsPublicCheckout } from './shared/versioned-api';
 
 async function bootstrap() {
-    const app = await NestFactory.create(AppModule);
+    const app = await NestFactory.create(AppModule, { rawBody: true });
     const publicCheckoutRateLimit = new Map<string, { count: number; resetAt: number }>();
     const publicCheckoutWindowMs = 60_000;
     const publicCheckoutMaxRequests = 300;

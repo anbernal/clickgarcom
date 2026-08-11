@@ -1,12 +1,21 @@
 package orderbatch
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
 )
 
 type Status string
+
+type ServiceType string
+
+const (
+	ServiceTypeDineIn   ServiceType = "DINE_IN"
+	ServiceTypeTakeout  ServiceType = "TAKEOUT"
+	ServiceTypeDelivery ServiceType = "DELIVERY"
+)
 
 const (
 	StatusPending      Status = "PENDING"
@@ -18,18 +27,20 @@ const (
 )
 
 type OrderBatch struct {
-	ID            uuid.UUID  `json:"id" gorm:"type:uuid;primary_key"`
-	TenantID      uuid.UUID  `json:"tenant_id" gorm:"type:uuid;not null;index"`
-	TabID         uuid.UUID  `json:"tab_id" gorm:"type:uuid;not null;index"`
-	CustomerPhone string     `json:"customer_phone,omitempty" gorm:"type:varchar(30)"`
-	Status        Status     `json:"status" gorm:"type:varchar(20);not null;default:'PENDING'"`
-	CreatedAt     time.Time  `json:"created_at"`
-	UpdatedAt     time.Time  `json:"updated_at"`
-	AcceptedAt    *time.Time `json:"accepted_at,omitempty"`
-	ReadyAt       *time.Time `json:"ready_at,omitempty"`
-	DeliveredAt   *time.Time `json:"delivered_at,omitempty"`
-	CanceledAt    *time.Time `json:"canceled_at,omitempty"`
-	CancelReason  string     `json:"cancel_reason,omitempty" gorm:"type:text"`
+	ID                      uuid.UUID       `json:"id" gorm:"type:uuid;primary_key"`
+	TenantID                uuid.UUID       `json:"tenant_id" gorm:"type:uuid;not null;index"`
+	TabID                   uuid.UUID       `json:"tab_id" gorm:"type:uuid;not null;index"`
+	CustomerPhone           string          `json:"customer_phone,omitempty" gorm:"type:varchar(30)"`
+	Status                  Status          `json:"status" gorm:"type:varchar(20);not null;default:'PENDING'"`
+	ServiceType             ServiceType     `json:"service_type" gorm:"type:varchar(20);not null;default:'DINE_IN'"`
+	DeliveryAddressSnapshot json.RawMessage `json:"delivery_address_snapshot,omitempty" gorm:"type:jsonb"`
+	CreatedAt               time.Time       `json:"created_at"`
+	UpdatedAt               time.Time       `json:"updated_at"`
+	AcceptedAt              *time.Time      `json:"accepted_at,omitempty"`
+	ReadyAt                 *time.Time      `json:"ready_at,omitempty"`
+	DeliveredAt             *time.Time      `json:"delivered_at,omitempty"`
+	CanceledAt              *time.Time      `json:"canceled_at,omitempty"`
+	CancelReason            string          `json:"cancel_reason,omitempty" gorm:"type:text"`
 }
 
 func (OrderBatch) TableName() string {

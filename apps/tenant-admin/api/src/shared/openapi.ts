@@ -5,6 +5,7 @@ import {
     ADMIN_PUBLIC_API_VERSIONED_BASE_PATH,
 } from './api-contract';
 import { buildTenantRoleMetadata } from '../modules/auth/roles';
+import { buildDeliveryOpenApiPaths, buildDeliveryOpenApiSchemas } from '../modules/delivery/contracts/delivery-openapi';
 
 export function buildTenantAdminOpenApiDocument() {
     const roleMetadata = buildTenantRoleMetadata();
@@ -37,6 +38,7 @@ export function buildTenantAdminOpenApiDocument() {
             { name: 'Wallet' },
             { name: 'Bot Config' },
             { name: 'Public Checkout' },
+            { name: 'Delivery' },
         ],
         paths: {
             [`${ADMIN_API_VERSIONED_BASE_PATH}/health`]: {
@@ -1633,6 +1635,7 @@ export function buildTenantAdminOpenApiDocument() {
                     },
                 },
             },
+            ...buildDeliveryOpenApiPaths(),
         },
         components: {
             securitySchemes: {
@@ -1643,6 +1646,7 @@ export function buildTenantAdminOpenApiDocument() {
                 },
             },
             schemas: {
+                ...buildDeliveryOpenApiSchemas(),
                 HealthResponse: {
                     type: 'object',
                     properties: {

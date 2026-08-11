@@ -18,7 +18,9 @@ import (
 	"github.com/anbernal/clickgarcom/internal/application"
 	"github.com/anbernal/clickgarcom/internal/config"
 	domainconversation "github.com/anbernal/clickgarcom/internal/domain/conversation"
+	deliverynotification "github.com/anbernal/clickgarcom/internal/domain/deliverynotification"
 	infraConversation "github.com/anbernal/clickgarcom/internal/infrastructure/conversation"
+	deliveryfulfillment "github.com/anbernal/clickgarcom/internal/infrastructure/deliverynotification"
 	"github.com/anbernal/clickgarcom/internal/infrastructure/metrics"
 	adminclient "github.com/anbernal/clickgarcom/internal/infrastructure/nodeadmin"
 	infraMP "github.com/anbernal/clickgarcom/internal/infrastructure/payment"
@@ -116,6 +118,7 @@ func main() {
 		logger.Log,
 	)
 	whatsappSender := infraWA.NewSender(db.DB, whatsappAPI, logger.Log)
+	deliveryNotificationAdapter := infraWA.NewDeliveryNotificationAdapter(whatsappSender, logger.Log)
 	rabbitPublisher := rabbitmq.NewPublisher(rabbitMQClient.GetChannel(), logger.Log)
 	mpClient := infraMP.NewMercadoPagoClient(logger.Log)
 	settlementClient := adminclient.NewSettlementClient(
@@ -128,6 +131,28 @@ func main() {
 		resolveInternalServiceToken(),
 		logger.Log,
 	)
+	deliveryCheckoutClient := adminclient.NewDeliveryCheckoutClient(
+		resolveNodeAdminInternalBaseURL(),
+		resolveInternalServiceToken(),
+		logger.Log,
+	)
+	deliveryCheckoutCoordinator := application.NewDeliveryCheckoutCoordinator(deliveryCheckoutClient, logger.Log)
+	deliveryCustomerClient := adminclient.NewDeliveryCustomerClient(
+		resolveNodeAdminInternalBaseURL(),
+		resolveInternalServiceToken(),
+		logger.Log,
+	)
+	deliveryQuoteClient := adminclient.NewDeliveryQuoteClient(
+		resolveNodeAdminInternalBaseURL(),
+		resolveInternalServiceToken(),
+		logger.Log,
+	)
+	deliveryOrderBatchClient := adminclient.NewDeliveryOrderBatchClient(
+		resolveNodeAdminInternalBaseURL(),
+		resolveInternalServiceToken(),
+		logger.Log,
+	)
+	deliveryPaymentCoordinator := application.NewDeliveryPaymentCoordinator(deliveryCheckoutCoordinator, deliveryOrderBatchClient)
 
 	// 7. Use Cases
 	createOrderUC := application.NewCreateOrderUseCase(
@@ -155,6 +180,10 @@ func main() {
 		logger.Log,
 		portalAccessClient,
 	)
+	handleWhatsAppMsg.SetDeliveryCheckoutCoordinator(deliveryCheckoutCoordinator)
+	handleWhatsAppMsg.SetDeliveryCustomerGateway(deliveryCustomerClient)
+	handleWhatsAppMsg.SetDeliveryQuoteGateway(deliveryQuoteClient)
+	handleWhatsAppMsg.SetDeliveryOrderBatchGateway(deliveryOrderBatchClient)
 	processWhatsAppMsg := application.NewProcessWhatsAppMessageUseCase(
 		inboxRepo,
 		tenantRepo,
@@ -164,6 +193,16 @@ func main() {
 
 	// 7. Consumer
 	consumer := rabbitmq.NewConsumer(rabbitMQClient.GetChannel(), logger.Log)
+	deliveryFulfillmentConsumer := deliveryfulfillment.NewFulfillmentEventConsumer(
+		deliveryfulfillment.NotificationPublisherFunc(func(ctx context.Context, notification deliverynotification.Request) error {
+			body, err := json.Marshal(notification)
+			if err != nil {
+				return err
+			}
+			return rabbitPublisher.Publish("clickgarcom.events", "notification.delivery", body)
+		}),
+		logger.Log,
+	)
 
 	// 7.1 Table Event Consumer
 	processTableEventUC := application.NewProcessTableEventUseCase(
@@ -182,6 +221,7 @@ func main() {
 		settlementClient,
 		logger.Log,
 	)
+	reconcilePaymentWebhookUC.SetDeliveryPaymentCoordinator(deliveryPaymentCoordinator)
 	portalOrderStatusUC := application.NewHandlePortalOrderStatusUseCase(
 		portalAccessVerifier,
 		portalConversationOutputStore,
@@ -247,6 +287,10 @@ func main() {
 			logger.Log,
 			portalAccessClient,
 		)
+		portalHandleUC.SetDeliveryCheckoutCoordinator(deliveryCheckoutCoordinator)
+		portalHandleUC.SetDeliveryCustomerGateway(deliveryCustomerClient)
+		portalHandleUC.SetDeliveryQuoteGateway(deliveryQuoteClient)
+		portalHandleUC.SetDeliveryOrderBatchGateway(deliveryOrderBatchClient)
 
 		if err := portalHandleUC.ExecutePortal(ctx, input, portalConversationInputStore); err != nil {
 			return err
@@ -298,6 +342,14 @@ func main() {
 
 	if err := consumer.Consume("portal.order.status.events", handlePortalOrderStatus); err != nil {
 		logger.Fatal("Failed to start portal.order.status.events consumer", zap.Error(err))
+	}
+
+	if err := consumer.Consume("notifications.send", deliveryNotificationAdapter.Handle); err != nil {
+		logger.Fatal("Failed to start notifications.send consumer", zap.Error(err))
+	}
+
+	if err := consumer.Consume("delivery.fulfillment.events", deliveryFulfillmentConsumer.Handle); err != nil {
+		logger.Fatal("Failed to start delivery.fulfillment.events consumer", zap.Error(err))
 	}
 
 	logger.Info("Worker is running, waiting for messages...")

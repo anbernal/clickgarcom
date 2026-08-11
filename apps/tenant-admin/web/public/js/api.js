@@ -45,6 +45,10 @@ const TENANT_ROLE_ALIASES = {
     BAR: 'BAR',
     CASHIER: 'CASHIER',
     CAIXA: 'CASHIER',
+    DRIVER: 'DRIVER',
+    ENTREGADOR: 'DRIVER',
+    DISPATCHER: 'DISPATCHER',
+    DESPACHANTE: 'DISPATCHER',
 };
 
 const TENANT_ROUTE_GROUPS = {
@@ -62,6 +66,11 @@ const TENANT_ROUTE_GROUPS = {
     wallet: ['ADMIN', 'MANAGER'],
     bot_config: ['ADMIN', 'MANAGER'],
     purchases: ['ADMIN', 'MANAGER'],
+    delivery_read: ['ADMIN', 'MANAGER', 'WAITER', 'DISPATCHER'],
+    delivery_dispatch: ['ADMIN', 'MANAGER', 'WAITER', 'DISPATCHER'],
+    delivery_settings: ['ADMIN', 'MANAGER'],
+    delivery_override: ['ADMIN', 'MANAGER'],
+    delivery_reports: ['ADMIN', 'MANAGER'],
 };
 
 const TENANT_PAGE_ACCESS = {
@@ -78,6 +87,7 @@ const TENANT_PAGE_ACCESS = {
     compras: TENANT_ROUTE_GROUPS.purchases,
     configuracoes: TENANT_ROUTE_GROUPS.full_access,
     equipe: TENANT_ROUTE_GROUPS.full_access,
+    delivery: TENANT_ROUTE_GROUPS.delivery_read,
 };
 
 function normalizeTenantUserRole(role) {
@@ -132,6 +142,10 @@ function buildFallbackPermissions(role) {
             viewReports: routeGroups.includes('reports'),
             viewWallet: routeGroups.includes('wallet'),
             managePurchases: routeGroups.includes('purchases'),
+            manageDeliveries: routeGroups.includes('delivery_dispatch'),
+            manageDeliverySettings: routeGroups.includes('delivery_settings'),
+            overrideDelivery: routeGroups.includes('delivery_override'),
+            viewDeliveryReports: routeGroups.includes('delivery_reports'),
         },
     };
 }
@@ -151,6 +165,10 @@ function getCurrentUserPermissions() {
         return {
             ...fallbackPermissions,
             ...storedPermissions,
+            pages: Array.from(new Set([
+                ...(fallbackPermissions.pages || []),
+                ...(storedPermissions.pages || []),
+            ])),
             routeGroups: Array.from(new Set([
                 ...(fallbackPermissions.routeGroups || []),
                 ...(storedPermissions.routeGroups || []),
@@ -170,6 +188,11 @@ function canAccessRouteGroup(routeGroup) {
 }
 
 function canAccessPage(pageId) {
+    // The delivery driver uses the dedicated mobile workflow; a stale session
+    // must never retain access to the administrative dispatch board.
+    if (pageId === 'delivery' && getCurrentUserRole() === 'DRIVER') {
+        return false;
+    }
     return getCurrentUserPermissions().pages?.includes(pageId);
 }
 
@@ -270,22 +293,22 @@ const api = {
         return handleResponse(res);
     },
 
-    async post(path, body) {
+    async post(path, body = {}, options = {}) {
         const finalBody = { ...body };
         if (TENANT_ID && !finalBody.tenant_id) finalBody.tenant_id = TENANT_ID;
 
         const res = await fetch(API_BASE + path, {
             method: 'POST',
-            headers: getAuthHeaders(),
+            headers: { ...getAuthHeaders(), ...(options.headers || {}) },
             body: JSON.stringify(finalBody),
         });
         return handleResponse(res);
     },
 
-    async put(path, body) {
+    async put(path, body, options = {}) {
         const res = await fetch(API_BASE + path, {
             method: 'PUT',
-            headers: getAuthHeaders(),
+            headers: { ...getAuthHeaders(), ...(options.headers || {}) },
             body: JSON.stringify(body),
         });
         return handleResponse(res);
@@ -300,12 +323,17 @@ const api = {
         return handleResponse(res);
     },
 
-    async delete(path) {
+    async delete(path, options = {}) {
         const res = await fetch(API_BASE + path, {
             method: 'DELETE',
-            headers: { 'Authorization': getAuthHeaders().Authorization }
+            headers: { 'Authorization': getAuthHeaders().Authorization, ...(options.headers || {}) }
         });
         return handleResponse(res);
+    },
+
+    async command(path, body = {}, idempotencyKey) {
+        const key = idempotencyKey || (window.crypto?.randomUUID?.() || `web-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+        return this.post(path, body, { headers: { 'Idempotency-Key': key } });
     },
 
     async download(path, params = {}) {

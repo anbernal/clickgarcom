@@ -1,0 +1,137 @@
+(function () {
+    'use strict';
+    const runtime = window.CLICKGARCOM_RUNTIME_CONFIG || {};
+    // Tracking always uses the same-origin web proxy so its HttpOnly cookie
+    // remains first-party and the public page never needs CORS credentials.
+    const APP_BASE_PATH = String(runtime.appBasePath || '').replace(/\/+$/, '');
+    const API_BASE = `${APP_BASE_PATH}/admin/api`;
+    const app = document.getElementById('tracking-app');
+    const terminalStatuses = new Set(['DELIVERED', 'CANCELED', 'REJECTED', 'RETURNED']);
+    const statusCopy = {
+        PENDING_RESTAURANT_ACCEPTANCE: ['Pedido recebido', 'O restaurante está revisando os detalhes do seu pedido.'],
+        ACCEPTED: ['Pedido confirmado', 'Tudo certo. O restaurante confirmou sua entrega.'],
+        PREPARING: ['Preparando com cuidado', 'Seu pedido está sendo preparado para sair.'],
+        READY_FOR_DISPATCH: ['Pronto para coleta', 'Seu pedido está pronto e aguarda o entregador.'],
+        ASSIGNED: ['Entregador a caminho', 'Um entregador já foi definido para a sua entrega.'],
+        PICKED_UP: ['Pedido coletado', 'O entregador está começando o deslocamento.'],
+        IN_TRANSIT: ['Sua entrega está a caminho', 'A posição abaixo é atualizada durante o trajeto.'],
+        ARRIVED: ['O entregador chegou', 'Tenha o código de recebimento em mãos para informar ao entregador.'],
+        DELIVERED: ['Entrega concluída', 'Recebimento confirmado. Bom apetite!'],
+        REJECTED: ['Pedido não aceito', 'O restaurante não conseguiu atender esta entrega. Entre em contato para saber mais.'],
+        CANCELED: ['Entrega cancelada', 'Esta entrega foi cancelada. Entre em contato com o restaurante se precisar de ajuda.'],
+        DELIVERY_FAILED: ['Precisamos da sua atenção', 'Houve uma dificuldade na tentativa de entrega.'],
+        RETURNING: ['Pedido em retorno', 'O pedido está retornando ao restaurante.'],
+        RETURNED: ['Pedido retornado', 'A operação de retorno foi concluída.'],
+    };
+    const state = { snapshot: null, poll: null, socket: null, reconnect: null, reconnectAttempt: 0, connection: 'connecting', lastVersion: -1, lastEventAt: 0, map: null };
+
+    function esc(value) { return String(value ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;'); }
+    function extractToken() {
+        const hash = window.location.hash.replace(/^#/, '');
+        const params = new URLSearchParams(hash);
+        const token = params.get('token') || (hash && !hash.includes('=') ? hash : '');
+        if (hash) window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
+        return token;
+    }
+    async function jsonFetch(path, options) {
+        const response = await fetch(`${API_BASE}${path}`, { credentials: 'include', cache: 'no-store', ...options, headers: { 'Content-Type': 'application/json', ...(options?.headers || {}) } });
+        if (!response.ok) throw new Error(response.status === 429 ? 'Muitas atualizações. Aguarde alguns segundos.' : 'Este acompanhamento não está disponível.');
+        return response.json();
+    }
+    async function init() {
+        const token = extractToken();
+        try {
+            const snapshot = token
+                ? await jsonFetch('/public/deliveries/track/session', { method: 'POST', body: JSON.stringify({ token }) })
+                : await jsonFetch('/public/deliveries/track', { method: 'GET' });
+            applySnapshot(snapshot);
+            if (!terminalStatuses.has(snapshot.status) && snapshot.tracking_active !== false) { startPolling(); connectSocket(); }
+        } catch (_) { renderError(); }
+    }
+    function applySnapshot(snapshot) {
+        if (!snapshot || Number(snapshot.version ?? 0) < state.lastVersion) return;
+        state.snapshot = snapshot; state.lastVersion = Number(snapshot.version ?? 0); render();
+        if (terminalStatuses.has(snapshot.status) || snapshot.tracking_active === false) stopRealtime();
+    }
+    function applyRealtimeEvent(event) {
+        if (!state.snapshot || !event || !event.data) return;
+        const occurredAt = new Date(event.occurred_at || 0).getTime();
+        if (Number.isFinite(occurredAt) && occurredAt < state.lastEventAt) return;
+        state.lastEventAt = Number.isFinite(occurredAt) ? occurredAt : Date.now();
+        const data = event.data;
+        const location = data.location ? {
+            lat: data.location.latitude, lng: data.location.longitude, accuracy_m: data.location.accuracy_m ?? null,
+            speed_mps: data.location.speed_mps ?? null, heading_deg: data.location.heading_deg ?? null,
+            recorded_at: data.location.recorded_at || event.occurred_at,
+        } : state.snapshot.driver_location;
+        state.snapshot = {
+            ...state.snapshot,
+            ...(data.status ? { status: data.status } : {}),
+            ...(data.eta_seconds != null ? { eta_seconds: data.eta_seconds } : {}),
+            ...(data.eta_updated_at ? { eta_updated_at: data.eta_updated_at } : {}),
+            ...(data.location ? { driver_location: location } : {}),
+            updated_at: event.occurred_at || state.snapshot.updated_at,
+        };
+        render();
+        if (terminalStatuses.has(state.snapshot.status)) stopRealtime();
+    }
+    function render() {
+        const data = state.snapshot;
+        const copy = statusCopy[data.status] || ['Acompanhando sua entrega', 'O status será atualizado por aqui.'];
+        const location = data.driver_location;
+        const stale = location && Date.now() - new Date(location.recorded_at).getTime() > 45000;
+        const connectionLabel = terminalStatuses.has(data.status) ? 'Acompanhamento encerrado' : stale ? `Última posição ${relative(location.recorded_at)}` : state.connection === 'online' ? 'Atualização ao vivo' : 'Atualizando automaticamente';
+        app.innerHTML = `<header class="tracking-top"><div class="tracking-brand"><span class="tracking-brand-mark">CG</span> ClickGarçom</div><span class="tracking-connection ${stale ? 'stale' : ''}">${esc(connectionLabel)}</span></header>
+            <section class="tracking-hero"><div class="tracking-overline">Status da sua entrega</div><h1>${esc(copy[0])}</h1><div class="tracking-order"><div class="tracking-code"><span>Entrega</span><strong>#${esc(data.display_code)}</strong></div><div class="tracking-eta"><span>Previsão</span><strong>${esc(eta(data.eta_seconds))}</strong></div></div></section>
+            ${renderMap(data, stale)}
+            <section class="tracking-card"><div class="tracking-card-head"><h2>Passo a passo</h2><span>Atualizado ${esc(relative(data.updated_at))}</span></div>${renderSteps(data.status)}</section>
+            <div class="tracking-note"><span class="tracking-note-icon">${data.status === 'ARRIVED' ? '🔐' : terminalStatuses.has(data.status) ? '✓' : '✦'}</span><div><strong>${data.status === 'ARRIVED' ? 'Prepare seu código de recebimento' : terminalStatuses.has(data.status) ? 'Acompanhamento finalizado' : 'Você não precisa atualizar a página'}</strong><p>${data.status === 'ARRIVED' ? 'Informe o código somente ao entregador quando estiver com o pedido. Ele não é exibido nesta página.' : esc(copy[1])}</p></div></div>
+            <div class="tracking-help"><button type="button" class="tracking-button" onclick="window.deliveryTrackingHelp()">Preciso de ajuda</button></div><footer class="tracking-footer">Por segurança, este link é temporário e exibe apenas os dados necessários para acompanhar esta entrega.</footer>`;
+        renderActualMap(data, stale);
+    }
+    function renderMap(data, stale) {
+        const destination = data.destination || {};
+        const canShowDriver = ['PICKED_UP','IN_TRANSIT','ARRIVED'].includes(data.status) && data.driver_location && !terminalStatuses.has(data.status);
+        const mapLink = destination.lat != null && destination.lng != null ? `https://www.openstreetmap.org/?mlat=${encodeURIComponent(destination.lat)}&mlon=${encodeURIComponent(destination.lng)}#map=16/${encodeURIComponent(destination.lat)}/${encodeURIComponent(destination.lng)}` : '';
+        if (!canShowDriver) return `<section class="tracking-map"><div class="tracking-map-grid"></div><div class="tracking-map-unavailable"><div><strong>${['PENDING_RESTAURANT_ACCEPTANCE','ACCEPTED','PREPARING','READY_FOR_DISPATCH','ASSIGNED'].includes(data.status) ? 'O mapa aparece depois da coleta' : 'Localização não disponível'}</strong><span>${terminalStatuses.has(data.status) ? 'A localização deixa de ser compartilhada quando a entrega termina.' : 'Você continuará vendo todas as mudanças de status por aqui.'}</span>${mapLink ? `<div style="margin-top:14px"><a class="tracking-map-link" target="_blank" rel="noopener noreferrer" href="${mapLink}">Ver destino no mapa ↗</a></div>` : ''}</div></div></section>`;
+        if (data.driver_location.lat == null || data.driver_location.lng == null || destination.lat == null || destination.lng == null) return `<section class="tracking-map"><div class="tracking-map-grid"></div><div class="tracking-map-unavailable"><div><strong>Posição em atualização</strong><span>O trajeto continua sendo acompanhado e uma nova posição aparecerá em instantes.</span></div></div></section>`;
+        return `<section class="tracking-map" aria-label="Posição do entregador e destino no mapa"><div id="tracking-live-map" class="tracking-leaflet-map"></div><div class="tracking-map-legend"><span>${stale ? `Posição de ${relative(data.driver_location.recorded_at)}` : '● Entregador em deslocamento'}</span>${mapLink ? `<a class="tracking-map-link" target="_blank" rel="noopener noreferrer" href="${mapLink}">Abrir destino ↗</a>` : '<span>Destino confirmado</span>'}</div></section>`;
+    }
+    function renderActualMap(data, stale) {
+        if (state.map) { state.map.remove(); state.map=null; }
+        const node=document.getElementById('tracking-live-map'); const driver=data.driver_location; const destination=data.destination||{};
+        if(!node||!window.L||!driver||driver.lat==null||driver.lng==null||destination.lat==null||destination.lng==null)return;
+        state.map=window.L.map(node,{zoomControl:false,attributionControl:true,dragging:true,scrollWheelZoom:false,tap:true});
+        window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(state.map);
+        const driverIcon=window.L.divIcon({className:'tracking-leaflet-icon',html:stale?'◷':'➜',iconSize:[38,38]});
+        const destinationIcon=window.L.divIcon({className:'tracking-leaflet-icon destination',html:'⌂',iconSize:[38,38]});
+        const driverPoint=[Number(driver.lat),Number(driver.lng)]; const destinationPoint=[Number(destination.lat),Number(destination.lng)];
+        window.L.marker(driverPoint,{icon:driverIcon,keyboard:false}).addTo(state.map); window.L.marker(destinationPoint,{icon:destinationIcon,keyboard:false}).addTo(state.map);
+        state.map.fitBounds(window.L.latLngBounds([driverPoint,destinationPoint]),{padding:[48,48],maxZoom:16});
+    }
+    function renderSteps(status) {
+        const steps = [
+            ['PENDING_RESTAURANT_ACCEPTANCE','Recebido'], ['ACCEPTED','Aceito'], ['PREPARING','Preparando'], ['READY_FOR_DISPATCH','Pronto'], ['IN_TRANSIT','Em rota'], ['ARRIVED','Chegou'], ['DELIVERED','Concluído'],
+        ];
+        const rank = { PENDING_RESTAURANT_ACCEPTANCE:0, ACCEPTED:1, PREPARING:2, READY_FOR_DISPATCH:3, ASSIGNED:3, PICKED_UP:4, IN_TRANSIT:4, ARRIVED:5, DELIVERED:6 };
+        const current = rank[status];
+        return `<div class="tracking-steps">${steps.map(([value,label],index) => `<div class="tracking-step ${Number.isFinite(current) && index <= current ? 'done' : ''} ${index === current ? 'current' : ''}"><span class="tracking-step-dot"></span><span class="tracking-step-label">${label}</span></div>`).join('')}</div>`;
+    }
+    function eta(seconds) { if (!Number.isFinite(Number(seconds)) || Number(seconds) <= 0) return 'calculando'; const min=Math.max(1,Math.round(Number(seconds)/60)); return `${Math.max(1,min-3)}–${min+3} min`; }
+    function relative(value) { if (!value) return 'agora'; const seconds=Math.max(0,Math.round((Date.now()-new Date(value).getTime())/1000)); if(seconds<45)return 'agora'; if(seconds<3600)return `há ${Math.round(seconds/60)} min`; return `há ${Math.round(seconds/3600)} h`; }
+    function startPolling() { clearInterval(state.poll); state.poll=setInterval(async()=>{ if(document.hidden)return; try{applySnapshot(await jsonFetch('/public/deliveries/track',{method:'GET'}));}catch(_){state.connection='fallback';render();}},12000); }
+    function connectSocket() {
+        if (!('WebSocket' in window)) return;
+        try {
+            const protocol=location.protocol==='https:'?'wss:':'ws:'; state.socket=new WebSocket(`${protocol}//${location.host}/ws/delivery`);
+            state.socket.onopen=()=>{state.connection='online';state.reconnectAttempt=0;render();};
+            state.socket.onmessage=(event)=>{try{const message=JSON.parse(event.data);const type=message.type||message.event_type;if(['delivery.location_updated.v1','delivery.status_changed.v1','delivery.completed.v1','delivery.accepted.v1','delivery.ready_for_dispatch.v1','delivery.assigned.v1','delivery.picked_up.v1','delivery.arrived.v1','delivery.exception_opened.v1','delivery.returned.v1','delivery.eta_updated.v1'].includes(type)){ if(message.snapshot) applySnapshot(message.snapshot); else applyRealtimeEvent(message); }}catch(_){}};
+            state.socket.onclose=()=>{state.connection='fallback';scheduleReconnect();render();}; state.socket.onerror=()=>state.socket?.close();
+        } catch (_) { state.connection='fallback'; scheduleReconnect(); }
+    }
+    function scheduleReconnect(){ if(terminalStatuses.has(state.snapshot?.status))return; clearTimeout(state.reconnect); const wait=Math.min(30000,1000*(2**state.reconnectAttempt++))+Math.random()*800; state.reconnect=setTimeout(connectSocket,wait); }
+    function stopRealtime(){clearInterval(state.poll);clearTimeout(state.reconnect);state.poll=null;state.reconnect=null;if(state.socket){state.socket.onclose=null;state.socket.close();state.socket=null;}}
+    function renderError(){stopRealtime();app.innerHTML='<section class="tracking-error"><div><div class="tracking-error-icon">🔗</div><h1>Acompanhamento indisponível</h1><p>Este link pode ter expirado ou sido encerrado. Por segurança, não mostramos detalhes adicionais. Solicite um novo link ao restaurante.</p></div></section>';}
+    window.deliveryTrackingHelp=function(){window.alert('Entre em contato com o restaurante pelo mesmo canal em que fez o pedido. Informe apenas o número da entrega — nunca compartilhe seu código antes de receber o pedido.');};
+    window.addEventListener('pagehide',stopRealtime); document.addEventListener('visibilitychange',()=>{if(!document.hidden&&state.snapshot&&!terminalStatuses.has(state.snapshot.status)){jsonFetch('/public/deliveries/track',{method:'GET'}).then(applySnapshot).catch(()=>{});}}); init();
+})();

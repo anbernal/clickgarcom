@@ -21,7 +21,12 @@ type ReconcilePaymentWebhookUseCase struct {
 	tenantRepo         tenant.Repository
 	mpClient           *infraMP.MercadoPagoClient
 	settlementClient   *nodeadmin.SettlementClient
+	deliveryPayment    *DeliveryPaymentCoordinator
 	logger             *zap.Logger
+}
+
+func (uc *ReconcilePaymentWebhookUseCase) SetDeliveryPaymentCoordinator(coordinator *DeliveryPaymentCoordinator) {
+	uc.deliveryPayment = coordinator
 }
 
 type paymentWebhookPayload struct {
@@ -143,6 +148,24 @@ func (uc *ReconcilePaymentWebhookUseCase) Execute(ctx context.Context, body []by
 		return fmt.Errorf("failed to update payment after reconciliation: %w", err)
 	}
 
+	if localPayment.Status == payment.StatusConfirmed {
+		if checkoutKey, batchID, present, metadataErr := deliveryPaymentMetadata(localPayment.Metadata); present {
+			if metadataErr != nil {
+				return metadataErr
+			}
+			if uc.deliveryPayment == nil {
+				return fmt.Errorf("delivery payment coordinator is not configured")
+			}
+			eventID := uuid.NewSHA1(uuid.NameSpaceOID, []byte("delivery-payment:"+localPayment.ID.String()))
+			if err := uc.deliveryPayment.ConfirmPaid(ctx, DeliveryPaidPaymentInput{
+				TenantID: localPayment.TenantID, CheckoutKey: checkoutKey, OrderBatchID: batchID,
+				PaymentReference: providerPaymentID, PaidAmount: localPayment.Amount, EventID: eventID,
+			}); err != nil {
+				return fmt.Errorf("failed to confirm delivery checkout after payment: %w", err)
+			}
+		}
+	}
+
 	if localPayment.Status != payment.StatusConfirmed || localPayment.TabID == nil {
 		return nil
 	}
@@ -171,6 +194,20 @@ func (uc *ReconcilePaymentWebhookUseCase) Execute(ctx context.Context, body []by
 	}
 
 	return nil
+}
+
+func deliveryPaymentMetadata(metadata payment.JSONMap) (string, uuid.UUID, bool, error) {
+	rawCheckout, checkoutPresent := metadata["delivery_checkout_key"]
+	rawBatch, batchPresent := metadata["delivery_order_batch_id"]
+	if !checkoutPresent && !batchPresent {
+		return "", uuid.Nil, false, nil
+	}
+	checkoutKey := strings.TrimSpace(fmt.Sprint(rawCheckout))
+	batchID, err := uuid.Parse(strings.TrimSpace(fmt.Sprint(rawBatch)))
+	if checkoutKey == "" || err != nil || batchID == uuid.Nil {
+		return "", uuid.Nil, true, fmt.Errorf("delivery payment metadata is incomplete")
+	}
+	return checkoutKey, batchID, true, nil
 }
 
 func mapWebhookProviderStatusToPayment(status string) payment.Status {

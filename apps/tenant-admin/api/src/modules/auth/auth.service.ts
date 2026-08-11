@@ -30,6 +30,12 @@ import {
     TENANT_TABLE_READ_ROLES,
     TENANT_TABLE_WRITE_ROLES,
     TENANT_WALLET_ROLES,
+    TENANT_DELIVERY_READ_ROLES,
+    TENANT_DELIVERY_DISPATCH_ROLES,
+    TENANT_DELIVERY_SETTINGS_ROLES,
+    TENANT_DELIVERY_OVERRIDE_ROLES,
+    TENANT_DELIVERY_DRIVER_ROLES,
+    TENANT_DELIVERY_REPORT_ROLES,
     TenantUserRole,
     normalizeTenantRole,
 } from './roles';
@@ -790,6 +796,12 @@ export class AuthService {
             { key: 'wallet', roles: TENANT_WALLET_ROLES },
             { key: 'bot_config', roles: TENANT_BOT_CONFIG_ROLES },
             { key: 'purchases', roles: TENANT_PURCHASE_ROLES },
+            { key: 'delivery_read', roles: TENANT_DELIVERY_READ_ROLES },
+            { key: 'delivery_dispatch', roles: TENANT_DELIVERY_DISPATCH_ROLES },
+            { key: 'delivery_settings', roles: TENANT_DELIVERY_SETTINGS_ROLES },
+            { key: 'delivery_override', roles: TENANT_DELIVERY_OVERRIDE_ROLES },
+            { key: 'delivery_driver', roles: TENANT_DELIVERY_DRIVER_ROLES },
+            { key: 'delivery_reports', roles: TENANT_DELIVERY_REPORT_ROLES },
         ];
         const routeGroups = routeGroupAccessors
             .filter((group) => this.isRoleAllowed(normalizedRole, group.roles))
@@ -803,6 +815,9 @@ export class AuthService {
         if (routeGroups.includes('settlement')) pages.push('pagamentos');
         if (routeGroups.includes('reports')) pages.push('vendas');
         if (routeGroups.includes('purchases')) pages.push('compras');
+        // The driver experience is isolated in KDS Mobile. Never expose the
+        // administrative Delivery board to a DRIVER session.
+        if (routeGroups.includes('delivery_read')) pages.push('delivery');
         if (routeGroups.includes('full_access')) pages.push('meuRestaurante', 'configuracoes', 'equipe');
 
         return {
@@ -822,6 +837,12 @@ export class AuthService {
                 viewReports: this.isRoleAllowed(normalizedRole, TENANT_REPORT_ROLES),
                 viewWallet: this.isRoleAllowed(normalizedRole, TENANT_WALLET_ROLES),
                 managePurchases: this.isRoleAllowed(normalizedRole, TENANT_PURCHASE_ROLES),
+                viewDelivery: this.isRoleAllowed(normalizedRole, TENANT_DELIVERY_READ_ROLES),
+                dispatchDelivery: this.isRoleAllowed(normalizedRole, TENANT_DELIVERY_DISPATCH_ROLES),
+                manageDeliverySettings: this.isRoleAllowed(normalizedRole, TENANT_DELIVERY_SETTINGS_ROLES),
+                overrideDelivery: this.isRoleAllowed(normalizedRole, TENANT_DELIVERY_OVERRIDE_ROLES),
+                driverDelivery: this.isRoleAllowed(normalizedRole, TENANT_DELIVERY_DRIVER_ROLES),
+                viewDeliveryReports: this.isRoleAllowed(normalizedRole, TENANT_DELIVERY_REPORT_ROLES),
             },
         };
     }
@@ -835,6 +856,7 @@ export class AuthService {
             [TenantUserRole.Kitchen]: 'Cozinha',
             [TenantUserRole.Bar]: 'Bar',
             [TenantUserRole.Cashier]: 'Caixa',
+            [TenantUserRole.Driver]: 'Entregador',
         };
 
         return labels[normalizedRole] || normalizedRole;

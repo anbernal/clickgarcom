@@ -3,6 +3,7 @@ package whatsapp
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -35,6 +36,8 @@ type OutboxMessage struct {
 	SentAt      *time.Time
 	NextRetryAt *time.Time
 }
+
+var sixDigitSecretPattern = regexp.MustCompile(`\b\d{6}\b`)
 
 func (OutboxMessage) TableName() string {
 	return "outbox_messages"
@@ -286,6 +289,9 @@ func sanitizeMessagePreview(value string) string {
 	if normalized == "" {
 		return ""
 	}
+	// Delivery PINs are six-digit values. Persisted message previews must not
+	// retain the secret even though the WhatsApp outbox needs it for delivery.
+	normalized = sixDigitSecretPattern.ReplaceAllString(normalized, "[REDACTED]")
 
 	runes := []rune(normalized)
 	if len(runes) > 255 {
