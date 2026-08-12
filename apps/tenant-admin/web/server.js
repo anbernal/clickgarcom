@@ -131,6 +131,11 @@ function sendFile(req, res, filename, headOnly, requestBasePath) {
       'Content-Type': CONTENT_TYPES[ext] || 'application/octet-stream',
       'Cache-Control': resolveCacheControl(ext),
     };
+    if (ext === '.html') {
+      // Allow the tenant admin to request the restaurant's current location
+      // while keeping camera and microphone unavailable by default.
+      responseHeaders['Permissions-Policy'] = 'geolocation=(self), camera=(), microphone=()';
+    }
     if (path.basename(filename) === 'tracking.html') {
       responseHeaders['Referrer-Policy'] = 'no-referrer';
       responseHeaders['X-Content-Type-Options'] = 'nosniff';
