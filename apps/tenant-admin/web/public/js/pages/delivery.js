@@ -178,7 +178,9 @@ function deliverySettingsStatus(settings) {
     const lng = Number(settings.origin?.lng);
     const radius = Number(settings.service_area?.radius_km);
     const hasOrigin = Number.isFinite(lat) && Number.isFinite(lng) && Number.isFinite(radius) && radius > 0;
-    if (!hasOrigin) return { tone: 'warning', label: 'Configuração incompleta', detail: 'Informe a localização e o raio de atendimento.' };
+    const address = settings.origin_address || {};
+    const hasAddress = [address.street, address.address_number, address.neighborhood, address.city, address.state, address.postal_code].every((value) => String(value || '').trim());
+    if (!hasOrigin || !hasAddress || address.confirmed !== true) return { tone: 'warning', label: 'Configuração incompleta', detail: 'Confirme a localização, o endereço e o número do restaurante.' };
     if (!settings.enabled) return { tone: 'neutral', label: 'Configurado e inativo', detail: 'Pronto para ativar nos próximos pedidos.' };
     return { tone: 'success', label: 'Delivery configurado e ativo', detail: 'As regras estão valendo para novos pedidos.' };
 }
@@ -583,13 +585,14 @@ function renderDeliverySettingsModal(settings, capacity = null) {
     const capacityBelowReservations = declaredCapacity < reservedCapacity;
     const settingsVersion = deliveryState.settings?.settings_version || deliveryState.settings?.updated_at || null;
     const settingsStatus = deliverySettingsStatus(settings);
+    const originAddress = settings.origin_address || {};
     return `<div class="modal-header"><div><div class="delivery-settings-title"><h3>Configuração da operação Delivery</h3><span class="delivery-config-status delivery-config-status--${settingsStatus.tone}"><span class="delivery-config-status-dot" aria-hidden="true"></span>${escapeHTML(settingsStatus.label)}</span></div><div class="modal-header-subtitle">${escapeHTML(settingsStatus.detail)}${settingsVersion ? ` · Última alteração: ${escapeHTML(new Date(settingsVersion).toLocaleString('pt-BR'))}` : ''}</div></div><button class="modal-close" onclick="closeModal()">✕</button></div><div class="modal-body delivery-form" id="delivery-settings-form">
         <div class="delivery-required-note" role="note"><strong>Campos obrigatórios</strong><span>Preencha os campos marcados com <b>*</b>. A localização do restaurante é usada para calcular a área de atendimento.</span></div>
         <section class="delivery-form-section"><div class="delivery-form-section-head"><div><h4>Módulo e capacidade</h4><p>Fora da agenda ou da capacidade, o pedido aguarda aceite manual.</p></div><label class="delivery-switch"><input id="delivery-setting-enabled" type="checkbox" ${settings.enabled ? 'checked' : ''}><span class="delivery-switch-track"></span><span class="delivery-switch-label">Delivery ativo</span></label></div><div class="delivery-form-grid"><div class="form-group"><label for="delivery-setting-timezone">Fuso horário <span class="delivery-required" aria-hidden="true">*</span></label><select id="delivery-setting-timezone" required aria-required="true"><option value="America/Sao_Paulo" ${settings.timezone === 'America/Sao_Paulo' ? 'selected' : ''}>Brasília (São Paulo)</option><option value="America/Manaus" ${settings.timezone === 'America/Manaus' ? 'selected' : ''}>Manaus</option><option value="America/Belem" ${settings.timezone === 'America/Belem' ? 'selected' : ''}>Belém</option><option value="America/Fortaleza" ${settings.timezone === 'America/Fortaleza' ? 'selected' : ''}>Fortaleza</option></select></div><div class="form-group"><label for="delivery-setting-capacity">Máximo de entregas ativas <span class="delivery-required" aria-hidden="true">*</span></label><input id="delivery-setting-capacity" type="number" min="1" max="500" value="${Number(auto.max_active_deliveries || 8)}" required aria-required="true"></div><div class="form-group"><label for="delivery-setting-mode">Modalidade padrão <span class="delivery-required" aria-hidden="true">*</span></label><select id="delivery-setting-mode" required aria-required="true"><option value="OWN" ${settings.default_fulfillment_mode === 'OWN' ? 'selected' : ''}>Entrega própria</option><option value="EXTERNAL" ${settings.default_fulfillment_mode === 'EXTERNAL' ? 'selected' : ''}>Operador externo</option></select></div><div class="form-group"><label for="delivery-setting-own-capacity">Entregadores próprios disponíveis <span class="delivery-required" aria-hidden="true">*</span></label><input id="delivery-setting-own-capacity" type="number" min="0" max="500" value="${Number(ownCapacity.available_couriers || 0)}" required aria-required="true"><small class="delivery-helper">Somente quantidade; não há cadastro individual no V2.</small></div></div><div class="delivery-form-section-head" style="margin:4px 0 0"><label class="delivery-switch"><input id="delivery-setting-auto" type="checkbox" ${auto.enabled ? 'checked' : ''}><span class="delivery-switch-track"></span><span class="delivery-switch-label">Aceite automático</span></label><label class="delivery-switch"><input id="delivery-setting-payment" type="checkbox" ${auto.require_confirmed_payment ? 'checked' : ''}><span class="delivery-switch-track"></span><span class="delivery-switch-label">Exigir pagamento confirmado</span></label></div></section>
         <section class="delivery-form-section"><div class="delivery-form-section-head"><div><h4>Operador externo</h4><p>O primeiro operador disponível nesta fase é o iFood. As credenciais são configuradas separadamente.</p></div><button class="delivery-btn delivery-btn--neutral" type="button" onclick="openDeliveryProviderSettings()">Gerenciar credenciais</button></div><div class="delivery-form-grid"><div class="form-group"><label for="delivery-setting-provider-order">Ordem dos operadores <span class="delivery-required" aria-hidden="true">*</span></label><input id="delivery-setting-provider-order" value="${escapeHTML(providerOrder.join(', '))}" placeholder="IFOOD" required aria-required="true"><small class="delivery-helper">Informe os códigos separados por vírgula.</small></div><div class="form-group"><label for="delivery-setting-max-attempts">Tentativas por ciclo <span class="delivery-required" aria-hidden="true">*</span></label><input id="delivery-setting-max-attempts" type="number" min="1" max="5" value="${Number(external.max_attempts || 5)}" required aria-required="true"></div><div class="form-group"><label for="delivery-setting-attempt-window">Janela do ciclo (minutos) <span class="delivery-required" aria-hidden="true">*</span></label><input id="delivery-setting-attempt-window" type="number" min="1" max="60" value="${Number(external.attempt_window_minutes || 15)}" required aria-required="true"></div></div></section>
         <section class="delivery-form-section"><div class="delivery-form-section-head"><div><h4>Agenda de aceite automático</h4><p>Janelas podem atravessar a meia-noite. Dias sem janela sempre pedem aceite manual.</p></div><button class="delivery-btn delivery-btn--neutral" type="button" onclick="addDeliveryWindow()">+ Janela</button></div><div id="delivery-windows">${windows.map((windowItem) => renderDeliveryWindow(windowItem)).join('')}</div></section>
         <section class="delivery-form-section"><div class="delivery-form-section-head"><div><h4>Disponibilidade própria</h4><p>A reserva é automática durante o checkout e liberada ao entregar, cancelar ou expirar.</p></div><button class="delivery-btn delivery-btn--neutral" type="button" onclick="openDeliveryCapacityReservations()">Ver reservas</button></div>${capacityBelowReservations ? '<div class="delivery-alert" role="alert" style="margin:0 0 12px"><span>!</span><div><strong>Capacidade abaixo das reservas atuais</strong><span>Novos checkouts próprios ficarão bloqueados até liberar reservas ou aumentar a capacidade.</span></div></div>' : ''}<div class="delivery-kpis" style="grid-template-columns:repeat(3,minmax(0,1fr));margin:0"><div class="delivery-kpi"><span>Declarada</span><strong>${declaredCapacity}</strong></div><div class="delivery-kpi"><span>Reservada</span><strong>${reservedCapacity}</strong></div><div class="delivery-kpi"><span>Disponível</span><strong>${Number(capacityView.available ?? Math.max(0, declaredCapacity - reservedCapacity))}</strong></div></div></section>
-        <section class="delivery-form-section"><div class="delivery-form-section-head"><div><h4>Origem e área de atendimento</h4><p>Informe a localização do restaurante para calcular a distância e a taxa do pedido.</p></div><button class="delivery-btn delivery-btn--neutral" type="button" onclick="useDeliveryCurrentLocation()">⌖ Usar minha localização</button></div><div class="delivery-form-grid delivery-form-grid--3"><div class="form-group"><label for="delivery-setting-lat">Latitude <span class="delivery-required" aria-hidden="true">*</span></label><input id="delivery-setting-lat" type="number" step="0.000001" min="-90" max="90" value="${settings.origin?.lat ?? ''}" placeholder="-23.550520" required aria-required="true"></div><div class="form-group"><label for="delivery-setting-lng">Longitude <span class="delivery-required" aria-hidden="true">*</span></label><input id="delivery-setting-lng" type="number" step="0.000001" min="-180" max="180" value="${settings.origin?.lng ?? ''}" placeholder="-46.633308" required aria-required="true"></div><div class="form-group"><label for="delivery-setting-radius">Raio (km) <span class="delivery-required" aria-hidden="true">*</span></label><input id="delivery-setting-radius" type="number" min="0.1" max="500" step="0.1" value="${Number(settings.service_area?.radius_km || 8)}" required aria-required="true"></div></div><div class="delivery-location-status" id="delivery-location-status" role="status">${Number.isFinite(Number(settings.origin?.lat)) && Number.isFinite(Number(settings.origin?.lng)) ? 'Localização do restaurante preenchida.' : 'Informe as coordenadas ou use o botão para obter a localização atual.'}</div></section>
+        <section class="delivery-form-section"><div class="delivery-form-section-head"><div><h4>Origem e área de atendimento</h4><p>As coordenadas calculam a distância, mas o endereço confirmado garante que o ponto é realmente o restaurante.</p></div><div class="delivery-origin-actions"><button class="delivery-btn delivery-btn--neutral" type="button" onclick="useDeliveryCurrentLocation()">⌖ Usar minha localização</button><button class="delivery-btn delivery-btn--neutral" type="button" onclick="reverseGeocodeDeliveryOrigin()">⌕ Buscar endereço</button></div></div><div class="delivery-form-grid delivery-form-grid--3"><div class="form-group"><label for="delivery-setting-lat">Latitude <span class="delivery-required" aria-hidden="true">*</span></label><input id="delivery-setting-lat" type="number" step="0.000001" min="-90" max="90" value="${settings.origin?.lat ?? ''}" placeholder="-23.550520" required aria-required="true" onchange="scheduleDeliveryOriginReverseGeocode()"></div><div class="form-group"><label for="delivery-setting-lng">Longitude <span class="delivery-required" aria-hidden="true">*</span></label><input id="delivery-setting-lng" type="number" step="0.000001" min="-180" max="180" value="${settings.origin?.lng ?? ''}" placeholder="-46.633308" required aria-required="true" onchange="scheduleDeliveryOriginReverseGeocode()"></div><div class="form-group"><label for="delivery-setting-radius">Raio (km) <span class="delivery-required" aria-hidden="true">*</span></label><input id="delivery-setting-radius" type="number" min="0.1" max="500" step="0.1" value="${Number(settings.service_area?.radius_km || 8)}" required aria-required="true"></div></div><div class="delivery-origin-address-grid"><div class="form-group"><label for="delivery-setting-origin-postal">CEP <span class="delivery-required" aria-hidden="true">*</span></label><input id="delivery-setting-origin-postal" inputmode="numeric" maxlength="9" value="${escapeHTML(originAddress.postal_code || '')}" placeholder="01311-000" required aria-required="true" oninput="markDeliveryOriginAddressChanged()"></div><div class="form-group delivery-origin-street"><label for="delivery-setting-origin-street">Rua / avenida <span class="delivery-required" aria-hidden="true">*</span></label><input id="delivery-setting-origin-street" maxlength="255" value="${escapeHTML(originAddress.street || '')}" placeholder="Rua Augusta" required aria-required="true" oninput="markDeliveryOriginAddressChanged()"></div><div class="form-group"><label for="delivery-setting-origin-number">Número <span class="delivery-required" aria-hidden="true">*</span></label><input id="delivery-setting-origin-number" maxlength="30" value="${escapeHTML(originAddress.address_number || '')}" placeholder="120" required aria-required="true" oninput="markDeliveryOriginAddressChanged()"></div><div class="form-group"><label for="delivery-setting-origin-complement">Complemento</label><input id="delivery-setting-origin-complement" maxlength="255" value="${escapeHTML(originAddress.address_complement || '')}" placeholder="Loja, sala…" oninput="markDeliveryOriginAddressChanged()"></div><div class="form-group"><label for="delivery-setting-origin-neighborhood">Bairro <span class="delivery-required" aria-hidden="true">*</span></label><input id="delivery-setting-origin-neighborhood" maxlength="255" value="${escapeHTML(originAddress.neighborhood || '')}" required aria-required="true" oninput="markDeliveryOriginAddressChanged()"></div><div class="form-group"><label for="delivery-setting-origin-city">Cidade <span class="delivery-required" aria-hidden="true">*</span></label><input id="delivery-setting-origin-city" maxlength="255" value="${escapeHTML(originAddress.city || '')}" required aria-required="true" oninput="markDeliveryOriginAddressChanged()"></div><div class="form-group"><label for="delivery-setting-origin-state">UF <span class="delivery-required" aria-hidden="true">*</span></label><input id="delivery-setting-origin-state" maxlength="2" value="${escapeHTML(originAddress.state || '')}" placeholder="SP" required aria-required="true" oninput="markDeliveryOriginAddressChanged()"></div></div><div class="delivery-location-status" id="delivery-location-status" role="status">${Number.isFinite(Number(settings.origin?.lat)) && Number.isFinite(Number(settings.origin?.lng)) ? (originAddress.street ? 'Endereço carregado. Confira especialmente o número do restaurante.' : 'Coordenadas preenchidas. Busque o endereço e confirme o número.') : 'Informe as coordenadas ou use o botão para obter a localização atual.'}</div><div class="delivery-origin-confirm"><label class="delivery-switch"><input id="delivery-origin-address-confirmed" type="checkbox" ${originAddress.confirmed ? 'checked' : ''} onchange="updateDeliveryOriginConfirmation()" required><span class="delivery-switch-track"></span><span class="delivery-switch-label">Confirmo que o endereço e o número correspondem ao restaurante <span class="delivery-required" aria-hidden="true">*</span></span></label><small id="delivery-origin-address-meta" class="delivery-helper">${originAddress.geocode_quality ? `Origem localizada por ${escapeHTML(originAddress.geocode_provider || 'provedor')} (${escapeHTML(originAddress.geocode_quality)}).` : 'Busque o endereço pelas coordenadas e revise os dados antes de confirmar.'}</small></div></section>
         <section class="delivery-form-section"><div class="delivery-form-section-head"><div><h4>Taxa de entrega</h4><p>Configure taxa grátis, fixa, por quilômetro, faixas ou modelo híbrido.</p></div></div><div class="delivery-form-grid"><div class="form-group"><label for="delivery-setting-fee-mode">Modelo</label><select id="delivery-setting-fee-mode" onchange="toggleDeliveryFeeFields()"><option value="NONE" ${fees.mode === 'NONE' ? 'selected' : ''}>Sem taxa</option><option value="FIXED" ${fees.mode === 'FIXED' ? 'selected' : ''}>Taxa fixa</option><option value="DISTANCE_BANDS" ${fees.mode === 'DISTANCE_BANDS' ? 'selected' : ''}>Faixas de distância</option><option value="PER_KM" ${fees.mode === 'PER_KM' ? 'selected' : ''}>Por quilômetro</option><option value="HYBRID" ${fees.mode === 'HYBRID' ? 'selected' : ''}>Híbrida (km + faixas)</option></select></div><div class="form-group" id="delivery-fixed-fee-wrap"><label for="delivery-setting-fixed-fee">Taxa base (R$)</label><input id="delivery-setting-fixed-fee" type="number" min="0" max="10000" step="0.01" value="${Number(fees.fixed_fee || 0)}"></div><div class="form-group" id="delivery-advanced-fee-wrap"><label for="delivery-setting-included-km">Km incluídos</label><input id="delivery-setting-included-km" type="number" min="0" max="500" step="0.1" value="${Number(fees.included_km || 0)}"></div><div class="form-group" id="delivery-per-km-wrap"><label for="delivery-setting-price-per-km">Preço por km (R$)</label><input id="delivery-setting-price-per-km" type="number" min="0" max="10000" step="0.01" value="${Number(fees.price_per_km || 0)}"></div><div class="form-group" id="delivery-minimum-fee-wrap"><label for="delivery-setting-minimum-fee">Taxa mínima (R$)</label><input id="delivery-setting-minimum-fee" type="number" min="0" max="10000" step="0.01" value="${Number(fees.minimum_fee || 0)}"></div><div class="form-group" id="delivery-rounding-wrap"><label for="delivery-setting-rounding">Arredondamento</label><select id="delivery-setting-rounding"><option value="NONE" ${fees.rounding_mode === 'NONE' ? 'selected' : ''}>Exato</option><option value="CEIL_0_5_KM" ${fees.rounding_mode === 'CEIL_0_5_KM' ? 'selected' : ''}>A cada 0,5 km</option><option value="CEIL_1_KM" ${fees.rounding_mode === 'CEIL_1_KM' ? 'selected' : ''}>A cada 1 km</option></select></div></div><div id="delivery-fee-bands">${(fees.bands || []).map(renderDeliveryBand).join('')}</div><button id="delivery-add-band" class="delivery-btn delivery-btn--neutral" type="button" onclick="addDeliveryBand()">+ Faixa</button><div style="display:flex;gap:8px;align-items:end;margin-top:14px"><div class="form-group" style="margin:0;flex:1"><label for="delivery-quote-distance">Simular distância (km)</label><input id="delivery-quote-distance" type="number" min="0" step="0.1" placeholder="4.5"></div><button class="delivery-btn delivery-btn--neutral" type="button" onclick="testDeliveryQuote()">Testar taxa</button></div><div id="delivery-quote-result" class="delivery-helper" aria-live="polite"></div></section>
     </div><div class="modal-footer"><button class="delivery-btn delivery-btn--neutral" onclick="closeModal()">Cancelar</button><button class="delivery-btn delivery-btn--primary" id="delivery-save-settings" onclick="saveDeliverySettings()">Salvar configuração</button></div>`;
 }
@@ -638,8 +641,8 @@ function useDeliveryCurrentLocation() {
         const lngInput = document.getElementById('delivery-setting-lng');
         if (latInput) latInput.value = String(latitude);
         if (lngInput) lngInput.value = String(longitude);
-        if (status) status.textContent = `Localização preenchida: ${latitude}, ${longitude}. Confirme o raio antes de salvar.`;
-        showToast('Localização preenchida com sucesso.', 'success');
+        if (status) status.textContent = `Localização preenchida: ${latitude}, ${longitude}. Buscando endereço…`;
+        reverseGeocodeDeliveryOrigin().then(() => showToast('Localização e endereço preenchidos. Revise o número antes de salvar.', 'success')).catch(() => {});
         if (button) {
             button.disabled = false;
             button.textContent = button.dataset.previousLabel || '⌖ Usar minha localização';
@@ -655,6 +658,59 @@ function useDeliveryCurrentLocation() {
             button.textContent = button.dataset.previousLabel || '⌖ Usar minha localização';
         }
     }, { enableHighAccuracy: true, timeout: 12000, maximumAge: 300000 });
+}
+
+function markDeliveryOriginAddressChanged() {
+    const checkbox = document.getElementById('delivery-origin-address-confirmed');
+    if (checkbox) checkbox.checked = false;
+    const status = document.getElementById('delivery-location-status');
+    if (status) status.textContent = 'Endereço alterado. Revise os dados e confirme o endereço antes de salvar.';
+}
+
+function updateDeliveryOriginConfirmation() {
+    const status = document.getElementById('delivery-location-status');
+    const confirmed = document.getElementById('delivery-origin-address-confirmed')?.checked;
+    if (status && confirmed) status.textContent = 'Endereço confirmado para o restaurante. Você ainda pode corrigir os dados se necessário.';
+}
+
+function scheduleDeliveryOriginReverseGeocode() {
+    const lat = Number(document.getElementById('delivery-setting-lat')?.value);
+    const lng = Number(document.getElementById('delivery-setting-lng')?.value);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) reverseGeocodeDeliveryOrigin();
+}
+
+async function reverseGeocodeDeliveryOrigin() {
+    const lat = Number(document.getElementById('delivery-setting-lat')?.value);
+    const lng = Number(document.getElementById('delivery-setting-lng')?.value);
+    const status = document.getElementById('delivery-location-status');
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        const message = 'Informe latitude e longitude válidas para buscar o endereço.';
+        if (status) status.textContent = message;
+        showToast(message, 'error');
+        throw new Error(message);
+    }
+    if (status) status.textContent = 'Consultando endereço pelas coordenadas…';
+    try {
+        const result = await api.post('/delivery/addresses/reverse-geocode', { latitude: lat, longitude: lng });
+        const fields = {
+            postal: result?.postal_code, street: result?.street, number: result?.address_number,
+            neighborhood: result?.neighborhood, city: result?.city, state: result?.state,
+        };
+        Object.entries(fields).forEach(([name, value]) => {
+            const input = document.getElementById(`delivery-setting-origin-${name}`);
+            if (input && value) input.value = String(value);
+        });
+        const confirmed = document.getElementById('delivery-origin-address-confirmed');
+        if (confirmed) confirmed.checked = false;
+        const meta = document.getElementById('delivery-origin-address-meta');
+        if (meta) meta.textContent = `Endereço encontrado por ${result?.geocode_provider || 'provedor'}${result?.geocode_quality ? ` (${result.geocode_quality})` : ''}. Revise principalmente o número e confirme.`;
+        if (status) status.textContent = result?.formatted_address ? `Endereço encontrado: ${result.formatted_address}. Revise e confirme.` : 'Endereço encontrado. Revise os campos e confirme.';
+        return result;
+    } catch (error) {
+        if (status) status.textContent = error.message || 'Não foi possível buscar o endereço. Preencha os campos manualmente.';
+        showToast(error.message || 'Não foi possível buscar o endereço pelas coordenadas.', 'error');
+        throw error;
+    }
 }
 
 function collectDeliveryWindows() {
@@ -673,6 +729,9 @@ function collectDeliveryBands() {
 
 function validateDeliverySettings(payload) {
     if (!Number.isFinite(payload.origin_lat) || !Number.isFinite(payload.origin_lng)) return 'Informe e confirme latitude e longitude do restaurante.';
+    const originAddress = payload.origin_address || {};
+    if (![originAddress.postal_code, originAddress.street, originAddress.address_number, originAddress.neighborhood, originAddress.city, originAddress.state].every((value) => String(value || '').trim())) return 'Informe o endereço completo do restaurante, incluindo o número.';
+    if (originAddress.confirmed !== true) return 'Revise e confirme o endereço e o número do restaurante.';
     if (!Number.isFinite(payload.service_radius_km) || payload.service_radius_km <= 0) return 'Informe um raio de atendimento válido.';
     if (!['OWN', 'EXTERNAL'].includes(payload.default_fulfillment_mode)) return 'Selecione a modalidade padrão do Delivery.';
     if (!Number.isInteger(payload.own_available_couriers) || payload.own_available_couriers < 0 || payload.own_available_couriers > 500) return 'Informe uma quantidade válida de entregadores próprios.';
@@ -698,11 +757,23 @@ async function saveDeliverySettings() {
         'delivery-setting-own-capacity', 'delivery-setting-provider-order',
         'delivery-setting-max-attempts', 'delivery-setting-attempt-window',
         'delivery-setting-lat', 'delivery-setting-lng', 'delivery-setting-radius',
+        'delivery-setting-origin-postal', 'delivery-setting-origin-street', 'delivery-setting-origin-number',
+        'delivery-setting-origin-neighborhood', 'delivery-setting-origin-city', 'delivery-setting-origin-state',
     ];
     const missingRequiredField = requiredFieldIds.find((id) => !String(document.getElementById(id)?.value || '').trim());
     if (missingRequiredField) return showToast('Preencha todos os campos obrigatórios antes de salvar.', 'error');
     const latRaw = document.getElementById('delivery-setting-lat')?.value;
     const lngRaw = document.getElementById('delivery-setting-lng')?.value;
+    const originAddress = {
+        postal_code: document.getElementById('delivery-setting-origin-postal')?.value.trim(),
+        street: document.getElementById('delivery-setting-origin-street')?.value.trim(),
+        address_number: document.getElementById('delivery-setting-origin-number')?.value.trim(),
+        address_complement: document.getElementById('delivery-setting-origin-complement')?.value.trim() || undefined,
+        neighborhood: document.getElementById('delivery-setting-origin-neighborhood')?.value.trim(),
+        city: document.getElementById('delivery-setting-origin-city')?.value.trim(),
+        state: document.getElementById('delivery-setting-origin-state')?.value.trim().toUpperCase(),
+        confirmed: !!document.getElementById('delivery-origin-address-confirmed')?.checked,
+    };
     const mode = document.getElementById('delivery-setting-fee-mode')?.value || 'NONE';
     const payload = {
         enabled: !!document.getElementById('delivery-setting-enabled')?.checked,
@@ -714,6 +785,7 @@ async function saveDeliverySettings() {
         external_attempt_window_minutes: Number(document.getElementById('delivery-setting-attempt-window')?.value || 15),
         auto_accept: { enabled: !!document.getElementById('delivery-setting-auto')?.checked, require_confirmed_payment: !!document.getElementById('delivery-setting-payment')?.checked, max_active_deliveries: Number(document.getElementById('delivery-setting-capacity')?.value), windows: collectDeliveryWindows() },
         origin_lat: latRaw === '' ? undefined : Number(latRaw), origin_lng: lngRaw === '' ? undefined : Number(lngRaw),
+        origin_address: originAddress,
         service_radius_km: Number(document.getElementById('delivery-setting-radius')?.value),
         fees: { mode, fixed_fee: Number(document.getElementById('delivery-setting-fixed-fee')?.value || 0), bands: ['DISTANCE_BANDS', 'HYBRID'].includes(mode) ? collectDeliveryBands() : [], included_km: Number(document.getElementById('delivery-setting-included-km')?.value || 0), price_per_km: Number(document.getElementById('delivery-setting-price-per-km')?.value || 0), minimum_fee: Number(document.getElementById('delivery-setting-minimum-fee')?.value || 0), rounding_mode: document.getElementById('delivery-setting-rounding')?.value || 'NONE' },
     };

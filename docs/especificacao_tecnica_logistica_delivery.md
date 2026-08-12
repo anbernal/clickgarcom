@@ -35,6 +35,7 @@ Quando o módulo estiver habilitado e configurado, o sistema deverá:
 2. permitir cadastrar e reutilizar até cinco endereços por cliente;
 3. consultar CEP para facilitar o preenchimento;
 4. geocodificar e confirmar o endereço completo;
+5. quando a origem for informada por latitude/longitude ou pela localização do navegador, executar geocodificação reversa, preencher o endereço e exigir revisão do número antes da ativação;
 5. verificar área de atendimento e disponibilidade logística;
 6. calcular ou obter o frete antes de o cliente pagar;
 7. adicionar o frete ao total do pedido;
@@ -1014,6 +1015,7 @@ Os endpoints devem seguir o envelope e autenticação já usados pelo Tenant Adm
 | `DELETE` | `/admin/api/delivery/customers/:id/addresses/:addressId` | Exclusão lógica. |
 | `POST` | `/admin/api/delivery/addresses/postal-code-lookup` | Consultar CEP. |
 | `POST` | `/admin/api/delivery/addresses/geocode` | Geocodificar/confirmar. |
+| `POST` | `/admin/api/delivery/addresses/reverse-geocode` | Buscar endereço da origem por latitude/longitude. |
 
 ## 18.3 Chamadas internas do fluxo WhatsApp
 

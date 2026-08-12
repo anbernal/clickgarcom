@@ -16,6 +16,23 @@ export type DeliveryGeocodeResult = {
     quality: 'ROOFTOP' | 'RANGE' | 'INTERPOLATED' | 'APPROXIMATE' | 'AMBIGUOUS';
 };
 
+export type DeliveryReverseGeocodeRequest = { lat: number; lng: number };
+
+export type DeliveryReverseGeocodeResult = {
+    lat: number;
+    lng: number;
+    provider: string;
+    provider_id?: string;
+    quality: DeliveryGeocodeResult['quality'];
+    formatted_address?: string;
+    street?: string;
+    address_number?: string;
+    neighborhood?: string;
+    city?: string;
+    state?: string;
+    postal_code?: string;
+};
+
 export type DeliveryRouteRequest = {
     origin: { lat: number; lng: number };
     destination: { lat: number; lng: number };
@@ -30,8 +47,8 @@ export type DeliveryRouteResult = {
 
 export interface DeliveryMapsProvider {
     geocode(input: DeliveryGeocodeRequest): Promise<DeliveryGeocodeResult>;
+    reverseGeocode(input: DeliveryReverseGeocodeRequest): Promise<DeliveryReverseGeocodeResult>;
     route(input: DeliveryRouteRequest): Promise<DeliveryRouteResult>;
 }
 
 export const DELIVERY_MAPS_PROVIDER = Symbol('DELIVERY_MAPS_PROVIDER');
-

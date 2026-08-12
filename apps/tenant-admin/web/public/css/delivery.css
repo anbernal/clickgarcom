@@ -86,6 +86,12 @@ body:has(#page-delivery.active) .main { min-width: 0; max-width: calc(100vw - 23
 .delivery-required-note strong { color: #176957; white-space: nowrap; }
 .delivery-required-note b, .delivery-required { color: #bd3b2c; }
 .delivery-location-status { margin-top: 10px; padding: 9px 11px; border-radius: 9px; color: #58706a; background: #f2f7f5; font-size: 10px; line-height: 1.45; }
+.delivery-origin-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.delivery-origin-address-grid { display: grid; grid-template-columns: minmax(130px,.75fr) minmax(220px,1.5fr) minmax(90px,.55fr); gap: 12px; margin-top: 13px; }
+.delivery-origin-address-grid .delivery-origin-street { grid-column: span 1; }
+.delivery-origin-confirm { display: grid; gap: 7px; margin-top: 12px; padding: 12px; border: 1px solid #dcebe7; border-radius: 10px; background: #f7fcfa; }
+.delivery-origin-confirm .delivery-switch { margin: 0; }
+@media (max-width: 760px) { .delivery-origin-address-grid { grid-template-columns: 1fr 1fr; } .delivery-origin-address-grid .delivery-origin-street { grid-column: span 2; } .delivery-origin-actions { justify-content: flex-start; } }
 .delivery-btn {
   min-height: 48px;
   padding: 0 16px;

@@ -28,13 +28,14 @@ async function prepareAdmin(page, deliveries = [deliveryFixture()], role = 'ADMI
     if (path.endsWith('/auth/me')) body = { id: 'admin-1', name: 'Ana Admin', role, tenant_name: 'Restaurante UX', isOpen: true };
     else if (path.endsWith('/auth/users')) body = { users: [{ id: 'e822ee57-2261-44d8-866d-280e695080de', name: 'Rafael Entregador', role: 'DRIVER', active: true }] };
     else if (path.endsWith('/deliveries/drivers/eligible')) body = { drivers: [{ id: 'e822ee57-2261-44d8-866d-280e695080de', name: 'Rafael Entregador', availability: 'AVAILABLE', active_deliveries: 0 }] };
-    else if (path.endsWith('/delivery/settings') && request.method() === 'GET') body = { settings: { enabled: true, timezone: 'America/Sao_Paulo', origin: { lat: -23.55, lng: -46.63 }, service_area: { mode: 'RADIUS', radius_km: 8 }, auto_accept: { enabled: true, require_confirmed_payment: true, max_active_deliveries: 8, windows: [{ days: ['MON','TUE'], start: '18:00', end: '23:30' }] }, fees: { mode: 'FIXED', fixed_fee: 8.5, bands: [] } } };
+    else if (path.endsWith('/delivery/settings') && request.method() === 'GET') body = { settings: { enabled: true, timezone: 'America/Sao_Paulo', origin: { lat: -23.55, lng: -46.63 }, origin_address: { postal_code: '01311-000', street: 'Rua Augusta', address_number: '120', neighborhood: 'Consolação', city: 'São Paulo', state: 'SP', confirmed: true, geocode_provider: 'FAKE', geocode_quality: 'ROOFTOP' }, service_area: { mode: 'RADIUS', radius_km: 8 }, auto_accept: { enabled: true, require_confirmed_payment: true, max_active_deliveries: 8, windows: [{ days: ['MON','TUE'], start: '18:00', end: '23:30' }] }, fees: { mode: 'FIXED', fixed_fee: 8.5, bands: [] } } };
     else if (path.endsWith('/delivery/settings') && request.method() === 'PUT') body = { status: 'updated', settings: JSON.parse(request.postData() || '{}') };
     else if (path.endsWith('/delivery/providers/IFOOD/test-connection')) body = { ok: true, connection_status: 'CONNECTED', adapter: 'FAKE' };
     else if (path.endsWith('/delivery/capacity/reservations')) body = { tenant_id: 'tenant-delivery-test', declared_capacity: 8, reservations: [] };
     else if (path.endsWith('/delivery/capacity')) body = capacityPayload || { tenant_id: 'tenant-delivery-test', declared_capacity: 8, reserved: 0, available: 8, hold_minutes: 15 };
     else if (path.endsWith('/delivery/addresses/postal-code-lookup')) body = { postal_code: '01311000', street: 'Rua Augusta', neighborhood: 'Consolação', city: 'São Paulo', state: 'SP', provider: 'FAKE', status: 'FOUND' };
     else if (path.endsWith('/delivery/addresses/geocode')) body = { latitude: -23.55, longitude: -46.63, geocode_provider: 'FAKE', geocode_quality: 'ROOFTOP' };
+    else if (path.endsWith('/delivery/addresses/reverse-geocode')) body = { latitude: -23.55052, longitude: -46.633308, formatted_address: 'Rua Augusta, 120, Consolação, São Paulo - SP, 01311-000', street: 'Rua Augusta', address_number: '120', neighborhood: 'Consolação', city: 'São Paulo', state: 'SP', postal_code: '01311-000', geocode_provider: 'FAKE', geocode_quality: 'APPROXIMATE', requires_confirmation: true };
     else if (path.endsWith('/delivery/customers/resolve')) body = { id: 'customer-1', phone_masked: '+55 11 *****-9999' };
     else if (/\/delivery\/customers\/[^/]+\/addresses$/.test(path)) body = request.method() === 'GET' ? [] : { id: 'address-1', label: 'Casa' };
     else if (path.endsWith('/deliveries/operations/summary')) body = { counts: { PENDING_RESTAURANT_ACCEPTANCE: 1, READY_FOR_DISPATCH: 1 }, active_total: deliveries.length };
@@ -99,10 +100,13 @@ test('configuração deixa o estado explícito, marca campos obrigatórios e pre
   await expect(page.locator('#delivery-setting-lat')).toHaveAttribute('required', '');
   await expect(page.locator('#delivery-setting-lng')).toHaveAttribute('required', '');
   await expect(page.locator('#delivery-setting-radius')).toHaveAttribute('required', '');
+  await expect(page.locator('#delivery-setting-origin-number')).toHaveValue('120');
   await page.getByRole('button', { name: /Usar minha localização/ }).click();
   await expect(page.locator('#delivery-setting-lat')).toHaveValue('-23.55052');
   await expect(page.locator('#delivery-setting-lng')).toHaveValue('-46.633308');
-  await expect(page.locator('#delivery-location-status')).toContainText('Localização preenchida');
+  await expect(page.locator('#delivery-location-status')).toContainText('Endereço encontrado');
+  await expect(page.locator('#delivery-setting-origin-number')).toHaveValue('120');
+  await expect(page.locator('#delivery-origin-address-confirmed')).not.toBeChecked();
 });
 
 test('ativação e desativação exigem confirmação explícita', async ({ page }) => {

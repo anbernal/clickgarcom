@@ -3,6 +3,8 @@ import {
     DeliveryGeocodeRequest,
     DeliveryGeocodeResult,
     DeliveryMapsProvider,
+    DeliveryReverseGeocodeRequest,
+    DeliveryReverseGeocodeResult,
     DeliveryRouteRequest,
     DeliveryRouteResult,
 } from './maps-provider';
@@ -20,6 +22,16 @@ export class FakeDeliveryMapsProvider implements DeliveryMapsProvider {
             provider: 'FAKE',
             provider_id: `fake:${hash}`,
             quality: 'APPROXIMATE',
+        };
+    }
+
+    async reverseGeocode(input: DeliveryReverseGeocodeRequest): Promise<DeliveryReverseGeocodeResult> {
+        const lat = Number(input.lat.toFixed(6));
+        const lng = Number(input.lng.toFixed(6));
+        return {
+            lat, lng, provider: 'FAKE', provider_id: `fake:reverse:${lat}:${lng}`, quality: 'APPROXIMATE',
+            formatted_address: 'Rua Augusta, 120, Consolação, São Paulo - SP, 01311-000',
+            street: 'Rua Augusta', address_number: '120', neighborhood: 'Consolação', city: 'São Paulo', state: 'SP', postal_code: '01311-000',
         };
     }
 
@@ -42,4 +54,3 @@ function haversine(originLat: number, originLng: number, destinationLat: number,
         + Math.cos(radians(originLat)) * Math.cos(radians(destinationLat)) * Math.sin(deltaLng / 2) ** 2;
     return Math.round(2 * radius * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 }
-

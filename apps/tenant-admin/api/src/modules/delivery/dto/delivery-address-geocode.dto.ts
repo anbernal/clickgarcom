@@ -1,4 +1,4 @@
-import { IsOptional, IsString, MaxLength, Matches } from 'class-validator';
+import { IsNumber, IsOptional, IsString, Max, MaxLength, Matches, Min } from 'class-validator';
 
 export class GeocodeDeliveryAddressDto {
     @IsString()
@@ -29,4 +29,16 @@ export class GeocodeDeliveryAddressDto {
     @IsString()
     @Matches(/^\d{5}-?\d{3}$/)
     postal_code!: string;
+}
+
+export class ReverseGeocodeDeliveryAddressDto {
+    @IsNumber()
+    @Min(-90)
+    @Max(90)
+    latitude!: number;
+
+    @IsNumber()
+    @Min(-180)
+    @Max(180)
+    longitude!: number;
 }
