@@ -15,10 +15,10 @@ body:has(#page-delivery.active) .main { min-width: 0; max-width: calc(100vw - 23
   position: relative;
   overflow: hidden;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 24px;
+  grid-template-columns: minmax(0, 1fr) minmax(270px, 360px);
+  gap: 20px 28px;
   align-items: center;
-  min-height: 154px;
+  min-height: 202px;
   padding: 26px 28px;
   border-radius: 22px;
   color: #fff;
@@ -38,7 +38,8 @@ body:has(#page-delivery.active) .main { min-width: 0; max-width: calc(100vw - 23
   border-radius: 50%;
   box-shadow: 0 0 0 32px rgba(255,255,255,.035), 0 0 0 64px rgba(255,255,255,.025);
 }
-.delivery-hero-copy, .delivery-hero-actions { position: relative; z-index: 1; }
+.delivery-hero-copy, .delivery-hero-status, .delivery-hero-actions { position: relative; z-index: 1; }
+.delivery-hero-copy { max-width: 700px; }
 .delivery-eyebrow {
   display: flex;
   align-items: center;
@@ -53,7 +54,17 @@ body:has(#page-delivery.active) .main { min-width: 0; max-width: calc(100vw - 23
 .delivery-live-dot { width: 7px; height: 7px; border-radius: 50%; background: #5be9cb; box-shadow: 0 0 0 5px rgba(91,233,203,.12); }
 .delivery-hero h2 { margin: 0; font-size: clamp(23px, 2vw, 31px); line-height: 1.15; letter-spacing: -.04em; }
 .delivery-hero p { max-width: 680px; margin: 10px 0 0; color: rgba(255,255,255,.72); font-size: 13px; line-height: 1.65; }
-.delivery-hero-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+.delivery-hero-status { justify-self: stretch; }
+.delivery-hero-status .delivery-config-status { width: 100%; min-height: 58px; padding: 12px 14px; }
+.delivery-hero-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 9px;
+  flex-wrap: wrap;
+  align-items: center;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255,255,255,.17);
+}
 
 .delivery-config-status {
   display: inline-flex;
@@ -272,8 +283,9 @@ body:has(#page-delivery.active) .main { min-width: 0; max-width: calc(100vw - 23
 }
 @media (max-width: 760px) {
   #page-delivery { padding: 16px; }
-  .delivery-hero { grid-template-columns: 1fr; padding: 22px; }
-  .delivery-hero-actions { justify-content: flex-start; }
+  .delivery-hero { grid-template-columns: 1fr; min-height: 0; padding: 22px; }
+  .delivery-hero-status { width: 100%; }
+  .delivery-hero-actions { grid-column: 1; justify-content: flex-start; }
   .delivery-kpis { grid-template-columns: 1fr 1fr; }
   .delivery-toolbar { grid-template-columns: 1fr; }
   .delivery-toolbar-actions { display: grid; grid-template-columns: 1fr 1fr; }
