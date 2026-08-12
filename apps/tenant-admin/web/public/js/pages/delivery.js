@@ -143,8 +143,8 @@ function renderDeliveryPage() {
                     <h2 id="delivery-hero-title">Da cozinha até a porta, sem perder o pulso.</h2>
                     <p>Priorize aceites, conecte entregadores e acompanhe cada etapa em uma única visão operacional.</p>
                 </div>
+                ${settings ? `<div class="delivery-hero-status"><div class="delivery-config-status delivery-config-status--${settingsStatus.tone}" role="status"><span class="delivery-config-status-dot" aria-hidden="true"></span><div><strong>${escapeHTML(settingsStatus.label)}</strong><span>${escapeHTML(settingsStatus.detail)}</span></div></div></div>` : ''}
                 <div class="delivery-hero-actions">
-                    ${settings ? `<div class="delivery-config-status delivery-config-status--${settingsStatus.tone}" role="status"><span class="delivery-config-status-dot" aria-hidden="true"></span><div><strong>${escapeHTML(settingsStatus.label)}</strong><span>${escapeHTML(settingsStatus.detail)}</span></div></div>` : ''}
                     <button class="delivery-btn delivery-btn--ghost" type="button" onclick="refreshDeliveryPage(true)">↻ Atualizar</button>
                     <button class="delivery-btn delivery-btn--ghost" type="button" onclick="openDeliveryExceptions()">! Exceções</button>
                     ${canPerformAction('manageDeliverySettings') ? '<button class="delivery-btn delivery-btn--ghost" type="button" onclick="openDeliveryReport()">▤ Relatório</button>' : ''}
