@@ -37,6 +37,7 @@ import { DELIVERY_REDIS_MAINTENANCE } from './delivery-maintenance.service';
 import { DELIVERY_MAPS_PROVIDER } from './maps/maps-provider';
 import { FakeDeliveryMapsProvider } from './maps/fake-maps.provider';
 import { HttpDeliveryMapsProvider } from './maps/http-maps.provider';
+import { NominatimDeliveryMapsProvider } from './maps/nominatim-maps.provider';
 import { Customer } from '../../entities/customer.entity';
 import { CustomerAddress } from '../../entities/customer-address.entity';
 import { DeliveryProviderConfig } from '../../entities/delivery-provider-config.entity';
@@ -145,11 +146,16 @@ import { DeliveryOutboxRelayService } from './delivery-outbox-relay.service';
         },
         FakeDeliveryMapsProvider,
         HttpDeliveryMapsProvider,
+        NominatimDeliveryMapsProvider,
         {
             provide: DELIVERY_MAPS_PROVIDER,
-            inject: [ConfigService, FakeDeliveryMapsProvider, HttpDeliveryMapsProvider],
-            useFactory: (config: ConfigService, fake: FakeDeliveryMapsProvider, http: HttpDeliveryMapsProvider) =>
-                String(config.get('DELIVERY_MAPS_PROVIDER') || 'fake').toLowerCase() === 'http' ? http : fake,
+            inject: [ConfigService, FakeDeliveryMapsProvider, HttpDeliveryMapsProvider, NominatimDeliveryMapsProvider],
+            useFactory: (config: ConfigService, fake: FakeDeliveryMapsProvider, http: HttpDeliveryMapsProvider, nominatim: NominatimDeliveryMapsProvider) => {
+                const provider = String(config.get('DELIVERY_MAPS_PROVIDER') || 'nominatim').toLowerCase();
+                if (provider === 'fake') return fake;
+                if (provider === 'http') return http;
+                return nominatim;
+            },
         },
     ],
     exports: [DeliveryPolicyService, DeliverySettingsService, DeliveryService, DeliveryTrackingService, DeliveryPinService, DeliveryNotificationService, DeliveryReportsService, DeliveryCustomerService],
