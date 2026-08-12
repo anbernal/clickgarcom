@@ -16,6 +16,7 @@ Definir componentes, ownership, contratos, dados, estados e segurança para impl
 | Tenant Admin Web | Configuração e operação. |
 | KDS Mobile | Cozinha/bar/salão; não é dependência do Delivery V2. |
 | Provider CEP | Preenchimento de endereço. |
+| Provider mapas reverso | Converte coordenadas da origem em endereço exibível/editável; nunca substitui a confirmação do tenant. |
 | Maps Provider | Geocode e rota. |
 | Delivery Provider | Cotação, contratação, tracking/código e webhooks externos. |
 

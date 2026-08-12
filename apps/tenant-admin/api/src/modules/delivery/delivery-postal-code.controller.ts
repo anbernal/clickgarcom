@@ -4,7 +4,7 @@ import { Roles } from '../auth/roles.decorator';
 import { TENANT_AUTHENTICATED_ROLES } from '../auth/roles';
 import { DeliveryPostalCodeService } from './postal-code/delivery-postal-code.service';
 import { DeliveryAddressGeocodeService } from './delivery-address-geocode.service';
-import { GeocodeDeliveryAddressDto } from './dto/delivery-address-geocode.dto';
+import { GeocodeDeliveryAddressDto, ReverseGeocodeDeliveryAddressDto } from './dto/delivery-address-geocode.dto';
 
 @Controller('admin/api/delivery')
 @UseGuards(JwtAuthGuard)
@@ -23,6 +23,11 @@ export class DeliveryPostalCodeController {
     @Post('addresses/geocode')
     geocode(@Body() body: GeocodeDeliveryAddressDto) {
         return this.geocodeService.geocode(body);
+    }
+
+    @Post('addresses/reverse-geocode')
+    reverseGeocode(@Body() body: ReverseGeocodeDeliveryAddressDto) {
+        return this.geocodeService.reverseGeocode(body);
     }
 
     @Get('postal-code/:postalCode')
@@ -48,6 +53,12 @@ export class DeliveryPostalCodeInternalController {
     geocode(@Headers('x-internal-token') token: string, @Body() body: GeocodeDeliveryAddressDto) {
         this.assertInternalToken(token);
         return this.geocodeService.geocode(body);
+    }
+
+    @Post('addresses/reverse-geocode')
+    reverseGeocode(@Headers('x-internal-token') token: string, @Body() body: ReverseGeocodeDeliveryAddressDto) {
+        this.assertInternalToken(token);
+        return this.geocodeService.reverseGeocode(body);
     }
 
     @Get('postal-code/:postalCode')

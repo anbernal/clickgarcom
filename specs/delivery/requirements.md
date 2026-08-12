@@ -86,6 +86,10 @@ Critérios:
 
 O sistema deve consultar CEP por provider abstrato.
 
+### RF-V2-005A — Confirmação da origem do restaurante
+
+A configuração da origem do tenant deve manter latitude/longitude e um endereço completo confirmado. Ao informar coordenadas manualmente ou usar a localização do navegador, o painel deve executar geocodificação reversa, preencher logradouro, número, bairro, cidade, UF e CEP quando disponíveis e permitir a correção manual do número/complemento. A ativação do Delivery não pode ser salva sem endereço completo e confirmação explícita do administrador.
+
 Critérios:
 
 - CEP encontrado preenche logradouro, bairro, cidade e UF;

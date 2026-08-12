@@ -20,8 +20,24 @@ type DeliveryV2Settings = {
     external: { provider_order: string[]; max_attempts: number; attempt_window_minutes: number };
 };
 
+type DeliveryOriginAddress = {
+    street: string | null;
+    address_number: string | null;
+    address_complement: string | null;
+    neighborhood: string | null;
+    city: string | null;
+    state: string | null;
+    postal_code: string | null;
+    formatted_address: string | null;
+    geocode_provider: string | null;
+    geocode_provider_id: string | null;
+    geocode_quality: string | null;
+    confirmed: boolean;
+};
+
 const DEFAULT_DELIVERY_SETTINGS: DeliveryPolicySettings & {
     origin: { lat: number | null; lng: number | null };
+    origin_address: DeliveryOriginAddress | null;
     service_area: { mode: 'RADIUS'; radius_km: number };
     fees: DeliveryFeeSettings;
 } & DeliveryV2Settings = {
@@ -34,6 +50,7 @@ const DEFAULT_DELIVERY_SETTINGS: DeliveryPolicySettings & {
         windows: [],
     },
     origin: { lat: null, lng: null },
+    origin_address: null,
     service_area: { mode: 'RADIUS', radius_km: 8 },
     fees: {
         mode: 'NONE',
@@ -85,6 +102,9 @@ export class DeliverySettingsService {
                 ...(payload.origin_lat === undefined ? {} : { lat: payload.origin_lat }),
                 ...(payload.origin_lng === undefined ? {} : { lng: payload.origin_lng }),
             },
+            origin_address: payload.origin_address === undefined
+                ? previous.origin_address
+                : this.normalizeOriginAddress(payload.origin_address, previous.origin_address),
             service_area: {
                 ...previous.service_area,
                 ...(payload.service_radius_km === undefined ? {} : { radius_km: payload.service_radius_km }),
@@ -114,6 +134,13 @@ export class DeliverySettingsService {
         } catch (error) {
             if (error instanceof HttpException) throw error;
             throw new BadRequestException((error as Error).message || 'Configuração de Delivery inválida.');
+        }
+        if (next.enabled) {
+            const hasCoordinates = next.origin.lat !== null && next.origin.lng !== null;
+            if (!hasCoordinates) throw new BadRequestException('Para ativar o Delivery, informe latitude e longitude do restaurante.');
+            if (!this.hasConfirmedOriginAddress(next.origin_address)) {
+                throw new BadRequestException('Para ativar o Delivery, confirme o endereço completo e o número do restaurante.');
+            }
         }
 
         tenant.settings = {
@@ -155,6 +182,7 @@ export class DeliverySettingsService {
             auto_accept: delivery.auto_accept,
         });
         const origin = delivery.origin || {};
+        const originAddress = this.normalizeOriginAddress(delivery.origin_address, null);
         const area = delivery.service_area || {};
         const fees = this.feeService.validate(delivery.fees || delivery.own_delivery?.pricing || {});
         const mode = String(delivery.default_fulfillment_mode || DEFAULT_DELIVERY_SETTINGS.default_fulfillment_mode).toUpperCase();
@@ -190,12 +218,43 @@ export class DeliverySettingsService {
         return {
             ...policy,
             origin: { lat, lng },
+            origin_address: originAddress,
             service_area: { mode: 'RADIUS', radius_km: radius },
             fees,
             default_fulfillment_mode: mode as 'OWN' | 'EXTERNAL',
             own_capacity: { available_couriers: capacity },
             external: { provider_order: Array.from(new Set(providerOrder)), max_attempts: maxAttempts, attempt_window_minutes: attemptWindowMinutes },
         };
+    }
+
+    private normalizeOriginAddress(raw: any, fallback: DeliveryOriginAddress | null): DeliveryOriginAddress | null {
+        if (!raw || typeof raw !== 'object') return fallback;
+        const text = (value: unknown) => {
+            const normalized = String(value ?? '').trim();
+            return normalized || null;
+        };
+        const state = text(raw.state)?.toUpperCase() || null;
+        const postalCode = text(raw.postal_code)?.replace(/\D/g, '') || null;
+        return {
+            street: text(raw.street),
+            address_number: text(raw.address_number),
+            address_complement: text(raw.address_complement),
+            neighborhood: text(raw.neighborhood),
+            city: text(raw.city),
+            state,
+            postal_code: postalCode && postalCode.length === 8 ? `${postalCode.slice(0, 5)}-${postalCode.slice(5)}` : postalCode,
+            formatted_address: text(raw.formatted_address),
+            geocode_provider: text(raw.geocode_provider),
+            geocode_provider_id: text(raw.geocode_provider_id),
+            geocode_quality: text(raw.geocode_quality)?.toUpperCase() || null,
+            confirmed: raw.confirmed === true,
+        };
+    }
+
+    private hasConfirmedOriginAddress(address: DeliveryOriginAddress | null): boolean {
+        if (!address || !address.confirmed) return false;
+        return [address.street, address.address_number, address.neighborhood, address.city, address.state, address.postal_code]
+            .every((value) => Boolean(String(value || '').trim()));
     }
 
     private async requireTenant(tenantId: string): Promise<Tenant> {

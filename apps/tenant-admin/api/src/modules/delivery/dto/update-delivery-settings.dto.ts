@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsArray, IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, Max, MaxLength, Min, ValidateNested } from 'class-validator';
+import { IsArray, IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min, ValidateNested } from 'class-validator';
 
 const DELIVERY_DAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'] as const;
 
@@ -121,6 +121,67 @@ export class DeliverySurchargeDto {
     enabled?: boolean;
 }
 
+export class DeliveryOriginAddressDto {
+    @IsOptional()
+    @IsString()
+    @MaxLength(255)
+    street?: string;
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(30)
+    address_number?: string;
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(255)
+    address_complement?: string;
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(255)
+    neighborhood?: string;
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(255)
+    city?: string;
+
+    @IsOptional()
+    @IsString()
+    @Matches(/^[A-Za-z]{2}$/)
+    state?: string;
+
+    @IsOptional()
+    @IsString()
+    @Matches(/^\d{5}-?\d{3}$/)
+    postal_code?: string;
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(500)
+    formatted_address?: string;
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(40)
+    geocode_provider?: string;
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(255)
+    geocode_provider_id?: string;
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(30)
+    geocode_quality?: string;
+
+    @IsOptional()
+    @IsBoolean()
+    confirmed?: boolean;
+}
+
 export class UpdateDeliverySettingsDto {
     @IsOptional()
     @IsBoolean()
@@ -163,6 +224,11 @@ export class UpdateDeliverySettingsDto {
     @Min(0)
     @Max(500)
     service_radius_km?: number;
+
+    @IsOptional()
+    @ValidateNested()
+    @Type(() => DeliveryOriginAddressDto)
+    origin_address?: DeliveryOriginAddressDto;
 
     @IsOptional()
     @IsIn(['OWN', 'EXTERNAL'])

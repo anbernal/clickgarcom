@@ -7,6 +7,8 @@ import {
     DeliveryMapsProvider,
     DeliveryRouteRequest,
     DeliveryRouteResult,
+    DeliveryReverseGeocodeRequest,
+    DeliveryReverseGeocodeResult,
 } from './maps-provider';
 
 /**
@@ -20,6 +22,7 @@ export class HttpDeliveryMapsProvider implements DeliveryMapsProvider {
     private readonly apiKey: string;
     private readonly timeoutMs: number;
     private readonly geocodePath: string;
+    private readonly reverseGeocodePath: string;
     private readonly routePath: string;
 
     constructor(config: ConfigService) {
@@ -27,6 +30,7 @@ export class HttpDeliveryMapsProvider implements DeliveryMapsProvider {
         this.apiKey = String(config.get('DELIVERY_MAPS_API_KEY') || '');
         this.timeoutMs = Math.max(500, Math.min(10_000, Number(config.get('DELIVERY_MAPS_TIMEOUT_MS') || 5000)));
         this.geocodePath = String(config.get('DELIVERY_MAPS_GEOCODE_PATH') || '/geocode');
+        this.reverseGeocodePath = String(config.get('DELIVERY_MAPS_REVERSE_GEOCODE_PATH') || '/reverse-geocode');
         this.routePath = String(config.get('DELIVERY_MAPS_ROUTE_PATH') || '/route');
     }
 
@@ -56,6 +60,21 @@ export class HttpDeliveryMapsProvider implements DeliveryMapsProvider {
             duration_seconds: Math.round(duration),
             polyline: result.polyline ? String(result.polyline) : undefined,
             provider: String(result.provider || 'HTTP'),
+        };
+    }
+
+    async reverseGeocode(input: DeliveryReverseGeocodeRequest): Promise<DeliveryReverseGeocodeResult> {
+        const result = await this.request(this.reverseGeocodePath, input);
+        const lat = Number(result.lat ?? result.latitude ?? input.lat);
+        const lng = Number(result.lng ?? result.longitude ?? input.lng);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) throw new Error('maps provider returned invalid reverse geocode');
+        return {
+            lat, lng, provider: String(result.provider || 'HTTP'),
+            provider_id: result.provider_id ? String(result.provider_id) : undefined,
+            quality: this.normalizeQuality(result.quality),
+            formatted_address: optionalString(result.formatted_address), street: optionalString(result.street),
+            address_number: optionalString(result.address_number ?? result.number), neighborhood: optionalString(result.neighborhood),
+            city: optionalString(result.city), state: optionalString(result.state), postal_code: optionalString(result.postal_code),
         };
     }
 
@@ -89,4 +108,9 @@ export class HttpDeliveryMapsProvider implements DeliveryMapsProvider {
         }
         return 'APPROXIMATE';
     }
+}
+
+function optionalString(value: unknown): string | undefined {
+    const text = String(value ?? '').trim();
+    return text || undefined;
 }
