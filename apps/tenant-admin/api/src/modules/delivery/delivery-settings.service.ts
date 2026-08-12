@@ -94,38 +94,45 @@ export class DeliverySettingsService {
         const tenant = await this.requireTenant(tenantId);
         const currentRaw = (tenant.settings || {}) as Record<string, any>;
         const previous = this.resolveSettings(currentRaw);
+        // resolveSettings recebe o objeto completo do tenant e lê sempre a chave
+        // `delivery`. Montar os dados no nível raiz fazia o serviço ignorar o
+        // payload e voltar para os defaults após cada salvamento.
         const nextRaw = {
-            ...previous,
-            ...payload,
-            origin: {
-                ...previous.origin,
-                ...(payload.origin_lat === undefined ? {} : { lat: payload.origin_lat }),
-                ...(payload.origin_lng === undefined ? {} : { lng: payload.origin_lng }),
-            },
-            origin_address: payload.origin_address === undefined
-                ? previous.origin_address
-                : this.normalizeOriginAddress(payload.origin_address, previous.origin_address),
-            service_area: {
-                ...previous.service_area,
-                ...(payload.service_radius_km === undefined ? {} : { radius_km: payload.service_radius_km }),
-            },
-            auto_accept: {
-                ...previous.auto_accept,
-                ...(payload.auto_accept || {}),
-            },
-            fees: payload.fees === undefined && payload.own_delivery_pricing === undefined
-                ? previous.fees
-                : (payload.fees ?? payload.own_delivery_pricing),
-            default_fulfillment_mode: payload.default_fulfillment_mode || previous.default_fulfillment_mode,
-            own_capacity: {
-                ...previous.own_capacity,
-                ...(payload.own_available_couriers === undefined ? {} : { available_couriers: payload.own_available_couriers }),
-            },
-            external: {
-                ...previous.external,
-                ...(payload.external_provider_order === undefined ? {} : { provider_order: payload.external_provider_order }),
-                ...(payload.external_max_attempts === undefined ? {} : { max_attempts: payload.external_max_attempts }),
-                ...(payload.external_attempt_window_minutes === undefined ? {} : { attempt_window_minutes: payload.external_attempt_window_minutes }),
+            ...currentRaw,
+            delivery: {
+                ...previous,
+                ...(payload.enabled === undefined ? {} : { enabled: payload.enabled }),
+                ...(payload.timezone === undefined ? {} : { timezone: payload.timezone }),
+                origin: {
+                    ...previous.origin,
+                    ...(payload.origin_lat === undefined ? {} : { lat: payload.origin_lat }),
+                    ...(payload.origin_lng === undefined ? {} : { lng: payload.origin_lng }),
+                },
+                origin_address: payload.origin_address === undefined
+                    ? previous.origin_address
+                    : this.normalizeOriginAddress(payload.origin_address, previous.origin_address),
+                service_area: {
+                    ...previous.service_area,
+                    ...(payload.service_radius_km === undefined ? {} : { radius_km: payload.service_radius_km }),
+                },
+                auto_accept: {
+                    ...previous.auto_accept,
+                    ...(payload.auto_accept || {}),
+                },
+                fees: payload.fees === undefined && payload.own_delivery_pricing === undefined
+                    ? previous.fees
+                    : (payload.fees ?? payload.own_delivery_pricing),
+                default_fulfillment_mode: payload.default_fulfillment_mode || previous.default_fulfillment_mode,
+                own_capacity: {
+                    ...previous.own_capacity,
+                    ...(payload.own_available_couriers === undefined ? {} : { available_couriers: payload.own_available_couriers }),
+                },
+                external: {
+                    ...previous.external,
+                    ...(payload.external_provider_order === undefined ? {} : { provider_order: payload.external_provider_order }),
+                    ...(payload.external_max_attempts === undefined ? {} : { max_attempts: payload.external_max_attempts }),
+                    ...(payload.external_attempt_window_minutes === undefined ? {} : { attempt_window_minutes: payload.external_attempt_window_minutes }),
+                },
             },
         };
         let next: typeof DEFAULT_DELIVERY_SETTINGS;
