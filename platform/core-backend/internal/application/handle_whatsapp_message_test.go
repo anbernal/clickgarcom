@@ -136,7 +136,17 @@ func TestDeliveryWhatsAppEntryRespectsTenantModeAndCreatesCustomerTab(t *testing
 	tenantID := uuid.New()
 	tenantObj := testTenant(tenantID)
 	tenantObj.Settings.Delivery = tenant.DeliverySettings{Enabled: true, WhatsAppOrderEnabled: true, WhatsAppOrderMode: "HYBRID"}
-	tabRepo := &testTabRepo{}
+	tableID := uuid.New()
+	dineInTabID := uuid.New()
+	dineInTab := &tab.Tab{
+		ID:             dineInTabID,
+		TenantID:       tenantID,
+		TableID:        &tableID,
+		UserPhone:      "5511999999999",
+		OpeningChannel: "WAITER",
+		Status:         tab.StatusOpen,
+	}
+	tabRepo := &testTabRepo{byID: map[uuid.UUID]*tab.Tab{dineInTabID: dineInTab}}
 	sender := &testWhatsAppSender{}
 	uc := &HandleWhatsAppMessageUseCase{
 		tenantRepo: &testTenantRepo{tenant: tenantObj},
@@ -145,9 +155,11 @@ func TestDeliveryWhatsAppEntryRespectsTenantModeAndCreatesCustomerTab(t *testing
 		logger:     zap.NewNop(),
 	}
 	sess := session.NewSession("5511999999999", tenantID)
+	sess.TabID = &dineInTabID
+	sess.TableID = &tableID
 
 	baseWelcome := whatsapp.WelcomeMenuMessage(tenantObj.Name, tenantObj.Settings.Messages)
-	if got := uc.appendDeliveryWelcomeOption(baseWelcome, tenantObj); !strings.Contains(got, "Já tenho número de comanda") || !strings.Contains(got, "solicitar uma comanda") || !strings.Contains(got, "Fazer pedido para entrega") {
+	if got := uc.appendDeliveryWelcomeOption(baseWelcome, tenantObj); !strings.Contains(got, "Já tenho número de comanda") || !strings.Contains(got, "solicitar uma comanda") || !strings.Contains(got, "Fazer pedido para entrega") || !strings.Contains(got, "Pedidos para entrega não usam comanda") {
 		t.Fatalf("expected additive delivery entry in existing welcome menu, got %q", got)
 	}
 	if err := uc.sendDefaultWelcomeMenu(ctx, sess.UserPhone, tenantObj, ""); err != nil {
@@ -166,12 +178,32 @@ func TestDeliveryWhatsAppEntryRespectsTenantModeAndCreatesCustomerTab(t *testing
 	if state != session.StateMainMenu || !strings.Contains(response, "cardápio") {
 		t.Fatalf("expected delivery ordering to create tab before menu fallback, state=%s response=%q", state, response)
 	}
-	if sess.TabID == nil {
-		t.Fatal("expected delivery session to receive an open tab")
+	if sess.TabID == nil || *sess.TabID != dineInTabID || sess.TableID == nil || *sess.TableID != tableID {
+		t.Fatalf("delivery must preserve dine-in session binding, tab=%v table=%v", sess.TabID, sess.TableID)
 	}
-	created := tabRepo.byID[*sess.TabID]
+	deliveryTabID, err := uuid.Parse(uc.getContextString(sess, deliveryTabIDKey))
+	if err != nil {
+		t.Fatalf("expected isolated delivery tab context, got %q: %v", uc.getContextString(sess, deliveryTabIDKey), err)
+	}
+	created := tabRepo.byID[deliveryTabID]
 	if created == nil || created.ServiceMode != "SEM_MESA" || created.OpeningChannel != "WHATSAPP_DELIVERY" {
 		t.Fatalf("expected delivery customer tab, got %+v", created)
+	}
+	if created.TableID != nil {
+		t.Fatalf("delivery internal tab must never inherit a restaurant table, got %v", created.TableID)
+	}
+	if got := uc.findSessionOpenTab(ctx, sess); got == nil || got.ID != dineInTabID {
+		t.Fatalf("dine-in resolver must ignore delivery tab, got %+v", got)
+	}
+	if got := uc.findDeliveryOpenTab(ctx, sess); got == nil || got.ID != deliveryTabID {
+		t.Fatalf("delivery resolver must ignore dine-in tab, got %+v", got)
+	}
+	canceled, canceledState, cancelErr := uc.handleOrderingSimplified(ctx, sess, "0")
+	if cancelErr != nil || canceledState != session.StateWelcome || !strings.Contains(canceled, "Pedido para entrega cancelado") {
+		t.Fatalf("delivery cancellation must return to top-level selector, state=%s response=%q err=%v", canceledState, canceled, cancelErr)
+	}
+	if sess.TabID == nil || *sess.TabID != dineInTabID || sess.TableID == nil || *sess.TableID != tableID {
+		t.Fatalf("delivery cancellation must preserve dine-in session binding, tab=%v table=%v", sess.TabID, sess.TableID)
 	}
 
 	tenantObj.Settings.Delivery.WhatsAppOrderMode = "DELIVERY_ONLY"
@@ -182,6 +214,46 @@ func TestDeliveryWhatsAppEntryRespectsTenantModeAndCreatesCustomerTab(t *testing
 	tenantObj.Settings.Delivery.WhatsAppOrderEnabled = false
 	if got := uc.appendDeliveryWelcomeOption(baseWelcome, tenantObj); strings.Contains(got, "Fazer pedido para entrega") {
 		t.Fatalf("expected delivery option to be hidden when WhatsApp activation is disabled, got %q", got)
+	}
+}
+
+func TestFindSessionOpenTabHealsLegacyDeliveryBindingWithoutExposingComanda(t *testing.T) {
+	ctx := context.Background()
+	tenantID := uuid.New()
+	phone := "5511988887777"
+	legacyDeliveryID := uuid.New()
+	legacyTableID := uuid.New()
+	legacyDelivery := &tab.Tab{
+		ID:             legacyDeliveryID,
+		TenantID:       tenantID,
+		TableID:        &legacyTableID,
+		UserPhone:      phone,
+		ServiceMode:    "SEM_MESA",
+		OpeningChannel: "WHATSAPP_DELIVERY",
+		Status:         tab.StatusOpen,
+	}
+	uc := &HandleWhatsAppMessageUseCase{
+		tabRepo: &testTabRepo{byID: map[uuid.UUID]*tab.Tab{legacyDeliveryID: legacyDelivery}},
+		logger:  zap.NewNop(),
+	}
+	sess := session.NewSession(phone, tenantID)
+	sess.TabID = &legacyDeliveryID
+	sess.TableID = &legacyTableID
+
+	if got := uc.findSessionOpenTab(ctx, sess); got != nil {
+		t.Fatalf("legacy delivery container must not be exposed as dine-in comanda, got %+v", got)
+	}
+	if sess.TabID != nil {
+		t.Fatalf("legacy delivery binding must be removed from session TabID, got %v", sess.TabID)
+	}
+	if got := uc.getContextString(sess, deliveryTabIDKey); got != legacyDeliveryID.String() {
+		t.Fatalf("legacy delivery binding must migrate to isolated context, got %q", got)
+	}
+	if got := uc.findDeliveryOpenTab(ctx, sess); got == nil || got.ID != legacyDeliveryID {
+		t.Fatalf("delivery flow must still recover its internal tab, got %+v", got)
+	}
+	if stored := uc.tabRepo.(*testTabRepo).byID[legacyDeliveryID]; stored.TableID == nil || *stored.TableID != legacyTableID {
+		t.Fatalf("resolver must not mutate persisted data while healing session, got %+v", stored)
 	}
 }
 
@@ -376,6 +448,38 @@ func TestHandleWhatsAppMessageValidatesAndBindsStaffOpenedTabCode(t *testing.T) 
 	}
 	if !confirmationFound {
 		t.Fatalf("expected code confirmation message, got text=%+v interactive=%+v", sender.textMessages, sender.interactiveMessages)
+	}
+}
+
+func TestHandleTabCodeNeverExposesDeliveryInternalTabAsComanda(t *testing.T) {
+	ctx := context.Background()
+	tenantID := uuid.New()
+	phone := "5511981234567"
+	deliveryTabID := uuid.New()
+	uc := &HandleWhatsAppMessageUseCase{
+		tabRepo: &testTabRepo{byID: map[uuid.UUID]*tab.Tab{
+			deliveryTabID: {
+				ID:             deliveryTabID,
+				TenantID:       tenantID,
+				UserPhone:      phone,
+				Status:         tab.StatusOpen,
+				PublicCode:     "D39F2",
+				OpeningChannel: "WHATSAPP_DELIVERY",
+			},
+		}},
+		logger: zap.NewNop(),
+	}
+	sess := session.NewSession(phone, tenantID)
+
+	response, state, err := uc.handleTabCode(ctx, sess, "D39F2")
+	if err != nil {
+		t.Fatalf("handleTabCode() error = %v", err)
+	}
+	if state != session.StateWaitingTabCode || !strings.Contains(response, "Não encontrei uma comanda") {
+		t.Fatalf("delivery internal tab must be rejected as comanda, state=%s response=%q", state, response)
+	}
+	if sess.TabID != nil || sess.TableID != nil {
+		t.Fatalf("delivery internal tab must not bind dine-in session, tab=%v table=%v", sess.TabID, sess.TableID)
 	}
 }
 

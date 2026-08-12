@@ -798,7 +798,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleTabCode(
 
 	var matched *tab.Tab
 	for _, candidate := range openTabs {
-		if candidate != nil && strings.EqualFold(strings.TrimSpace(candidate.PublicCode), code) {
+		if candidate != nil && uc.isCustomerVisibleTab(candidate) && strings.EqualFold(strings.TrimSpace(candidate.PublicCode), code) {
 			matched = candidate
 			break
 		}
@@ -1082,7 +1082,8 @@ func (uc *HandleWhatsAppMessageUseCase) appendDeliveryWelcomeOption(body string,
 	option := "*3* - 🛵 Fazer pedido para entrega"
 	note := "_Você precisa de uma comanda aberta para fazer pedidos._"
 	if strings.Contains(body, note) {
-		return strings.Replace(body, note, option+"\n\n"+note, 1)
+		separationNote := "_Pedidos para entrega não usam comanda. Para pedidos presenciais, você precisa de uma comanda aberta._"
+		return strings.Replace(body, note, option+"\n\n"+separationNote, 1)
 	}
 	return strings.TrimSpace(body) + "\n\n" + option
 }
@@ -1608,6 +1609,9 @@ func (uc *HandleWhatsAppMessageUseCase) handleOrderConfirmation(
 
 	switch text {
 	case "0", orderingBackToMenuID:
+		if uc.isDeliveryOrdering(sess) {
+			return uc.exitDeliveryFlow(ctx, sess, "Pedido para entrega cancelado.")
+		}
 		uc.clearOrderingContext(sess)
 		return whatsapp.MainMenuMessage(), session.StateMainMenu, nil
 	case orderingChangeItemID, "2":

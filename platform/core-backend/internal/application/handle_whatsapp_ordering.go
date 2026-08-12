@@ -107,6 +107,9 @@ func (uc *HandleWhatsAppMessageUseCase) handleOrderingSimplified(
 	text = strings.TrimSpace(text)
 
 	if text == "0" {
+		if uc.isDeliveryOrdering(sess) {
+			return uc.exitDeliveryFlow(ctx, sess, "Pedido para entrega cancelado.")
+		}
 		uc.clearOrderingContext(sess)
 		return whatsapp.MainMenuMessage(), session.StateMainMenu, nil
 	}
@@ -295,13 +298,12 @@ func (uc *HandleWhatsAppMessageUseCase) getOrCreateTab(
 	ctx context.Context,
 	sess *session.Session,
 ) (*tab.Tab, error) {
-	existingTab := uc.findSessionOpenTab(ctx, sess)
 	if uc.isDeliveryOrdering(sess) {
-		// Delivery must never be appended to an open dine-in comanda merely
-		// because the same WhatsApp number has one. Reuse only its own
-		// delivery tab; otherwise create a dedicated no-table comanda.
-		if existingTab != nil && existingTab.TableID == nil && existingTab.OpeningChannel == "WHATSAPP_DELIVERY" {
-			return existingTab, nil
+		// The order schema requires a tab as its internal item container, but a
+		// Delivery tab is not a customer comanda. It must remain independent
+		// from the dine-in tab/table stored in the WhatsApp session.
+		if deliveryTab := uc.findDeliveryOpenTab(ctx, sess); deliveryTab != nil {
+			return deliveryTab, nil
 		}
 		if uc.tabRepo == nil {
 			return nil, fmt.Errorf("delivery ordering requires a tab repository")
@@ -318,10 +320,11 @@ func (uc *HandleWhatsAppMessageUseCase) getOrCreateTab(
 		if err := uc.tabRepo.Create(ctx, newTab); err != nil {
 			return nil, fmt.Errorf("create delivery tab: %w", err)
 		}
-		sess.TableID = nil
-		sess.TabID = &newTab.ID
+		sess.SetContext(deliveryTabIDKey, newTab.ID.String())
 		return newTab, nil
 	}
+
+	existingTab := uc.findSessionOpenTab(ctx, sess)
 	if existingTab != nil {
 		return existingTab, nil
 	}
@@ -3165,6 +3168,12 @@ func (uc *HandleWhatsAppMessageUseCase) findSessionOpenTab(
 
 	if sess.TabID != nil {
 		existingTab, err := uc.tabRepo.FindByID(ctx, *sess.TabID, sess.TenantID)
+		if err == nil && isWhatsAppDeliveryTab(existingTab) {
+			// Heal sessions created by older versions that stored the Delivery
+			// container as if it were the customer's dine-in comanda.
+			sess.SetContext(deliveryTabIDKey, existingTab.ID.String())
+			sess.TabID = nil
+		}
 		if err == nil && existingTab != nil && existingTab.Status == tab.StatusOpen && uc.canSessionAccessTab(ctx, sess, existingTab) {
 			candidate = existingTab
 		}
@@ -3205,6 +3214,49 @@ func (uc *HandleWhatsAppMessageUseCase) findSessionOpenTab(
 
 	uc.reconcileOpenTabMetadata(ctx, sess, candidate)
 	return candidate
+}
+
+// findDeliveryOpenTab resolves only the internal order container used by the
+// Delivery flow. It intentionally never reads or writes sess.TabID/TableID,
+// which belong exclusively to the dine-in journey.
+func (uc *HandleWhatsAppMessageUseCase) findDeliveryOpenTab(
+	ctx context.Context,
+	sess *session.Session,
+) *tab.Tab {
+	if sess == nil || uc.tabRepo == nil {
+		return nil
+	}
+
+	if rawID := strings.TrimSpace(uc.getContextString(sess, deliveryTabIDKey)); rawID != "" {
+		if deliveryTabID, err := uuid.Parse(rawID); err == nil {
+			candidate, findErr := uc.tabRepo.FindByID(ctx, deliveryTabID, sess.TenantID)
+			if findErr == nil && candidate != nil && candidate.Status == tab.StatusOpen &&
+				isWhatsAppDeliveryTab(candidate) && uc.isTabOwnedBySessionPhone(candidate, sess.UserPhone) {
+				if sess.TabID != nil && *sess.TabID == candidate.ID {
+					sess.TabID = nil
+				}
+				return candidate
+			}
+		}
+		delete(sess.Context, deliveryTabIDKey)
+	}
+
+	openTabs, err := uc.tabRepo.FindByTenantAndStatus(ctx, sess.TenantID, tab.StatusOpen)
+	if err != nil {
+		return nil
+	}
+	for _, candidate := range openTabs {
+		if candidate == nil || !isWhatsAppDeliveryTab(candidate) || !uc.isTabOwnedBySessionPhone(candidate, sess.UserPhone) {
+			continue
+		}
+		sess.SetContext(deliveryTabIDKey, candidate.ID.String())
+		if sess.TabID != nil && *sess.TabID == candidate.ID {
+			sess.TabID = nil
+		}
+		return candidate
+	}
+
+	return nil
 }
 
 func (uc *HandleWhatsAppMessageUseCase) findSessionExitTab(
@@ -3406,6 +3458,9 @@ func (uc *HandleWhatsAppMessageUseCase) isCustomerVisibleTab(userTab *tab.Tab) b
 	if userTab == nil {
 		return false
 	}
+	if isWhatsAppDeliveryTab(userTab) {
+		return false
+	}
 
 	if userTab.ReopenedAt != nil {
 		return false
@@ -3416,12 +3471,16 @@ func (uc *HandleWhatsAppMessageUseCase) isCustomerVisibleTab(userTab *tab.Tab) b
 	return userTab.Status == tab.StatusOpen && (userTab.Total <= 0 || userTab.PaidAmount < userTab.Total)
 }
 
+func isWhatsAppDeliveryTab(userTab *tab.Tab) bool {
+	return userTab != nil && strings.EqualFold(strings.TrimSpace(userTab.OpeningChannel), "WHATSAPP_DELIVERY")
+}
+
 func (uc *HandleWhatsAppMessageUseCase) reconcileOpenTabMetadata(
 	ctx context.Context,
 	sess *session.Session,
 	userTab *tab.Tab,
 ) {
-	if userTab == nil {
+	if userTab == nil || isWhatsAppDeliveryTab(userTab) {
 		return
 	}
 

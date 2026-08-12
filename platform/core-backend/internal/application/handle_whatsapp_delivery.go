@@ -40,6 +40,7 @@ const (
 	deliveryCheckoutPaidKey     = "delivery_checkout_paid"
 	deliveryOrderBatchKey       = "delivery_order_batch_id"
 	deliveryPaymentEventKey     = "delivery_payment_event_id"
+	deliveryTabIDKey            = "delivery_internal_tab_id"
 	deliveryAddressPromptNotice = "Digite *0* para cancelar o cadastro de endereço."
 )
 
@@ -80,10 +81,10 @@ func (uc *HandleWhatsAppMessageUseCase) SetDeliveryQuoteGateway(gateway Delivery
 // duplicating tenant or address validation.
 func (uc *HandleWhatsAppMessageUseCase) StartDeliveryAddressFlow(ctx context.Context, sess *session.Session) (string, session.ConversationState, error) {
 	if sess == nil || sess.TenantID == uuid.Nil || strings.TrimSpace(sess.UserPhone) == "" {
-		return "❌ Não consegui identificar o cliente para a entrega.", session.StateMainMenu, nil
+		return "❌ Não consegui identificar o cliente para a entrega.", session.StateWelcome, nil
 	}
 	if uc.deliveryCustomer == nil {
-		return "❌ O cadastro de endereços está temporariamente indisponível. Tente novamente em instantes.", session.StateMainMenu, nil
+		return uc.exitDeliveryFlow(ctx, sess, "❌ O cadastro de endereços está temporariamente indisponível. Tente novamente em instantes.")
 	}
 	uc.clearDeliveryCheckoutContext(sess)
 
@@ -93,7 +94,7 @@ func (uc *HandleWhatsAppMessageUseCase) StartDeliveryAddressFlow(ctx context.Con
 	})
 	if err != nil {
 		uc.logger.Warn("delivery customer resolution failed in WhatsApp flow", zap.Error(err), zap.String("tenant_id", sess.TenantID.String()))
-		return "❌ Não consegui identificar seu cadastro agora. Tente novamente em instantes.", session.StateMainMenu, nil
+		return uc.exitDeliveryFlow(ctx, sess, "❌ Não consegui identificar seu cadastro agora. Tente novamente em instantes.")
 	}
 	sess.SetContext(deliveryCustomerIDKey, customer.ID.String())
 	sess.SetContext(deliveryAddressReadyKey, false)
@@ -105,7 +106,7 @@ func (uc *HandleWhatsAppMessageUseCase) StartDeliveryAddressFlow(ctx context.Con
 	addresses, err := uc.deliveryCustomer.ListAddresses(ctx, sess.TenantID, customer.ID)
 	if err != nil {
 		uc.logger.Warn("delivery addresses listing failed in WhatsApp flow", zap.Error(err), zap.String("tenant_id", sess.TenantID.String()))
-		return "❌ Não consegui carregar seus endereços agora. Tente novamente em instantes.", session.StateMainMenu, nil
+		return uc.exitDeliveryFlow(ctx, sess, "❌ Não consegui carregar seus endereços agora. Tente novamente em instantes.")
 	}
 	validAddresses := make([]nodeadmin.DeliveryAddress, 0, len(addresses))
 	ids := make([]string, 0, len(addresses))
@@ -131,8 +132,7 @@ func (uc *HandleWhatsAppMessageUseCase) StartDeliveryAddressFlow(ctx context.Con
 func (uc *HandleWhatsAppMessageUseCase) handleDeliveryAddressSelection(ctx context.Context, sess *session.Session, text string) (string, session.ConversationState, error) {
 	text = strings.TrimSpace(strings.ToLower(text))
 	if text == "0" || text == "cancelar" {
-		uc.clearDeliveryAddressContext(sess)
-		return "Operação de entrega cancelada.\n\n" + "Digite *0* para voltar ao menu principal.", session.StateMainMenu, nil
+		return uc.exitDeliveryFlow(ctx, sess, "Operação de entrega cancelada.")
 	}
 	if text == "novo" || text == "nova" || text == "cadastrar" || text == "n" {
 		delete(sess.Context, deliveryAddressDraftKey)
@@ -170,7 +170,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleDeliveryAddressSelection(ctx conte
 	sess.SetContext(deliveryAddressReadyKey, false)
 	customerID, err := uuid.Parse(uc.getContextString(sess, deliveryCustomerIDKey))
 	if err != nil || customerID == uuid.Nil {
-		return "❌ Perdi a referência do cliente. Vamos reiniciar o cadastro.", session.StateMainMenu, nil
+		return uc.exitDeliveryFlow(ctx, sess, "❌ Perdi a referência do cliente. Vamos reiniciar o atendimento.")
 	}
 	addresses, err := uc.deliveryCustomer.ListAddresses(ctx, sess.TenantID, customerID)
 	if err != nil {
@@ -201,8 +201,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleDeliveryAddressDelete(ctx context.
 		return "Exclusão cancelada. Escolha um endereço ou digite *novo*.", session.StateDeliveryAddressSelection, nil
 	}
 	if answer == "0" || answer == "cancelar" {
-		uc.clearDeliveryAddressContext(sess)
-		return "Operação cancelada.\n\nDigite *0* para voltar ao menu principal.", session.StateMainMenu, nil
+		return uc.exitDeliveryFlow(ctx, sess, "Operação de entrega cancelada.")
 	}
 	if answer != "sim" && answer != "s" && answer != "ok" {
 		return "Responda *sim* para excluir ou *não* para manter o endereço.", session.StateDeliveryAddressDelete, nil
@@ -210,7 +209,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleDeliveryAddressDelete(ctx context.
 	customerID, err := uuid.Parse(uc.getContextString(sess, deliveryCustomerIDKey))
 	addressID, addressErr := uuid.Parse(uc.getContextString(sess, deliveryAddressDeleteKey))
 	if err != nil || addressErr != nil || customerID == uuid.Nil || addressID == uuid.Nil {
-		return "❌ Perdi a referência do endereço. Vamos atualizar sua lista.", session.StateMainMenu, nil
+		return uc.exitDeliveryFlow(ctx, sess, "❌ Perdi a referência do endereço. Vamos reiniciar o atendimento.")
 	}
 	if err := uc.deliveryCustomer.DeleteAddress(ctx, sess.TenantID, customerID, addressID); err != nil {
 		return "❌ Não consegui excluir o endereço agora. Tente novamente.", session.StateDeliveryAddressDelete, nil
@@ -223,8 +222,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleDeliveryAddressDelete(ctx context.
 func (uc *HandleWhatsAppMessageUseCase) handleDeliveryPostalCode(ctx context.Context, sess *session.Session, text string) (string, session.ConversationState, error) {
 	text = strings.TrimSpace(text)
 	if text == "0" {
-		uc.clearDeliveryAddressContext(sess)
-		return "Cadastro cancelado.\n\n" + "Digite *0* para voltar ao menu principal.", session.StateMainMenu, nil
+		return uc.exitDeliveryFlow(ctx, sess, "Cadastro de endereço para entrega cancelado.")
 	}
 	postalCode := strings.Map(func(r rune) rune {
 		if r >= '0' && r <= '9' {
@@ -270,8 +268,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleDeliveryPostalCode(ctx context.Con
 func (uc *HandleWhatsAppMessageUseCase) handleDeliveryDraftField(ctx context.Context, sess *session.Session, text string) (string, session.ConversationState, error) {
 	text = strings.TrimSpace(text)
 	if text == "0" || strings.EqualFold(text, "cancelar") {
-		uc.clearDeliveryAddressContext(sess)
-		return "Cadastro cancelado.\n\n" + "Digite *0* para voltar ao menu principal.", session.StateMainMenu, nil
+		return uc.exitDeliveryFlow(ctx, sess, "Cadastro de endereço para entrega cancelado.")
 	}
 	draft := uc.getDeliveryDraft(sess)
 	switch sess.State {
@@ -393,8 +390,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleDeliveryDraftField(ctx context.Con
 func (uc *HandleWhatsAppMessageUseCase) handleDeliveryAddressConfirmation(ctx context.Context, sess *session.Session, text string) (string, session.ConversationState, error) {
 	answer := strings.ToLower(strings.TrimSpace(text))
 	if answer == "0" || answer == "cancelar" {
-		uc.clearDeliveryAddressContext(sess)
-		return "Cadastro cancelado.\n\n" + "Digite *0* para voltar ao menu principal.", session.StateMainMenu, nil
+		return uc.exitDeliveryFlow(ctx, sess, "Cadastro de endereço para entrega cancelado.")
 	}
 	if answer == "não" || answer == "nao" || answer == "n" {
 		if uc.getContextString(sess, deliverySelectedAddressKey) != "" {
@@ -418,8 +414,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleDeliveryAddressConfirmation(ctx co
 func (uc *HandleWhatsAppMessageUseCase) handleDeliveryAddressConsent(ctx context.Context, sess *session.Session, text string) (string, session.ConversationState, error) {
 	answer := strings.ToLower(strings.TrimSpace(text))
 	if answer == "0" || answer == "cancelar" {
-		uc.clearDeliveryAddressContext(sess)
-		return "Cadastro cancelado.\n\n" + "Digite *0* para voltar ao menu principal.", session.StateMainMenu, nil
+		return uc.exitDeliveryFlow(ctx, sess, "Cadastro de endereço para entrega cancelado.")
 	}
 	if answer == "não" || answer == "nao" || answer == "n" {
 		// V2 does not allow an unsaved temporary address to proceed to checkout.
@@ -430,13 +425,13 @@ func (uc *HandleWhatsAppMessageUseCase) handleDeliveryAddressConsent(ctx context
 	}
 	customerID, err := uuid.Parse(uc.getContextString(sess, deliveryCustomerIDKey))
 	if err != nil || customerID == uuid.Nil {
-		return "❌ Perdi a referência do cliente. Vamos reiniciar o cadastro.", session.StateMainMenu, nil
+		return uc.exitDeliveryFlow(ctx, sess, "❌ Perdi a referência do cliente. Vamos reiniciar o atendimento.")
 	}
 	draft := uc.getDeliveryDraft(sess)
 	if uc.getContextString(sess, deliveryAddressEditKey) == "true" {
 		addressID, addressErr := uuid.Parse(uc.getContextString(sess, deliverySelectedAddressKey))
 		if addressErr != nil || addressID == uuid.Nil {
-			return "❌ Perdi a referência do endereço que seria editado. Vamos reiniciar a lista.", session.StateMainMenu, nil
+			return uc.exitDeliveryFlow(ctx, sess, "❌ Perdi a referência do endereço que seria editado. Vamos reiniciar o atendimento.")
 		}
 		updated, err := uc.deliveryCustomer.UpdateAddress(ctx, sess.TenantID, customerID, addressID, deliveryUpdateAddressInput(draft))
 		if err != nil {
@@ -460,8 +455,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleDeliveryAddressConsent(ctx context
 func (uc *HandleWhatsAppMessageUseCase) handleDeliveryReady(ctx context.Context, sess *session.Session, text string) (string, session.ConversationState, error) {
 	text = strings.TrimSpace(strings.ToLower(text))
 	if text == "0" || text == "cancelar" {
-		uc.clearDeliveryAddressContext(sess)
-		return "Entrega cancelada.\n\n" + "Digite *0* para voltar ao menu principal.", session.StateMainMenu, nil
+		return uc.exitDeliveryFlow(ctx, sess, "Pedido para entrega cancelado.")
 	}
 	if text == "1" || text == "continuar" || text == "sim" || text == "ok" {
 		return uc.StartDeliveryCheckout(ctx, sess)
@@ -539,9 +533,9 @@ func (uc *HandleWhatsAppMessageUseCase) StartDeliveryCheckout(ctx context.Contex
 		if uc.createOrderUC == nil {
 			return "❌ Não consegui preparar o lote do pedido para a entrega.", session.StateDeliveryReady, nil
 		}
-		userTab := uc.findSessionOpenTab(ctx, sess)
+		userTab := uc.findDeliveryOpenTab(ctx, sess)
 		if userTab == nil {
-			return "❌ Não encontrei uma comanda aberta para vincular o pedido de entrega.", session.StateDeliveryReady, nil
+			return "❌ Não consegui localizar o pedido de entrega em andamento. Volte ao início e monte o pedido novamente.", session.StateDeliveryReady, nil
 		}
 		orderItems, buildErr := uc.buildOrderingCartOrderInput(ctx, sess, cart)
 		if buildErr != nil {
@@ -581,15 +575,14 @@ func (uc *HandleWhatsAppMessageUseCase) StartDeliveryCheckout(ctx context.Contex
 	return fmt.Sprintf("🧾 *Revisão da entrega*\n\nSubtotal dos itens: R$ %.2f\nFrete: R$ %.2f\n*Total: R$ %.2f*\n\nValidade da cotação/hold: %s\n\nResponda *1* para seguir para o pagamento ou *0* para cancelar.", result.OrderTotal, result.CustomerDeliveryFee, result.TotalAmount, result.ExpiresAt.Local().Format("02/01 às 15:04")), session.StateDeliveryCheckoutReview, nil
 }
 
-func (uc *HandleWhatsAppMessageUseCase) handleDeliveryCheckoutReview(_ context.Context, sess *session.Session, text string) (string, session.ConversationState, error) {
+func (uc *HandleWhatsAppMessageUseCase) handleDeliveryCheckoutReview(ctx context.Context, sess *session.Session, text string) (string, session.ConversationState, error) {
 	if deliveryCheckoutExpired(sess) {
 		uc.clearDeliveryCheckoutContext(sess)
 		return "⏱️ A cotação da entrega expirou. Vamos recalcular o frete antes de continuar.", session.StateDeliveryReady, nil
 	}
 	answer := strings.ToLower(strings.TrimSpace(text))
 	if answer == "0" || answer == "cancelar" {
-		uc.clearDeliveryCheckoutContext(sess)
-		return "Checkout de entrega cancelado.\n\n" + "Digite *0* para voltar ao menu principal.", session.StateMainMenu, nil
+		return uc.exitDeliveryFlow(ctx, sess, "Checkout de entrega cancelado.")
 	}
 	if answer == "1" || answer == "pagar" || answer == "continuar" {
 		return "💳 O frete e o total foram congelados pelo checkout de entrega. Conclua o pagamento no checkout do restaurante; após a confirmação financeira, o checkout será confirmado com a mesma chave de segurança.", session.StateDeliveryCheckoutReview, nil
@@ -684,6 +677,39 @@ func (uc *HandleWhatsAppMessageUseCase) clearDeliveryCheckoutContext(sess *sessi
 	for _, key := range []string{deliveryCheckoutKeyKey, deliveryCheckoutTokenKey, deliveryCheckoutFeeKey, deliveryCheckoutTotalKey, deliveryCheckoutExpiresKey, deliveryCheckoutModeKey, deliveryCheckoutPaidKey, deliveryOrderBatchKey, deliveryPaymentEventKey} {
 		delete(sess.Context, key)
 	}
+}
+
+// exitDeliveryFlow always returns to the top-level channel selector. It must
+// never send the customer directly to the dine-in main menu, even when this
+// same phone also owns an open restaurant comanda.
+func (uc *HandleWhatsAppMessageUseCase) exitDeliveryFlow(
+	ctx context.Context,
+	sess *session.Session,
+	prefix string,
+) (string, session.ConversationState, error) {
+	// Also migrates a legacy sess.TabID binding to deliveryTabIDKey before the
+	// flow context is cleared.
+	_ = uc.findDeliveryOpenTab(ctx, sess)
+	uc.clearDeliveryAddressContext(sess)
+	uc.clearDeliveryCheckoutContext(sess)
+	uc.clearOrderingContext(sess)
+
+	message := strings.TrimSpace(prefix)
+	if sess != nil && uc.tenantRepo != nil {
+		if tenantObj, err := uc.tenantRepo.FindByID(ctx, sess.TenantID); err == nil && tenantObj != nil {
+			welcome := strings.TrimSpace(uc.resolveWelcomeMenuMessage(ctx, tenantObj))
+			if message == "" {
+				message = welcome
+			} else if welcome != "" {
+				message += "\n\n" + welcome
+			}
+		}
+	}
+	if message == "" {
+		message = "Atendimento de entrega encerrado. Envie uma nova mensagem para escolher como deseja continuar."
+	}
+
+	return message, session.StateWelcome, nil
 }
 
 func deliveryCartSubtotal(cart []orderingCartItem) (float64, error) {

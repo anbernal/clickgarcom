@@ -140,6 +140,7 @@ export class TablesService {
                 .select('SUM(tab.total)', 'totalOpen')
                 .where('tab.tenant_id = :tenantId', { tenantId })
                 .andWhere('tab.status = :status', { status: 'OPEN' })
+                .andWhere(`UPPER(TRIM(COALESCE(tab.opening_channel, ''))) <> 'WHATSAPP_DELIVERY'`)
                 .getRawOne(),
         ]);
 
@@ -173,6 +174,7 @@ export class TablesService {
                  ON t.id = tb.table_id
               WHERE tb.tenant_id = $1
                 AND tb.status = 'OPEN'
+                AND UPPER(TRIM(COALESCE(tb.opening_channel, ''))) <> 'WHATSAPP_DELIVERY'
               ORDER BY tb.opened_at ASC`,
             [tenantId],
         );
@@ -221,6 +223,7 @@ export class TablesService {
                  ON t.id = tb.table_id
               WHERE tb.tenant_id = $1
                 AND tb.status = 'CLOSED'
+                AND UPPER(TRIM(COALESCE(tb.opening_channel, ''))) <> 'WHATSAPP_DELIVERY'
               ORDER BY tb.closed_at DESC NULLS LAST, tb.opened_at DESC
               LIMIT $2`,
             [tenantId, limit],
@@ -264,14 +267,26 @@ export class TablesService {
         }
 
         if (phone) {
-            const existing = await this.tabRepo.findOne({ where: { tenantId, userPhone: phone, status: 'OPEN' } });
+            const existing = await this.tabRepo
+                .createQueryBuilder('tab')
+                .where('tab.tenant_id = :tenantId', { tenantId })
+                .andWhere('tab.user_phone = :phone', { phone })
+                .andWhere('tab.status = :status', { status: 'OPEN' })
+                .andWhere(`UPPER(TRIM(COALESCE(tab.opening_channel, ''))) <> 'WHATSAPP_DELIVERY'`)
+                .getOne();
             if (existing) {
                 throw new BadRequestException(`Já existe uma comanda aberta para o telefone informado (${existing.publicCode || existing.id}).`);
             }
         }
 
         if (instagram) {
-            const existing = await this.tabRepo.findOne({ where: { tenantId, customerInstagram: instagram, status: 'OPEN' } });
+            const existing = await this.tabRepo
+                .createQueryBuilder('tab')
+                .where('tab.tenant_id = :tenantId', { tenantId })
+                .andWhere('tab.customer_instagram = :instagram', { instagram })
+                .andWhere('tab.status = :status', { status: 'OPEN' })
+                .andWhere(`UPPER(TRIM(COALESCE(tab.opening_channel, ''))) <> 'WHATSAPP_DELIVERY'`)
+                .getOne();
             if (existing) {
                 throw new BadRequestException(`Já existe uma comanda aberta para o Instagram informado (${existing.publicCode || existing.id}).`);
             }
@@ -336,6 +351,7 @@ export class TablesService {
                    FROM tabs
                   WHERE id = $1
                     AND tenant_id = $2
+                    AND UPPER(TRIM(COALESCE(opening_channel, ''))) <> 'WHATSAPP_DELIVERY'
                   LIMIT 1
                   FOR UPDATE`,
                 [tabId, tenantId],
@@ -644,6 +660,7 @@ export class TablesService {
                    FROM tabs
                   WHERE id = $1
                     AND tenant_id = $2
+                    AND UPPER(TRIM(COALESCE(opening_channel, ''))) <> 'WHATSAPP_DELIVERY'
                   LIMIT 1
                   FOR UPDATE`,
                 [tabId, tenantId],
@@ -664,6 +681,7 @@ export class TablesService {
                         AND id <> $2
                         AND status = 'OPEN'
                         AND user_phone = $3
+                        AND UPPER(TRIM(COALESCE(opening_channel, ''))) <> 'WHATSAPP_DELIVERY'
                       LIMIT 1`,
                     [tenantId, tabId, phone],
                 );
@@ -682,6 +700,7 @@ export class TablesService {
                         AND id <> $2
                         AND status = 'OPEN'
                         AND customer_instagram = $3
+                        AND UPPER(TRIM(COALESCE(opening_channel, ''))) <> 'WHATSAPP_DELIVERY'
                       LIMIT 1`,
                     [tenantId, tabId, instagram],
                 );
@@ -2137,6 +2156,7 @@ export class TablesService {
             `SELECT id, public_code
                FROM tabs
               WHERE tenant_id = $1
+                AND UPPER(TRIM(COALESCE(opening_channel, ''))) <> 'WHATSAPP_DELIVERY'
                 AND (
                     UPPER(TRIM(COALESCE(public_code, ''))) = UPPER($2)
                     OR LOWER(id::text) = LOWER($2)
