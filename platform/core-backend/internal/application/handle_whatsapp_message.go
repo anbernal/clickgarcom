@@ -1227,7 +1227,7 @@ func buildDefaultWelcomeButtons(includeDelivery bool) []whatsapp.InteractiveButt
 		buttons = append(buttons, whatsapp.InteractiveButton{Type: "reply", Reply: struct {
 			ID    string `json:"id"`
 			Title string `json:"title"`
-		}{ID: deliveryStartActionID, Title: "🛵 Fazer entrega"}})
+		}{ID: deliveryStartActionID, Title: "🛵 Pedir entrega"}})
 	}
 	return buttons
 }
