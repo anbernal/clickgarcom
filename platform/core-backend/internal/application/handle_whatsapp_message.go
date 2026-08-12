@@ -127,6 +127,7 @@ const (
 	tabSummaryNewOrderID      = "1"
 	tabSummaryCloseTabID      = "2"
 	tabSummaryBackMenuID      = "0"
+	deliveryStartActionID     = "delivery:start"
 )
 
 const mainMenuBackOptionText = "*0* - ◂ Voltar ao menu principal"
@@ -702,6 +703,17 @@ func (uc *HandleWhatsAppMessageUseCase) handleWelcomeMenu(
 	sess *session.Session,
 	text string,
 ) (string, session.ConversationState, error) {
+	var tenantObj *tenant.Tenant
+	var tenantErr error
+	if uc.tenantRepo != nil {
+		tenantObj, tenantErr = uc.tenantRepo.FindByID(ctx, sess.TenantID)
+	}
+	if tenantErr == nil && tenantObj != nil {
+		if uc.deliveryWhatsAppOrderMode(tenantObj) != "" && isDeliveryStartChoice(text) {
+			return uc.startDeliveryOrdering(ctx, sess)
+		}
+	}
+
 	if strings.TrimSpace(text) == "0" {
 		return "", session.StateWelcome, nil
 	}
@@ -719,6 +731,38 @@ func (uc *HandleWhatsAppMessageUseCase) handleWelcomeMenu(
 	}
 
 	return uc.repeatCurrentPrompt(ctx, sess)
+}
+
+func (uc *HandleWhatsAppMessageUseCase) deliveryWhatsAppOrderMode(tenantObj *tenant.Tenant) string {
+	if tenantObj == nil || !tenantObj.Settings.Delivery.Enabled || !tenantObj.Settings.Delivery.WhatsAppOrderEnabled {
+		return ""
+	}
+	if strings.EqualFold(strings.TrimSpace(tenantObj.Settings.Delivery.WhatsAppOrderMode), "DELIVERY_ONLY") {
+		return "DELIVERY_ONLY"
+	}
+	return "HYBRID"
+}
+
+func isDeliveryStartChoice(text string) bool {
+	switch strings.ToLower(strings.TrimSpace(text)) {
+	case deliveryStartActionID, "3", "entrega", "delivery", "pedir entrega", "quero entrega", "quero delivery":
+		return true
+	default:
+		return false
+	}
+}
+
+func (uc *HandleWhatsAppMessageUseCase) startDeliveryOrdering(ctx context.Context, sess *session.Session) (string, session.ConversationState, error) {
+	if sess == nil {
+		return "❌ Não consegui iniciar o pedido para entrega.", session.StateWelcome, nil
+	}
+	uc.clearOrderingContext(sess)
+	sess.SetContext(orderingServiceTypeKey, "DELIVERY")
+	return uc.startOrderingFlow(ctx, sess)
+}
+
+func (uc *HandleWhatsAppMessageUseCase) isDeliveryOrdering(sess *session.Session) bool {
+	return strings.EqualFold(uc.getContextString(sess, orderingServiceTypeKey), "DELIVERY")
 }
 
 func isWelcomeHasTabChoice(ctx context.Context, tenantID uuid.UUID, text string) bool {
@@ -865,7 +909,7 @@ func (uc *HandleWhatsAppMessageUseCase) resolveWelcomeMenuMessage(
 	ctx context.Context,
 	tenantObj *tenant.Tenant,
 ) string {
-	fallback := whatsapp.WelcomeMenuMessage(tenantObj.Name, tenantObj.Settings.Messages)
+	fallback := uc.appendDeliveryWelcomeOption(whatsapp.WelcomeMenuMessage(tenantObj.Name, tenantObj.Settings.Messages), tenantObj)
 	flow := uc.findPublishedBotFlow(ctx, tenantObj.ID, welcomeMenuFlowKey)
 	if flow == nil {
 		return fallback
@@ -889,9 +933,9 @@ func (uc *HandleWhatsAppMessageUseCase) resolveWelcomeMenuMessage(
 		return fallback
 	}
 
-	return uc.applyFlowReplacements(body, map[string]string{
+	return uc.appendDeliveryWelcomeOption(uc.applyFlowReplacements(body, map[string]string{
 		"{nome_restaurante}": tenantObj.Name,
-	})
+	}), tenantObj)
 }
 
 func (uc *HandleWhatsAppMessageUseCase) matchesPublishedBotFlowActionInput(
@@ -988,9 +1032,10 @@ func (uc *HandleWhatsAppMessageUseCase) sendWelcomeMenu(
 		return uc.sendDefaultWelcomeMenu(ctx, to, tenantObj, prefix)
 	}
 
-	buttons := buildDefaultWelcomeButtons()
+	buttons := buildDefaultWelcomeButtons(uc.deliveryWhatsAppOrderMode(tenantObj) != "")
 
 	body := uc.composeWelcomeMenuBody(tenantObj, definition, prefix)
+	body = uc.appendDeliveryWelcomeOption(body, tenantObj)
 	if _, err := sendInteractiveButtonsWithoutBack(uc.sender, whatsapp.WithTenantID(ctx, tenantObj.ID), to, body, buttons); err != nil {
 		uc.logger.Warn("failed to send interactive welcome menu, falling back to text",
 			zap.Error(err),
@@ -1010,7 +1055,9 @@ func (uc *HandleWhatsAppMessageUseCase) sendDefaultWelcomeMenu(
 	prefix string,
 ) error {
 	body := strings.TrimSpace(whatsapp.WelcomeMenuMessage(tenantObj.Name, tenantObj.Settings.Messages))
-	buttons := buildDefaultWelcomeButtons()
+	deliveryEnabled := uc.deliveryWhatsAppOrderMode(tenantObj) != ""
+	body = uc.appendDeliveryWelcomeOption(body, tenantObj)
+	buttons := buildDefaultWelcomeButtons(deliveryEnabled)
 	if strings.TrimSpace(prefix) != "" {
 		body = strings.TrimSpace(prefix) + "\n\n" + body
 	}
@@ -1026,6 +1073,18 @@ func (uc *HandleWhatsAppMessageUseCase) sendDefaultWelcomeMenu(
 	}
 
 	return nil
+}
+
+func (uc *HandleWhatsAppMessageUseCase) appendDeliveryWelcomeOption(body string, tenantObj *tenant.Tenant) string {
+	if uc.deliveryWhatsAppOrderMode(tenantObj) == "" || strings.Contains(body, "Fazer pedido para entrega") {
+		return body
+	}
+	option := "*3* - 🛵 Fazer pedido para entrega"
+	note := "_Você precisa de uma comanda aberta para fazer pedidos._"
+	if strings.Contains(body, note) {
+		return strings.Replace(body, note, option+"\n\n"+note, 1)
+	}
+	return strings.TrimSpace(body) + "\n\n" + option
 }
 
 func (uc *HandleWhatsAppMessageUseCase) decodeBotFlowDefinition(
@@ -1076,7 +1135,7 @@ func (uc *HandleWhatsAppMessageUseCase) resolveWelcomeMenuText(
 	ctx context.Context,
 	tenantObj *tenant.Tenant,
 ) string {
-	fallback := whatsapp.WelcomeMenuMessage(tenantObj.Name, tenantObj.Settings.Messages)
+	fallback := uc.appendDeliveryWelcomeOption(whatsapp.WelcomeMenuMessage(tenantObj.Name, tenantObj.Settings.Messages), tenantObj)
 	flow := uc.findPublishedBotFlow(ctx, tenantObj.ID, welcomeMenuFlowKey)
 	if flow == nil {
 		return fallback
@@ -1092,7 +1151,7 @@ func (uc *HandleWhatsAppMessageUseCase) resolveWelcomeMenuText(
 		return fallback
 	}
 
-	return strings.TrimSpace(body) + "\n\n" + whatsapp.WelcomeMenuOptionsMessage()
+	return uc.appendDeliveryWelcomeOption(strings.TrimSpace(body)+"\n\n"+whatsapp.WelcomeMenuOptionsMessage(), tenantObj)
 }
 
 func (uc *HandleWhatsAppMessageUseCase) composeWelcomeMenuBody(
@@ -1153,8 +1212,8 @@ func (uc *HandleWhatsAppMessageUseCase) buildInteractiveButtons(
 	return buttons
 }
 
-func buildDefaultWelcomeButtons() []whatsapp.InteractiveButton {
-	return []whatsapp.InteractiveButton{
+func buildDefaultWelcomeButtons(includeDelivery bool) []whatsapp.InteractiveButton {
+	buttons := []whatsapp.InteractiveButton{
 		{Type: "reply", Reply: struct {
 			ID    string `json:"id"`
 			Title string `json:"title"`
@@ -1164,6 +1223,13 @@ func buildDefaultWelcomeButtons() []whatsapp.InteractiveButton {
 			Title string `json:"title"`
 		}{ID: welcomeRequestTabActionID, Title: "🙋 Solicitar comanda"}},
 	}
+	if includeDelivery {
+		buttons = append(buttons, whatsapp.InteractiveButton{Type: "reply", Reply: struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+		}{ID: deliveryStartActionID, Title: "🛵 Fazer entrega"}})
+	}
+	return buttons
 }
 
 func (uc *HandleWhatsAppMessageUseCase) shouldSendInteractiveWelcome(
@@ -1568,6 +1634,9 @@ func (uc *HandleWhatsAppMessageUseCase) handleOrderConfirmation(
 	if len(cart) == 0 {
 		return uc.startOrderingFlow(ctx, sess)
 	}
+	if uc.isDeliveryOrdering(sess) {
+		return uc.StartDeliveryAddressFlow(ctx, sess)
+	}
 
 	if uc.createOrderUC == nil {
 		uc.clearOrderingContext(sess)
@@ -1872,11 +1941,15 @@ func (uc *HandleWhatsAppMessageUseCase) presentCartConfirmation(
 	cartMessage string,
 ) (string, session.ConversationState, error) {
 	uc.clearOrderingCartAdjustmentContext(sess)
-	if err := uc.sendCartConfirmationMenu(ctx, sess.UserPhone, sess.TenantID, cartMessage); err == nil {
+	delivery := uc.isDeliveryOrdering(sess)
+	if delivery {
+		cartMessage = strings.TrimSpace(cartMessage) + "\n\n🛵 Ao continuar, você informará o endereço e verá o frete antes do pagamento."
+	}
+	if err := uc.sendCartConfirmationMenu(ctx, sess.UserPhone, sess.TenantID, delivery, cartMessage); err == nil {
 		return "", session.StateConfirmingOrder, nil
 	}
 
-	return uc.buildCartConfirmationFallback(cartMessage), session.StateConfirmingOrder, nil
+	return uc.buildCartConfirmationFallback(cartMessage, delivery), session.StateConfirmingOrder, nil
 }
 
 func orderingQuantityFromContext(value interface{}) (int, error) {

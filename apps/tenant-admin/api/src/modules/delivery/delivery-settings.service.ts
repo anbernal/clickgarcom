@@ -15,6 +15,8 @@ export type DeliveryActor = {
 };
 
 type DeliveryV2Settings = {
+    whatsapp_order_enabled: boolean;
+    whatsapp_order_mode: 'HYBRID' | 'DELIVERY_ONLY';
     default_fulfillment_mode: 'OWN' | 'EXTERNAL';
     own_capacity: { available_couriers: number };
     external: { provider_order: string[]; max_attempts: number; attempt_window_minutes: number };
@@ -63,6 +65,8 @@ const DEFAULT_DELIVERY_SETTINGS: DeliveryPolicySettings & {
         surcharges: [],
     },
     default_fulfillment_mode: 'OWN',
+    whatsapp_order_enabled: false,
+    whatsapp_order_mode: 'HYBRID',
     own_capacity: { available_couriers: 0 },
     external: { provider_order: ['IFOOD'], max_attempts: 5, attempt_window_minutes: 15 },
 };
@@ -102,6 +106,8 @@ export class DeliverySettingsService {
             delivery: {
                 ...previous,
                 ...(payload.enabled === undefined ? {} : { enabled: payload.enabled }),
+                ...(payload.whatsapp_order_enabled === undefined ? {} : { whatsapp_order_enabled: payload.whatsapp_order_enabled }),
+                ...(payload.whatsapp_order_mode === undefined ? {} : { whatsapp_order_mode: payload.whatsapp_order_mode }),
                 ...(payload.timezone === undefined ? {} : { timezone: payload.timezone }),
                 origin: {
                     ...previous.origin,
@@ -194,6 +200,10 @@ export class DeliverySettingsService {
         const fees = this.feeService.validate(delivery.fees || delivery.own_delivery?.pricing || {});
         const mode = String(delivery.default_fulfillment_mode || DEFAULT_DELIVERY_SETTINGS.default_fulfillment_mode).toUpperCase();
         if (!['OWN', 'EXTERNAL'].includes(mode)) throw new BadRequestException('Modalidade padrão de entrega inválida.');
+        const whatsappOrderMode = String(delivery.whatsapp_order_mode || DEFAULT_DELIVERY_SETTINGS.whatsapp_order_mode).toUpperCase();
+        if (!['HYBRID', 'DELIVERY_ONLY'].includes(whatsappOrderMode)) {
+            throw new BadRequestException('Modo de pedido pelo WhatsApp inválido.');
+        }
         const capacity = Number(delivery.own_capacity?.available_couriers ?? DEFAULT_DELIVERY_SETTINGS.own_capacity.available_couriers);
         if (!Number.isInteger(capacity) || capacity < 0 || capacity > 500) {
             throw new BadRequestException('Quantidade de entregadores disponíveis deve estar entre 0 e 500.');
@@ -228,6 +238,8 @@ export class DeliverySettingsService {
             origin_address: originAddress,
             service_area: { mode: 'RADIUS', radius_km: radius },
             fees,
+            whatsapp_order_enabled: delivery.whatsapp_order_enabled === true,
+            whatsapp_order_mode: whatsappOrderMode as 'HYBRID' | 'DELIVERY_ONLY',
             default_fulfillment_mode: mode as 'OWN' | 'EXTERNAL',
             own_capacity: { available_couriers: capacity },
             external: { provider_order: Array.from(new Set(providerOrder)), max_attempts: maxAttempts, attempt_window_minutes: attemptWindowMinutes },

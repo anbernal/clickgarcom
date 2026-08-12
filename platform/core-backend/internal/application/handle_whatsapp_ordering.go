@@ -40,6 +40,7 @@ const (
 	orderingOptionGroupIndexKey   = "ordering_option_group_index"
 	orderingOptionSelectionsKey   = "ordering_option_selections"
 	orderingCartKey               = "ordering_cart"
+	orderingServiceTypeKey        = "ordering_service_type"
 
 	orderingCategoryPrefix    = "menu:category:"
 	orderingItemPrefix        = "menu:item:"
@@ -295,6 +296,32 @@ func (uc *HandleWhatsAppMessageUseCase) getOrCreateTab(
 	sess *session.Session,
 ) (*tab.Tab, error) {
 	existingTab := uc.findSessionOpenTab(ctx, sess)
+	if uc.isDeliveryOrdering(sess) {
+		// Delivery must never be appended to an open dine-in comanda merely
+		// because the same WhatsApp number has one. Reuse only its own
+		// delivery tab; otherwise create a dedicated no-table comanda.
+		if existingTab != nil && existingTab.TableID == nil && existingTab.OpeningChannel == "WHATSAPP_DELIVERY" {
+			return existingTab, nil
+		}
+		if uc.tabRepo == nil {
+			return nil, fmt.Errorf("delivery ordering requires a tab repository")
+		}
+		newTab := &tab.Tab{
+			ID:             uuid.New(),
+			TenantID:       sess.TenantID,
+			UserPhone:      sess.UserPhone,
+			ServiceMode:    "SEM_MESA",
+			OpeningChannel: "WHATSAPP_DELIVERY",
+			Status:         tab.StatusOpen,
+		}
+		newTab.PublicCode = tab.BuildPublicCode(newTab.ID)
+		if err := uc.tabRepo.Create(ctx, newTab); err != nil {
+			return nil, fmt.Errorf("create delivery tab: %w", err)
+		}
+		sess.TableID = nil
+		sess.TabID = &newTab.ID
+		return newTab, nil
+	}
 	if existingTab != nil {
 		return existingTab, nil
 	}
@@ -654,6 +681,7 @@ func (uc *HandleWhatsAppMessageUseCase) sendCartConfirmationMenu(
 	ctx context.Context,
 	to string,
 	tenantID uuid.UUID,
+	delivery bool,
 	cartBody string,
 ) error {
 	if strings.TrimSpace(cartBody) == "" {
@@ -666,7 +694,7 @@ func (uc *HandleWhatsAppMessageUseCase) sendCartConfirmationMenu(
 		whatsapp.WithTenantID(ctx, tenantID),
 		to,
 		body,
-		buildOrderConfirmationButtons(),
+		buildOrderConfirmationButtons(delivery),
 	)
 	return err
 }
@@ -738,8 +766,12 @@ func (uc *HandleWhatsAppMessageUseCase) presentOrderingOptionGroup(
 	return uc.buildOrderingOptionGroupFallback(item, group, groupSelections, decoratedNotice), session.StateSelectingOptions, nil
 }
 
-func (uc *HandleWhatsAppMessageUseCase) buildCartConfirmationFallback(cartBody string) string {
-	return strings.TrimSpace(cartBody) + "\n\n*1* - ✅ Enviar pedido\n*2* - ➕ Adicionar mais itens\n*3* - 🛠 Ajustar um item\n*0* - ◂ Menu principal"
+func (uc *HandleWhatsAppMessageUseCase) buildCartConfirmationFallback(cartBody string, delivery bool) string {
+	primary := "✅ Enviar pedido"
+	if delivery {
+		primary = "🛵 Informar entrega"
+	}
+	return strings.TrimSpace(cartBody) + "\n\n*1* - " + primary + "\n*2* - ➕ Adicionar mais itens\n*3* - 🛠 Ajustar um item\n*0* - ◂ Menu principal"
 }
 
 func (uc *HandleWhatsAppMessageUseCase) resolveOrderingCategorySelection(sess *session.Session, text string) (uuid.UUID, bool) {
@@ -799,6 +831,7 @@ func (uc *HandleWhatsAppMessageUseCase) clearOrderingContext(sess *session.Sessi
 		orderingOptionGroupIndexKey,
 		orderingOptionSelectionsKey,
 		orderingCartKey,
+		orderingServiceTypeKey,
 	} {
 		delete(sess.Context, key)
 	}
@@ -2273,14 +2306,18 @@ func buildQuantityButtons() []whatsapp.InteractiveButton {
 	return buttons
 }
 
-func buildOrderConfirmationButtons() []whatsapp.InteractiveButton {
+func buildOrderConfirmationButtons(delivery bool) []whatsapp.InteractiveButton {
+	primaryTitle := "✅ Enviar pedido"
+	if delivery {
+		primaryTitle = "🛵 Informar entrega"
+	}
 	return []whatsapp.InteractiveButton{
 		{
 			Type: "reply",
 			Reply: struct {
 				ID    string `json:"id"`
 				Title string `json:"title"`
-			}{ID: orderingConfirmOrderID, Title: "✅ Enviar pedido"},
+			}{ID: orderingConfirmOrderID, Title: primaryTitle},
 		},
 		{
 			Type: "reply",

@@ -62,7 +62,16 @@ type TenantSettings struct {
 	MPAccessToken     string                 `json:"mp_access_token"` // FASE 12
 	MPPublicKey       string                 `json:"mp_public_key"`   // FASE 12
 	PaymentGateway    PaymentGatewaySettings `json:"payment_gateway"`
+	Delivery          DeliverySettings       `json:"delivery"`
 	Messages          MessageTemplates       `json:"messages"` // FASE 16
+}
+
+// DeliverySettings contains only the WhatsApp entry rules needed by Core. The
+// complete Delivery configuration remains owned and validated by Tenant Admin.
+type DeliverySettings struct {
+	Enabled              bool   `json:"enabled"`
+	WhatsAppOrderEnabled bool   `json:"whatsapp_order_enabled"`
+	WhatsAppOrderMode    string `json:"whatsapp_order_mode"`
 }
 
 // PaymentGatewaySettings keeps the provider selection tenant-scoped. The encrypted

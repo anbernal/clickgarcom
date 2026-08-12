@@ -188,6 +188,14 @@ export class UpdateDeliverySettingsDto {
     enabled?: boolean;
 
     @IsOptional()
+    @IsBoolean()
+    whatsapp_order_enabled?: boolean;
+
+    @IsOptional()
+    @IsIn(['HYBRID', 'DELIVERY_ONLY'])
+    whatsapp_order_mode?: 'HYBRID' | 'DELIVERY_ONLY';
+
+    @IsOptional()
     @IsString()
     @MaxLength(64)
     timezone?: string;

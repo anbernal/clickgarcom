@@ -764,7 +764,7 @@ export class OrdersService {
         const itemsSummary = await this.buildAcceptedItemsSummary(order, tenantId);
         const tenantName = await this.resolveTenantName(tenantId);
         const eta = this.normalizePrepMinutes(prepMinutes);
-        const prepCopy = `Seu pedido foi aceito e será entregue em *${eta} minutos*.\n\n`;
+        const prepCopy = `Seu pedido foi aceito e está sendo preparado. A previsão é de *${eta} minutos*.\n\n`;
 
         const messageBody =
             `✅ *Pedido aceito!*\n\n` +
