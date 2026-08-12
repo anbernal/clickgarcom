@@ -328,13 +328,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleDeliveryDraftField(ctx context.Con
 		if len([]rune(text)) == 0 || len([]rune(text)) > 20 {
 			return "Informe um número de endereço válido.", session.StateDeliveryAddressNumber, nil
 		}
-		postalDigits := strings.Map(func(r rune) rune {
-			if r >= '0' && r <= '9' {
-				return r
-			}
-			return -1
-		}, text)
-		if deliveryPostalCodePattern.MatchString(postalDigits) {
+		if isDeliveryPostalCodeValue(text) {
 			return "⚠️ Esse valor parece ser outro CEP. O CEP já foi localizado para este endereço.\n\nInforme somente o número do imóvel (ex.: *460*).\n\n" + deliveryAddressPromptNotice, session.StateDeliveryAddressNumber, nil
 		}
 		draft["address_number"] = text
@@ -375,6 +369,12 @@ func (uc *HandleWhatsAppMessageUseCase) handleDeliveryDraftField(ctx context.Con
 		geocoded, err := uc.deliveryCustomer.Geocode(ctx, sess.TenantID, deliveryGeocodeInput(draft))
 		if err != nil {
 			uc.logger.Warn("delivery address geocode failed in WhatsApp flow", zap.Error(err), zap.String("tenant_id", sess.TenantID.String()))
+			if isDeliveryPostalCodeValue(deliveryDraftString(draft, "address_number")) {
+				delete(draft, "address_number")
+				sess.SetContext(deliveryAddressDraftKey, draft)
+				sess.TransitionTo(session.StateDeliveryAddressNumber)
+				return "⚠️ O número informado parece ser um CEP, por isso não consegui validar o endereço.\n\nInforme somente o número do imóvel (ex.: *460*).\n\n" + deliveryAddressPromptNotice, session.StateDeliveryAddressNumber, nil
+			}
 			return "⚠️ Não consegui validar o endereço no mapa. Revise os dados ou digite *0* para cancelar.", session.StateDeliveryAddressLabel, nil
 		}
 		draft["latitude"] = geocoded.Latitude
@@ -863,6 +863,16 @@ func optionalStringPointer(value *string) string {
 		return ""
 	}
 	return strings.TrimSpace(*value)
+}
+
+func isDeliveryPostalCodeValue(value string) bool {
+	digits := strings.Map(func(r rune) rune {
+		if r >= '0' && r <= '9' {
+			return r
+		}
+		return -1
+	}, strings.TrimSpace(value))
+	return deliveryPostalCodePattern.MatchString(digits)
 }
 
 func deliveryPostalCodePrompt() string { return deliveryPostalCodePromptText }
