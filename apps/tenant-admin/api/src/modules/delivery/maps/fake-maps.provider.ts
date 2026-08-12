@@ -28,10 +28,22 @@ export class FakeDeliveryMapsProvider implements DeliveryMapsProvider {
     async reverseGeocode(input: DeliveryReverseGeocodeRequest): Promise<DeliveryReverseGeocodeResult> {
         const lat = Number(input.lat.toFixed(6));
         const lng = Number(input.lng.toFixed(6));
+        const fixture = FAKE_REVERSE_FIXTURES.find((item) =>
+            Math.abs(item.lat - lat) <= item.tolerance && Math.abs(item.lng - lng) <= item.tolerance);
+        if (fixture) {
+            return {
+                lat, lng, provider: 'FAKE', provider_id: `fake:reverse:${lat}:${lng}`, quality: 'APPROXIMATE',
+                formatted_address: fixture.formatted_address,
+                street: fixture.street, address_number: fixture.address_number,
+                neighborhood: fixture.neighborhood, city: fixture.city, state: fixture.state,
+                postal_code: fixture.postal_code,
+            };
+        }
+        // O fake não possui uma base cartográfica. Para coordenadas sem fixture,
+        // não invente um endereço (isso seria mais perigoso que pedir confirmação manual).
         return {
             lat, lng, provider: 'FAKE', provider_id: `fake:reverse:${lat}:${lng}`, quality: 'APPROXIMATE',
-            formatted_address: 'Rua Augusta, 120, Consolação, São Paulo - SP, 01311-000',
-            street: 'Rua Augusta', address_number: '120', neighborhood: 'Consolação', city: 'São Paulo', state: 'SP', postal_code: '01311-000',
+            formatted_address: `Coordenadas ${lat}, ${lng} (endereço não disponível no fake)`,
         };
     }
 
@@ -44,6 +56,36 @@ export class FakeDeliveryMapsProvider implements DeliveryMapsProvider {
         };
     }
 }
+
+type FakeReverseFixture = {
+    lat: number;
+    lng: number;
+    tolerance: number;
+    formatted_address: string;
+    street: string;
+    address_number: string;
+    neighborhood: string;
+    city: string;
+    state: string;
+    postal_code?: string;
+};
+
+const FAKE_REVERSE_FIXTURES: FakeReverseFixture[] = [
+    {
+        lat: -23.55052,
+        lng: -46.633308,
+        tolerance: 0.0002,
+        formatted_address: 'Rua Augusta, 120, Consolação, São Paulo - SP, 01311-000',
+        street: 'Rua Augusta', address_number: '120', neighborhood: 'Consolação', city: 'São Paulo', state: 'SP', postal_code: '01311-000',
+    },
+    {
+        lat: -23.5513,
+        lng: -46.8048,
+        tolerance: 0.0002,
+        formatted_address: 'Rua Achiles Beline, 460, Padroeira, Osasco - SP',
+        street: 'Rua Achiles Beline', address_number: '460', neighborhood: 'Padroeira', city: 'Osasco', state: 'SP',
+    },
+];
 
 function haversine(originLat: number, originLng: number, destinationLat: number, destinationLng: number): number {
     const radius = 6371000;
