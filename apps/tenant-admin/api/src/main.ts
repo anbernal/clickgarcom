@@ -31,7 +31,10 @@ async function bootstrap() {
         res.setHeader('X-Frame-Options', 'DENY');
         res.setHeader('X-Content-Type-Options', 'nosniff');
         res.setHeader('Referrer-Policy', 'no-referrer');
-        res.setHeader('Permissions-Policy', 'camera=(), geolocation=(), microphone=()');
+        // The tenant admin can use the browser's current location to fill the
+        // restaurant origin during Delivery setup. Camera and microphone stay
+        // disabled by default; geolocation is limited to this origin.
+        res.setHeader('Permissions-Policy', 'camera=(), geolocation=(self), microphone=()');
 
         if (requestTargetsPublicCheckout(req)) {
             res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');

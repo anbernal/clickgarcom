@@ -83,6 +83,28 @@ test('configuração preserva janelas e valida ativação', async ({ page }) => 
   await expect(page.locator('#delivery-save-settings')).toHaveCSS('min-height', '48px');
 });
 
+test('configuração deixa o estado explícito, marca campos obrigatórios e preenche a localização', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'geolocation', {
+      configurable: true,
+      value: { getCurrentPosition: (success) => success({ coords: { latitude: -23.55052, longitude: -46.633308 } }) },
+    });
+  });
+  await prepareAdmin(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: /Entregas/ }).click();
+  await expect(page.locator('.delivery-config-status')).toContainText('Delivery configurado e ativo');
+  await page.getByRole('button', { name: /Configurar operação/ }).click();
+  await expect(page.locator('#modal-content .delivery-config-status')).toContainText('Delivery configurado e ativo');
+  await expect(page.locator('#delivery-setting-lat')).toHaveAttribute('required', '');
+  await expect(page.locator('#delivery-setting-lng')).toHaveAttribute('required', '');
+  await expect(page.locator('#delivery-setting-radius')).toHaveAttribute('required', '');
+  await page.getByRole('button', { name: /Usar minha localização/ }).click();
+  await expect(page.locator('#delivery-setting-lat')).toHaveValue('-23.55052');
+  await expect(page.locator('#delivery-setting-lng')).toHaveValue('-46.633308');
+  await expect(page.locator('#delivery-location-status')).toContainText('Localização preenchida');
+});
+
 test('ativação e desativação exigem confirmação explícita', async ({ page }) => {
   await prepareAdmin(page);
   let settingsRequest = 0;
