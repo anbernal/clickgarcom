@@ -175,8 +175,11 @@ func TestDeliveryWhatsAppEntryRespectsTenantModeAndCreatesCustomerTab(t *testing
 	if err != nil {
 		t.Fatalf("handleWelcomeMenu() error = %v", err)
 	}
-	if state != session.StateMainMenu || !strings.Contains(response, "cardápio") {
-		t.Fatalf("expected delivery ordering to create tab before menu fallback, state=%s response=%q", state, response)
+	if state != session.StateDeliveryMenu || !strings.Contains(response, "Atendimento Delivery") {
+		t.Fatalf("expected delivery ordering fallback to stay in delivery-only menu, state=%s response=%q", state, response)
+	}
+	if strings.Contains(response, "Ver minha comanda") || strings.Contains(response, "Chamar garçom") {
+		t.Fatalf("delivery fallback must not expose dine-in actions, got %q", response)
 	}
 	if sess.TabID == nil || *sess.TabID != dineInTabID || sess.TableID == nil || *sess.TableID != tableID {
 		t.Fatalf("delivery must preserve dine-in session binding, tab=%v table=%v", sess.TabID, sess.TableID)
@@ -198,9 +201,9 @@ func TestDeliveryWhatsAppEntryRespectsTenantModeAndCreatesCustomerTab(t *testing
 	if got := uc.findDeliveryOpenTab(ctx, sess); got == nil || got.ID != deliveryTabID {
 		t.Fatalf("delivery resolver must ignore dine-in tab, got %+v", got)
 	}
-	canceled, canceledState, cancelErr := uc.handleOrderingSimplified(ctx, sess, "0")
-	if cancelErr != nil || canceledState != session.StateWelcome || !strings.Contains(canceled, "Pedido para entrega cancelado") {
-		t.Fatalf("delivery cancellation must return to top-level selector, state=%s response=%q err=%v", canceledState, canceled, cancelErr)
+	canceled, canceledState, cancelErr := uc.handleDeliveryMenu(ctx, sess, "qualquer coisa")
+	if cancelErr != nil || canceledState != session.StateDeliveryMenu || strings.Contains(canceled, "Ver minha comanda") || strings.Contains(canceled, "Chamar garçom") {
+		t.Fatalf("delivery menu must remain isolated from dine-in actions, state=%s response=%q err=%v", canceledState, canceled, cancelErr)
 	}
 	if sess.TabID == nil || *sess.TabID != dineInTabID || sess.TableID == nil || *sess.TableID != tableID {
 		t.Fatalf("delivery cancellation must preserve dine-in session binding, tab=%v table=%v", sess.TabID, sess.TableID)

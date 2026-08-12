@@ -130,25 +130,26 @@ func (uc *HandleWhatsAppMessageUseCase) startOrderingFlow(
 ) (string, session.ConversationState, error) {
 	if uc.tabRepo != nil {
 		if _, err := uc.getOrCreateTab(ctx, sess); err != nil {
-			uc.logger.Info("ordering blocked until a comanda is available",
+			uc.logger.Info("ordering blocked until an order container is available",
 				zap.Error(err),
 				zap.String("tenant_id", sess.TenantID.String()),
 				zap.String("user_phone", sess.UserPhone),
 			)
+			if uc.isDeliveryOrdering(sess) || uc.isDeliveryChannel(sess) {
+				return uc.orderingFailureMenu(sess, "❌ Não consegui iniciar seu pedido para entrega agora. Tente novamente em instantes.")
+			}
 			return whatsapp.MenuAccessUnavailableMessage(), session.StateWelcome, nil
 		}
 	}
 
 	if uc.menuRepo == nil {
-		return "📋 Ainda não consegui carregar o cardápio agora. Tente novamente em instantes.\n\n" + whatsapp.MainMenuMessage(),
-			session.StateMainMenu, nil
+		return uc.orderingFailureMenu(sess, "📋 Ainda não consegui carregar o cardápio agora. Tente novamente em instantes.")
 	}
 
 	categories, err := uc.menuRepo.FindCategoriesByTenant(ctx, sess.TenantID)
 	if err != nil {
 		uc.logger.Error("failed to fetch menu categories", zap.Error(err))
-		return "❌ Erro ao buscar categorias do cardápio. Tente novamente.\n\n" + whatsapp.MainMenuMessage(),
-			session.StateMainMenu, nil
+		return uc.orderingFailureMenu(sess, "❌ Erro ao buscar categorias do cardápio. Tente novamente.")
 	}
 
 	activeCategories := make([]*menu.Category, 0, len(categories))
@@ -190,8 +191,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleOrderingCategorySelection(
 			zap.String("tenant_id", sess.TenantID.String()),
 			zap.String("category_id", categoryID.String()),
 		)
-		return "❌ Não consegui abrir essa categoria agora. Tente novamente.\n\n" + whatsapp.MainMenuMessage(),
-			session.StateMainMenu, nil
+		return uc.orderingFailureMenu(sess, "❌ Não consegui abrir essa categoria agora. Tente novamente.")
 	}
 
 	category, _ := uc.menuRepo.FindCategoryByID(ctx, categoryID, sess.TenantID)
@@ -238,8 +238,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleOrderingItemSelection(
 			zap.String("tenant_id", sess.TenantID.String()),
 			zap.String("item_id", itemID.String()),
 		)
-		return "❌ Não consegui abrir esse item agora. Tente novamente.\n\n" + whatsapp.MainMenuMessage(),
-			session.StateMainMenu, nil
+		return uc.orderingFailureMenu(sess, "❌ Não consegui abrir esse item agora. Tente novamente.")
 	}
 
 	if !selectedItem.IsAvailableAt(time.Now()) {
@@ -273,13 +272,11 @@ func (uc *HandleWhatsAppMessageUseCase) showAllItemsForOrdering(
 	items, err := uc.menuRepo.FindItemsByTenant(ctx, sess.TenantID, true)
 	if err != nil {
 		uc.logger.Error("failed to fetch tenant menu items", zap.Error(err))
-		return "❌ Não consegui carregar o cardápio agora. Tente novamente.\n\n" + whatsapp.MainMenuMessage(),
-			session.StateMainMenu, nil
+		return uc.orderingFailureMenu(sess, "❌ Não consegui carregar o cardápio agora. Tente novamente.")
 	}
 
 	if len(items) == 0 {
-		return "📋 Cardápio ainda não disponível.\n\n" + whatsapp.MainMenuMessage(),
-			session.StateMainMenu, nil
+		return uc.orderingFailureMenu(sess, "📋 Cardápio ainda não disponível.")
 	}
 
 	sess.SetContext(orderingStepKey, orderingStepItemSelection)
@@ -291,6 +288,17 @@ func (uc *HandleWhatsAppMessageUseCase) showAllItemsForOrdering(
 	}
 
 	return uc.buildOrderingItemsFallback("Cardápio", items), session.StateOrdering, nil
+}
+
+func (uc *HandleWhatsAppMessageUseCase) orderingFailureMenu(
+	sess *session.Session,
+	message string,
+) (string, session.ConversationState, error) {
+	if uc.isDeliveryOrdering(sess) || uc.isDeliveryChannel(sess) {
+		uc.clearOrderingContext(sess)
+		return strings.TrimSpace(message) + "\n\n" + uc.deliveryMenuMessage(), session.StateDeliveryMenu, nil
+	}
+	return strings.TrimSpace(message) + "\n\n" + whatsapp.MainMenuMessage(), session.StateMainMenu, nil
 }
 
 // getOrCreateTab busca ou cria uma tab para o usuário

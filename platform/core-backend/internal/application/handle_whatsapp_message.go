@@ -424,8 +424,13 @@ func (uc *HandleWhatsAppMessageUseCase) processMessage(
 		return uc.handleDeliveryReady(ctx, sess, text)
 	case session.StateDeliveryCheckoutReview:
 		return uc.handleDeliveryCheckoutReview(ctx, sess, text)
+	case session.StateDeliveryMenu:
+		return uc.handleDeliveryMenu(ctx, sess, text)
 
 	default:
+		if uc.isDeliveryChannel(sess) {
+			return uc.deliveryMenuMessage(), session.StateDeliveryMenu, nil
+		}
 		return whatsapp.MainMenuMessage(), session.StateMainMenu, nil
 	}
 }
@@ -441,6 +446,8 @@ func (uc *HandleWhatsAppMessageUseCase) repeatCurrentPrompt(
 	switch sess.State {
 	case session.StateWelcome:
 		return "", session.StateWelcome, nil
+	case session.StateDeliveryMenu:
+		return uc.deliveryMenuMessage(), session.StateDeliveryMenu, nil
 	case session.StateMainMenu:
 		return whatsapp.MainMenuMessage(), session.StateMainMenu, nil
 	case session.StateOrdering:
@@ -757,6 +764,7 @@ func (uc *HandleWhatsAppMessageUseCase) startDeliveryOrdering(ctx context.Contex
 		return "❌ Não consegui iniciar o pedido para entrega.", session.StateWelcome, nil
 	}
 	uc.clearOrderingContext(sess)
+	sess.SetContext(deliveryChannelKey, deliveryChannelValue)
 	sess.SetContext(orderingServiceTypeKey, "DELIVERY")
 	return uc.startOrderingFlow(ctx, sess)
 }

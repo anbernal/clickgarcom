@@ -41,6 +41,8 @@ const (
 	deliveryOrderBatchKey       = "delivery_order_batch_id"
 	deliveryPaymentEventKey     = "delivery_payment_event_id"
 	deliveryTabIDKey            = "delivery_internal_tab_id"
+	deliveryChannelKey          = "whatsapp_service_channel"
+	deliveryChannelValue        = "DELIVERY"
 	deliveryAddressPromptNotice = "Digite *0* para cancelar o cadastro de endereço."
 )
 
@@ -679,9 +681,9 @@ func (uc *HandleWhatsAppMessageUseCase) clearDeliveryCheckoutContext(sess *sessi
 	}
 }
 
-// exitDeliveryFlow always returns to the top-level channel selector. It must
-// never send the customer directly to the dine-in main menu, even when this
-// same phone also owns an open restaurant comanda.
+// exitDeliveryFlow always returns to the Delivery-only menu. It must never
+// send the customer directly to the dine-in menu, even when this same phone
+// also owns an open restaurant comanda.
 func (uc *HandleWhatsAppMessageUseCase) exitDeliveryFlow(
 	ctx context.Context,
 	sess *session.Session,
@@ -695,21 +697,35 @@ func (uc *HandleWhatsAppMessageUseCase) exitDeliveryFlow(
 	uc.clearOrderingContext(sess)
 
 	message := strings.TrimSpace(prefix)
-	if sess != nil && uc.tenantRepo != nil {
-		if tenantObj, err := uc.tenantRepo.FindByID(ctx, sess.TenantID); err == nil && tenantObj != nil {
-			welcome := strings.TrimSpace(uc.resolveWelcomeMenuMessage(ctx, tenantObj))
-			if message == "" {
-				message = welcome
-			} else if welcome != "" {
-				message += "\n\n" + welcome
-			}
-		}
-	}
 	if message == "" {
-		message = "Atendimento de entrega encerrado. Envie uma nova mensagem para escolher como deseja continuar."
+		message = "Atendimento de entrega encerrado."
 	}
 
-	return message, session.StateWelcome, nil
+	return message + "\n\n" + uc.deliveryMenuMessage(), session.StateDeliveryMenu, nil
+}
+
+func (uc *HandleWhatsAppMessageUseCase) isDeliveryChannel(sess *session.Session) bool {
+	return strings.EqualFold(uc.getContextString(sess, deliveryChannelKey), deliveryChannelValue)
+}
+
+func (uc *HandleWhatsAppMessageUseCase) deliveryMenuMessage() string {
+	return "🛵 *Atendimento Delivery*\n\n*1* - Fazer novo pedido para entrega\n*0* - Encerrar atendimento Delivery\n\n_Pedidos presenciais, comanda e chamar garçom não fazem parte deste atendimento._"
+}
+
+func (uc *HandleWhatsAppMessageUseCase) handleDeliveryMenu(
+	ctx context.Context,
+	sess *session.Session,
+	text string,
+) (string, session.ConversationState, error) {
+	switch strings.ToLower(strings.TrimSpace(text)) {
+	case "1", deliveryStartActionID, "entrega", "delivery", "pedir entrega", "novo pedido", "fazer pedido":
+		return uc.startDeliveryOrdering(ctx, sess)
+	case "0", "sair", "encerrar", "cancelar":
+		delete(sess.Context, deliveryChannelKey)
+		return "Atendimento Delivery encerrado. Envie uma mensagem para escolher como deseja continuar.", session.StateWelcome, nil
+	default:
+		return uc.deliveryMenuMessage(), session.StateDeliveryMenu, nil
+	}
 }
 
 func deliveryCartSubtotal(cart []orderingCartItem) (float64, error) {
