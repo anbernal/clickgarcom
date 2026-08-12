@@ -433,6 +433,8 @@ Consulta de CEP não substitui geocodificação. A geocodificação deve usar o 
 
 `AMBIGUOUS` não pode seguir automaticamente para pagamento ou cotação externa.
 
+Para a configuração da origem do restaurante, a geocodificação reversa deve ser acionada apenas pela ação explícita do administrador (uso da localização ou botão de busca), com cache e limitação de chamadas. O resultado pode identificar rua, bairro, cidade, UF e CEP sem possuir o número do imóvel; nesse caso o campo de número deve ser limpo e informado/manual confirmado pelo administrador, nunca reaproveitado de uma busca anterior. O provedor padrão do ambiente de testes é OpenStreetMap/Nominatim, com atribuição exibida no painel; a infraestrutura pode substituí-lo por um provedor comercial sem alterar o contrato do módulo.
+
 ## 8.3 Rota
 
 - cobrança por distância usa rota rodoviária;

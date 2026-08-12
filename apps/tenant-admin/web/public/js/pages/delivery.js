@@ -698,13 +698,21 @@ async function reverseGeocodeDeliveryOrigin() {
         };
         Object.entries(fields).forEach(([name, value]) => {
             const input = document.getElementById(`delivery-setting-origin-${name}`);
-            if (input && value) input.value = String(value);
+            // Não mantenha um dado de uma busca anterior (especialmente número)
+            // quando o novo ponto não possui aquele detalhe no provedor.
+            if (input) input.value = value ? String(value) : '';
         });
         const confirmed = document.getElementById('delivery-origin-address-confirmed');
         if (confirmed) confirmed.checked = false;
         const meta = document.getElementById('delivery-origin-address-meta');
-        if (meta) meta.textContent = `Endereço encontrado por ${result?.geocode_provider || 'provedor'}${result?.geocode_quality ? ` (${result.geocode_quality})` : ''}. Revise principalmente o número e confirme.`;
-        if (status) status.textContent = result?.formatted_address ? `Endereço encontrado: ${result.formatted_address}. Revise e confirme.` : 'Endereço encontrado. Revise os campos e confirme.';
+        if (meta) {
+            const attribution = result?.geocode_provider === 'OSM_NOMINATIM' ? ' Dados de endereço © OpenStreetMap contributors.' : '';
+            meta.textContent = `Endereço encontrado por ${result?.geocode_provider || 'provedor'}${result?.geocode_quality ? ` (${result.geocode_quality})` : ''}. Revise principalmente o número e confirme.${attribution}`;
+        }
+        if (status) {
+            const numberHint = result?.address_number ? ' Revise e confirme.' : ' O provedor não encontrou o número; informe-o manualmente e confirme.';
+            status.textContent = result?.formatted_address ? `Endereço encontrado: ${result.formatted_address}.${numberHint}` : `Endereço encontrado.${numberHint}`;
+        }
         return result;
     } catch (error) {
         if (status) status.textContent = error.message || 'Não foi possível buscar o endereço. Preencha os campos manualmente.';
