@@ -693,6 +693,14 @@ function validateDeliverySettings(payload) {
 }
 
 async function saveDeliverySettings() {
+    const requiredFieldIds = [
+        'delivery-setting-timezone', 'delivery-setting-capacity', 'delivery-setting-mode',
+        'delivery-setting-own-capacity', 'delivery-setting-provider-order',
+        'delivery-setting-max-attempts', 'delivery-setting-attempt-window',
+        'delivery-setting-lat', 'delivery-setting-lng', 'delivery-setting-radius',
+    ];
+    const missingRequiredField = requiredFieldIds.find((id) => !String(document.getElementById(id)?.value || '').trim());
+    if (missingRequiredField) return showToast('Preencha todos os campos obrigatórios antes de salvar.', 'error');
     const latRaw = document.getElementById('delivery-setting-lat')?.value;
     const lngRaw = document.getElementById('delivery-setting-lng')?.value;
     const mode = document.getElementById('delivery-setting-fee-mode')?.value || 'NONE';
