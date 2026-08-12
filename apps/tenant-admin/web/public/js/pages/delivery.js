@@ -730,8 +730,8 @@ function collectDeliveryBands() {
 function validateDeliverySettings(payload) {
     if (!Number.isFinite(payload.origin_lat) || !Number.isFinite(payload.origin_lng)) return 'Informe e confirme latitude e longitude do restaurante.';
     const originAddress = payload.origin_address || {};
-    if (![originAddress.postal_code, originAddress.street, originAddress.address_number, originAddress.neighborhood, originAddress.city, originAddress.state].every((value) => String(value || '').trim())) return 'Informe o endereço completo do restaurante, incluindo o número.';
-    if (originAddress.confirmed !== true) return 'Revise e confirme o endereço e o número do restaurante.';
+    if (payload.enabled && ![originAddress.postal_code, originAddress.street, originAddress.address_number, originAddress.neighborhood, originAddress.city, originAddress.state].every((value) => String(value || '').trim())) return 'Informe o endereço completo do restaurante, incluindo o número.';
+    if (payload.enabled && originAddress.confirmed !== true) return 'Revise e confirme o endereço e o número do restaurante.';
     if (!Number.isFinite(payload.service_radius_km) || payload.service_radius_km <= 0) return 'Informe um raio de atendimento válido.';
     if (!['OWN', 'EXTERNAL'].includes(payload.default_fulfillment_mode)) return 'Selecione a modalidade padrão do Delivery.';
     if (!Number.isInteger(payload.own_available_couriers) || payload.own_available_couriers < 0 || payload.own_available_couriers > 500) return 'Informe uma quantidade válida de entregadores próprios.';
@@ -757,9 +757,12 @@ async function saveDeliverySettings() {
         'delivery-setting-own-capacity', 'delivery-setting-provider-order',
         'delivery-setting-max-attempts', 'delivery-setting-attempt-window',
         'delivery-setting-lat', 'delivery-setting-lng', 'delivery-setting-radius',
+    ];
+    const requiresOriginAddress = document.getElementById('delivery-setting-enabled')?.checked !== false;
+    if (requiresOriginAddress) requiredFieldIds.push(
         'delivery-setting-origin-postal', 'delivery-setting-origin-street', 'delivery-setting-origin-number',
         'delivery-setting-origin-neighborhood', 'delivery-setting-origin-city', 'delivery-setting-origin-state',
-    ];
+    );
     const missingRequiredField = requiredFieldIds.find((id) => !String(document.getElementById(id)?.value || '').trim());
     if (missingRequiredField) return showToast('Preencha todos os campos obrigatórios antes de salvar.', 'error');
     const latRaw = document.getElementById('delivery-setting-lat')?.value;
@@ -789,6 +792,11 @@ async function saveDeliverySettings() {
         service_radius_km: Number(document.getElementById('delivery-setting-radius')?.value),
         fees: { mode, fixed_fee: Number(document.getElementById('delivery-setting-fixed-fee')?.value || 0), bands: ['DISTANCE_BANDS', 'HYBRID'].includes(mode) ? collectDeliveryBands() : [], included_km: Number(document.getElementById('delivery-setting-included-km')?.value || 0), price_per_km: Number(document.getElementById('delivery-setting-price-per-km')?.value || 0), minimum_fee: Number(document.getElementById('delivery-setting-minimum-fee')?.value || 0), rounding_mode: document.getElementById('delivery-setting-rounding')?.value || 'NONE' },
     };
+    if (!payload.enabled) {
+        // A desativação deve continuar disponível para tenants antigos que ainda
+        // não confirmaram a nova origem por endereço.
+        ['origin_address'].forEach((key) => { delete payload[key]; });
+    }
     const currentEnabled = deliveryState.settings?.settings?.enabled === true;
     if (payload.enabled !== currentEnabled) {
         const confirmed = await showConfirmDialog({
