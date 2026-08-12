@@ -261,7 +261,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleDeliveryPostalCode(ctx context.Con
 	sess.SetContext(deliveryAddressDraftKey, draft)
 	if strings.EqualFold(lookup.Status, "FOUND") && strings.TrimSpace(lookup.Street) != "" {
 		sess.TransitionTo(session.StateDeliveryAddressNumber)
-		return fmt.Sprintf("✅ Encontrei o CEP em %s/%s.\n\nInforme o número do endereço.\n\n%s", lookup.City, lookup.State, deliveryPostalCodePrompt()), session.StateDeliveryAddressNumber, nil
+		return fmt.Sprintf("✅ Encontrei o endereço: *%s*, %s/%s.\n\nAgora informe o número do endereço (ex.: *460*).\n\n_Não digite o CEP novamente._\n\n%s", lookup.Street, lookup.City, lookup.State, deliveryAddressPromptNotice), session.StateDeliveryAddressNumber, nil
 	}
 	sess.TransitionTo(session.StateDeliveryStreet)
 	return "Não encontrei todos os dados desse CEP. Informe o logradouro (rua/avenida).\n\n" + deliveryPostalCodePrompt(), session.StateDeliveryStreet, nil
@@ -327,6 +327,15 @@ func (uc *HandleWhatsAppMessageUseCase) handleDeliveryDraftField(ctx context.Con
 	case session.StateDeliveryAddressNumber:
 		if len([]rune(text)) == 0 || len([]rune(text)) > 20 {
 			return "Informe um número de endereço válido.", session.StateDeliveryAddressNumber, nil
+		}
+		postalDigits := strings.Map(func(r rune) rune {
+			if r >= '0' && r <= '9' {
+				return r
+			}
+			return -1
+		}, text)
+		if deliveryPostalCodePattern.MatchString(postalDigits) {
+			return "⚠️ Esse valor parece ser outro CEP. O CEP já foi localizado para este endereço.\n\nInforme somente o número do imóvel (ex.: *460*).\n\n" + deliveryAddressPromptNotice, session.StateDeliveryAddressNumber, nil
 		}
 		draft["address_number"] = text
 		sess.SetContext(deliveryAddressDraftKey, draft)

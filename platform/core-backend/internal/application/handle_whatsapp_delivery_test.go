@@ -147,6 +147,36 @@ func TestDeliveryAddressFlowRequiresConsentBeforeSaving(t *testing.T) {
 	}
 }
 
+func TestDeliveryAddressNumberRejectsSecondPostalCode(t *testing.T) {
+	tenantID, customerID := uuid.New(), uuid.New()
+	fake := &fakeDeliveryCustomerGateway{
+		customer: nodeadmin.DeliveryCustomer{ID: customerID},
+		lookup: nodeadmin.PostalCodeLookupResult{
+			PostalCode: "06162280", Street: "Rua Achiles Beline", Neighborhood: "Padroeira",
+			City: "Osasco", State: "SP", Provider: "VIACEP", Status: "FOUND",
+		},
+	}
+	uc := &HandleWhatsAppMessageUseCase{deliveryCustomer: fake, logger: zap.NewNop()}
+	sess := session.NewSession("5511999999999", tenantID)
+	if _, state, err := uc.StartDeliveryAddressFlow(context.Background(), sess); err != nil || state != session.StateDeliveryPostalCode {
+		t.Fatalf("expected postal code state, got state=%s err=%v", state, err)
+	}
+	message, state, err := uc.handleDeliveryPostalCode(context.Background(), sess, "06162280")
+	if err != nil || state != session.StateDeliveryAddressNumber {
+		t.Fatalf("expected address number state, got state=%s err=%v", state, err)
+	}
+	if !strings.Contains(message, "Rua Achiles Beline") || !strings.Contains(message, "Não digite o CEP novamente") {
+		t.Fatalf("expected clear street and number prompt, got %q", message)
+	}
+	message, state, err = uc.handleDeliveryDraftField(context.Background(), sess, "06124060")
+	if err != nil || state != session.StateDeliveryAddressNumber {
+		t.Fatalf("second postal code must keep number state, got state=%s err=%v", state, err)
+	}
+	if !strings.Contains(message, "parece ser outro CEP") || uc.getDeliveryDraft(sess)["address_number"] != nil {
+		t.Fatalf("expected second postal code rejection without saving number, got message=%q draft=%v", message, uc.getDeliveryDraft(sess))
+	}
+}
+
 func TestStartDeliveryCheckoutUsesCartAndAuthoritativeFreight(t *testing.T) {
 	tenantID, customerID, addressID := uuid.New(), uuid.New(), uuid.New()
 	checkoutKey := "wa-checkout-test"
