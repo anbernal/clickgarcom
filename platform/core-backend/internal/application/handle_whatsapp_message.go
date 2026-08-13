@@ -289,7 +289,7 @@ func (uc *HandleWhatsAppMessageUseCase) Execute(ctx context.Context, input Handl
 			}
 			sendMessage = nil
 		} else if isDeliveryConversationState(newState) || (uc.isDeliveryChannel(sess) && isOrderingConversationState(newState)) {
-			if err := uc.sendDeliveryPrompt(ctx, input.From, input.TenantID, response, newState); err != nil {
+			if err := uc.sendDeliveryPrompt(ctx, input.From, input.TenantID, response, newState, sess); err != nil {
 				return fmt.Errorf("failed to send delivery prompt: %w", err)
 			}
 			sendMessage = nil
@@ -406,28 +406,56 @@ func (uc *HandleWhatsAppMessageUseCase) sendDeliveryPrompt(
 	tenantID uuid.UUID,
 	message string,
 	state session.ConversationState,
+	sess *session.Session,
 ) error {
 	tenantObj, _ := uc.tenantRepo.FindByID(ctx, tenantID)
 	body := stripDeliveryBackInstructions(uc.resolveTenantMessage(message, tenantObj))
 	body = whatsapp.WithRestaurantHeader(uc.resolveTenantName(ctx, tenantID), body)
 	ctx = whatsapp.WithTenantID(ctx, tenantID)
-	if _, err := sendInteractiveButtonsWithBack(uc.sender, ctx, to, body, deliveryPromptButtons(state)); err == nil {
+	if _, err := sendInteractiveButtonsWithBack(uc.sender, ctx, to, body, uc.deliveryPromptButtons(state, sess)); err == nil {
 		return nil
 	}
 	return uc.sender.SendText(ctx, to, body+"\n\nEnvie *voltar* para retornar ao menu.")
 }
 
-func deliveryPromptButtons(state session.ConversationState) []whatsapp.InteractiveButton {
-	if state != session.StateDeliveryMenu {
+func (uc *HandleWhatsAppMessageUseCase) deliveryPromptButtons(state session.ConversationState, sess *session.Session) []whatsapp.InteractiveButton {
+	button := func(id, title string) whatsapp.InteractiveButton {
+		return whatsapp.InteractiveButton{
+			Type: "reply",
+			Reply: struct {
+				ID    string `json:"id"`
+				Title string `json:"title"`
+			}{ID: id, Title: title},
+		}
+	}
+
+	switch state {
+	case session.StateDeliveryMenu:
+		return []whatsapp.InteractiveButton{button(deliveryStartActionID, "🛵 Fazer pedido")}
+	case session.StateDeliveryAddressSelection:
+		buttons := make([]whatsapp.InteractiveButton, 0, 3)
+		for index := range uc.getContextStringSlice(sess, deliveryAddressIDsKey) {
+			buttons = append(buttons, button(strconv.Itoa(index+1), fmt.Sprintf("Endereço %d", index+1)))
+		}
+		buttons = append(buttons, button("novo", "➕ Novo endereço"))
+		return buttons
+	case session.StateDeliveryAddressComplement, session.StateDeliveryAddressReference:
+		return []whatsapp.InteractiveButton{button("pular", "Pular")}
+	case session.StateDeliveryAddressConfirmation:
+		buttons := []whatsapp.InteractiveButton{button("sim", "✅ Confirmar"), button("nao", "✏️ Corrigir")}
+		if sess != nil && uc.getContextString(sess, deliverySelectedAddressKey) != "" {
+			buttons = append(buttons, button("excluir", "Excluir endereço"))
+		}
+		return buttons
+	case session.StateDeliveryAddressConsent:
+		return []whatsapp.InteractiveButton{button("sim", "✅ Salvar endereço"), button("cancelar", "Cancelar cadastro")}
+	case session.StateDeliveryAddressDelete:
+		return []whatsapp.InteractiveButton{button("sim", "Excluir endereço"), button("nao", "Manter endereço")}
+	case session.StateDeliveryReady:
+		return []whatsapp.InteractiveButton{button("continuar", "Continuar")}
+	default:
 		return nil
 	}
-	return []whatsapp.InteractiveButton{{
-		Type: "reply",
-		Reply: struct {
-			ID    string `json:"id"`
-			Title string `json:"title"`
-		}{ID: deliveryStartActionID, Title: "🛵 Fazer pedido para entrega"},
-	}}
 }
 
 func stripDeliveryBackInstructions(message string) string {
@@ -442,6 +470,13 @@ func stripDeliveryBackInstructions(message string) string {
 		"digite *0* para cancelar.",
 		"ou *0* para cancelar",
 		"ou 0 para cancelar",
+		"ou responda *pular* se não houver.",
+		"ou responda *pular*.",
+		"Está correto? Responda *sim* ou *não*.",
+		"Responda *sim* se estiver correto ou *não* para alterar.",
+		"Responda *sim* ou *não*.",
+		"Responda *sim* ou *não*.",
+		"Responda *sim* para salvar ou *0* para cancelar.",
 	} {
 		body = strings.ReplaceAll(body, phrase, "")
 	}

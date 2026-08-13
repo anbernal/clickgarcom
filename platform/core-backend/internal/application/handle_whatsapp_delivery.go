@@ -400,6 +400,11 @@ func (uc *HandleWhatsAppMessageUseCase) handleDeliveryAddressConfirmation(ctx co
 	if answer == "0" || answer == "cancelar" {
 		return uc.exitDeliveryFlow(ctx, sess, "Cadastro de endereço para entrega cancelado.")
 	}
+	if answer == "excluir" && uc.getContextString(sess, deliverySelectedAddressKey) != "" {
+		sess.SetContext(deliveryAddressDeleteKey, uc.getContextString(sess, deliverySelectedAddressKey))
+		sess.TransitionTo(session.StateDeliveryAddressDelete)
+		return "⚠️ Tem certeza que deseja excluir este endereço?", session.StateDeliveryAddressDelete, nil
+	}
 	if answer == "não" || answer == "nao" || answer == "n" {
 		if uc.getContextString(sess, deliverySelectedAddressKey) != "" {
 			sess.TransitionTo(session.StateDeliveryAddressSelection)
@@ -942,7 +947,7 @@ const deliveryPostalCodePromptText = "Você pode digitar o CEP com ou sem másca
 
 func formatDeliveryAddressSelection(addresses []nodeadmin.DeliveryAddress) string {
 	lines := []string{"📍 Escolha o endereço de entrega:"}
-	for index, address := range addresses {
+	for _, address := range addresses {
 		label := strings.TrimSpace(address.Label)
 		if label == "" {
 			label = "Endereço"
@@ -951,14 +956,14 @@ func formatDeliveryAddressSelection(addresses []nodeadmin.DeliveryAddress) strin
 		if summary == "" {
 			summary = strings.TrimSpace(fmt.Sprintf("%s, %s - %s/%s", address.Street, address.AddressNumber, address.City, address.State))
 		}
-		lines = append(lines, fmt.Sprintf("*%d* - %s\n%s", index+1, label, summary))
+		lines = append(lines, fmt.Sprintf("%s\n%s", label, summary))
 	}
-	lines = append(lines, "*novo* - Cadastrar outro endereço", "Para editar, digite *editar N*. Para excluir, digite *excluir N*.", "\n"+deliveryPostalCodePrompt())
+	lines = append(lines, "Use os botões abaixo para escolher um endereço ou cadastrar um novo.", "\n"+deliveryPostalCodePrompt())
 	return strings.Join(lines, "\n\n")
 }
 
 func formatDeliveryAddressSelectionPrompt() string {
-	return "Escolha o número de um endereço da lista ou digite *novo* para cadastrar outro.\n\n" + deliveryPostalCodePrompt()
+	return "Escolha um endereço ou use o botão para cadastrar um novo.\n\n" + deliveryPostalCodePrompt()
 }
 
 func formatDeliveryDraft(draft map[string]interface{}) string {

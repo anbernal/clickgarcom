@@ -229,9 +229,12 @@ func TestDeliveryWhatsAppEntryRespectsTenantModeAndCreatesCustomerTab(t *testing
 	if strings.Contains(menu, "*1*") || strings.Contains(menu, "*0*") || strings.Contains(menu, "digite") {
 		t.Fatalf("delivery menu must not instruct numeric replies, got %q", menu)
 	}
-	buttons := deliveryPromptButtons(session.StateDeliveryMenu)
+	buttons := uc.deliveryPromptButtons(session.StateDeliveryMenu, sess)
 	if len(buttons) != 1 || buttons[0].Reply.ID != deliveryStartActionID {
 		t.Fatalf("delivery menu must expose a button action, got %+v", buttons)
+	}
+	if got := uc.deliveryPromptButtons(session.StateDeliveryAddressComplement, sess); len(got) != 1 || got[0].Reply.ID != "pular" {
+		t.Fatalf("delivery complement must expose a skip button, got %+v", got)
 	}
 
 	tenantObj.Settings.Delivery.WhatsAppOrderMode = "DELIVERY_ONLY"
