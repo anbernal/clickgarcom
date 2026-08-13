@@ -22,6 +22,7 @@ import (
 	"github.com/anbernal/clickgarcom/internal/domain/tenant"
 	"github.com/anbernal/clickgarcom/internal/domain/user"
 	"github.com/anbernal/clickgarcom/internal/domain/whatsapp"
+	"github.com/anbernal/clickgarcom/internal/infrastructure/nodeadmin"
 )
 
 func TestAppendMainMenuBackOption(t *testing.T) {
@@ -147,12 +148,22 @@ func TestDeliveryWhatsAppEntryRespectsTenantModeAndCreatesCustomerTab(t *testing
 		Status:         tab.StatusOpen,
 	}
 	tabRepo := &testTabRepo{byID: map[uuid.UUID]*tab.Tab{dineInTabID: dineInTab}}
+	deliveryCustomerID := uuid.New()
+	deliveryAddressID := uuid.New()
+	deliveryCustomer := &fakeDeliveryCustomerGateway{
+		customer: nodeadmin.DeliveryCustomer{ID: deliveryCustomerID},
+		addresses: []nodeadmin.DeliveryAddress{{
+			ID: deliveryAddressID, Label: "Casa", Street: "Rua A", AddressNumber: "10",
+			City: "São Paulo", State: "SP", FormattedAddress: "Rua A, 10 - São Paulo/SP",
+		}},
+	}
 	sender := &testWhatsAppSender{}
 	uc := &HandleWhatsAppMessageUseCase{
-		tenantRepo: &testTenantRepo{tenant: tenantObj},
-		tabRepo:    tabRepo,
-		sender:     sender,
-		logger:     zap.NewNop(),
+		tenantRepo:       &testTenantRepo{tenant: tenantObj},
+		tabRepo:          tabRepo,
+		deliveryCustomer: deliveryCustomer,
+		sender:           sender,
+		logger:           zap.NewNop(),
 	}
 	sess := session.NewSession("5511999999999", tenantID)
 	sess.TabID = &dineInTabID
@@ -175,11 +186,17 @@ func TestDeliveryWhatsAppEntryRespectsTenantModeAndCreatesCustomerTab(t *testing
 	if err != nil {
 		t.Fatalf("handleWelcomeMenu() error = %v", err)
 	}
-	if state != session.StateDeliveryMenu || !strings.Contains(response, "Atendimento Delivery") {
-		t.Fatalf("expected delivery ordering fallback to stay in delivery-only menu, state=%s response=%q", state, response)
+	if state != session.StateDeliveryAddressSelection || !strings.Contains(response, "Escolha o endereço") {
+		t.Fatalf("expected first delivery entry to request address before menu, state=%s response=%q", state, response)
 	}
 	if strings.Contains(response, "Ver minha comanda") || strings.Contains(response, "Chamar garçom") {
 		t.Fatalf("delivery fallback must not expose dine-in actions, got %q", response)
+	}
+	if _, state, err = uc.handleDeliveryAddressSelection(ctx, sess, "1"); err != nil || state != session.StateDeliveryAddressConfirmation {
+		t.Fatalf("expected saved address confirmation, state=%s err=%v", state, err)
+	}
+	if response, state, err = uc.handleDeliveryAddressConfirmation(ctx, sess, "sim"); err != nil || state != session.StateDeliveryMenu {
+		t.Fatalf("expected delivery menu after address confirmation, state=%s response=%q err=%v", state, response, err)
 	}
 	if sess.TabID == nil || *sess.TabID != dineInTabID || sess.TableID == nil || *sess.TableID != tableID {
 		t.Fatalf("delivery must preserve dine-in session binding, tab=%v table=%v", sess.TabID, sess.TableID)

@@ -276,7 +276,12 @@ func (uc *HandleWhatsAppMessageUseCase) Execute(ctx context.Context, input Handl
 		}
 
 		sendMessage := uc.sendTenantMessage
-		if sess.State == session.StateWelcome {
+		if isDeliveryConversationState(newState) || (uc.isDeliveryChannel(sess) && isOrderingConversationState(newState)) {
+			if err := uc.sendDeliveryPrompt(ctx, input.From, input.TenantID, response); err != nil {
+				return fmt.Errorf("failed to send delivery prompt: %w", err)
+			}
+			sendMessage = nil
+		} else if sess.State == session.StateWelcome {
 			t, tenantErr := uc.tenantRepo.FindByID(ctx, input.TenantID)
 			if tenantErr != nil {
 				return fmt.Errorf("failed to find tenant: %w", tenantErr)
@@ -341,6 +346,80 @@ func (uc *HandleWhatsAppMessageUseCase) Execute(ctx context.Context, input Handl
 	}
 
 	return nil
+}
+
+func isDeliveryConversationState(state session.ConversationState) bool {
+	switch state {
+	case session.StateDeliveryMenu,
+		session.StateDeliveryAddressSelection,
+		session.StateDeliveryPostalCode,
+		session.StateDeliveryStreet,
+		session.StateDeliveryNeighborhood,
+		session.StateDeliveryCity,
+		session.StateDeliveryState,
+		session.StateDeliveryAddressNumber,
+		session.StateDeliveryAddressComplement,
+		session.StateDeliveryAddressReference,
+		session.StateDeliveryAddressLabel,
+		session.StateDeliveryAddressConfirmation,
+		session.StateDeliveryAddressConsent,
+		session.StateDeliveryAddressDelete,
+		session.StateDeliveryReady,
+		session.StateDeliveryCheckoutReview:
+		return true
+	default:
+		return false
+	}
+}
+
+func isOrderingConversationState(state session.ConversationState) bool {
+	switch state {
+	case session.StateOrdering,
+		session.StateSelectingQty,
+		session.StateSelectingOptions,
+		session.StateAddingNotes,
+		session.StateConfirmingOrder,
+		session.StateRemovingOrderItem,
+		session.StateAdjustingOrderItem,
+		session.StateSelectingCartItemQty:
+		return true
+	default:
+		return false
+	}
+}
+
+func (uc *HandleWhatsAppMessageUseCase) sendDeliveryPrompt(
+	ctx context.Context,
+	to string,
+	tenantID uuid.UUID,
+	message string,
+) error {
+	tenantObj, _ := uc.tenantRepo.FindByID(ctx, tenantID)
+	body := stripDeliveryBackInstructions(uc.resolveTenantMessage(message, tenantObj))
+	body = whatsapp.WithRestaurantHeader(uc.resolveTenantName(ctx, tenantID), body)
+	ctx = whatsapp.WithTenantID(ctx, tenantID)
+	if _, err := sendInteractiveButtonsWithBack(uc.sender, ctx, to, body, nil); err == nil {
+		return nil
+	}
+	return uc.sender.SendText(ctx, to, body+"\n\nEnvie *voltar* para retornar ao menu.")
+}
+
+func stripDeliveryBackInstructions(message string) string {
+	body := strings.TrimSpace(message)
+	for _, phrase := range []string{
+		"Digite *0* para voltar ao menu principal.",
+		"Digite 0 para voltar ao menu principal.",
+		"*0* - ◂ Voltar ao menu principal",
+		"0 - ◂ Voltar ao menu principal",
+		"Digite *0* para cancelar o cadastro de endereço.",
+		"Digite *0* para cancelar.",
+		"digite *0* para cancelar.",
+		"ou *0* para cancelar",
+		"ou 0 para cancelar",
+	} {
+		body = strings.ReplaceAll(body, phrase, "")
+	}
+	return strings.TrimSpace(body)
 }
 
 func (uc *HandleWhatsAppMessageUseCase) processMessage(
@@ -765,8 +844,9 @@ func (uc *HandleWhatsAppMessageUseCase) startDeliveryOrdering(ctx context.Contex
 	}
 	uc.clearOrderingContext(sess)
 	sess.SetContext(deliveryChannelKey, deliveryChannelValue)
+	sess.SetContext(deliveryPreOrderAddressKey, true)
 	sess.SetContext(orderingServiceTypeKey, "DELIVERY")
-	return uc.startOrderingFlow(ctx, sess)
+	return uc.StartDeliveryAddressFlow(ctx, sess)
 }
 
 func (uc *HandleWhatsAppMessageUseCase) isDeliveryOrdering(sess *session.Session) bool {

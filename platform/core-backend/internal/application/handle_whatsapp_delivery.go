@@ -43,6 +43,7 @@ const (
 	deliveryTabIDKey            = "delivery_internal_tab_id"
 	deliveryChannelKey          = "whatsapp_service_channel"
 	deliveryChannelValue        = "DELIVERY"
+	deliveryPreOrderAddressKey  = "delivery_pre_order_address"
 	deliveryAddressPromptNotice = "Digite *0* para cancelar o cadastro de endereço."
 )
 
@@ -87,6 +88,11 @@ func (uc *HandleWhatsAppMessageUseCase) StartDeliveryAddressFlow(ctx context.Con
 	}
 	if uc.deliveryCustomer == nil {
 		return uc.exitDeliveryFlow(ctx, sess, "❌ O cadastro de endereços está temporariamente indisponível. Tente novamente em instantes.")
+	}
+	if uc.getContextString(sess, deliveryAddressReadyKey) == "true" &&
+		uc.getContextString(sess, deliverySelectedAddressKey) != "" &&
+		uc.getContextString(sess, deliveryPreOrderAddressKey) != "true" {
+		return "✅ Endereço de entrega já confirmado. Vamos revisar o frete ao finalizar o pedido.", session.StateDeliveryReady, nil
 	}
 	uc.clearDeliveryCheckoutContext(sess)
 
@@ -407,6 +413,10 @@ func (uc *HandleWhatsAppMessageUseCase) handleDeliveryAddressConfirmation(ctx co
 	}
 	if uc.getContextString(sess, deliverySelectedAddressKey) != "" && uc.getContextString(sess, deliveryAddressEditKey) != "true" {
 		sess.SetContext(deliveryAddressReadyKey, true)
+		if uc.getContextString(sess, deliveryPreOrderAddressKey) == "true" {
+			delete(sess.Context, deliveryPreOrderAddressKey)
+			return uc.startOrderingFlow(ctx, sess)
+		}
 		return "✅ Endereço confirmado para esta entrega.\n\nO próximo passo é revisar o frete e o total do pedido.", session.StateDeliveryReady, nil
 	}
 	sess.TransitionTo(session.StateDeliveryAddressConsent)
@@ -441,6 +451,10 @@ func (uc *HandleWhatsAppMessageUseCase) handleDeliveryAddressConsent(ctx context
 		}
 		sess.SetContext(deliverySelectedAddressKey, updated.ID.String())
 		sess.SetContext(deliveryAddressReadyKey, true)
+		if uc.getContextString(sess, deliveryPreOrderAddressKey) == "true" {
+			delete(sess.Context, deliveryPreOrderAddressKey)
+			return uc.startOrderingFlow(ctx, sess)
+		}
 		return "✅ Endereço atualizado e confirmado para esta entrega.\n\nO próximo passo é revisar o frete e o total do pedido.", session.StateDeliveryReady, nil
 	}
 	created, err := uc.deliveryCustomer.CreateAddress(ctx, sess.TenantID, customerID, deliveryCreateAddressInput(draft))
@@ -451,6 +465,10 @@ func (uc *HandleWhatsAppMessageUseCase) handleDeliveryAddressConsent(ctx context
 	sess.SetContext(deliverySelectedAddressKey, created.ID.String())
 	sess.SetContext(deliveryAddressReadyKey, true)
 	sess.SetContext(deliveryAddressNewKey, false)
+	if uc.getContextString(sess, deliveryPreOrderAddressKey) == "true" {
+		delete(sess.Context, deliveryPreOrderAddressKey)
+		return uc.startOrderingFlow(ctx, sess)
+	}
 	return "✅ Endereço salvo e confirmado para esta entrega.\n\nO próximo passo é revisar o frete e o total do pedido.", session.StateDeliveryReady, nil
 }
 
@@ -695,6 +713,7 @@ func (uc *HandleWhatsAppMessageUseCase) exitDeliveryFlow(
 	uc.clearDeliveryAddressContext(sess)
 	uc.clearDeliveryCheckoutContext(sess)
 	uc.clearOrderingContext(sess)
+	delete(sess.Context, deliveryPreOrderAddressKey)
 
 	message := strings.TrimSpace(prefix)
 	if message == "" {
