@@ -276,8 +276,20 @@ func (uc *HandleWhatsAppMessageUseCase) Execute(ctx context.Context, input Handl
 		}
 
 		sendMessage := uc.sendTenantMessage
-		if isDeliveryConversationState(newState) || (uc.isDeliveryChannel(sess) && isOrderingConversationState(newState)) {
-			if err := uc.sendDeliveryPrompt(ctx, input.From, input.TenantID, response); err != nil {
+		if newState == session.StateWelcome && isDeliveryConversationState(sess.State) {
+			t, tenantErr := uc.tenantRepo.FindByID(ctx, input.TenantID)
+			if tenantErr != nil {
+				return fmt.Errorf("failed to find tenant: %w", tenantErr)
+			}
+			if t == nil {
+				return fmt.Errorf("tenant not found: %s", input.TenantID.String())
+			}
+			if err := uc.sendWelcomeMenu(ctx, input.From, t, response); err != nil {
+				return fmt.Errorf("failed to send welcome menu response: %w", err)
+			}
+			sendMessage = nil
+		} else if isDeliveryConversationState(newState) || (uc.isDeliveryChannel(sess) && isOrderingConversationState(newState)) {
+			if err := uc.sendDeliveryPrompt(ctx, input.From, input.TenantID, response, newState); err != nil {
 				return fmt.Errorf("failed to send delivery prompt: %w", err)
 			}
 			sendMessage = nil
@@ -393,15 +405,29 @@ func (uc *HandleWhatsAppMessageUseCase) sendDeliveryPrompt(
 	to string,
 	tenantID uuid.UUID,
 	message string,
+	state session.ConversationState,
 ) error {
 	tenantObj, _ := uc.tenantRepo.FindByID(ctx, tenantID)
 	body := stripDeliveryBackInstructions(uc.resolveTenantMessage(message, tenantObj))
 	body = whatsapp.WithRestaurantHeader(uc.resolveTenantName(ctx, tenantID), body)
 	ctx = whatsapp.WithTenantID(ctx, tenantID)
-	if _, err := sendInteractiveButtonsWithBack(uc.sender, ctx, to, body, nil); err == nil {
+	if _, err := sendInteractiveButtonsWithBack(uc.sender, ctx, to, body, deliveryPromptButtons(state)); err == nil {
 		return nil
 	}
 	return uc.sender.SendText(ctx, to, body+"\n\nEnvie *voltar* para retornar ao menu.")
+}
+
+func deliveryPromptButtons(state session.ConversationState) []whatsapp.InteractiveButton {
+	if state != session.StateDeliveryMenu {
+		return nil
+	}
+	return []whatsapp.InteractiveButton{{
+		Type: "reply",
+		Reply: struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+		}{ID: deliveryStartActionID, Title: "🛵 Fazer pedido para entrega"},
+	}}
 }
 
 func stripDeliveryBackInstructions(message string) string {

@@ -225,6 +225,14 @@ func TestDeliveryWhatsAppEntryRespectsTenantModeAndCreatesCustomerTab(t *testing
 	if sess.TabID == nil || *sess.TabID != dineInTabID || sess.TableID == nil || *sess.TableID != tableID {
 		t.Fatalf("delivery cancellation must preserve dine-in session binding, tab=%v table=%v", sess.TabID, sess.TableID)
 	}
+	menu := uc.deliveryMenuMessage()
+	if strings.Contains(menu, "*1*") || strings.Contains(menu, "*0*") || strings.Contains(menu, "digite") {
+		t.Fatalf("delivery menu must not instruct numeric replies, got %q", menu)
+	}
+	buttons := deliveryPromptButtons(session.StateDeliveryMenu)
+	if len(buttons) != 1 || buttons[0].Reply.ID != deliveryStartActionID {
+		t.Fatalf("delivery menu must expose a button action, got %+v", buttons)
+	}
 
 	tenantObj.Settings.Delivery.WhatsAppOrderMode = "DELIVERY_ONLY"
 	if got := uc.appendDeliveryWelcomeOption(baseWelcome, tenantObj); strings.Count(got, "Fazer pedido para entrega") != 1 {

@@ -728,7 +728,7 @@ func (uc *HandleWhatsAppMessageUseCase) isDeliveryChannel(sess *session.Session)
 }
 
 func (uc *HandleWhatsAppMessageUseCase) deliveryMenuMessage() string {
-	return "🛵 *Atendimento Delivery*\n\n*1* - Fazer novo pedido para entrega\n*0* - Encerrar atendimento Delivery\n\n_Pedidos presenciais, comanda e chamar garçom não fazem parte deste atendimento._"
+	return "🛵 *Atendimento Delivery*\n\nEscolha uma opção abaixo.\n\n_Pedidos presenciais, comanda e chamar garçom não fazem parte deste atendimento._"
 }
 
 func (uc *HandleWhatsAppMessageUseCase) handleDeliveryMenu(
