@@ -22,30 +22,31 @@ import (
 )
 
 const (
-	deliveryCustomerIDKey       = "delivery_customer_id"
-	deliveryAddressIDsKey       = "delivery_address_ids"
-	deliverySelectedAddressKey  = "delivery_selected_address_id"
-	deliveryAddressDraftKey     = "delivery_address_draft"
-	deliveryAddressReadyKey     = "delivery_address_ready"
-	deliveryAddressNewKey       = "delivery_address_new"
-	deliveryAddressPostalKey    = "delivery_address_postal_code"
-	deliveryAddressConsentKey   = "delivery_address_consent"
-	deliveryAddressDeleteKey    = "delivery_address_delete_id"
-	deliveryAddressEditKey      = "delivery_address_edit"
-	deliveryCheckoutKeyKey      = "delivery_checkout_key"
-	deliveryCheckoutTokenKey    = "delivery_checkout_confirmation_token"
-	deliveryCheckoutFeeKey      = "delivery_checkout_customer_fee"
-	deliveryCheckoutTotalKey    = "delivery_checkout_total"
-	deliveryCheckoutExpiresKey  = "delivery_checkout_expires_at"
-	deliveryCheckoutModeKey     = "delivery_checkout_mode"
-	deliveryCheckoutPaidKey     = "delivery_checkout_paid"
-	deliveryOrderBatchKey       = "delivery_order_batch_id"
-	deliveryPaymentEventKey     = "delivery_payment_event_id"
-	deliveryTabIDKey            = "delivery_internal_tab_id"
-	deliveryChannelKey          = "whatsapp_service_channel"
-	deliveryChannelValue        = "DELIVERY"
-	deliveryPreOrderAddressKey  = "delivery_pre_order_address"
-	deliveryAddressPromptNotice = "Digite *0* para cancelar o cadastro de endereço."
+	deliveryCustomerIDKey                 = "delivery_customer_id"
+	deliveryAddressIDsKey                 = "delivery_address_ids"
+	deliverySelectedAddressKey            = "delivery_selected_address_id"
+	deliveryAddressDraftKey               = "delivery_address_draft"
+	deliveryAddressReadyKey               = "delivery_address_ready"
+	deliveryAddressNewKey                 = "delivery_address_new"
+	deliveryAddressPostalKey              = "delivery_address_postal_code"
+	deliveryAddressConsentKey             = "delivery_address_consent"
+	deliveryAddressDeleteKey              = "delivery_address_delete_id"
+	deliveryAddressEditKey                = "delivery_address_edit"
+	deliveryCheckoutKeyKey                = "delivery_checkout_key"
+	deliveryCheckoutTokenKey              = "delivery_checkout_confirmation_token"
+	deliveryCheckoutFeeKey                = "delivery_checkout_customer_fee"
+	deliveryCheckoutTotalKey              = "delivery_checkout_total"
+	deliveryCheckoutExpiresKey            = "delivery_checkout_expires_at"
+	deliveryCheckoutModeKey               = "delivery_checkout_mode"
+	deliveryCheckoutPaidKey               = "delivery_checkout_paid"
+	deliveryCheckoutCancelConfirmationKey = "delivery_checkout_cancel_confirmation"
+	deliveryOrderBatchKey                 = "delivery_order_batch_id"
+	deliveryPaymentEventKey               = "delivery_payment_event_id"
+	deliveryTabIDKey                      = "delivery_internal_tab_id"
+	deliveryChannelKey                    = "whatsapp_service_channel"
+	deliveryChannelValue                  = "DELIVERY"
+	deliveryPreOrderAddressKey            = "delivery_pre_order_address"
+	deliveryAddressPromptNotice           = "Digite *0* para cancelar o cadastro de endereço."
 )
 
 var deliveryPostalCodePattern = regexp.MustCompile(`^\d{8}$`)
@@ -598,7 +599,7 @@ func (uc *HandleWhatsAppMessageUseCase) StartDeliveryCheckout(ctx context.Contex
 	sess.SetContext(deliveryCheckoutModeKey, result.FulfillmentMode)
 	sess.SetContext(deliveryCheckoutPaidKey, false)
 	sess.TransitionTo(session.StateDeliveryCheckoutReview)
-	return fmt.Sprintf("🧾 *Revisão da entrega*\n\nSubtotal dos itens: *R$ %s*\nFrete: *R$ %s*\n*Total: R$ %s*\n\nValidade da cotação/hold: %s\n\nToque em *Ir para pagamento* para concluir o pedido.", formatBRLCurrency(result.OrderTotal), formatBRLCurrency(result.CustomerDeliveryFee), formatBRLCurrency(result.TotalAmount), result.ExpiresAt.Local().Format("02/01 às 15:04")), session.StateDeliveryCheckoutReview, nil
+	return fmt.Sprintf("🧾 *Revisão da entrega*\n\nSubtotal dos itens: *R$ %s*\nFrete: *R$ %s*\n*Total: R$ %s*\n\nValidade da cotação/hold: %s\n\nToque em *Abrir pagamento* para receber o link. Se desistir, escolha *Cancelar pedido*.", formatBRLCurrency(result.OrderTotal), formatBRLCurrency(result.CustomerDeliveryFee), formatBRLCurrency(result.TotalAmount), result.ExpiresAt.Local().Format("02/01 às 15:04")), session.StateDeliveryCheckoutReview, nil
 }
 
 func (uc *HandleWhatsAppMessageUseCase) handleDeliveryCheckoutReview(ctx context.Context, sess *session.Session, text string) (string, session.ConversationState, error) {
@@ -607,10 +608,22 @@ func (uc *HandleWhatsAppMessageUseCase) handleDeliveryCheckoutReview(ctx context
 		return "⏱️ A cotação da entrega expirou. Vamos recalcular o frete antes de continuar.", session.StateDeliveryReady, nil
 	}
 	answer := strings.ToLower(strings.TrimSpace(text))
-	if answer == "0" || answer == "cancelar" {
-		return uc.exitDeliveryFlow(ctx, sess, "Checkout de entrega cancelado.")
+	if uc.getContextString(sess, deliveryCheckoutCancelConfirmationKey) == "true" {
+		switch answer {
+		case deliveryConfirmCancelOrderActionID, "confirmar", "sim":
+			return uc.exitDeliveryFlow(ctx, sess, "Pedido de entrega cancelado.")
+		case deliveryKeepOrderActionID, "manter", "nao", "não", "0":
+			delete(sess.Context, deliveryCheckoutCancelConfirmationKey)
+			return uc.repeatDeliveryCheckoutReview(sess), session.StateDeliveryCheckoutReview, nil
+		default:
+			return "⚠️ Deseja cancelar este pedido de entrega? Essa ação libera o frete reservado e cancela o pedido que ainda não foi pago.", session.StateDeliveryCheckoutReview, nil
+		}
 	}
-	if answer == "1" || answer == "pagar" || answer == "continuar" {
+	if answer == deliveryCancelOrderActionID || answer == "cancelar pedido" || answer == "cancelar" || answer == "0" {
+		sess.SetContext(deliveryCheckoutCancelConfirmationKey, true)
+		return "⚠️ Deseja cancelar este pedido de entrega? Essa ação libera o frete reservado e cancela o pedido que ainda não foi pago.", session.StateDeliveryCheckoutReview, nil
+	}
+	if answer == "1" || answer == "pagar" || answer == "continuar" || answer == deliveryPaymentLinkActionID || answer == "pagamento" || answer == "novo link" {
 		return uc.sendDeliveryPaymentLink(ctx, sess)
 	}
 	return uc.repeatDeliveryCheckoutReview(sess), session.StateDeliveryCheckoutReview, nil
@@ -619,7 +632,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleDeliveryCheckoutReview(ctx context
 func (uc *HandleWhatsAppMessageUseCase) repeatDeliveryCheckoutReview(sess *session.Session) string {
 	fee := deliverySessionFloat(sess, deliveryCheckoutFeeKey)
 	total := deliverySessionFloat(sess, deliveryCheckoutTotalKey)
-	return fmt.Sprintf("🧾 Frete: *R$ %s*\n*Total: R$ %s*\n\nToque em *Ir para pagamento* para concluir o pedido.", formatBRLCurrency(fee), formatBRLCurrency(total))
+	return fmt.Sprintf("🧾 Frete: *R$ %s*\n*Total: R$ %s*\n\nToque em *Abrir pagamento* para receber um novo link. Se desistir, escolha *Cancelar pedido*.", formatBRLCurrency(fee), formatBRLCurrency(total))
 }
 
 // sendDeliveryPaymentLink opens the authenticated public checkout with the
@@ -642,7 +655,7 @@ func (uc *HandleWhatsAppMessageUseCase) sendDeliveryPaymentLink(ctx context.Cont
 	if sender, ok := uc.sender.(WhatsAppURLButtonSender); ok {
 		_, sendErr := sender.SendInteractiveURLButton(whatsapp.WithTenantID(ctx, sess.TenantID), sess.UserPhone, whatsapp.WithRestaurantHeader(uc.resolveTenantName(ctx, sess.TenantID), body), "💳 Ir para pagamento", targetURL)
 		if sendErr == nil {
-			return "", session.StateDeliveryCheckoutReview, nil
+			return "✅ Link de pagamento enviado. Se ele vencer ou não abrir, toque em *Abrir pagamento* para gerar outro. Você também pode cancelar o pedido antes do pagamento.", session.StateDeliveryCheckoutReview, nil
 		}
 		uc.logger.Warn("failed to send delivery payment URL button", zap.Error(sendErr))
 	}
@@ -727,7 +740,7 @@ func (uc *HandleWhatsAppMessageUseCase) clearDeliveryCheckoutContext(sess *sessi
 	if sess == nil || sess.Context == nil {
 		return
 	}
-	for _, key := range []string{deliveryCheckoutKeyKey, deliveryCheckoutTokenKey, deliveryCheckoutFeeKey, deliveryCheckoutTotalKey, deliveryCheckoutExpiresKey, deliveryCheckoutModeKey, deliveryCheckoutPaidKey, deliveryOrderBatchKey, deliveryPaymentEventKey} {
+	for _, key := range []string{deliveryCheckoutKeyKey, deliveryCheckoutTokenKey, deliveryCheckoutFeeKey, deliveryCheckoutTotalKey, deliveryCheckoutExpiresKey, deliveryCheckoutModeKey, deliveryCheckoutPaidKey, deliveryCheckoutCancelConfirmationKey, deliveryOrderBatchKey, deliveryPaymentEventKey} {
 		delete(sess.Context, key)
 	}
 }

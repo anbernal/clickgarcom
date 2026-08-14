@@ -278,3 +278,41 @@ func TestExpiredDeliveryCheckoutClearsSessionBeforePayment(t *testing.T) {
 		t.Fatal("expected expired checkout key to be cleared")
 	}
 }
+
+func TestDeliveryCheckoutReviewRequiresConfirmationBeforeCancellation(t *testing.T) {
+	tenantID := uuid.New()
+	uc := &HandleWhatsAppMessageUseCase{logger: zap.NewNop()}
+	sess := session.NewSession("5511999999999", tenantID)
+	sess.SetContext(deliveryCheckoutKeyKey, "wa-pending")
+	sess.SetContext(deliveryCheckoutExpiresKey, time.Now().Add(time.Hour).UTC().Format(time.RFC3339))
+
+	message, state, err := uc.handleDeliveryCheckoutReview(context.Background(), sess, deliveryCancelOrderActionID)
+	if err != nil || state != session.StateDeliveryCheckoutReview || !strings.Contains(message, "Deseja cancelar") {
+		t.Fatalf("expected cancellation confirmation, state=%s message=%q err=%v", state, message, err)
+	}
+	if uc.getContextString(sess, deliveryCheckoutCancelConfirmationKey) != "true" {
+		t.Fatal("expected cancellation confirmation context")
+	}
+
+	message, state, err = uc.handleDeliveryCheckoutReview(context.Background(), sess, deliveryKeepOrderActionID)
+	if err != nil || state != session.StateDeliveryCheckoutReview || !strings.Contains(message, "Abrir pagamento") {
+		t.Fatalf("expected pending order to remain after keeping it, state=%s message=%q err=%v", state, message, err)
+	}
+	if uc.getContextString(sess, deliveryCheckoutCancelConfirmationKey) != "" {
+		t.Fatal("expected cancellation confirmation context to be cleared")
+	}
+
+	buttons := uc.deliveryPromptButtons(session.StateDeliveryCheckoutReview, sess)
+	if len(buttons) != 2 || buttons[0].Reply.ID != deliveryPaymentLinkActionID || buttons[1].Reply.ID != deliveryCancelOrderActionID {
+		t.Fatalf("expected payment-link and cancellation actions, got %+v", buttons)
+	}
+
+	_, state, err = uc.handleDeliveryCheckoutReview(context.Background(), sess, deliveryCancelOrderActionID)
+	if err != nil || state != session.StateDeliveryCheckoutReview {
+		t.Fatalf("expected confirmation before final cancellation, state=%s err=%v", state, err)
+	}
+	message, state, err = uc.handleDeliveryCheckoutReview(context.Background(), sess, deliveryConfirmCancelOrderActionID)
+	if err != nil || state != session.StateDeliveryMenu || !strings.Contains(message, "Pedido de entrega cancelado") {
+		t.Fatalf("expected confirmed cancellation to return to delivery menu, state=%s message=%q err=%v", state, message, err)
+	}
+}

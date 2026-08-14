@@ -117,17 +117,21 @@ type HandleMessageInput struct {
 }
 
 const (
-	welcomeMenuFlowKey        = "welcome_menu"
-	requestTableActionID      = "request_table"
-	defaultWelcomeMenuAction  = "btn_request_tab"
-	welcomeHasTabActionID     = "btn_has_tab"
-	welcomeRequestTabActionID = "btn_request_tab"
-	mainMenuListButtonText    = "Abrir menu"
-	mainMenuOpenActionID      = "0"
-	tabSummaryNewOrderID      = "1"
-	tabSummaryCloseTabID      = "2"
-	tabSummaryBackMenuID      = "0"
-	deliveryStartActionID     = "delivery:start"
+	welcomeMenuFlowKey                 = "welcome_menu"
+	requestTableActionID               = "request_table"
+	defaultWelcomeMenuAction           = "btn_request_tab"
+	welcomeHasTabActionID              = "btn_has_tab"
+	welcomeRequestTabActionID          = "btn_request_tab"
+	mainMenuListButtonText             = "Abrir menu"
+	mainMenuOpenActionID               = "0"
+	tabSummaryNewOrderID               = "1"
+	tabSummaryCloseTabID               = "2"
+	tabSummaryBackMenuID               = "0"
+	deliveryStartActionID              = "delivery:start"
+	deliveryPaymentLinkActionID        = "delivery:payment-link"
+	deliveryCancelOrderActionID        = "delivery:cancel-order"
+	deliveryConfirmCancelOrderActionID = "delivery:confirm-cancel-order"
+	deliveryKeepOrderActionID          = "delivery:keep-order"
 )
 
 const mainMenuBackOptionText = "*0* - ◂ Voltar ao menu principal"
@@ -412,6 +416,15 @@ func (uc *HandleWhatsAppMessageUseCase) sendDeliveryPrompt(
 	body := stripDeliveryBackInstructions(uc.resolveTenantMessage(message, tenantObj))
 	body = whatsapp.WithRestaurantHeader(uc.resolveTenantName(ctx, tenantID), body)
 	ctx = whatsapp.WithTenantID(ctx, tenantID)
+	// Checkout review has an explicit cancellation action. Do not append the
+	// generic "back" button there: in this state going back is destructive and
+	// must never look like harmless navigation.
+	if state == session.StateDeliveryCheckoutReview {
+		if _, err := sendInteractiveButtonsWithoutBack(uc.sender, ctx, to, body, uc.deliveryPromptButtons(state, sess)); err == nil {
+			return nil
+		}
+		return uc.sender.SendText(ctx, to, body+"\n\nResponda *pagamento* para gerar outro link ou *cancelar pedido* para cancelar.")
+	}
 	if _, err := sendInteractiveButtonsWithBack(uc.sender, ctx, to, body, uc.deliveryPromptButtons(state, sess)); err == nil {
 		return nil
 	}
@@ -454,7 +467,16 @@ func (uc *HandleWhatsAppMessageUseCase) deliveryPromptButtons(state session.Conv
 	case session.StateDeliveryReady:
 		return []whatsapp.InteractiveButton{button("continuar", "Continuar")}
 	case session.StateDeliveryCheckoutReview:
-		return []whatsapp.InteractiveButton{button("pagar", "💳 Ir para pagamento")}
+		if uc.getContextString(sess, deliveryCheckoutCancelConfirmationKey) == "true" {
+			return []whatsapp.InteractiveButton{
+				button(deliveryConfirmCancelOrderActionID, "Confirmar"),
+				button(deliveryKeepOrderActionID, "Manter pedido"),
+			}
+		}
+		return []whatsapp.InteractiveButton{
+			button(deliveryPaymentLinkActionID, "💳 Abrir pagamento"),
+			button(deliveryCancelOrderActionID, "Cancelar pedido"),
+		}
 	default:
 		return nil
 	}
