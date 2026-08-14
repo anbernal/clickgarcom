@@ -693,6 +693,7 @@ func (uc *HandleWhatsAppMessageUseCase) sendCartConfirmationMenu(
 	to string,
 	tenantID uuid.UUID,
 	delivery bool,
+	deliveryAddressReady bool,
 	cartBody string,
 ) error {
 	if strings.TrimSpace(cartBody) == "" {
@@ -705,7 +706,7 @@ func (uc *HandleWhatsAppMessageUseCase) sendCartConfirmationMenu(
 		whatsapp.WithTenantID(ctx, tenantID),
 		to,
 		body,
-		buildOrderConfirmationButtons(delivery),
+		buildOrderConfirmationButtons(delivery, deliveryAddressReady),
 	)
 	return err
 }
@@ -2317,9 +2318,9 @@ func buildQuantityButtons() []whatsapp.InteractiveButton {
 	return buttons
 }
 
-func buildOrderConfirmationButtons(delivery bool) []whatsapp.InteractiveButton {
+func buildOrderConfirmationButtons(delivery bool, deliveryAddressReady bool) []whatsapp.InteractiveButton {
 	primaryTitle := "✅ Enviar pedido"
-	if delivery {
+	if delivery && !deliveryAddressReady {
 		primaryTitle = "🛵 Informar entrega"
 	}
 	return []whatsapp.InteractiveButton{

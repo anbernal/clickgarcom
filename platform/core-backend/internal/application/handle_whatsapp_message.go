@@ -1808,6 +1808,9 @@ func (uc *HandleWhatsAppMessageUseCase) handleOrderConfirmation(
 		return uc.startOrderingFlow(ctx, sess)
 	}
 	if uc.isDeliveryOrdering(sess) {
+		if uc.getContextString(sess, deliveryAddressReadyKey) == "true" {
+			return uc.StartDeliveryCheckout(ctx, sess)
+		}
 		return uc.StartDeliveryAddressFlow(ctx, sess)
 	}
 
@@ -2115,14 +2118,15 @@ func (uc *HandleWhatsAppMessageUseCase) presentCartConfirmation(
 ) (string, session.ConversationState, error) {
 	uc.clearOrderingCartAdjustmentContext(sess)
 	delivery := uc.isDeliveryOrdering(sess)
+	deliveryAddressReady := delivery && uc.getContextString(sess, deliveryAddressReadyKey) == "true"
 	if delivery {
-		if uc.getContextString(sess, deliveryAddressReadyKey) == "true" {
+		if deliveryAddressReady {
 			cartMessage = strings.TrimSpace(cartMessage) + "\n\n🛵 Ao continuar, revisaremos o frete antes do pagamento."
 		} else {
 			cartMessage = strings.TrimSpace(cartMessage) + "\n\n🛵 Ao continuar, você informará o endereço e verá o frete antes do pagamento."
 		}
 	}
-	if err := uc.sendCartConfirmationMenu(ctx, sess.UserPhone, sess.TenantID, delivery, cartMessage); err == nil {
+	if err := uc.sendCartConfirmationMenu(ctx, sess.UserPhone, sess.TenantID, delivery, deliveryAddressReady, cartMessage); err == nil {
 		return "", session.StateConfirmingOrder, nil
 	}
 
