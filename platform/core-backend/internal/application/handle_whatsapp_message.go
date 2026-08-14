@@ -1184,7 +1184,7 @@ func (uc *HandleWhatsAppMessageUseCase) sendWelcomeMenu(
 	buttons := buildDefaultWelcomeButtons(uc.deliveryWhatsAppOrderMode(tenantObj) != "")
 
 	body := uc.composeWelcomeMenuBody(tenantObj, definition, prefix)
-	body = uc.appendDeliveryWelcomeOption(body, tenantObj)
+	body = uc.deliveryWelcomeBody(body, tenantObj, false)
 	if _, err := sendInteractiveButtonsWithoutBack(uc.sender, whatsapp.WithTenantID(ctx, tenantObj.ID), to, body, buttons); err != nil {
 		uc.logger.Warn("failed to send interactive welcome menu, falling back to text",
 			zap.Error(err),
@@ -1205,7 +1205,7 @@ func (uc *HandleWhatsAppMessageUseCase) sendDefaultWelcomeMenu(
 ) error {
 	body := strings.TrimSpace(whatsapp.WelcomeMenuMessage(tenantObj.Name, tenantObj.Settings.Messages))
 	deliveryEnabled := uc.deliveryWhatsAppOrderMode(tenantObj) != ""
-	body = uc.appendDeliveryWelcomeOption(body, tenantObj)
+	body = uc.deliveryWelcomeBody(body, tenantObj, false)
 	buttons := buildDefaultWelcomeButtons(deliveryEnabled)
 	if strings.TrimSpace(prefix) != "" {
 		body = strings.TrimSpace(prefix) + "\n\n" + body
@@ -1235,6 +1235,22 @@ func (uc *HandleWhatsAppMessageUseCase) appendDeliveryWelcomeOption(body string,
 		return strings.Replace(body, note, option+"\n\n"+separationNote, 1)
 	}
 	return strings.TrimSpace(body) + "\n\n" + option
+}
+
+// deliveryWelcomeBody keeps the textual delivery option for plain-text
+// fallbacks, but removes it from interactive menus where the WhatsApp buttons
+// already represent the action. This prevents the same option from appearing
+// once as "3 - ..." and again as a button.
+func (uc *HandleWhatsAppMessageUseCase) deliveryWelcomeBody(body string, tenantObj *tenant.Tenant, includeTextOption bool) string {
+	if includeTextOption {
+		return uc.appendDeliveryWelcomeOption(body, tenantObj)
+	}
+	if uc.deliveryWhatsAppOrderMode(tenantObj) == "" {
+		return body
+	}
+	note := "_Você precisa de uma comanda aberta para fazer pedidos._"
+	separationNote := "_Pedidos para entrega não usam comanda. Para pedidos presenciais, você precisa de uma comanda aberta._"
+	return strings.Replace(body, note, separationNote, 1)
 }
 
 func (uc *HandleWhatsAppMessageUseCase) decodeBotFlowDefinition(

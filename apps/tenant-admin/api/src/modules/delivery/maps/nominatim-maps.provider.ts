@@ -27,13 +27,29 @@ export class NominatimDeliveryMapsProvider implements DeliveryMapsProvider {
     }
 
     async geocode(input: DeliveryGeocodeRequest): Promise<DeliveryGeocodeResult> {
-        const params = new URLSearchParams({ format: 'jsonv2', limit: '1', addressdetails: '1', countrycodes: 'br', q: input.formatted_address });
-        const results = await this.request(`/search?${params}`) as Array<Record<string, unknown>>;
-        const result = Array.isArray(results) ? results[0] : null;
-        const lat = Number(result?.lat);
-        const lng = Number(result?.lon);
-        if (!Number.isFinite(lat) || !Number.isFinite(lng)) throw new Error('endereço não localizado pelo provedor de mapas');
-        return { lat, lng, provider: 'OSM_NOMINATIM', provider_id: osmId(result), quality: qualityFor(result) };
+        // Brazilian map datasets often do not index the house number/CEP
+        // combination even when the street itself is present. Try the exact
+        // address first, then progressively broader queries. The resulting
+        // range/approximate quality is surfaced to the caller for confirmation.
+        const queries = Array.from(new Set([
+            input.formatted_address,
+            [input.street, input.neighborhood, input.city, input.state].filter(Boolean).join(', '),
+            [input.street, input.city, input.state].filter(Boolean).join(', '),
+            [input.street, input.state].filter(Boolean).join(', '),
+        ].map((value) => value.trim()).filter(Boolean)));
+
+        for (const query of queries) {
+            const params = new URLSearchParams({ format: 'jsonv2', limit: '1', addressdetails: '1', countrycodes: 'br', q: query });
+            const results = await this.request(`/search?${params}`) as Array<Record<string, unknown>>;
+            const result = Array.isArray(results) ? results[0] : null;
+            const lat = Number(result?.lat);
+            const lng = Number(result?.lon);
+            if (Number.isFinite(lat) && Number.isFinite(lng)) {
+                return { lat, lng, provider: 'OSM_NOMINATIM', provider_id: osmId(result), quality: qualityFor(result) };
+            }
+        }
+
+        throw new Error('endereço não localizado pelo provedor de mapas');
     }
 
     async reverseGeocode(input: DeliveryReverseGeocodeRequest): Promise<DeliveryReverseGeocodeResult> {

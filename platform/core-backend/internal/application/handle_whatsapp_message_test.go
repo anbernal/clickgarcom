@@ -179,6 +179,9 @@ func TestDeliveryWhatsAppEntryRespectsTenantModeAndCreatesCustomerTab(t *testing
 	if len(sender.interactiveMessages) != 1 || len(sender.interactiveMessages[0].Buttons) != 3 {
 		t.Fatalf("expected three welcome buttons when WhatsApp delivery is enabled, got %+v", sender.interactiveMessages)
 	}
+	if strings.Contains(sender.interactiveMessages[0].Body, "Fazer pedido para entrega") || strings.Contains(sender.interactiveMessages[0].Body, "*3*") {
+		t.Fatalf("interactive welcome must not duplicate the delivery action as text, got %q", sender.interactiveMessages[0].Body)
+	}
 	if got := sender.interactiveMessages[0].Buttons[2].Reply.Title; got != "🛵 Pedir entrega" {
 		t.Fatalf("expected customer-oriented delivery button title, got %q", got)
 	}
