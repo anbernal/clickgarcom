@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Param, Patch, Post, Query, Request } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query, Request } from '@nestjs/common';
 import { SuperAdminService } from './super-admin.service';
 
 @Controller('admin/api/super-admin')
@@ -258,6 +258,59 @@ export class SuperAdminController {
             sensitiveOperation: true,
         });
         return this.superAdminService.updatePaymentGateway(id, body || {}, actor);
+    }
+
+    @Post('tenants/:id/payment-gateway/profiles')
+    async createPaymentGatewayProfile(
+        @Request() req,
+        @Headers('authorization') authorization: string | undefined,
+        @Param('id') id: string,
+        @Body() body: any,
+    ) {
+        const actor = await this.superAdminService.requireAuthenticatedSession({
+            authorization, sourceIp: this.resolveSourceIp(req), userAgent: this.resolveUserAgent(req), sensitiveOperation: true,
+        });
+        return this.superAdminService.createPaymentGatewayProfile(id, body || {}, actor);
+    }
+
+    @Patch('tenants/:id/payment-gateway/profiles/:profileId')
+    async updatePaymentGatewayProfile(
+        @Request() req,
+        @Headers('authorization') authorization: string | undefined,
+        @Param('id') id: string,
+        @Param('profileId') profileId: string,
+        @Body() body: any,
+    ) {
+        const actor = await this.superAdminService.requireAuthenticatedSession({
+            authorization, sourceIp: this.resolveSourceIp(req), userAgent: this.resolveUserAgent(req), sensitiveOperation: true,
+        });
+        return this.superAdminService.updatePaymentGatewayProfile(id, profileId, body || {}, actor);
+    }
+
+    @Post('tenants/:id/payment-gateway/profiles/:profileId/activate')
+    async activatePaymentGatewayProfile(
+        @Request() req,
+        @Headers('authorization') authorization: string | undefined,
+        @Param('id') id: string,
+        @Param('profileId') profileId: string,
+    ) {
+        const actor = await this.superAdminService.requireAuthenticatedSession({
+            authorization, sourceIp: this.resolveSourceIp(req), userAgent: this.resolveUserAgent(req), sensitiveOperation: true,
+        });
+        return this.superAdminService.activatePaymentGatewayProfile(id, profileId, actor);
+    }
+
+    @Delete('tenants/:id/payment-gateway/profiles/:profileId')
+    async deletePaymentGatewayProfile(
+        @Request() req,
+        @Headers('authorization') authorization: string | undefined,
+        @Param('id') id: string,
+        @Param('profileId') profileId: string,
+    ) {
+        const actor = await this.superAdminService.requireAuthenticatedSession({
+            authorization, sourceIp: this.resolveSourceIp(req), userAgent: this.resolveUserAgent(req), sensitiveOperation: true,
+        });
+        return this.superAdminService.deletePaymentGatewayProfile(id, profileId, actor);
     }
 
     @Patch('tenants/:id/active')

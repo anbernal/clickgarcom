@@ -132,6 +132,26 @@ const api = {
             body: JSON.stringify(payload),
         });
     },
+    createPaymentGatewayProfile(id, payload) {
+        return request(`/tenants/${encodeURIComponent(String(id))}/payment-gateway/profiles`, {
+            method: 'POST', body: JSON.stringify(payload),
+        });
+    },
+    updatePaymentGatewayProfile(id, profileId, payload) {
+        return request(`/tenants/${encodeURIComponent(String(id))}/payment-gateway/profiles/${encodeURIComponent(String(profileId))}`, {
+            method: 'PATCH', body: JSON.stringify(payload),
+        });
+    },
+    activatePaymentGatewayProfile(id, profileId) {
+        return request(`/tenants/${encodeURIComponent(String(id))}/payment-gateway/profiles/${encodeURIComponent(String(profileId))}/activate`, {
+            method: 'POST', body: JSON.stringify({}),
+        });
+    },
+    deletePaymentGatewayProfile(id, profileId) {
+        return request(`/tenants/${encodeURIComponent(String(id))}/payment-gateway/profiles/${encodeURIComponent(String(profileId))}`, {
+            method: 'DELETE',
+        });
+    },
     setTenantActive(id, active) {
         return request(`/tenants/${id}/active`, {
             method: 'PATCH',
@@ -887,36 +907,88 @@ function closeTenantModal() {
     document.getElementById('tenant-modal').classList.remove('active');
 }
 
-function togglePaymentGatewayFields() {
-    const provider = document.getElementById('pgm-provider').value;
-    document.getElementById('pgm-mercadopago-fields').style.display = provider === 'MERCADO_PAGO' ? 'block' : 'none';
-    if (provider === 'NONE') document.getElementById('pgm-enabled').checked = false;
-}
-
 async function openPaymentGatewayModal(tenantId) {
     const tenant = state.tenants.find((item) => item.id === tenantId);
     if (!tenant) return;
     try {
         const response = await api.getPaymentGateway(tenantId);
-        const gateway = response?.gateway || {};
         document.getElementById('pgm-tenant-id').value = tenantId;
         document.getElementById('pgm-tenant-name').textContent = response?.tenantName || tenant.name || '';
-        document.getElementById('pgm-provider').value = gateway.provider || 'NONE';
-        document.getElementById('pgm-environment').value = gateway.environment || 'TEST';
-        document.getElementById('pgm-public-key').value = gateway.publicKey || '';
-        document.getElementById('pgm-access-token').value = '';
-        document.getElementById('pgm-clear-token').checked = false;
-        document.getElementById('pgm-enabled').checked = !!gateway.enabled;
-        document.getElementById('pgm-token-status').textContent = gateway.accessTokenConfigured
-            ? 'Token já configurado e protegido. Preencha somente para substituir.'
-            : 'Nenhum token configurado ainda.';
-        document.getElementById('pgm-public-key').placeholder = 'TEST-... ou APP_USR-...';
-        togglePaymentGatewayFields();
+        renderPaymentGatewayProfiles(response?.profiles || []);
+        resetPaymentGatewayProfileForm();
         document.getElementById('payment-gateway-modal').classList.add('active');
     } catch (error) {
         console.error(error);
         alert(`Falha ao abrir gateway: ${error.message}`);
     }
+}
+
+function renderPaymentGatewayProfiles(profiles) {
+    const container = document.getElementById('pgm-profiles');
+    if (!container) return;
+    if (!profiles.length) {
+        container.innerHTML = '<div style="color:var(--text-muted);font-size:13px">Nenhuma credencial cadastrada. Cadastre a primeira abaixo.</div>';
+        return;
+    }
+    container.innerHTML = profiles.map((profile) => `
+        <div style="border:1px solid ${profile.active ? 'rgba(16,185,129,.55)' : 'var(--border)'};border-radius:10px;padding:12px;margin-bottom:8px">
+            <div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><strong>${escapeHtml(profile.name)}</strong><span style="font-size:12px;color:${profile.active ? '#22c55e' : 'var(--text-muted)'}">${profile.active ? '● Ativa' : 'Inativa'} · ${escapeHtml(profile.environment)}</span></div>
+            <div style="font-size:12px;color:var(--text-muted);margin:5px 0 10px">Public Key: ${escapeHtml(profile.publicKey || '-')} · Token: ${profile.accessTokenConfigured ? 'protegido' : 'ausente'}</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <button type="button" class="btn" style="padding:5px 9px" onclick="editPaymentGatewayProfile('${escapeHtml(profile.id)}')">Editar</button>
+                ${profile.active ? '' : `<button type="button" class="btn" style="padding:5px 9px;background:rgba(16,185,129,.2);color:#86efac" onclick="activatePaymentGatewayProfile('${escapeHtml(profile.id)}')">Ativar</button><button type="button" class="btn" style="padding:5px 9px;background:rgba(239,68,68,.15);color:#fca5a5" onclick="deletePaymentGatewayProfile('${escapeHtml(profile.id)}')">Excluir</button>`}
+            </div>
+        </div>`).join('');
+    window.paymentGatewayProfiles = profiles;
+}
+
+function resetPaymentGatewayProfileForm() {
+    document.getElementById('pgm-profile-id').value = '';
+    document.getElementById('pgm-profile-name').value = '';
+    document.getElementById('pgm-environment').value = 'TEST';
+    document.getElementById('pgm-public-key').value = '';
+    document.getElementById('pgm-access-token').value = '';
+    document.getElementById('pgm-activate').checked = true;
+    document.getElementById('pgm-token-status').textContent = 'O Access Token será salvo cifrado e nunca será exibido novamente.';
+    document.getElementById('pgm-form-title').textContent = 'Nova credencial Mercado Pago';
+}
+
+function editPaymentGatewayProfile(profileId) {
+    const profile = (window.paymentGatewayProfiles || []).find((item) => item.id === profileId);
+    if (!profile) return;
+    document.getElementById('pgm-profile-id').value = profile.id;
+    document.getElementById('pgm-profile-name').value = profile.name || '';
+    document.getElementById('pgm-environment').value = profile.environment || 'TEST';
+    document.getElementById('pgm-public-key').value = profile.publicKey || '';
+    document.getElementById('pgm-access-token').value = '';
+    document.getElementById('pgm-activate').checked = !!profile.active;
+    document.getElementById('pgm-token-status').textContent = 'Token já protegido. Deixe vazio para mantê-lo ou preencha para substituir.';
+    document.getElementById('pgm-form-title').textContent = `Editar: ${profile.name}`;
+}
+
+async function refreshPaymentGatewayProfiles() {
+    const tenantId = document.getElementById('pgm-tenant-id').value.trim();
+    const response = await api.getPaymentGateway(tenantId);
+    renderPaymentGatewayProfiles(response?.profiles || []);
+    return response;
+}
+
+async function activatePaymentGatewayProfile(profileId) {
+    const tenantId = document.getElementById('pgm-tenant-id').value.trim();
+    try {
+        await api.activatePaymentGatewayProfile(tenantId, profileId);
+        await refreshPaymentGatewayProfiles();
+        await loadTenants();
+    } catch (error) { alert(`Falha ao ativar credencial: ${error.message}`); }
+}
+
+async function deletePaymentGatewayProfile(profileId) {
+    if (!confirm('Excluir esta credencial? A credencial ativa não pode ser excluída.')) return;
+    const tenantId = document.getElementById('pgm-tenant-id').value.trim();
+    try {
+        await api.deletePaymentGatewayProfile(tenantId, profileId);
+        await refreshPaymentGatewayProfiles();
+    } catch (error) { alert(`Falha ao excluir credencial: ${error.message}`); }
 }
 
 function closePaymentGatewayModal() {
@@ -926,25 +998,22 @@ function closePaymentGatewayModal() {
 async function savePaymentGateway(event) {
     event.preventDefault();
     const tenantId = document.getElementById('pgm-tenant-id').value.trim();
-    const provider = document.getElementById('pgm-provider').value;
+    const profileId = document.getElementById('pgm-profile-id').value.trim();
     const payload = {
-        provider,
-        enabled: !!document.getElementById('pgm-enabled').checked,
+        name: document.getElementById('pgm-profile-name').value.trim(),
+        provider: 'MERCADO_PAGO',
         environment: document.getElementById('pgm-environment').value,
         public_key: document.getElementById('pgm-public-key').value.trim(),
         access_token: document.getElementById('pgm-access-token').value.trim(),
-        clear_access_token: !!document.getElementById('pgm-clear-token').checked,
+        activate: !!document.getElementById('pgm-activate').checked,
     };
-    if (provider === 'NONE') {
-        payload.enabled = false;
-        payload.public_key = '';
-        payload.access_token = '';
-    }
     try {
-        await api.updatePaymentGateway(tenantId, payload);
-        closePaymentGatewayModal();
+        if (profileId) await api.updatePaymentGatewayProfile(tenantId, profileId, payload);
+        else await api.createPaymentGatewayProfile(tenantId, payload);
+        await refreshPaymentGatewayProfiles();
+        resetPaymentGatewayProfileForm();
         await loadTenants();
-        alert('Gateway de pagamento salvo.');
+        alert('Credencial de pagamento salva.');
     } catch (error) {
         console.error(error);
         alert(`Falha ao salvar gateway: ${error.message}`);

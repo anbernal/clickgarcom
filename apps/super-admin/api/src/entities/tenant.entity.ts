@@ -36,6 +36,7 @@ export interface PaymentGatewaySettings {
     environment?: '' | 'TEST' | 'PRODUCTION';
     public_key?: string;
     access_token_encrypted?: string;
+    profile_id?: string;
 }
 
 @Entity('tenants')

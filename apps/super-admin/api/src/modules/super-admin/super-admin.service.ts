@@ -7,7 +7,7 @@ import {
     UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import axios from 'axios';
 import { createCipheriv, createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'crypto';
@@ -32,6 +32,15 @@ type PaymentGatewayPayload = {
     public_key?: string;
     access_token?: string;
     clear_access_token?: boolean;
+};
+
+type PaymentGatewayProfilePayload = {
+    name?: string;
+    provider?: string;
+    environment?: string;
+    public_key?: string;
+    access_token?: string;
+    activate?: boolean;
 };
 
 type SuperAdminLoginPayload = {
@@ -413,11 +422,75 @@ export class SuperAdminService {
             tenantId: tenant.id,
             tenantName: tenant.name,
             gateway: this.summarizePaymentGateway(tenant.settings || {}),
+            profiles: await this.listPaymentGatewayProfiles(tenant.id),
             providers: [
                 { code: 'NONE', label: 'Sem gateway', supported: true },
                 { code: 'MERCADO_PAGO', label: 'Mercado Pago', supported: true },
             ],
         };
+    }
+
+    async createPaymentGatewayProfile(id: string, payload: PaymentGatewayProfilePayload, actor: SuperAdminActorContext) {
+        const tenant = await this.requireTenant(id);
+        const profile = this.normalizePaymentGatewayProfilePayload(payload, true);
+        const encryptedToken = this.encryptPaymentGatewaySecret(profile.accessToken);
+        const activate = payload.activate !== false;
+
+        const saved = await this.dataSource.transaction(async (manager) => {
+            const result = await manager.query(
+                `INSERT INTO tenant_payment_gateway_profiles
+                    (tenant_id, name, provider, environment, public_key, access_token_encrypted, is_active)
+                 VALUES ($1, $2, 'MERCADO_PAGO', $3, $4, $5, FALSE)
+                 RETURNING id, tenant_id, name, provider, environment, public_key, is_active, created_at, updated_at`,
+                [tenant.id, profile.name, profile.environment, profile.publicKey, encryptedToken],
+            );
+            const created = result[0];
+            if (activate) await this.activatePaymentGatewayProfileInTransaction(manager, tenant, created.id);
+            return created;
+        });
+        await this.recordPaymentProfileAudit('TENANT_PAYMENT_GATEWAY_PROFILE_CREATED', tenant, saved.id, actor, { name: profile.name, environment: profile.environment, activated: activate });
+        return this.getPaymentGateway(id);
+    }
+
+    async updatePaymentGatewayProfile(id: string, profileId: string, payload: PaymentGatewayProfilePayload, actor: SuperAdminActorContext) {
+        const tenant = await this.requireTenant(id);
+        const existing = await this.requirePaymentGatewayProfile(tenant.id, profileId);
+        const profile = this.normalizePaymentGatewayProfilePayload(payload, false, existing);
+        const encryptedToken = profile.accessToken ? this.encryptPaymentGatewaySecret(profile.accessToken) : existing.access_token_encrypted;
+
+        await this.dataSource.transaction(async (manager) => {
+            await manager.query(
+                `UPDATE tenant_payment_gateway_profiles
+                 SET name = $3, environment = $4, public_key = $5, access_token_encrypted = $6, updated_at = NOW()
+                 WHERE tenant_id = $1 AND id = $2`,
+                [tenant.id, profileId, profile.name, profile.environment, profile.publicKey, encryptedToken],
+            );
+            const refreshed = await manager.query(
+                `SELECT id, name, provider, environment, public_key, access_token_encrypted, is_active
+                 FROM tenant_payment_gateway_profiles WHERE tenant_id = $1 AND id = $2`, [tenant.id, profileId],
+            );
+            if (refreshed[0]?.is_active) await this.syncActivePaymentGatewayInTransaction(manager, tenant, refreshed[0]);
+            if (payload.activate === true && !refreshed[0]?.is_active) await this.activatePaymentGatewayProfileInTransaction(manager, tenant, profileId);
+        });
+        await this.recordPaymentProfileAudit('TENANT_PAYMENT_GATEWAY_PROFILE_UPDATED', tenant, profileId, actor, { name: profile.name, environment: profile.environment, activated: payload.activate === true });
+        return this.getPaymentGateway(id);
+    }
+
+    async activatePaymentGatewayProfile(id: string, profileId: string, actor: SuperAdminActorContext) {
+        const tenant = await this.requireTenant(id);
+        await this.requirePaymentGatewayProfile(tenant.id, profileId);
+        await this.dataSource.transaction((manager) => this.activatePaymentGatewayProfileInTransaction(manager, tenant, profileId));
+        await this.recordPaymentProfileAudit('TENANT_PAYMENT_GATEWAY_PROFILE_ACTIVATED', tenant, profileId, actor, {});
+        return this.getPaymentGateway(id);
+    }
+
+    async deletePaymentGatewayProfile(id: string, profileId: string, actor: SuperAdminActorContext) {
+        const tenant = await this.requireTenant(id);
+        const profile = await this.requirePaymentGatewayProfile(tenant.id, profileId);
+        if (profile.is_active) throw new BadRequestException('Ative outra credencial antes de excluir a atualmente ativa.');
+        await this.dataSource.query('DELETE FROM tenant_payment_gateway_profiles WHERE tenant_id = $1 AND id = $2', [tenant.id, profileId]);
+        await this.recordPaymentProfileAudit('TENANT_PAYMENT_GATEWAY_PROFILE_DELETED', tenant, profileId, actor, { name: profile.name, environment: profile.environment });
+        return this.getPaymentGateway(id);
     }
 
     async updatePaymentGateway(id: string, payload: PaymentGatewayPayload, actor: SuperAdminActorContext) {
@@ -2657,6 +2730,95 @@ export class SuperAdminService {
             accessTokenConfigured: !!String(configured?.access_token_encrypted || (legacy ? settings?.mp_access_token : '') || '').trim(),
             legacy,
         };
+    }
+
+    private async listPaymentGatewayProfiles(tenantId: string) {
+        const rows = await this.dataSource.query(
+            `SELECT id, name, provider, environment, public_key, is_active, created_at, updated_at,
+                    (access_token_encrypted IS NOT NULL AND access_token_encrypted <> '') AS access_token_configured
+             FROM tenant_payment_gateway_profiles
+             WHERE tenant_id = $1
+             ORDER BY is_active DESC, created_at ASC`,
+            [tenantId],
+        );
+        return (rows || []).map((row: any) => ({
+            id: row.id,
+            name: row.name,
+            provider: row.provider,
+            environment: row.environment,
+            publicKey: row.public_key,
+            publicKeyConfigured: !!row.public_key,
+            accessTokenConfigured: !!row.access_token_configured,
+            active: !!row.is_active,
+            createdAt: row.created_at,
+            updatedAt: row.updated_at,
+        }));
+    }
+
+    private async requireTenant(id: string) {
+        const tenant = await this.tenantRepo.findOne({ where: { id } });
+        if (!tenant) throw new NotFoundException('Tenant nao encontrado.');
+        return tenant;
+    }
+
+    private async requirePaymentGatewayProfile(tenantId: string, profileId: string): Promise<any> {
+        const rows = await this.dataSource.query(
+            `SELECT id, tenant_id, name, provider, environment, public_key, access_token_encrypted, is_active
+             FROM tenant_payment_gateway_profiles WHERE tenant_id = $1 AND id = $2`,
+            [tenantId, profileId],
+        );
+        if (!rows?.[0]) throw new NotFoundException('Credencial de pagamento não encontrada para este tenant.');
+        return rows[0];
+    }
+
+    private normalizePaymentGatewayProfilePayload(payload: PaymentGatewayProfilePayload, requireAccessToken: boolean, existing?: any) {
+        const name = this.normalizeOptionalText(payload.name ?? existing?.name, 100);
+        const provider = String(payload.provider ?? existing?.provider ?? 'MERCADO_PAGO').trim().toUpperCase();
+        const environment = String(payload.environment ?? existing?.environment ?? '').trim().toUpperCase();
+        const publicKey = String(payload.public_key ?? existing?.public_key ?? '').trim();
+        const accessToken = String(payload.access_token || '').trim();
+        if (!name) throw new BadRequestException('Informe um nome para identificar esta credencial.');
+        if (provider !== 'MERCADO_PAGO') throw new BadRequestException('Somente Mercado Pago é suportado neste momento.');
+        if (!['TEST', 'PRODUCTION'].includes(environment)) throw new BadRequestException('Escolha o ambiente de teste ou produção do Mercado Pago.');
+        if (!publicKey) throw new BadRequestException('A Public Key do Mercado Pago é obrigatória.');
+        if (requireAccessToken && !accessToken) throw new BadRequestException('Informe o Access Token do Mercado Pago.');
+        if (accessToken) this.validateMercadoPagoCredentials(environment, publicKey, accessToken);
+        if (!accessToken && !existing?.access_token_encrypted) throw new BadRequestException('Informe o Access Token do Mercado Pago.');
+        const expectedPrefix = environment === 'TEST' ? 'TEST-' : 'APP_USR-';
+        if (!publicKey.startsWith(expectedPrefix)) throw new BadRequestException(`A Public Key deve ser do ambiente ${environment === 'TEST' ? 'de teste' : 'de produção'}.`);
+        return { name, environment, publicKey, accessToken };
+    }
+
+    private async activatePaymentGatewayProfileInTransaction(manager: EntityManager, tenant: Tenant, profileId: string) {
+        const rows = await manager.query(
+            `SELECT id, tenant_id, name, provider, environment, public_key, access_token_encrypted
+             FROM tenant_payment_gateway_profiles WHERE tenant_id = $1 AND id = $2 FOR UPDATE`,
+            [tenant.id, profileId],
+        );
+        const profile = rows?.[0];
+        if (!profile) throw new NotFoundException('Credencial de pagamento não encontrada para este tenant.');
+        await manager.query('UPDATE tenant_payment_gateway_profiles SET is_active = FALSE, updated_at = NOW() WHERE tenant_id = $1 AND is_active = TRUE', [tenant.id]);
+        await manager.query('UPDATE tenant_payment_gateway_profiles SET is_active = TRUE, updated_at = NOW() WHERE tenant_id = $1 AND id = $2', [tenant.id, profileId]);
+        await this.syncActivePaymentGatewayInTransaction(manager, tenant, profile);
+    }
+
+    private async syncActivePaymentGatewayInTransaction(manager: EntityManager, tenant: Tenant, profile: any) {
+        const managedTenant = await manager.getRepository(Tenant).findOne({ where: { id: tenant.id } });
+        if (!managedTenant) throw new NotFoundException('Tenant nao encontrado.');
+        const settings = (managedTenant.settings || {}) as TenantSettings;
+        managedTenant.settings = {
+            ...settings,
+            payment_gateway: {
+                provider: 'MERCADO_PAGO', enabled: true, environment: profile.environment,
+                public_key: profile.public_key, access_token_encrypted: profile.access_token_encrypted,
+                profile_id: profile.id,
+            },
+        };
+        await manager.getRepository(Tenant).save(managedTenant);
+    }
+
+    private async recordPaymentProfileAudit(action: string, tenant: Tenant, profileId: string, actor: SuperAdminActorContext, details: Record<string, unknown>) {
+        await this.recordAuditLog({ action, entityType: 'TENANT_PAYMENT_GATEWAY_PROFILE', entityId: profileId, tenantId: tenant.id, actor, details });
     }
 
     private encryptPaymentGatewaySecret(value: string) {

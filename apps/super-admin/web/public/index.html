@@ -495,7 +495,7 @@
 
     <!-- MODAL: Gateway de Pagamento -->
     <div class="modal-overlay" id="payment-gateway-modal">
-        <div class="modal-content" style="max-width: 540px;">
+        <div class="modal-content" style="max-width: 680px;">
             <div class="modal-header">
                 <h3>Gateway de Pagamento</h3>
                 <button onclick="closePaymentGatewayModal()" style="background:transparent;border:none;color:var(--text-muted);cursor:pointer;font-size:20px">✕</button>
@@ -503,44 +503,45 @@
             <div class="modal-body">
                 <form id="payment-gateway-form" onsubmit="savePaymentGateway(event)">
                     <input type="hidden" id="pgm-tenant-id">
+                    <input type="hidden" id="pgm-profile-id">
                     <p id="pgm-tenant-name" style="margin:0 0 18px;font-weight:600"></p>
+                    <div style="margin-bottom:20px">
+                        <div style="font-size:13px;font-weight:700;margin-bottom:8px">Credenciais cadastradas</div>
+                        <div id="pgm-profiles"></div>
+                    </div>
+                    <div style="border-top:1px solid var(--border);padding-top:18px">
+                    <div id="pgm-form-title" style="font-size:14px;font-weight:700;margin-bottom:12px">Nova credencial Mercado Pago</div>
                     <div class="form-group">
-                        <label>Provedor</label>
-                        <select id="pgm-provider" class="input" onchange="togglePaymentGatewayFields()">
-                            <option value="NONE">Sem gateway</option>
-                            <option value="MERCADO_PAGO">Mercado Pago</option>
+                        <label>Nome da credencial</label>
+                        <input type="text" id="pgm-profile-name" class="input" maxlength="100" placeholder="Ex.: Anderson - Sandbox">
+                    </div>
+                    <div class="form-group">
+                        <label>Ambiente</label>
+                        <select id="pgm-environment" class="input">
+                            <option value="TEST">Teste</option>
+                            <option value="PRODUCTION">Produção</option>
                         </select>
                     </div>
-                    <div id="pgm-mercadopago-fields">
-                        <div class="form-group">
-                            <label>Ambiente</label>
-                            <select id="pgm-environment" class="input">
-                                <option value="TEST">Teste</option>
-                                <option value="PRODUCTION">Produção</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label>Public Key</label>
-                            <input type="text" id="pgm-public-key" class="input" autocomplete="off" placeholder="TEST-... ou APP_USR-...">
-                        </div>
-                        <div class="form-group">
-                            <label>Access Token</label>
-                            <input type="password" id="pgm-access-token" class="input" autocomplete="new-password" placeholder="Preencha apenas para criar ou trocar">
-                            <small id="pgm-token-status" style="color:var(--text-muted);font-size:12px;display:block;margin-top:4px"></small>
-                        </div>
-                        <label style="display:flex;gap:8px;align-items:center;color:var(--text-muted);font-size:13px">
-                            <input type="checkbox" id="pgm-clear-token"> Remover o token salvo
-                        </label>
+                    <div class="form-group">
+                        <label>Public Key</label>
+                        <input type="text" id="pgm-public-key" class="input" autocomplete="off" placeholder="TEST-... ou APP_USR-...">
+                    </div>
+                    <div class="form-group">
+                        <label>Access Token</label>
+                        <input type="password" id="pgm-access-token" class="input" autocomplete="new-password" placeholder="Preencha para criar ou trocar">
+                        <small id="pgm-token-status" style="color:var(--text-muted);font-size:12px;display:block;margin-top:4px"></small>
                     </div>
                     <label style="display:flex;gap:8px;align-items:center;margin-top:18px;font-weight:600">
-                        <input type="checkbox" id="pgm-enabled"> Ativar pagamentos para este tenant
+                        <input type="checkbox" id="pgm-activate" checked> Usar esta credencial como ativa para o tenant
                     </label>
-                    <small style="color:var(--text-muted);font-size:12px;display:block;margin-top:8px">O token é cifrado e não é exibido novamente. A Public Key pode ser entregue ao checkout somente para tokenização de cartão.</small>
+                    <small style="color:var(--text-muted);font-size:12px;display:block;margin-top:8px">A credencial ativa é a única enviada ao checkout. O token é cifrado e não é exibido novamente.</small>
+                    </div>
                 </form>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn" style="background:transparent;border:1px solid var(--border);color:white" onclick="closePaymentGatewayModal()">Cancelar</button>
-                <button type="submit" form="payment-gateway-form" class="btn">Salvar gateway</button>
+                <button type="button" class="btn" style="background:transparent;border:1px solid var(--border);color:white" onclick="resetPaymentGatewayProfileForm()">Nova credencial</button>
+                <button type="submit" form="payment-gateway-form" class="btn">Salvar credencial</button>
             </div>
         </div>
     </div>
