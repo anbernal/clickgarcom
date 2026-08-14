@@ -651,11 +651,14 @@ func (uc *HandleWhatsAppMessageUseCase) sendDeliveryPaymentLink(ctx context.Cont
 		return "❌ Não consegui abrir o pagamento agora. Tente novamente.", session.StateDeliveryCheckoutReview, nil
 	}
 	targetURL := buildDeliveryPublicCheckoutURL(uc.resolveCurrentPublicCheckoutBaseURL(), userTab.ID.String(), accessToken, checkoutKey)
-	body := "💳 *Pagamento da entrega*\n\nFrete e total estão reservados. Toque no botão abaixo para pagar e enviar o pedido para o restaurante."
+	body := "💳 *Pagamento da entrega*\n\nFrete e total estão reservados. Toque no botão abaixo para pagar e enviar o pedido para o restaurante.\n\nSe o link vencer ou não abrir, envie *pagamento* para gerar outro. Para desistir, envie *cancelar pedido*."
 	if sender, ok := uc.sender.(WhatsAppURLButtonSender); ok {
 		_, sendErr := sender.SendInteractiveURLButton(whatsapp.WithTenantID(ctx, sess.TenantID), sess.UserPhone, whatsapp.WithRestaurantHeader(uc.resolveTenantName(ctx, sess.TenantID), body), "💳 Ir para pagamento", targetURL)
 		if sendErr == nil {
-			return "✅ Link de pagamento enviado. Se ele vencer ou não abrir, toque em *Abrir pagamento* para gerar outro. Você também pode cancelar o pedido antes do pagamento.", session.StateDeliveryCheckoutReview, nil
+			// The URL button is already the complete payment message. Returning an
+			// empty response prevents HandleWhatsAppMessage from immediately sending
+			// a second, competing checkout-review prompt below it.
+			return "", session.StateDeliveryCheckoutReview, nil
 		}
 		uc.logger.Warn("failed to send delivery payment URL button", zap.Error(sendErr))
 	}
