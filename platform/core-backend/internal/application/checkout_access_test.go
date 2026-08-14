@@ -36,7 +36,7 @@ func TestBuildDeliveryPublicCheckoutURLCarriesTheFrozenCheckoutKey(t *testing.T)
 		"signed-token",
 		"delivery-checkout-key",
 	)
-	const want = "https://clickgarcom.example/checkout.html#access_token=signed-token&delivery_checkout_key=delivery-checkout-key&tab_id=tab-test"
+	const want = "https://clickgarcom.example/checkout.html?access_token=signed-token&delivery_checkout_key=delivery-checkout-key&tab_id=tab-test"
 	if got != want {
 		t.Fatalf("buildDeliveryPublicCheckoutURL() = %q, want %q", got, want)
 	}

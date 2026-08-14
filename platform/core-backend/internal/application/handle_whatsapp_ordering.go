@@ -3749,7 +3749,11 @@ func buildDeliveryPublicCheckoutURL(baseURL string, tabID string, accessToken st
 	query.Set("tab_id", strings.TrimSpace(tabID))
 	query.Set("access_token", strings.TrimSpace(accessToken))
 	query.Set("delivery_checkout_key", strings.TrimSpace(checkoutKey))
-	return strings.TrimRight(strings.TrimSpace(baseURL), "/") + "/checkout.html#" + query.Encode()
+	// WhatsApp CTA URL buttons can drop URL fragments when forwarding the
+	// customer to the browser. Delivery checkout credentials must therefore be
+	// carried in the query string. checkout.js consumes them immediately and
+	// replaces the browser history with the clean checkout path.
+	return strings.TrimRight(strings.TrimSpace(baseURL), "/") + "/checkout.html?" + query.Encode()
 }
 
 func buildPublicExitURL(baseURL string, tabID string, accessToken string) string {
