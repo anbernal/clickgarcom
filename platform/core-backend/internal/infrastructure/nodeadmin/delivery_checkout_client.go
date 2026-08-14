@@ -133,6 +133,15 @@ func (c *DeliveryCheckoutClient) Get(ctx context.Context, tenantID uuid.UUID, ch
 	return response, nil
 }
 
+func (c *DeliveryCheckoutClient) Cancel(ctx context.Context, tenantID uuid.UUID, checkoutKey string) (DeliveryCheckoutResponse, error) {
+	var response DeliveryCheckoutResponse
+	path := "/admin/api/internal/delivery/checkout/" + url.PathEscape(strings.TrimSpace(checkoutKey)) + "/cancel"
+	if err := c.request(ctx, http.MethodPost, path, tenantID, nil, &response); err != nil {
+		return DeliveryCheckoutResponse{}, err
+	}
+	return response, nil
+}
+
 func (c *DeliveryCheckoutClient) post(ctx context.Context, path string, payload interface{}, target interface{}) error {
 	return c.request(ctx, http.MethodPost, path, uuid.Nil, payload, target)
 }

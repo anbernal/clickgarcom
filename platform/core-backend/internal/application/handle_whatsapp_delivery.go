@@ -758,7 +758,15 @@ func (uc *HandleWhatsAppMessageUseCase) exitDeliveryFlow(
 }
 
 func (uc *HandleWhatsAppMessageUseCase) cancelPendingDeliveryOrder(ctx context.Context, sess *session.Session) {
-	if sess == nil || uc.createOrderUC == nil || uc.getContextString(sess, deliveryCheckoutPaidKey) == "true" {
+	if sess == nil || uc.getContextString(sess, deliveryCheckoutPaidKey) == "true" {
+		return
+	}
+	if uc.deliveryCheckout != nil {
+		if err := uc.deliveryCheckout.Cancel(ctx, sess.TenantID, uc.getContextString(sess, deliveryCheckoutKeyKey)); err != nil {
+			uc.logger.Warn("failed to cancel abandoned delivery checkout", zap.Error(err))
+		}
+	}
+	if uc.createOrderUC == nil {
 		return
 	}
 	batchID, err := uuid.Parse(uc.getContextString(sess, deliveryOrderBatchKey))

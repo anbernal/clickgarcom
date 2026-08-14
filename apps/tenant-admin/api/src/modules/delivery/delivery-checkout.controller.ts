@@ -47,6 +47,13 @@ export class DeliveryCheckoutInternalController {
         return this.checkoutService.confirmPaidInternally(body.tenant_id, body);
     }
 
+    @Post(':checkoutKey/cancel')
+    cancel(@Headers('x-internal-token') token: string, @Param('checkoutKey') checkoutKey: string, @Headers('x-tenant-id') tenantId?: string) {
+        this.assertInternalToken(token);
+        if (!tenantId) throw new UnauthorizedException('x-tenant-id is required');
+        return this.checkoutService.cancel(tenantId, checkoutKey);
+    }
+
     @Get(':checkoutKey')
     get(@Headers('x-internal-token') token: string, @Param('checkoutKey') checkoutKey: string, @Headers('x-tenant-id') tenantId?: string) {
         this.assertInternalToken(token);

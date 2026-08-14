@@ -204,6 +204,27 @@ export class DeliveryCheckoutService {
         return this.view(checkout, null);
     }
 
+    async cancel(tenantId: string, checkoutKey: string, reason = 'CHECKOUT_ABANDONED') {
+        const result = await this.dataSource.transaction(async (manager) => {
+            const repository = manager.getRepository(DeliveryCheckout);
+            const checkout = await repository.createQueryBuilder('checkout')
+                .where('checkout.tenant_id = :tenantId AND checkout.checkout_key = :checkoutKey', { tenantId, checkoutKey: String(checkoutKey || '').trim() })
+                .setLock('pessimistic_write')
+                .getOne();
+            if (!checkout) throw new NotFoundException('Checkout não encontrado.');
+            if (checkout.status === 'PAID') return checkout;
+            if (checkout.status === 'PENDING_PAYMENT') {
+                checkout.status = 'CANCELED';
+                await repository.save(checkout);
+            }
+            return checkout;
+        });
+        if (result.fulfillmentMode === 'OWN' && result.status === 'CANCELED') {
+            await this.capacityService.release(tenantId, result.checkoutKey, reason).catch(() => undefined);
+        }
+        return this.view(result, null);
+    }
+
     async expire(tenantId?: string) {
         const query = this.checkouts.createQueryBuilder('checkout')
             .where('checkout.status = :status AND checkout.expires_at <= :now', { status: 'PENDING_PAYMENT', now: new Date() });

@@ -30,6 +30,10 @@ type DeliveryCheckoutPaidGateway interface {
 	ConfirmPaid(context.Context, nodeadmin.DeliveryCheckoutPaidConfirmation) (nodeadmin.DeliveryCheckoutResponse, error)
 }
 
+type DeliveryCheckoutCancellationGateway interface {
+	Cancel(context.Context, uuid.UUID, string) (nodeadmin.DeliveryCheckoutResponse, error)
+}
+
 type DeliveryCheckoutCoordinator struct {
 	gateway DeliveryCheckoutGateway
 	logger  *zap.Logger
@@ -193,6 +197,26 @@ func (c *DeliveryCheckoutCoordinator) Reconcile(ctx context.Context, tenantID uu
 		return nodeadmin.DeliveryCheckoutResponse{}, fmt.Errorf("delivery checkout reconciliation scope mismatch")
 	}
 	return response, nil
+}
+
+// Cancel releases a pending checkout hold when a customer abandons the
+// WhatsApp delivery flow. A paid checkout is intentionally left untouched.
+func (c *DeliveryCheckoutCoordinator) Cancel(ctx context.Context, tenantID uuid.UUID, checkoutKey string) error {
+	if c == nil || c.gateway == nil || tenantID == uuid.Nil || strings.TrimSpace(checkoutKey) == "" {
+		return nil
+	}
+	canceler, ok := c.gateway.(DeliveryCheckoutCancellationGateway)
+	if !ok {
+		return nil
+	}
+	response, err := canceler.Cancel(ctx, tenantID, strings.TrimSpace(checkoutKey))
+	if err != nil {
+		return err
+	}
+	if response.TenantID != tenantID || response.CheckoutKey != strings.TrimSpace(checkoutKey) {
+		return fmt.Errorf("delivery checkout cancellation scope mismatch")
+	}
+	return nil
 }
 
 func BuildDeliveryCheckoutKey(input DeliveryCheckoutCreateInput) string {
