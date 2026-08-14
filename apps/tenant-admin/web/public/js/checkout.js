@@ -270,8 +270,11 @@ function updateCheckoutExpiryNotice() {
 
     securityPillEl.classList.remove('urgent', 'expired');
 
+    const deliveryExpiry = currentTabData?.isDeliveryCheckout
+        ? new Date(currentTabData?.deliveryCheckout?.expiresAt || '').getTime() / 1000
+        : 0;
     const tokenPayload = decodeJwtPayload(currentAccessToken);
-    const expiresAt = Number(tokenPayload?.exp || 0);
+    const expiresAt = Number(deliveryExpiry || tokenPayload?.exp || 0);
     if (!expiresAt) {
         securityPillEl.textContent = '🔒 Link individual • expira em 30 minutos';
         expiryDetailEl.textContent = 'Por segurança, após esse prazo será necessário pedir um novo link no WhatsApp.';
@@ -282,7 +285,9 @@ function updateCheckoutExpiryNotice() {
     if (remainingSeconds <= 0) {
         securityPillEl.textContent = '⛔ Link expirado';
         securityPillEl.classList.add('expired');
-        expiryDetailEl.textContent = 'Este link venceu. Volte ao WhatsApp e solicite um novo link para pagar pelo celular.';
+        expiryDetailEl.textContent = currentTabData?.isDeliveryCheckout
+            ? 'A cotação da entrega venceu. Volte ao WhatsApp para revisar frete e total novamente.'
+            : 'Este link venceu. Volte ao WhatsApp e solicite um novo link para pagar pelo celular.';
         return;
     }
 
@@ -291,7 +296,9 @@ function updateCheckoutExpiryNotice() {
     }
 
     securityPillEl.textContent = `🔒 Link individual • expira em ${formatRemainingValidity(remainingSeconds)}`;
-    expiryDetailEl.textContent = 'Por segurança, após esse prazo será necessário pedir um novo link no WhatsApp.';
+    expiryDetailEl.textContent = currentTabData?.isDeliveryCheckout
+        ? 'Frete e total ficam reservados somente até este horário.'
+        : 'Por segurança, após esse prazo será necessário pedir um novo link no WhatsApp.';
 }
 
 function activatePaymentTab(method) {
@@ -369,18 +376,78 @@ function buildPublicApiUrl(path) {
     return new URL(`${PUBLIC_API_URL}${path}`, window.location.origin).toString();
 }
 
+function buildCheckoutApiUrl(path) {
+    const url = new URL(buildPublicApiUrl(path));
+    if (currentDeliveryCheckoutKey) {
+        url.searchParams.set('delivery_checkout_key', currentDeliveryCheckoutKey);
+    }
+    return url.toString();
+}
+
 async function loadTabData(tabId) {
-    return fetchJson(buildPublicApiUrl(`/tabs/${tabId}`), {
+    return fetchJson(buildCheckoutApiUrl(`/tabs/${tabId}`), {
         headers: buildPublicApiHeaders(),
     });
 }
 
 function resolveCheckoutLabel(tab) {
     const tenantName = String(tab?.tenantName || 'ClickGarcom').trim();
+    if (tab?.isDeliveryCheckout) {
+        return `${tenantName} · Pedido para entrega`;
+    }
     const tableNumber = String(tab?.tableNumber || '').trim();
     const publicCode = String(tab?.publicCode || '').trim();
     const location = tableNumber ? `Mesa ${tableNumber}` : 'Comanda digital';
     return `${tenantName} · ${location}${publicCode ? ` · CÓDIGO DA COMANDA: ${publicCode}` : ''}`;
+}
+
+function formatDeliveryAddress(address) {
+    if (!address || typeof address !== 'object') return '';
+    const formatted = String(address.formatted_address || address.formattedAddress || '').trim();
+    if (formatted) return formatted;
+    const street = String(address.street || '').trim();
+    const number = String(address.address_number || address.addressNumber || '').trim();
+    const neighborhood = String(address.neighborhood || '').trim();
+    const city = String(address.city || '').trim();
+    const state = String(address.state || '').trim();
+    const postalCode = String(address.postal_code || address.postalCode || '').trim();
+    return [street && number ? `${street}, ${number}` : street, neighborhood, city && state ? `${city}/${state}` : city || state, postalCode && `CEP ${postalCode}`]
+        .filter(Boolean)
+        .join(' · ');
+}
+
+function renderDeliveryCheckoutDetails(tab) {
+    const container = document.getElementById('delivery-checkout-details');
+    const itemsEl = document.getElementById('delivery-checkout-items');
+    const addressEl = document.getElementById('delivery-checkout-address');
+    const amountsEl = document.getElementById('delivery-checkout-amounts');
+    if (!container || !itemsEl || !addressEl || !amountsEl) return;
+
+    const checkout = tab?.deliveryCheckout;
+    if (!tab?.isDeliveryCheckout || !checkout) {
+        container.style.display = 'none';
+        itemsEl.replaceChildren();
+        return;
+    }
+
+    container.style.display = 'block';
+    itemsEl.replaceChildren();
+    (checkout.items || []).forEach((item) => {
+        const row = document.createElement('div');
+        row.className = 'delivery-checkout-row';
+        const quantity = Number(item?.quantity || 0);
+        const name = String(item?.name || 'Item');
+        row.textContent = `${quantity}x ${name}`;
+        itemsEl.appendChild(row);
+    });
+    if (!itemsEl.childElementCount) {
+        const row = document.createElement('div');
+        row.className = 'delivery-checkout-row';
+        row.textContent = 'Itens do pedido indisponíveis';
+        itemsEl.appendChild(row);
+    }
+    addressEl.textContent = `Entregar em: ${formatDeliveryAddress(checkout.address) || 'endereço confirmado'}`;
+    amountsEl.textContent = `Itens ${fmtBRL(checkout.subtotal)} · Frete ${fmtBRL(checkout.deliveryFee)} · Total ${fmtBRL(checkout.total)}`;
 }
 
 function buildExitValidationUrl() {
@@ -413,9 +480,17 @@ function setCheckoutState(tab) {
     const totalEl = document.getElementById('checkout-total-amount');
     const pixBtn = document.getElementById('btn-generate-pix');
     const cardBtn = document.getElementById('form-checkout__submit');
+    const pixInfoEl = document.getElementById('checkout-pix-info-text');
 
     infoEl.textContent = resolveCheckoutLabel(tab);
     totalEl.textContent = fmtBRL(currentAmount);
+    renderDeliveryCheckoutDetails(tab);
+    updateCheckoutExpiryNotice();
+    if (pixInfoEl) {
+        pixInfoEl.innerHTML = tab?.isDeliveryCheckout
+            ? 'Pagamento seguro via PIX.<br>Após a confirmação, seu pedido é liberado para o restaurante.'
+            : 'Pagamento 100% seguro via PIX.<br>O valor é creditado automaticamente na comanda.';
+    }
 
     const closed = !!tab?.closed || currentAmount <= 0;
     if (closed) {
@@ -478,7 +553,7 @@ async function startPaymentPolling(paymentId, options = {}) {
     stopPixPolling();
     pixPollingTimer = window.setInterval(async () => {
         try {
-            const status = await fetchJson(buildPublicApiUrl(`/tabs/${currentTabId}/payments/${paymentId}/status`), {
+            const status = await fetchJson(buildCheckoutApiUrl(`/tabs/${currentTabId}/payments/${paymentId}/status`), {
                 headers: buildPublicApiHeaders(),
             });
             renderPixDetails(status);
@@ -667,8 +742,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                 if (String(response?.status || '').trim().toLowerCase() === 'approved' || response?.tabClosed) {
                     await refreshTabState();
+                    const deliveryMessage = response?.deliveryPayment
+                        ? 'Seu pagamento foi aprovado. Estamos confirmando a entrega com o restaurante.'
+                        : 'Sua conta foi finalizada com sucesso.';
                     document.getElementById('form-checkout').innerHTML =
-                        '<h3 style="color:var(--success);text-align:center">Pagamento aprovado</h3><p style="text-align:center">Sua conta foi finalizada com sucesso.</p>';
+                        `<h3 style="color:var(--success);text-align:center">Pagamento aprovado</h3><p style="text-align:center">${deliveryMessage}</p>`;
                     return;
                 }
 

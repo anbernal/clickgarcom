@@ -9,18 +9,19 @@ export class InternalTablesController {
     @Post('settlements/approve')
     async approveSettlement(
         @Headers('x-internal-token') token: string,
-        @Body() body: { tenant_id?: string; tab_id?: string },
+        @Body() body: { tenant_id?: string; tab_id?: string; payment_id?: string },
     ) {
         this.assertInternalToken(token);
 
         const tenantId = String(body?.tenant_id || '').trim();
         const tabId = String(body?.tab_id || '').trim();
+        const paymentId = String(body?.payment_id || '').trim();
 
         if (!tenantId || !tabId) {
             throw new BadRequestException('tenant_id and tab_id are required');
         }
 
-        return this.tablesService.confirmApprovedPaymentSettlement(tenantId, tabId);
+        return this.tablesService.confirmApprovedPaymentSettlement(tenantId, tabId, paymentId);
     }
 
     @Post('portal-access')

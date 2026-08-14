@@ -20,6 +20,19 @@ type TabActorContext = {
     requestedAmount?: number;
 };
 
+type PublicDeliveryCheckoutContext = {
+    checkoutKey: string;
+    orderBatchId: string;
+    orderId: string;
+    status: string;
+    expiresAt: Date | null;
+    orderTotal: number;
+    deliveryFee: number;
+    totalAmount: number;
+    addressSnapshot: Record<string, any>;
+    items: Array<{ name: string; quantity: number; unitPrice: number }>;
+};
+
 @Injectable()
 export class TablesService {
     private readonly logger = new Logger(TablesService.name);
@@ -1687,7 +1700,26 @@ export class TablesService {
         };
     }
 
-    async confirmApprovedPaymentSettlement(tenantId: string, tabId: string) {
+    async confirmApprovedPaymentSettlement(tenantId: string, tabId: string, paymentId?: string) {
+        const normalizedPaymentId = String(paymentId || '').trim();
+        if (normalizedPaymentId) {
+            const rows = await this.dataSource.query(
+                `SELECT metadata
+                   FROM payments
+                  WHERE id = $1
+                    AND tenant_id = $2
+                    AND tab_id = $3
+                  LIMIT 1`,
+                [normalizedPaymentId, tenantId, tabId],
+            );
+            const metadata = this.parseJsonObject(rows?.[0]?.metadata);
+            if (String(metadata?.delivery_checkout_key || '').trim()) {
+                // Delivery has an immutable financial checkout and a dedicated
+                // reconciliation path. Never settle the technical tab here:
+                // its generic total may include historical/internal values.
+                return { ok: true, alreadyClosed: false, deliveryPayment: true, tab: null };
+            }
+        }
         const result = await this.finalizeTabInternal(tabId, tenantId, {
             closureSource: 'PAYMENT_APPROVED',
         });
@@ -2359,10 +2391,15 @@ export class TablesService {
         }
     }
 
-    async getPublicTabById(tabId: string, accessToken?: string) {
+    async getPublicTabById(tabId: string, accessToken?: string, deliveryCheckoutKey?: string) {
         const tab = await this.loadPublicTabContext(tabId, accessToken);
         if (!tab) {
             throw new NotFoundException('Comanda não encontrada');
+        }
+
+        const deliveryCheckout = await this.resolvePublicDeliveryCheckout(tab, deliveryCheckoutKey);
+        if (deliveryCheckout) {
+            return this.buildPublicDeliveryCheckoutPayload(tab, deliveryCheckout);
         }
 
         return this.buildPublicTabPayload(tab);
@@ -2465,21 +2502,27 @@ export class TablesService {
             throw new NotFoundException('Comanda não encontrada');
         }
 
-        const amountDue = await this.resolvePaymentAmount(tab, this.resolvePayerField(payload['delivery_checkout_key'], ''));
+        const checkoutKey = this.resolvePayerField(payload['delivery_checkout_key'], '');
+        const deliveryCheckout = await this.resolvePublicDeliveryCheckout(tab, checkoutKey, true);
+        const amountDue = deliveryCheckout
+            ? deliveryCheckout.totalAmount
+            : this.getAmountDue(tab.total, tab.paidAmount, tab.status);
         if (amountDue <= 0) {
             return {
                 status: 'approved',
                 approved: true,
-                tabClosed: true,
+                tabClosed: !deliveryCheckout,
             };
         }
 
-        const orderId = await this.resolveAnchorOrderId(tabId, tab.tenantId);
+        const orderId = deliveryCheckout?.orderId || await this.resolveAnchorOrderId(tabId, tab.tenantId);
         const response = await this.walletService.createPixPayment(tab.tenantId, {
             order_id: orderId,
             amount: amountDue,
-            delivery_checkout_key: this.resolvePayerField(payload['delivery_checkout_key'], ''),
-            description: this.buildCheckoutDescription(tab),
+            delivery_checkout_key: deliveryCheckout?.checkoutKey || '',
+            description: deliveryCheckout
+                ? this.buildDeliveryCheckoutDescription(tab)
+                : this.buildCheckoutDescription(tab),
             payer_email: this.resolvePayerField(payload['payer_email'], 'cliente@email.com'),
             payer_name: this.resolvePayerField(payload['payer_name'], 'Visitante'),
             payer_cpf: this.resolveCpf(payload['payer_cpf']),
@@ -2502,16 +2545,20 @@ export class TablesService {
             throw new BadRequestException(cardCheckoutConfig.reason);
         }
 
-        const amountDue = await this.resolvePaymentAmount(tab, this.resolvePayerField(payload['delivery_checkout_key'], ''));
+        const checkoutKey = this.resolvePayerField(payload['delivery_checkout_key'], '');
+        const deliveryCheckout = await this.resolvePublicDeliveryCheckout(tab, checkoutKey, true);
+        const amountDue = deliveryCheckout
+            ? deliveryCheckout.totalAmount
+            : this.getAmountDue(tab.total, tab.paidAmount, tab.status);
         if (amountDue <= 0) {
             return {
                 status: 'approved',
                 approved: true,
-                tabClosed: true,
+                tabClosed: !deliveryCheckout,
             };
         }
 
-        const orderId = await this.resolveAnchorOrderId(tabId, tab.tenantId);
+        const orderId = deliveryCheckout?.orderId || await this.resolveAnchorOrderId(tabId, tab.tenantId);
         const paymentMethodId = String(payload['payment_method_id'] || '').trim();
         if (!paymentMethodId) {
             throw new BadRequestException('Não foi possível identificar a bandeira do cartão');
@@ -2521,9 +2568,11 @@ export class TablesService {
         const cardPayload: Record<string, unknown> = {
             order_id: orderId,
             amount: amountDue,
-            delivery_checkout_key: this.resolvePayerField(payload['delivery_checkout_key'], ''),
+            delivery_checkout_key: deliveryCheckout?.checkoutKey || '',
             token: String(payload['token'] || '').trim(),
-            description: this.buildCheckoutDescription(tab),
+            description: deliveryCheckout
+                ? this.buildDeliveryCheckoutDescription(tab)
+                : this.buildCheckoutDescription(tab),
             installments: Math.max(1, Number(payload['installments'] || 1) || 1),
             payment_method_id: paymentMethodId,
             payer_email: this.resolvePayerField(payload['payer_email'], 'cliente@email.com'),
@@ -2536,44 +2585,75 @@ export class TablesService {
         const response = await this.walletService.createCardPayment(tab.tenantId, cardPayload);
 
         const status = String(response?.status || '').trim().toLowerCase();
-        if (status === 'approved') {
+        if (status === 'approved' && !deliveryCheckout) {
             await this.finalizeTabInternal(tabId, tab.tenantId, {});
         }
 
         return {
             ...response,
             amount_due: amountDue,
-            tabClosed: status === 'approved',
+            tabClosed: status === 'approved' && !deliveryCheckout,
+            deliveryPayment: !!deliveryCheckout,
         };
     }
 
-    async getPublicPaymentStatus(tabId: string, paymentId: string, accessToken?: string) {
+    async getPublicPaymentStatus(tabId: string, paymentId: string, accessToken?: string, deliveryCheckoutKey?: string) {
         const tab = await this.loadPublicTabContext(tabId, accessToken);
         if (!tab) {
             throw new NotFoundException('Comanda não encontrada');
         }
 
-        const amountDue = this.getAmountDue(tab.total, tab.paidAmount, tab.status);
+        const deliveryCheckout = await this.resolvePublicDeliveryCheckout(tab, deliveryCheckoutKey);
+        const amountDue = deliveryCheckout
+            ? deliveryCheckout.totalAmount
+            : this.getAmountDue(tab.total, tab.paidAmount, tab.status);
         if (amountDue <= 0) {
             return {
                 payment_id: paymentId,
                 status: 'approved',
                 approved: true,
-                tabClosed: true,
+                tabClosed: !deliveryCheckout,
+                deliveryPayment: !!deliveryCheckout,
             };
+        }
+
+        if (deliveryCheckout) {
+            await this.assertDeliveryPaymentBelongsToCheckout(tab, paymentId, deliveryCheckout);
         }
 
         const payment = await this.walletService.getPaymentStatus(tab.tenantId, paymentId);
         const approved = !!payment?.approved || String(payment?.status || '').trim().toLowerCase() === 'approved';
-        if (approved) {
+        if (approved && !deliveryCheckout) {
             await this.finalizeTabInternal(tabId, tab.tenantId, {});
         }
 
         return {
             ...payment,
             approved,
-            tabClosed: approved,
+            tabClosed: approved && !deliveryCheckout,
+            deliveryPayment: !!deliveryCheckout,
         };
+    }
+
+    private async assertDeliveryPaymentBelongsToCheckout(
+        tab: { id: string; tenantId: string },
+        paymentId: string,
+        checkout: PublicDeliveryCheckoutContext,
+    ) {
+        const rows = await this.dataSource.query(
+            `SELECT metadata
+               FROM payments
+              WHERE id = $1
+                AND tenant_id = $2
+                AND tab_id = $3
+              LIMIT 1`,
+            [paymentId, tab.tenantId, tab.id],
+        );
+        const metadata = this.parseJsonObject(rows?.[0]?.metadata);
+        if (String(metadata?.delivery_checkout_key || '').trim() !== checkout.checkoutKey ||
+            String(metadata?.delivery_order_batch_id || '').trim() !== checkout.orderBatchId) {
+            throw new UnauthorizedException('Pagamento não corresponde a este pedido de entrega.');
+        }
     }
 
     async getOpenWaiterChats(tenantId: string) {
@@ -3540,6 +3620,7 @@ export class TablesService {
                     tb.public_code,
                     tb.service_mode,
                     tb.exit_validated_at,
+                    tb.opening_channel,
                     tb.total,
                     tb.paid_amount,
                     tb.status,
@@ -3575,6 +3656,7 @@ export class TablesService {
             publicCode: String(row.public_code || '').trim() || null,
             serviceMode: String(row.service_mode || 'COM_MESA').trim() || 'COM_MESA',
             exitValidatedAt: row.exit_validated_at || null,
+            openingChannel: String(row.opening_channel || '').trim(),
             userPhone: String(row.user_phone || ''),
             subtotal: financialSnapshot.subtotal,
             serviceFee: financialSnapshot.serviceFee,
@@ -3590,12 +3672,116 @@ export class TablesService {
         };
     }
 
+    private async resolvePublicDeliveryCheckout(
+        tab: { id: string; tenantId: string; openingChannel?: string },
+        rawCheckoutKey?: string,
+        requirePendingPayment = false,
+    ): Promise<PublicDeliveryCheckoutContext | null> {
+        const checkoutKey = String(rawCheckoutKey || '').trim();
+        const isDeliveryTechnicalTab = String(tab.openingChannel || '').trim().toUpperCase() === 'WHATSAPP_DELIVERY';
+        if (!checkoutKey) {
+            if (isDeliveryTechnicalTab) {
+                throw new BadRequestException('Link de pagamento de entrega inválido ou incompleto. Solicite um novo link pelo WhatsApp.');
+            }
+            return null;
+        }
+
+        const rows = await this.dataSource.query(
+            `SELECT dc.checkout_key,
+                    dc.order_batch_id,
+                    dc.status AS checkout_status,
+                    dc.expires_at,
+                    dc.order_total,
+                    dc.customer_delivery_fee,
+                    dc.total_amount,
+                    dc.address_snapshot,
+                    ob.tab_id,
+                    ob.status AS batch_status,
+                    ob.service_type,
+                    (
+                        SELECT o.id
+                          FROM orders o
+                         WHERE o.tenant_id = dc.tenant_id
+                           AND o.batch_id = ob.id
+                           AND o.tab_id = ob.tab_id
+                           AND o.status <> 'CANCELED'
+                         ORDER BY o.created_at ASC
+                         LIMIT 1
+                    ) AS order_id
+               FROM delivery_checkouts dc
+               JOIN order_batches ob
+                 ON ob.id = dc.order_batch_id
+                AND ob.tenant_id = dc.tenant_id
+              WHERE dc.tenant_id = $1
+                AND dc.checkout_key = $2
+                AND ob.tab_id = $3
+              LIMIT 1`,
+            [tab.tenantId, checkoutKey, tab.id],
+        );
+        const checkout = rows?.[0];
+        if (!checkout || String(checkout.service_type || '').trim().toUpperCase() !== 'DELIVERY') {
+            throw new BadRequestException('Checkout de entrega não corresponde a este pedido.');
+        }
+        if (String(checkout.batch_status || '').trim().toUpperCase() === 'CANCELED') {
+            throw new BadRequestException('Pedido de entrega cancelado. Solicite um novo pedido pelo WhatsApp.');
+        }
+        const status = String(checkout.checkout_status || '').trim().toUpperCase();
+        const expiresAt = checkout.expires_at ? new Date(checkout.expires_at) : null;
+        if (status !== 'PENDING_PAYMENT' && status !== 'PAID') {
+            throw new BadRequestException('Checkout de entrega indisponível.');
+        }
+        if (status === 'PENDING_PAYMENT' && (!expiresAt || expiresAt <= new Date())) {
+            throw new BadRequestException('Checkout de entrega expirado. Solicite uma nova cotação pelo WhatsApp.');
+        }
+        if (requirePendingPayment && status !== 'PENDING_PAYMENT') {
+            throw new BadRequestException('Este checkout de entrega já foi pago ou não está disponível.');
+        }
+        const orderId = String(checkout.order_id || '').trim();
+        if (!orderId) {
+            throw new BadRequestException('Não encontrei os itens deste pedido de entrega.');
+        }
+
+        const items = await this.dataSource.query(
+            `SELECT COALESCE(NULLIF(oi.item_name_snapshot, ''), mi.name, 'Item') AS name,
+                    GREATEST(oi.quantity - COALESCE(oi.voided_quantity, 0), 0)::int AS quantity,
+                    oi.unit_price AS unit_price
+               FROM orders o
+               JOIN order_items oi ON oi.order_id = o.id
+          LEFT JOIN menu_items mi ON mi.id = oi.menu_item_id
+              WHERE o.tenant_id = $1
+                AND o.batch_id = $2
+                AND o.tab_id = $3
+                AND o.status <> 'CANCELED'
+                AND GREATEST(oi.quantity - COALESCE(oi.voided_quantity, 0), 0) > 0
+              ORDER BY o.created_at ASC, oi.created_at ASC`,
+            [tab.tenantId, checkout.order_batch_id, tab.id],
+        );
+
+        return {
+            checkoutKey,
+            orderBatchId: String(checkout.order_batch_id),
+            orderId,
+            status,
+            expiresAt,
+            orderTotal: this.roundMoney(Number(checkout.order_total)),
+            deliveryFee: this.roundMoney(Number(checkout.customer_delivery_fee)),
+            totalAmount: this.roundMoney(Number(checkout.total_amount)),
+            addressSnapshot: this.parseJsonObject(checkout.address_snapshot),
+            items: (items || []).map((item: any) => ({
+                name: String(item.name || 'Item'),
+                quantity: Number(item.quantity || 0),
+                unitPrice: this.roundMoney(Number(item.unit_price || 0)),
+            })),
+        };
+    }
+
     private async loadTenantTabContext(tabId: string, tenantId: string) {
         const rows = await this.dataSource.query(
             `SELECT tb.id,
                     tb.tenant_id,
                     tb.table_id,
                     tb.user_phone,
+                    tb.opening_channel,
                     tb.total,
                     tb.paid_amount,
                     tb.status,
@@ -3623,6 +3809,7 @@ export class TablesService {
             tenantId: String(row.tenant_id),
             tableId: row.table_id ? String(row.table_id) : null,
             userPhone: String(row.user_phone || ''),
+            openingChannel: String(row.opening_channel || '').trim(),
             total: Number.parseFloat(String(row.total ?? '0')) || 0,
             paidAmount: Number.parseFloat(String(row.paid_amount ?? '0')) || 0,
             status: String(row.status || 'OPEN'),
@@ -3890,6 +4077,42 @@ export class TablesService {
         };
     }
 
+    private buildPublicDeliveryCheckoutPayload(tab: any, checkout: PublicDeliveryCheckoutContext) {
+        const cardCheckoutConfig = this.resolvePublicCardCheckoutConfig(tab.tenantSettings);
+        const paid = checkout.status === 'PAID';
+        return {
+            id: tab.id,
+            tenantName: tab.tenantName,
+            tableNumber: null,
+            publicCode: null,
+            serviceMode: 'DELIVERY',
+            exitValidatedAt: null,
+            status: checkout.status,
+            total: paid ? 0 : checkout.totalAmount,
+            fullTotal: checkout.totalAmount,
+            paidAmount: paid ? checkout.totalAmount : 0,
+            amountDue: paid ? 0 : checkout.totalAmount,
+            closed: paid,
+            isDeliveryCheckout: true,
+            deliveryCheckout: {
+                checkoutKey: checkout.checkoutKey,
+                orderBatchId: checkout.orderBatchId,
+                status: checkout.status,
+                expiresAt: checkout.expiresAt,
+                subtotal: checkout.orderTotal,
+                deliveryFee: checkout.deliveryFee,
+                total: checkout.totalAmount,
+                items: checkout.items,
+                address: checkout.addressSnapshot,
+            },
+            mpPublicKey: cardCheckoutConfig.enabled ? cardCheckoutConfig.publicKey : '',
+            paymentProvider: cardCheckoutConfig.provider,
+            paymentProviderLabel: cardCheckoutConfig.provider === 'MERCADO_PAGO' ? 'Mercado Pago' : '',
+            cardEnabled: cardCheckoutConfig.enabled,
+            cardUnavailableReason: cardCheckoutConfig.reason,
+        };
+    }
+
     private mergePortalMessages(tab: any, conversationEvents: any[], staffMessages: any[]) {
         const mappedConversation = (conversationEvents || [])
             .map((row: any) => this.mapPortalConversationEvent(tab, row))
@@ -4021,6 +4244,10 @@ export class TablesService {
             ? `Mesa ${String(tab.tableNumber).trim()}`
             : 'Comanda';
         return `${tableLabel} - ${String(tab.tenantName || 'ClickGarcom').trim()}`;
+    }
+
+    private buildDeliveryCheckoutDescription(tab: any) {
+        return `Pedido para entrega - ${String(tab.tenantName || 'ClickGarcom').trim()}`;
     }
 
     private async reconcileTabFinancialSnapshot(
@@ -4335,31 +4562,17 @@ Esperamos te receber novamente em breve! 😊`;
         return '';
     }
 
-    private async resolvePaymentAmount(tab: { tenantId: string; total: number; paidAmount: number; status: string }, checkoutKey: string) {
+    private async resolvePaymentAmount(tab: { id: string; tenantId: string; total: number; paidAmount: number; status: string; openingChannel?: string }, checkoutKey: string) {
         const normalizedKey = String(checkoutKey || '').trim();
         if (!normalizedKey) {
+            if (String(tab.openingChannel || '').trim().toUpperCase() === 'WHATSAPP_DELIVERY') {
+                throw new BadRequestException('Checkout de entrega inválido ou incompleto.');
+            }
             return this.getAmountDue(tab.total, tab.paidAmount, tab.status);
         }
-        const rows = await this.dataSource.query(
-            `SELECT total_amount, status, expires_at
-               FROM delivery_checkouts
-              WHERE tenant_id = $1
-                AND checkout_key = $2
-              LIMIT 1`,
-            [tab.tenantId, normalizedKey],
-        );
-        const checkout = rows?.[0];
+        const checkout = await this.resolvePublicDeliveryCheckout(tab, normalizedKey, true);
         if (!checkout) throw new BadRequestException('Checkout de entrega não encontrado');
-        const status = String(checkout.status || '').trim().toUpperCase();
-        if (status !== 'PENDING_PAYMENT' && status !== 'PAID') {
-            throw new BadRequestException('Checkout de entrega indisponível');
-        }
-        if (status === 'PENDING_PAYMENT' && checkout.expires_at && new Date(checkout.expires_at) <= new Date()) {
-            throw new BadRequestException('Checkout de entrega expirado');
-        }
-        const amount = Number(checkout.total_amount);
-        if (!Number.isFinite(amount) || amount < 0) throw new BadRequestException('Total do checkout de entrega inválido');
-        return this.roundMoney(amount);
+        return checkout.totalAmount;
     }
 
     private getAmountDue(total: number, paidAmount: number, status: string) {

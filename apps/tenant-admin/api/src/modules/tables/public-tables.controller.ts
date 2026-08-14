@@ -12,8 +12,13 @@ export class PublicTablesController {
         @Param('tabId') tabId: string,
         @Headers('authorization') authorization: string | undefined,
         @Query('access_token') accessToken: string | undefined,
+        @Query('delivery_checkout_key') deliveryCheckoutKey: string | undefined,
     ) {
-        return this.tablesService.getPublicTabById(tabId, this.resolveAccessToken(authorization, accessToken));
+        return this.tablesService.getPublicTabById(
+            tabId,
+            this.resolveAccessToken(authorization, accessToken),
+            deliveryCheckoutKey,
+        );
     }
 
     @Post('tabs/:tabId/payments/pix')
@@ -50,11 +55,13 @@ export class PublicTablesController {
         @Param('paymentId') paymentId: string,
         @Headers('authorization') authorization: string | undefined,
         @Query('access_token') accessToken: string | undefined,
+        @Query('delivery_checkout_key') deliveryCheckoutKey: string | undefined,
     ) {
         return this.tablesService.getPublicPaymentStatus(
             tabId,
             paymentId,
             this.resolveAccessToken(authorization, accessToken),
+            deliveryCheckoutKey,
         );
     }
 

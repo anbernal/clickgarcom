@@ -10,6 +10,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/anbernal/clickgarcom/internal/domain/inbox/session"
+	"github.com/anbernal/clickgarcom/internal/domain/tab"
 	"github.com/anbernal/clickgarcom/internal/infrastructure/nodeadmin"
 )
 
@@ -314,5 +315,30 @@ func TestDeliveryCheckoutReviewRequiresConfirmationBeforeCancellation(t *testing
 	message, state, err = uc.handleDeliveryCheckoutReview(context.Background(), sess, deliveryConfirmCancelOrderActionID)
 	if err != nil || state != session.StateDeliveryMenu || !strings.Contains(message, "Pedido de entrega cancelado") {
 		t.Fatalf("expected confirmed cancellation to return to delivery menu, state=%s message=%q err=%v", state, message, err)
+	}
+}
+
+func TestFindDeliveryOpenTabDoesNotReuseAnotherDeliveryJourney(t *testing.T) {
+	tenantID := uuid.New()
+	phone := "5511999999999"
+	oldTab := &tab.Tab{
+		ID:             uuid.New(),
+		TenantID:       tenantID,
+		UserPhone:      phone,
+		Status:         tab.StatusOpen,
+		OpeningChannel: "WHATSAPP_DELIVERY",
+	}
+	uc := &HandleWhatsAppMessageUseCase{
+		tabRepo: &testTabRepo{byID: map[uuid.UUID]*tab.Tab{oldTab.ID: oldTab}},
+	}
+	sess := session.NewSession(phone, tenantID)
+
+	if got := uc.findDeliveryOpenTab(context.Background(), sess); got != nil {
+		t.Fatalf("delivery tab from a prior journey must not be discovered, got %s", got.ID)
+	}
+
+	sess.SetContext(deliveryTabIDKey, oldTab.ID.String())
+	if got := uc.findDeliveryOpenTab(context.Background(), sess); got == nil || got.ID != oldTab.ID {
+		t.Fatalf("current journey delivery tab should remain available, got %+v", got)
 	}
 }

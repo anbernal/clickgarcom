@@ -3250,21 +3250,9 @@ func (uc *HandleWhatsAppMessageUseCase) findDeliveryOpenTab(
 		delete(sess.Context, deliveryTabIDKey)
 	}
 
-	openTabs, err := uc.tabRepo.FindByTenantAndStatus(ctx, sess.TenantID, tab.StatusOpen)
-	if err != nil {
-		return nil
-	}
-	for _, candidate := range openTabs {
-		if candidate == nil || !isWhatsAppDeliveryTab(candidate) || !uc.isTabOwnedBySessionPhone(candidate, sess.UserPhone) {
-			continue
-		}
-		sess.SetContext(deliveryTabIDKey, candidate.ID.String())
-		if sess.TabID != nil && *sess.TabID == candidate.ID {
-			sess.TabID = nil
-		}
-		return candidate
-	}
-
+	// Delivery tabs are technical containers tied to a single conversation and
+	// order. Never discover one by phone: doing so would merge a new delivery
+	// with a prior/cancelled checkout that happens to remain open internally.
 	return nil
 }
 

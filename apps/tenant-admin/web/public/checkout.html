@@ -141,6 +141,45 @@
             text-shadow: 0 4px 20px rgba(26, 188, 156, 0.3);
         }
 
+        .delivery-checkout-details {
+            display: none;
+            margin-top: 20px;
+            padding: 14px;
+            border-radius: 14px;
+            text-align: left;
+            background: rgba(15, 35, 52, 0.52);
+            border: 1px solid rgba(26, 188, 156, 0.24);
+        }
+
+        .delivery-checkout-heading {
+            color: #7dd3c7;
+            font-size: 11px;
+            font-weight: 800;
+            letter-spacing: .08em;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+        }
+
+        .delivery-checkout-row,
+        .delivery-checkout-address,
+        .delivery-checkout-amounts {
+            color: rgba(255, 255, 255, .84);
+            font-size: 12px;
+            line-height: 1.55;
+        }
+
+        .delivery-checkout-address {
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid rgba(255, 255, 255, .08);
+        }
+
+        .delivery-checkout-amounts {
+            margin-top: 8px;
+            color: #d1fae5;
+            font-weight: 700;
+        }
+
         .checkout-security-pill {
             display: inline-flex;
             align-items: center;
@@ -595,6 +634,12 @@
                 <div id="checkout-tab-info" class="hero-tab-info">Carregando...</div>
                 <div class="hero-label">Total a Pagar</div>
                 <div id="checkout-total-amount" class="hero-amount">R$ —</div>
+                <div id="delivery-checkout-details" class="delivery-checkout-details">
+                    <div class="delivery-checkout-heading">Seu pedido para entrega</div>
+                    <div id="delivery-checkout-items"></div>
+                    <div id="delivery-checkout-address" class="delivery-checkout-address"></div>
+                    <div id="delivery-checkout-amounts" class="delivery-checkout-amounts"></div>
+                </div>
                 <div id="checkout-security-pill" class="checkout-security-pill">🔒 Link individual • expira em 30 minutos</div>
                 <div id="checkout-expiry-detail" class="checkout-expiry-detail">
                     Por segurança, após esse prazo será necessário pedir um novo link no WhatsApp.
@@ -640,7 +685,7 @@
 
                     <div class="pix-info">
                         <div class="pix-info-icon">🔒</div>
-                        <div class="pix-info-text">
+                        <div id="checkout-pix-info-text" class="pix-info-text">
                             Pagamento 100% seguro via PIX.<br>
                             O valor é creditado automaticamente na comanda.
                         </div>

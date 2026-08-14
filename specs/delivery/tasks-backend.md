@@ -728,6 +728,39 @@ Critérios de aceite:
 - um tenant pode ser ativado sem ativação global;
 - evidências anexadas ao gate do piloto.
 
+## DEL-V2-BE-030 — Blindar checkout público híbrido e cobrança de Delivery
+
+- Status: [x] Implementado — validação híbrida, vínculo checkout/lote/pedido, resumo público Delivery e bloqueio da liquidação genérica
+- Prioridade: P0
+- Dependências: DEL-V2-BE-016, DEL-V2-BE-029
+
+Implementação:
+
+- manter o contrato atual para links presenciais, sem `delivery_checkout_key`;
+- resolver o checkout Delivery pelo par `(tenant, tab_id, checkout_key)` e validar lote, pedido, status e expiração antes de exibir ou cobrar;
+- usar `delivery_checkouts` como fonte única de subtotal, frete e total no contexto Delivery;
+- retornar ao checkout público itens do lote e snapshot imutável do endereço, sem expor total acumulado da comanda técnica;
+- ignorar valor, pedido âncora e descrição enviados pelo navegador quando o contexto for Delivery;
+- vincular criação de PIX/cartão ao pedido do lote do checkout, nunca ao primeiro pedido da comanda;
+- impedir finalização genérica da comanda para pagamentos Delivery; a confirmação financeira deve liberar somente o checkout/lote/Delivery correspondente;
+- cobrir tentativas de chave ausente, expirada, de outro lote, de outra comanda e de outro tenant.
+
+Critérios de aceite:
+
+- checkout presencial continua mostrando e liquidando a comanda presencial;
+- checkout Delivery mostra itens, endereço, subtotal, frete e total congelados;
+- valor exibido, valor enviado ao provider e valor confirmado são idênticos ao snapshot Delivery;
+- nenhum pagamento Delivery pode quitar, fechar ou baixar pedidos de outro lote;
+- chave Delivery não pode ser usada em uma comanda diferente.
+
+Implementado em:
+
+- `GET /admin/api/public/tables/tabs/:tabId` reconhece `delivery_checkout_key`; sem a chave, o contrato presencial é preservado;
+- para Delivery, API valida tenant, tab técnico, lote Delivery, pedido, status e expiração antes de retornar itens, endereço e valores congelados;
+- PIX/cartão obtêm `amount`, `order_id` e descrição do checkout validado, sem confiar nos campos do navegador ou no primeiro pedido da comanda;
+- polling de pagamento valida que o pagamento pertence ao mesmo checkout/lote e não executa a finalização genérica da comanda;
+- a liquidação interna também identifica `delivery_checkout_key` no pagamento e deixa a confirmação para o reconciliador do Delivery.
+
 ## Tasks P1/P2
 
 ### DEL-V2-BE-040 — Segundo operador externo

@@ -327,3 +327,30 @@ Critérios de aceite:
 - DINE_IN/TAKEOUT continuam verdes;
 - tenant piloto pode ser isoladamente habilitado;
 - evidências de mensagens ficam anexadas sem PII real.
+
+## DEL-V2-CORE-014 — Isolar comanda técnica por pedido Delivery
+
+- Status: [x] Implementado — comanda técnica vinculada somente à sessão/jornada corrente
+- Prioridade: P0
+- Dependências: DEL-V2-CORE-007, DEL-V2-BE-030
+
+Implementação:
+
+- criar comanda técnica exclusivamente para a jornada Delivery atual;
+- nunca procurar/reutilizar comandas técnicas Delivery abertas de outra sessão ou pedido;
+- limpar a referência técnica ao cancelar, expirar ou encerrar a jornada, preservando a separação do atendimento presencial;
+- manter `tab_id` apenas como contêiner interno de itens e usar `checkout_key`/`order_batch_id` como fonte financeira e de entrega.
+
+Critérios de aceite:
+
+- novo pedido Delivery não inclui itens cancelados ou anteriores;
+- o mesmo telefone pode manter comanda presencial sem influenciar o Delivery;
+- uma nova sessão Delivery não herda a comanda técnica anterior;
+- links presenciais continuam inalterados.
+
+Implementado em:
+
+- Core usa `delivery_internal_tab_id` somente quando já pertence à sessão corrente;
+- não há mais descoberta/reuso de comanda técnica Delivery aberta pelo telefone;
+- saída/cancelamento limpa a referência técnica para que a próxima jornada crie outro contêiner, sem tocar na comanda presencial do mesmo número;
+- teste cobre que uma comanda Delivery anterior não é herdada por nova jornada.

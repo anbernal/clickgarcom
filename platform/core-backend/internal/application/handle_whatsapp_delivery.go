@@ -763,6 +763,10 @@ func (uc *HandleWhatsAppMessageUseCase) exitDeliveryFlow(
 	uc.clearDeliveryAddressContext(sess)
 	uc.clearDeliveryCheckoutContext(sess)
 	uc.clearOrderingContext(sess)
+	// A new delivery journey must create a new technical item container. The
+	// previous tab can still be retained for audit, but never reused for a new
+	// checkout or mixed with a dine-in comanda from the same phone.
+	delete(sess.Context, deliveryTabIDKey)
 	delete(sess.Context, deliveryPreOrderAddressKey)
 
 	message := strings.TrimSpace(prefix)
