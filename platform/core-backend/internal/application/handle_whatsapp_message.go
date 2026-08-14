@@ -453,6 +453,8 @@ func (uc *HandleWhatsAppMessageUseCase) deliveryPromptButtons(state session.Conv
 		return []whatsapp.InteractiveButton{button("sim", "Excluir endereço"), button("nao", "Manter endereço")}
 	case session.StateDeliveryReady:
 		return []whatsapp.InteractiveButton{button("continuar", "Continuar")}
+	case session.StateDeliveryCheckoutReview:
+		return []whatsapp.InteractiveButton{button("pagar", "💳 Ir para pagamento")}
 	default:
 		return nil
 	}
@@ -477,6 +479,8 @@ func stripDeliveryBackInstructions(message string) string {
 		"Responda *sim* ou *não*.",
 		"Responda *sim* ou *não*.",
 		"Responda *sim* para salvar ou *0* para cancelar.",
+		"Responda *1* para seguir para o pagamento ou *0* para cancelar.",
+		"Responda 1 para seguir para o pagamento.",
 	} {
 		body = strings.ReplaceAll(body, phrase, "")
 	}
@@ -2112,7 +2116,11 @@ func (uc *HandleWhatsAppMessageUseCase) presentCartConfirmation(
 	uc.clearOrderingCartAdjustmentContext(sess)
 	delivery := uc.isDeliveryOrdering(sess)
 	if delivery {
-		cartMessage = strings.TrimSpace(cartMessage) + "\n\n🛵 Ao continuar, você informará o endereço e verá o frete antes do pagamento."
+		if uc.getContextString(sess, deliveryAddressReadyKey) == "true" {
+			cartMessage = strings.TrimSpace(cartMessage) + "\n\n🛵 Ao continuar, revisaremos o frete antes do pagamento."
+		} else {
+			cartMessage = strings.TrimSpace(cartMessage) + "\n\n🛵 Ao continuar, você informará o endereço e verá o frete antes do pagamento."
+		}
 	}
 	if err := uc.sendCartConfirmationMenu(ctx, sess.UserPhone, sess.TenantID, delivery, cartMessage); err == nil {
 		return "", session.StateConfirmingOrder, nil

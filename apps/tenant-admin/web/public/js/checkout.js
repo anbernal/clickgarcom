@@ -3,6 +3,7 @@ const PUBLIC_API_URL = String(runtimeConfig.publicTablesApiBaseUrl || `${window.
 
 let currentTabId = null;
 let currentAccessToken = null;
+let currentDeliveryCheckoutKey = null;
 let currentTabData = null;
 let currentAmount = 0;
 let pixPollingTimer = null;
@@ -88,20 +89,28 @@ function getCheckoutAccessPayload() {
 
     const tabIdFromUrl = hashParams.get('tab_id') || searchParams.get('tab_id');
     const accessTokenFromUrl = hashParams.get('access_token') || searchParams.get('access_token');
+    const deliveryCheckoutKeyFromUrl = hashParams.get('delivery_checkout_key') || searchParams.get('delivery_checkout_key');
 
     if (tabIdFromUrl && accessTokenFromUrl) {
         sessionStorage.setItem('checkout.tab_id', tabIdFromUrl);
         sessionStorage.setItem('checkout.access_token', accessTokenFromUrl);
+        if (deliveryCheckoutKeyFromUrl) {
+            sessionStorage.setItem('checkout.delivery_checkout_key', deliveryCheckoutKeyFromUrl);
+        } else {
+            sessionStorage.removeItem('checkout.delivery_checkout_key');
+        }
         window.history.replaceState({}, document.title, window.location.pathname);
         return {
             tabId: tabIdFromUrl,
             accessToken: accessTokenFromUrl,
+            deliveryCheckoutKey: deliveryCheckoutKeyFromUrl,
         };
     }
 
     return {
         tabId: sessionStorage.getItem('checkout.tab_id'),
         accessToken: sessionStorage.getItem('checkout.access_token'),
+        deliveryCheckoutKey: sessionStorage.getItem('checkout.delivery_checkout_key'),
     };
 }
 
@@ -491,6 +500,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const checkoutAccess = getCheckoutAccessPayload();
     currentTabId = checkoutAccess.tabId;
     currentAccessToken = checkoutAccess.accessToken;
+    currentDeliveryCheckoutKey = checkoutAccess.deliveryCheckoutKey;
     updateCheckoutExpiryNotice();
     if (checkoutExpiryTimer) {
         window.clearInterval(checkoutExpiryTimer);
@@ -528,6 +538,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                         payer_email: 'cliente@email.com',
                         payer_name: 'Visitante',
                         payer_cpf: '19119119100',
+                        delivery_checkout_key: currentDeliveryCheckoutKey || undefined,
                     }),
                 });
 
@@ -612,6 +623,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     payment_method_id: cardMetadata.paymentMethodId,
                     payer_email: document.getElementById('form-checkout__cardholderEmail').value,
                     payer_cpf: document.getElementById('form-checkout__identificationNumber').value,
+                    delivery_checkout_key: currentDeliveryCheckoutKey || undefined,
                 };
                 if (!isMercadoPagoTestEnvironment(mpPublicKey) && cardMetadata.issuerId) {
                     paymentPayload.issuer_id = cardMetadata.issuerId;

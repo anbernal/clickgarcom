@@ -438,3 +438,24 @@ func findMenuItemSelectedOption(
 
 	return menu.OptionGroup{}, menu.Option{}, false
 }
+
+// CancelPendingDeliveryBatch releases an order created only to reserve a
+// delivery quote when the customer abandons checkout before payment. It is
+// idempotent and never alters an accepted or paid operational flow.
+func (uc *CreateOrderUseCase) CancelPendingDeliveryBatch(ctx context.Context, tenantID, batchID uuid.UUID, reason string) error {
+	if uc == nil || uc.orderBatchRepo == nil || tenantID == uuid.Nil || batchID == uuid.Nil {
+		return nil
+	}
+	batch, err := uc.orderBatchRepo.FindByID(ctx, batchID, tenantID)
+	if err != nil || batch == nil {
+		return err
+	}
+	if batch.ServiceType != orderbatch.ServiceTypeDelivery || batch.Status != orderbatch.StatusPending {
+		return nil
+	}
+	now := time.Now()
+	batch.Status = orderbatch.StatusCanceled
+	batch.CanceledAt = &now
+	batch.CancelReason = strings.TrimSpace(reason)
+	return uc.orderBatchRepo.Update(ctx, batch)
+}

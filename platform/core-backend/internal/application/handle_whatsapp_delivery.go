@@ -17,6 +17,7 @@ import (
 
 	"github.com/anbernal/clickgarcom/internal/domain/inbox/session"
 	"github.com/anbernal/clickgarcom/internal/domain/orderbatch"
+	"github.com/anbernal/clickgarcom/internal/domain/whatsapp"
 	"github.com/anbernal/clickgarcom/internal/infrastructure/nodeadmin"
 )
 
@@ -281,8 +282,8 @@ func (uc *HandleWhatsAppMessageUseCase) handleDeliveryDraftField(ctx context.Con
 	draft := uc.getDeliveryDraft(sess)
 	switch sess.State {
 	case session.StateDeliveryStreet:
-		if len([]rune(text)) < 3 {
-			return "Informe um logradouro válido (rua, avenida etc.).", session.StateDeliveryStreet, nil
+		if len([]rune(text)) < 4 || isGenericDeliveryStreet(text) {
+			return "Informe a rua ou avenida completa (ex.: *Rua José Leandro Machado*).", session.StateDeliveryStreet, nil
 		}
 		draft["street"] = text
 		sess.SetContext(deliveryAddressDraftKey, draft)
@@ -411,7 +412,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleDeliveryAddressConfirmation(ctx co
 			return "Tudo bem. Escolha outro endereço ou digite *novo* para cadastrar um novo.", session.StateDeliveryAddressSelection, nil
 		}
 		sess.TransitionTo(session.StateDeliveryStreet)
-		return "Vamos corrigir. Informe o logradouro.", session.StateDeliveryStreet, nil
+		return "Vamos corrigir. Informe a rua ou avenida *completa* (ex.: Rua José Leandro Machado). O CEP, bairro, cidade e UF serão mantidos.", session.StateDeliveryStreet, nil
 	}
 	if answer != "sim" && answer != "s" && answer != "ok" {
 		return "Responda *sim* se estiver correto ou *não* para alterar.", session.StateDeliveryAddressConfirmation, nil
@@ -425,7 +426,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleDeliveryAddressConfirmation(ctx co
 		return "✅ Endereço confirmado para esta entrega.\n\nO próximo passo é revisar o frete e o total do pedido.", session.StateDeliveryReady, nil
 	}
 	sess.TransitionTo(session.StateDeliveryAddressConsent)
-	return "Deseja salvar este endereço para próximos pedidos? Responda *sim* ou *não*.\n\n" + deliveryPostalCodePrompt(), session.StateDeliveryAddressConsent, nil
+	return "Deseja salvar este endereço para próximos pedidos?", session.StateDeliveryAddressConsent, nil
 }
 
 func (uc *HandleWhatsAppMessageUseCase) handleDeliveryAddressConsent(ctx context.Context, sess *session.Session, text string) (string, session.ConversationState, error) {
@@ -597,7 +598,7 @@ func (uc *HandleWhatsAppMessageUseCase) StartDeliveryCheckout(ctx context.Contex
 	sess.SetContext(deliveryCheckoutModeKey, result.FulfillmentMode)
 	sess.SetContext(deliveryCheckoutPaidKey, false)
 	sess.TransitionTo(session.StateDeliveryCheckoutReview)
-	return fmt.Sprintf("🧾 *Revisão da entrega*\n\nSubtotal dos itens: R$ %.2f\nFrete: R$ %.2f\n*Total: R$ %.2f*\n\nValidade da cotação/hold: %s\n\nResponda *1* para seguir para o pagamento ou *0* para cancelar.", result.OrderTotal, result.CustomerDeliveryFee, result.TotalAmount, result.ExpiresAt.Local().Format("02/01 às 15:04")), session.StateDeliveryCheckoutReview, nil
+	return fmt.Sprintf("🧾 *Revisão da entrega*\n\nSubtotal dos itens: *R$ %s*\nFrete: *R$ %s*\n*Total: R$ %s*\n\nValidade da cotação/hold: %s\n\nToque em *Ir para pagamento* para concluir o pedido.", formatBRLCurrency(result.OrderTotal), formatBRLCurrency(result.CustomerDeliveryFee), formatBRLCurrency(result.TotalAmount), result.ExpiresAt.Local().Format("02/01 às 15:04")), session.StateDeliveryCheckoutReview, nil
 }
 
 func (uc *HandleWhatsAppMessageUseCase) handleDeliveryCheckoutReview(ctx context.Context, sess *session.Session, text string) (string, session.ConversationState, error) {
@@ -610,7 +611,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleDeliveryCheckoutReview(ctx context
 		return uc.exitDeliveryFlow(ctx, sess, "Checkout de entrega cancelado.")
 	}
 	if answer == "1" || answer == "pagar" || answer == "continuar" {
-		return "💳 O frete e o total foram congelados pelo checkout de entrega. Conclua o pagamento no checkout do restaurante; após a confirmação financeira, o checkout será confirmado com a mesma chave de segurança.", session.StateDeliveryCheckoutReview, nil
+		return uc.sendDeliveryPaymentLink(ctx, sess)
 	}
 	return uc.repeatDeliveryCheckoutReview(sess), session.StateDeliveryCheckoutReview, nil
 }
@@ -618,7 +619,34 @@ func (uc *HandleWhatsAppMessageUseCase) handleDeliveryCheckoutReview(ctx context
 func (uc *HandleWhatsAppMessageUseCase) repeatDeliveryCheckoutReview(sess *session.Session) string {
 	fee := deliverySessionFloat(sess, deliveryCheckoutFeeKey)
 	total := deliverySessionFloat(sess, deliveryCheckoutTotalKey)
-	return fmt.Sprintf("🧾 Frete: R$ %.2f\n*Total: R$ %.2f*\n\nResponda *1* para seguir para o pagamento ou *0* para cancelar.", fee, total)
+	return fmt.Sprintf("🧾 Frete: *R$ %s*\n*Total: R$ %s*\n\nToque em *Ir para pagamento* para concluir o pedido.", formatBRLCurrency(fee), formatBRLCurrency(total))
+}
+
+// sendDeliveryPaymentLink opens the authenticated public checkout with the
+// opaque delivery checkout key, which binds payment to the frozen freight.
+func (uc *HandleWhatsAppMessageUseCase) sendDeliveryPaymentLink(ctx context.Context, sess *session.Session) (string, session.ConversationState, error) {
+	if sess == nil {
+		return "❌ Não consegui abrir o pagamento agora.", session.StateDeliveryCheckoutReview, nil
+	}
+	checkoutKey := strings.TrimSpace(uc.getContextString(sess, deliveryCheckoutKeyKey))
+	userTab := uc.findDeliveryOpenTab(ctx, sess)
+	if checkoutKey == "" || userTab == nil {
+		return "❌ Não consegui localizar o checkout deste pedido. Volte e tente novamente.", session.StateDeliveryReady, nil
+	}
+	accessToken, _, err := buildCheckoutAccessToken(userTab.ID.String(), "")
+	if err != nil {
+		return "❌ Não consegui abrir o pagamento agora. Tente novamente.", session.StateDeliveryCheckoutReview, nil
+	}
+	targetURL := buildDeliveryPublicCheckoutURL(uc.resolveCurrentPublicCheckoutBaseURL(), userTab.ID.String(), accessToken, checkoutKey)
+	body := "💳 *Pagamento da entrega*\n\nFrete e total estão reservados. Toque no botão abaixo para pagar e enviar o pedido para o restaurante."
+	if sender, ok := uc.sender.(WhatsAppURLButtonSender); ok {
+		_, sendErr := sender.SendInteractiveURLButton(whatsapp.WithTenantID(ctx, sess.TenantID), sess.UserPhone, whatsapp.WithRestaurantHeader(uc.resolveTenantName(ctx, sess.TenantID), body), "💳 Ir para pagamento", targetURL)
+		if sendErr == nil {
+			return "", session.StateDeliveryCheckoutReview, nil
+		}
+		uc.logger.Warn("failed to send delivery payment URL button", zap.Error(sendErr))
+	}
+	return body + "\n\n" + targetURL, session.StateDeliveryCheckoutReview, nil
 }
 
 // ConfirmDeliveryPayment is called by the payment reconciliation boundary,
@@ -715,6 +743,7 @@ func (uc *HandleWhatsAppMessageUseCase) exitDeliveryFlow(
 	// Also migrates a legacy sess.TabID binding to deliveryTabIDKey before the
 	// flow context is cleared.
 	_ = uc.findDeliveryOpenTab(ctx, sess)
+	uc.cancelPendingDeliveryOrder(ctx, sess)
 	uc.clearDeliveryAddressContext(sess)
 	uc.clearDeliveryCheckoutContext(sess)
 	uc.clearOrderingContext(sess)
@@ -726,6 +755,19 @@ func (uc *HandleWhatsAppMessageUseCase) exitDeliveryFlow(
 	}
 
 	return message + "\n\n" + uc.deliveryMenuMessage(), session.StateDeliveryMenu, nil
+}
+
+func (uc *HandleWhatsAppMessageUseCase) cancelPendingDeliveryOrder(ctx context.Context, sess *session.Session) {
+	if sess == nil || uc.createOrderUC == nil || uc.getContextString(sess, deliveryCheckoutPaidKey) == "true" {
+		return
+	}
+	batchID, err := uuid.Parse(uc.getContextString(sess, deliveryOrderBatchKey))
+	if err != nil || batchID == uuid.Nil {
+		return
+	}
+	if err := uc.createOrderUC.CancelPendingDeliveryBatch(ctx, sess.TenantID, batchID, "CHECKOUT_ABANDONED"); err != nil {
+		uc.logger.Warn("failed to cancel abandoned delivery batch", zap.Error(err), zap.String("batch_id", batchID.String()))
+	}
 }
 
 func (uc *HandleWhatsAppMessageUseCase) isDeliveryChannel(sess *session.Session) bool {
@@ -886,6 +928,17 @@ func deliveryDraftString(draft map[string]interface{}, key string) string {
 		return strings.TrimSpace(fmt.Sprint(value))
 	}
 	return ""
+}
+
+func isGenericDeliveryStreet(value string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	normalized = strings.Trim(normalized, ".,;:-")
+	switch normalized {
+	case "r", "rua", "av", "av.", "avenida", "estrada", "travessa", "alameda":
+		return true
+	default:
+		return false
+	}
 }
 
 func deliveryDraftFloat(draft map[string]interface{}, key string) (float64, bool) {

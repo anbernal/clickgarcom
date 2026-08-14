@@ -250,8 +250,10 @@ export class DeliveryCustomerService {
             state: address.state,
             address_reference: address.addressReference,
             formatted_address: address.formattedAddress,
-            latitude: address.latitude,
-            longitude: address.longitude,
+            // Postgres numeric columns are returned as strings by TypeORM;
+            // Core expects JSON numbers when reusing a saved address.
+            latitude: address.latitude === null ? null : Number(address.latitude),
+            longitude: address.longitude === null ? null : Number(address.longitude),
             is_default: address.isDefault,
             last_used_at: address.lastUsedAt,
             confirmed_at: address.confirmedAt,

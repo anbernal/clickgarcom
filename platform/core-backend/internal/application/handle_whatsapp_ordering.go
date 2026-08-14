@@ -3743,6 +3743,14 @@ func buildPublicCheckoutURL(baseURL string, tabID string, accessToken string) st
 	return strings.TrimRight(strings.TrimSpace(baseURL), "/") + "/checkout.html#" + query.Encode()
 }
 
+func buildDeliveryPublicCheckoutURL(baseURL string, tabID string, accessToken string, checkoutKey string) string {
+	query := url.Values{}
+	query.Set("tab_id", strings.TrimSpace(tabID))
+	query.Set("access_token", strings.TrimSpace(accessToken))
+	query.Set("delivery_checkout_key", strings.TrimSpace(checkoutKey))
+	return strings.TrimRight(strings.TrimSpace(baseURL), "/") + "/checkout.html#" + query.Encode()
+}
+
 func buildPublicExitURL(baseURL string, tabID string, accessToken string) string {
 	query := url.Values{}
 	query.Set("tab_id", strings.TrimSpace(tabID))
