@@ -177,6 +177,21 @@ func TestDeliveryAddressNumberRejectsSecondPostalCode(t *testing.T) {
 	}
 }
 
+func TestNormalizeCustomerAddressGeocodeQuality(t *testing.T) {
+	cases := map[string]string{
+		"ROOFTOP":      "ROOFTOP",
+		"RANGE":        "RANGE_INTERPOLATED",
+		"INTERPOLATED": "RANGE_INTERPOLATED",
+		"AMBIGUOUS":    "APPROXIMATE",
+		"unknown":      "APPROXIMATE",
+	}
+	for input, expected := range cases {
+		if got := normalizeCustomerAddressGeocodeQuality(input); got != expected {
+			t.Fatalf("quality %q: got %q, want %q", input, got, expected)
+		}
+	}
+}
+
 func TestStartDeliveryCheckoutUsesCartAndAuthoritativeFreight(t *testing.T) {
 	tenantID, customerID, addressID := uuid.New(), uuid.New(), uuid.New()
 	checkoutKey := "wa-checkout-test"

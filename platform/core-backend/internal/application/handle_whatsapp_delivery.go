@@ -903,7 +903,7 @@ func deliveryCreateAddressInput(draft map[string]interface{}) nodeadmin.CreateDe
 		AddressReference: deliveryDraftString(draft, "address_reference"), Latitude: &latitude, Longitude: &longitude,
 		PostalCodeProvider: deliveryDraftString(draft, "postal_code_provider"), PostalCodeLookupStatus: deliveryDraftString(draft, "postal_code_lookup_status"),
 		GeocodeProvider: deliveryDraftString(draft, "geocode_provider"), GeocodeProviderID: deliveryDraftString(draft, "geocode_provider_id"),
-		GeocodeQuality: deliveryDraftString(draft, "geocode_quality"), Confirmed: true,
+		GeocodeQuality: normalizeCustomerAddressGeocodeQuality(deliveryDraftString(draft, "geocode_quality")), Confirmed: true,
 	}
 }
 
@@ -946,6 +946,25 @@ func isGenericDeliveryStreet(value string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// The maps contract is provider-neutral (RANGE, INTERPOLATED, AMBIGUOUS),
+// while the customer-address API persists the normalized address vocabulary.
+// Keep this translation at the Core-to-Admin boundary so valid Nominatim
+// results are never rejected during address saving.
+func normalizeCustomerAddressGeocodeQuality(value string) string {
+	switch strings.ToUpper(strings.TrimSpace(value)) {
+	case "ROOFTOP":
+		return "ROOFTOP"
+	case "RANGE", "INTERPOLATED", "RANGE_INTERPOLATED":
+		return "RANGE_INTERPOLATED"
+	case "GEOMETRIC_CENTER":
+		return "GEOMETRIC_CENTER"
+	case "APPROXIMATE", "AMBIGUOUS", "":
+		return "APPROXIMATE"
+	default:
+		return "APPROXIMATE"
 	}
 }
 
