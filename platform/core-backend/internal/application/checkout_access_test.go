@@ -29,6 +29,19 @@ func TestBuildCheckoutAccessTokenDoesNotRequirePhone(t *testing.T) {
 	}
 }
 
+func TestBuildDeliveryPublicCheckoutURLCarriesTheFrozenCheckoutKey(t *testing.T) {
+	got := buildDeliveryPublicCheckoutURL(
+		"https://clickgarcom.example/",
+		"tab-test",
+		"signed-token",
+		"delivery-checkout-key",
+	)
+	const want = "https://clickgarcom.example/checkout.html#access_token=signed-token&delivery_checkout_key=delivery-checkout-key&tab_id=tab-test"
+	if got != want {
+		t.Fatalf("buildDeliveryPublicCheckoutURL() = %q, want %q", got, want)
+	}
+}
+
 func TestBuildPublicExitURLs(t *testing.T) {
 	baseURL := "https://clickgarcom.example"
 	tabID := "tab-test"

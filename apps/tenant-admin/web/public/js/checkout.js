@@ -10,6 +10,8 @@ let pixPollingTimer = null;
 let pendingCardReconciliation = false;
 let checkoutExpiryTimer = null;
 
+const INVALID_CHECKOUT_LINK_MESSAGE = 'Este link de pagamento está incompleto, inválido ou expirou. Volte ao WhatsApp e toque em “Ir para pagamento” para receber um novo link.';
+
 function isMercadoPagoTestEnvironment(publicKey) {
     return normalizeCheckoutText(publicKey).toUpperCase().startsWith('TEST-');
 }
@@ -91,6 +93,15 @@ function getCheckoutAccessPayload() {
     const accessTokenFromUrl = hashParams.get('access_token') || searchParams.get('access_token');
     const deliveryCheckoutKeyFromUrl = hashParams.get('delivery_checkout_key') || searchParams.get('delivery_checkout_key');
 
+    // A partially copied URL must never fall back to a previous checkout kept
+    // in this browser. It could otherwise look like the payment belongs to a
+    // different order and result in a misleading authorization error.
+    const hasCheckoutParameter = Boolean(tabIdFromUrl || accessTokenFromUrl || deliveryCheckoutKeyFromUrl);
+    if (hasCheckoutParameter && (!tabIdFromUrl || !isCompleteCheckoutJwt(accessTokenFromUrl))) {
+        clearCheckoutAccessStorage();
+        return { tabId: null, accessToken: null, deliveryCheckoutKey: null, invalidLink: true };
+    }
+
     if (tabIdFromUrl && accessTokenFromUrl) {
         sessionStorage.setItem('checkout.tab_id', tabIdFromUrl);
         sessionStorage.setItem('checkout.access_token', accessTokenFromUrl);
@@ -104,6 +115,7 @@ function getCheckoutAccessPayload() {
             tabId: tabIdFromUrl,
             accessToken: accessTokenFromUrl,
             deliveryCheckoutKey: deliveryCheckoutKeyFromUrl,
+            invalidLink: false,
         };
     }
 
@@ -111,7 +123,19 @@ function getCheckoutAccessPayload() {
         tabId: sessionStorage.getItem('checkout.tab_id'),
         accessToken: sessionStorage.getItem('checkout.access_token'),
         deliveryCheckoutKey: sessionStorage.getItem('checkout.delivery_checkout_key'),
+        invalidLink: false,
     };
+}
+
+function isCompleteCheckoutJwt(value) {
+    const parts = String(value || '').trim().split('.');
+    return parts.length === 3 && parts.every((part) => /^[A-Za-z0-9_-]+$/.test(part));
+}
+
+function clearCheckoutAccessStorage() {
+    sessionStorage.removeItem('checkout.tab_id');
+    sessionStorage.removeItem('checkout.access_token');
+    sessionStorage.removeItem('checkout.delivery_checkout_key');
 }
 
 function fmtBRL(value) {
@@ -329,7 +353,10 @@ async function fetchJson(url, options = {}) {
     if (!response.ok) {
         const payload = await response.json().catch(() => ({}));
         const providerMessage = normalizeCheckoutText(payload?.provider_message);
-        const userMessage = normalizeCheckoutText(payload?.message || payload?.error || 'Falha ao processar a requisicao');
+        const rawUserMessage = normalizeCheckoutText(payload?.message || payload?.error || 'Falha ao processar a requisicao');
+        const userMessage = /missing authorization token|invalid or expired token|link de pagamento inv[aá]lido/i.test(rawUserMessage)
+            ? INVALID_CHECKOUT_LINK_MESSAGE
+            : rawUserMessage;
         const composedMessage = providerMessage
             ? `${userMessage} Detalhe Mercado Pago: ${providerMessage}`
             : userMessage;
@@ -511,8 +538,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     const contentEl = document.getElementById('checkout-content');
 
     try {
-        if (!currentTabId || !currentAccessToken) {
-            throw new Error('Link de pagamento invalido ou expirado');
+        if (checkoutAccess.invalidLink || !currentTabId || !isCompleteCheckoutJwt(currentAccessToken)) {
+            throw new Error(INVALID_CHECKOUT_LINK_MESSAGE);
         }
 
         const tab = await loadTabData(currentTabId);
