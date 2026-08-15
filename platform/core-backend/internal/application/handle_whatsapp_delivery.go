@@ -657,7 +657,11 @@ func (uc *HandleWhatsAppMessageUseCase) sendDeliveryPaymentLink(ctx context.Cont
 	if checkoutKey == "" || userTab == nil {
 		return "❌ Não consegui localizar o checkout deste pedido. Volte e tente novamente.", session.StateDeliveryReady, nil
 	}
-	accessToken, _, err := buildCheckoutAccessToken(userTab.ID.String(), "")
+	// Bind the opaque checkout key to the signed token. Some WhatsApp clients
+	// preserve the JWT and tab id but discard an additional URL query parameter;
+	// the Admin API can therefore recover the authoritative key from the verified
+	// token without trusting browser state.
+	accessToken, _, err := buildCheckoutAccessTokenWithDelivery(userTab.ID.String(), "", checkoutKey)
 	if err != nil {
 		return "❌ Não consegui abrir o pagamento agora. Tente novamente.", session.StateDeliveryCheckoutReview, nil
 	}

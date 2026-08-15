@@ -65,9 +65,10 @@ const (
 var orderingPreviewDelay = 1200 * time.Millisecond
 
 type checkoutAccessClaims struct {
-	Scope      string `json:"scope"`
-	TabID      string `json:"tab_id"`
-	OwnerPhone string `json:"owner_phone,omitempty"`
+	Scope               string `json:"scope"`
+	TabID               string `json:"tab_id"`
+	OwnerPhone          string `json:"owner_phone,omitempty"`
+	DeliveryCheckoutKey string `json:"delivery_checkout_key,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -3678,11 +3679,16 @@ func truncateTabSummaryLabel(value string, maxRunes int) string {
 }
 
 func buildCheckoutAccessToken(tabID string, ownerPhone string) (string, time.Duration, error) {
+	return buildCheckoutAccessTokenWithDelivery(tabID, ownerPhone, "")
+}
+
+func buildCheckoutAccessTokenWithDelivery(tabID string, ownerPhone string, deliveryCheckoutKey string) (string, time.Duration, error) {
 	tabID = strings.TrimSpace(tabID)
 	if tabID == "" {
 		return "", 0, fmt.Errorf("empty tab id")
 	}
 	ownerPhone = normalizePhoneDigits(ownerPhone)
+	deliveryCheckoutKey = strings.TrimSpace(deliveryCheckoutKey)
 
 	ttl := resolveCheckoutAccessTTL()
 	now := time.Now()
@@ -3692,9 +3698,10 @@ func buildCheckoutAccessToken(tabID string, ownerPhone string) (string, time.Dur
 	}
 
 	claims := checkoutAccessClaims{
-		Scope:      checkoutAccessScope,
-		TabID:      tabID,
-		OwnerPhone: ownerPhone,
+		Scope:               checkoutAccessScope,
+		TabID:               tabID,
+		OwnerPhone:          ownerPhone,
+		DeliveryCheckoutKey: deliveryCheckoutKey,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   tabID,
 			IssuedAt:  jwt.NewNumericDate(now),

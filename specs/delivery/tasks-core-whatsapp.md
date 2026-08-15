@@ -395,3 +395,23 @@ Critérios de aceite:
 - voltar durante adicionais não envia o cliente para o menu presencial;
 - seleção de botão antigo não mistura os estados Delivery e presencial;
 - o checkout Delivery continua acessível após a personalização correta do item.
+
+## DEL-V2-CORE-017 — Vincular o checkout Delivery ao token público assinado
+
+- Status: [x] Implementado — a chave congelada do checkout acompanha o JWT emitido pelo Core
+- Prioridade: P0
+- Dependências: DEL-V2-CORE-007, DEL-V2-BE-030
+
+Implementação:
+
+- incluir `delivery_checkout_key` somente no token público emitido para uma jornada Delivery;
+- manter tokens de checkout presencial sem a claim de Delivery;
+- usar a chave da sessão corrente e da mesma comanda técnica ao emitir um novo link;
+- manter o parâmetro explícito da URL durante a transição para compatibilidade com links já emitidos.
+
+Critérios de aceite:
+
+- o checkout abre mesmo quando o cliente do WhatsApp descarta o parâmetro separado da chave;
+- a chave recuperada pela API passou antes pela verificação da assinatura e expiração do JWT;
+- uma chave diferente enviada pelo navegador não substitui a chave assinada;
+- checkout presencial permanece compatível com o contrato anterior.

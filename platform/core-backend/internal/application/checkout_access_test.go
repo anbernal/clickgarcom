@@ -27,6 +27,29 @@ func TestBuildCheckoutAccessTokenDoesNotRequirePhone(t *testing.T) {
 	if claims.OwnerPhone != "" {
 		t.Fatalf("checkout token unexpectedly contains owner phone %q", claims.OwnerPhone)
 	}
+	if claims.DeliveryCheckoutKey != "" {
+		t.Fatalf("generic checkout token unexpectedly contains delivery key %q", claims.DeliveryCheckoutKey)
+	}
+}
+
+func TestBuildDeliveryCheckoutAccessTokenBindsFrozenCheckoutKey(t *testing.T) {
+	t.Setenv("JWT_SECRET", "checkout-test-secret")
+
+	token, _, err := buildCheckoutAccessTokenWithDelivery("tab-test", "", "delivery-checkout-key")
+	if err != nil {
+		t.Fatalf("buildCheckoutAccessTokenWithDelivery() error = %v", err)
+	}
+
+	claims := &checkoutAccessClaims{}
+	parsed, err := jwt.ParseWithClaims(token, claims, func(_ *jwt.Token) (interface{}, error) {
+		return []byte("checkout-test-secret"), nil
+	})
+	if err != nil || !parsed.Valid {
+		t.Fatalf("signed delivery checkout token was not valid: parsed=%v err=%v", parsed.Valid, err)
+	}
+	if claims.DeliveryCheckoutKey != "delivery-checkout-key" {
+		t.Fatalf("delivery checkout key = %q, want frozen key", claims.DeliveryCheckoutKey)
+	}
 }
 
 func TestBuildDeliveryPublicCheckoutURLCarriesTheFrozenCheckoutKey(t *testing.T) {

@@ -2397,7 +2397,8 @@ export class TablesService {
             throw new NotFoundException('Comanda não encontrada');
         }
 
-        const deliveryCheckout = await this.resolvePublicDeliveryCheckout(tab, deliveryCheckoutKey);
+        const authorizedCheckoutKey = this.resolveAuthorizedDeliveryCheckoutKey(tab, deliveryCheckoutKey);
+        const deliveryCheckout = await this.resolvePublicDeliveryCheckout(tab, authorizedCheckoutKey);
         if (deliveryCheckout) {
             return this.buildPublicDeliveryCheckoutPayload(tab, deliveryCheckout);
         }
@@ -2502,7 +2503,10 @@ export class TablesService {
             throw new NotFoundException('Comanda não encontrada');
         }
 
-        const checkoutKey = this.resolvePayerField(payload['delivery_checkout_key'], '');
+        const checkoutKey = this.resolveAuthorizedDeliveryCheckoutKey(
+            tab,
+            this.resolvePayerField(payload['delivery_checkout_key'], ''),
+        );
         const deliveryCheckout = await this.resolvePublicDeliveryCheckout(tab, checkoutKey, true);
         const amountDue = deliveryCheckout
             ? deliveryCheckout.totalAmount
@@ -2545,7 +2549,10 @@ export class TablesService {
             throw new BadRequestException(cardCheckoutConfig.reason);
         }
 
-        const checkoutKey = this.resolvePayerField(payload['delivery_checkout_key'], '');
+        const checkoutKey = this.resolveAuthorizedDeliveryCheckoutKey(
+            tab,
+            this.resolvePayerField(payload['delivery_checkout_key'], ''),
+        );
         const deliveryCheckout = await this.resolvePublicDeliveryCheckout(tab, checkoutKey, true);
         const amountDue = deliveryCheckout
             ? deliveryCheckout.totalAmount
@@ -2603,7 +2610,8 @@ export class TablesService {
             throw new NotFoundException('Comanda não encontrada');
         }
 
-        const deliveryCheckout = await this.resolvePublicDeliveryCheckout(tab, deliveryCheckoutKey);
+        const authorizedCheckoutKey = this.resolveAuthorizedDeliveryCheckoutKey(tab, deliveryCheckoutKey);
+        const deliveryCheckout = await this.resolvePublicDeliveryCheckout(tab, authorizedCheckoutKey);
         const amountDue = deliveryCheckout
             ? deliveryCheckout.totalAmount
             : this.getAmountDue(tab.total, tab.paidAmount, tab.status);
@@ -3595,12 +3603,13 @@ export class TablesService {
             const tokenTabId = String(decoded?.tab_id || decoded?.sub || '').trim();
             const scope = String(decoded?.scope || '').trim();
             const ownerPhone = this.normalizePhoneDigits(decoded?.owner_phone);
+            const deliveryCheckoutKey = String(decoded?.delivery_checkout_key || '').trim();
 
             if (scope !== 'checkout_public' || tokenTabId !== String(tabId || '').trim()) {
                 throw new UnauthorizedException('Link de pagamento inválido ou expirado');
             }
 
-            return { ownerPhone };
+            return { ownerPhone, deliveryCheckoutKey };
         } catch (error) {
             if (error instanceof UnauthorizedException) {
                 throw error;
@@ -3669,7 +3678,22 @@ export class TablesService {
             tableNumber: row.table_number || null,
             tenantName: String(row.tenant_name || 'ClickGarcom'),
             tenantSettings: this.parseTenantSettings(row.tenant_settings),
+            signedDeliveryCheckoutKey: access.deliveryCheckoutKey,
         };
+    }
+
+    private resolveAuthorizedDeliveryCheckoutKey(
+        tab: { signedDeliveryCheckoutKey?: string },
+        rawCheckoutKey?: string,
+    ) {
+        const signedCheckoutKey = String(tab.signedDeliveryCheckoutKey || '').trim();
+        const requestedCheckoutKey = String(rawCheckoutKey || '').trim();
+
+        if (signedCheckoutKey && requestedCheckoutKey && signedCheckoutKey !== requestedCheckoutKey) {
+            throw new UnauthorizedException('Link de pagamento não corresponde a este pedido de entrega.');
+        }
+
+        return signedCheckoutKey || requestedCheckoutKey;
     }
 
     private async resolvePublicDeliveryCheckout(
