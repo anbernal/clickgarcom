@@ -216,8 +216,9 @@ tracking próprio.
    aba **🛵 Delivery**.
 2. Confirmar que o pedido pago aparece em **Aguardando preparo**, sem ação de
    mesa, comanda ou chamar garçom.
-3. Clicar em **Iniciar preparo** e confirmar que o pedido aparece na cozinha/bar
-   somente como item de preparo e que a entrega muda para **Em preparo**.
+3. Clicar em **Definir previsão e iniciar preparo**, informar os minutos e
+   confirmar que o pedido aparece na cozinha/bar somente como item de preparo
+   e que a entrega muda para **Em preparo**.
 4. Marcar todos os itens como prontos no KDS de cozinha/bar.
 5. Confirmar que a entrega migra para **Pronto para saída** e clicar em
    **Imprimir expedição**.
@@ -234,8 +235,9 @@ e o usuário responsável fica registrado na auditoria.
 ### T08.1 — Mensagens ao cliente durante a entrega
 
 1. Repetir T08 usando um telefone de QA no WhatsApp.
-2. Após **Iniciar preparo**, confirmar uma única mensagem: “Seu pedido está
-   sendo preparado”.
+2. Após iniciar o preparo, confirmar uma única mensagem com a previsão
+   escolhida: “Seu pedido foi aceito e está sendo preparado. A previsão é de
+   10 minutos.”
 3. Após **Registrar saída**, confirmar uma única mensagem: “Seu pedido está indo
    até você”.
 4. Após **Confirmar entrega**, confirmar uma única mensagem: “Entrega

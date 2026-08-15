@@ -15,6 +15,7 @@ Fonte: `docs/especificacao_tecnica_logistica_delivery.md` v2.0.
 Implementação:
 
 - reconciliar `ACCEPTED` e `READY` do lote com `PREPARING` e `READY_FOR_DISPATCH` da entrega;
+- exigir que o operador informe a previsão de preparo ao aceitar/iniciar uma entrega e persistir o valor na timeline;
 - expor projeção autorizada para a fila Delivery do KDS;
 - registrar saída e confirmação da própria com RBAC, versão esperada, idempotência e auditoria;
 - manter informações de expedição disponíveis apenas a perfis autorizados.
@@ -22,6 +23,7 @@ Implementação:
 Critérios de aceite:
 
 - preparar/pronto no KDS atualiza a entrega correspondente;
+- a mensagem de preparo usa a previsão definida pelo operador;
 - operação própria não cria driver, PIN ou tracking próprio;
 - concorrência não conclui a mesma entrega duas vezes.
 

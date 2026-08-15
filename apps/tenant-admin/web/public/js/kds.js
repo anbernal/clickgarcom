@@ -845,7 +845,7 @@ function deliveryActionButtons(delivery) {
   const status = String(delivery.status || '');
   const own = String(delivery.default_fulfillment_mode || 'OWN').toUpperCase() === 'OWN';
   if (['PENDING_RESTAURANT_ACCEPTANCE', 'ACCEPTED'].includes(status)) {
-    return `<button class="action-btn accept" onclick="startDeliveryPreparation('${id}')">🍳 Iniciar preparo</button>`;
+    return `<button class="action-btn accept" onclick="openDeliveryPreparationModal('${id}')">🍳 Definir previsão e iniciar preparo</button>`;
   }
   if (status === 'READY_FOR_DISPATCH') {
     const dispatch = own
@@ -2576,16 +2576,48 @@ function updateNavBadges() {
 }
 
 // ─── ACTIONS ───────────────────────────────────────────────────
-async function startDeliveryPreparation(deliveryId) {
+function openDeliveryPreparationModal(deliveryId) {
+  const delivery = allDeliveries[deliveryId];
+  if (!delivery || document.getElementById('deliveryPreparationModal')) return;
+  const initialMinutes = Math.max(1, Math.round(Number(delivery.eta_seconds || 0) / 60)) || 10;
+  const overlay = document.createElement('div');
+  overlay.id = 'deliveryPreparationModal';
+  overlay.className = 'modal-overlay open';
+  overlay.innerHTML = `<div class="modal" style="width:min(440px,94vw)">
+    <div class="modal-header"><div><div class="modal-title">Iniciar preparo da entrega</div><div style="font-size:12px;color:var(--muted);margin-top:4px">Pedido ${escapeHTML(delivery.display_code || delivery.id)}</div></div><button class="modal-close" type="button" onclick="closeDeliveryPreparationModal()" aria-label="Fechar">✕</button></div>
+    <div class="modal-body"><p style="margin:0 0 14px;color:var(--text-2);font-size:13px;line-height:1.45">Informe a previsão total para preparar o pedido. Ela será enviada ao cliente quando o preparo começar.</p><label class="modal-label" for="delivery-estimate-minutes">Previsão de preparo <span style="color:var(--red)">*</span></label><input class="input" id="delivery-estimate-minutes" type="number" min="1" max="240" step="1" value="${initialMinutes}" inputmode="numeric" autofocus><div id="delivery-estimate-error" class="error-msg-inline" style="margin-top:8px"></div></div>
+    <div class="modal-actions"><button class="btn btn-ghost" type="button" onclick="closeDeliveryPreparationModal()">Cancelar</button><button class="btn btn-green" type="button" onclick="submitDeliveryPreparation('${escapeHTML(deliveryId)}')">Iniciar preparo</button></div>
+  </div>`;
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) closeDeliveryPreparationModal();
+  });
+  document.body.appendChild(overlay);
+  window.setTimeout(() => document.getElementById('delivery-estimate-minutes')?.focus(), 0);
+}
+
+function closeDeliveryPreparationModal() {
+  document.getElementById('deliveryPreparationModal')?.remove();
+}
+
+async function submitDeliveryPreparation(deliveryId) {
+  const estimateMinutes = Number(document.getElementById('delivery-estimate-minutes')?.value || 0);
+  const error = document.getElementById('delivery-estimate-error');
+  if (!Number.isInteger(estimateMinutes) || estimateMinutes < 1 || estimateMinutes > 240) {
+    if (error) error.textContent = 'Informe uma previsão entre 1 e 240 minutos.';
+    return;
+  }
+  await startDeliveryPreparation(deliveryId, estimateMinutes);
+}
+
+async function startDeliveryPreparation(deliveryId, estimateMinutes) {
   const delivery = allDeliveries[deliveryId];
   if (!delivery) return;
   try {
-    if (String(delivery.status) === 'PENDING_RESTAURANT_ACCEPTANCE') {
-      await apiPost(`/deliveries/${encodeURIComponent(deliveryId)}/accept`, {});
-    }
+    await apiPost(`/deliveries/${encodeURIComponent(deliveryId)}/accept`, { estimated_minutes: estimateMinutes });
     const orders = deliveryOrders(delivery).filter((order) => String(order.status) === 'PENDING');
     await Promise.all(orders.map((order) => apiPatch(`/orders/${encodeURIComponent(order.id)}/status?tenant_id=${CONFIG.TENANT_ID}`, { status: 'ACCEPTED' })));
-    toast('t-success', '🍳 Preparo iniciado', 'O cliente foi avisado e a cozinha recebeu o pedido.');
+    closeDeliveryPreparationModal();
+    toast('t-success', '🍳 Preparo iniciado', `Previsão de ${estimateMinutes} minutos enviada ao cliente.`);
     await Promise.all([loadOrders(), loadDeliveries()]);
   } catch (error) {
     console.error('Failed to start delivery preparation:', error);

@@ -10,6 +10,7 @@ import {
 import { DeliveryService } from './delivery.service';
 import {
     DeliveryAssignDto,
+    DeliveryAcceptDto,
     DeliveryCancelDto,
     DeliveryCompleteReturnDto,
     DeliveryFeeQuoteQueryDto,
@@ -59,8 +60,8 @@ export class DeliveryController {
 
     @Post(':id/accept')
     @Roles(...TENANT_DELIVERY_DISPATCH_ROLES)
-    accept(@Request() request: any, @Param('id') id: string, @Headers('idempotency-key') idempotencyKey?: string) {
-        return this.deliveryService.accept(request.user.tenantId, id, this.actor(request), idempotencyKey);
+    accept(@Request() request: any, @Param('id') id: string, @Body() body: DeliveryAcceptDto, @Headers('idempotency-key') idempotencyKey?: string) {
+        return this.deliveryService.accept(request.user.tenantId, id, body, this.actor(request), idempotencyKey);
     }
 
     @Post(':id/reject')

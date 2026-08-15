@@ -35,6 +35,7 @@ import {
 } from './contracts';
 import {
     DeliveryAssignDto,
+    DeliveryAcceptDto,
     DeliveryCancelDto,
     DeliveryCompleteReturnDto,
     DeliveryConfirmPinDto,
@@ -556,9 +557,49 @@ export class DeliveryService {
         };
     }
 
-    async accept(tenantId: string, id: string, actor: Actor, idempotencyKey?: string) {
-        return this.runIdempotent(tenantId, id, 'accept', idempotencyKey, actor, {}, () =>
-            this.transition(tenantId, id, DeliveryStatus.Accepted, actor, 'MANUAL_ACCEPT'));
+    async accept(tenantId: string, id: string, command: DeliveryAcceptDto, actor: Actor, idempotencyKey?: string) {
+        return this.runIdempotent(tenantId, id, 'accept', idempotencyKey, actor, command as unknown as Record<string, unknown>, async () => {
+            const snapshot = await this.dataSource.transaction(async (manager) => {
+                const repository = manager.getRepository(Delivery);
+                const delivery = await repository.createQueryBuilder('delivery')
+                    .where('delivery.id = :id AND delivery.tenant_id = :tenantId', { id, tenantId })
+                    .setLock('pessimistic_write')
+                    .getOne();
+                if (!delivery) throw new NotFoundException('Entrega não encontrada.');
+                if (![DeliveryStatus.PendingRestaurantAcceptance, DeliveryStatus.Accepted].includes(delivery.status as DeliveryStatus)) {
+                    throw new UnprocessableEntityException('A previsão só pode ser definida antes do início do preparo.');
+                }
+
+                const previousStatus = delivery.status;
+                const previousEtaSeconds = delivery.etaSeconds;
+                const now = new Date();
+                delivery.etaSeconds = command.estimated_minutes * 60;
+                delivery.etaUpdatedAt = now;
+                if (delivery.status === DeliveryStatus.PendingRestaurantAcceptance) {
+                    delivery.status = DeliveryStatus.Accepted;
+                    this.applyTimestamp(delivery, DeliveryStatus.Accepted);
+                }
+                delivery.version += 1;
+                const saved = await repository.save(delivery);
+                await this.appendEvent(
+                    manager,
+                    saved,
+                    previousStatus === DeliveryStatus.PendingRestaurantAcceptance ? DeliveryEventType.Accepted : DeliveryEventType.StatusChanged,
+                    actor,
+                    saved.status,
+                    {
+                        previous_status: previousStatus,
+                        previous_eta_seconds: previousEtaSeconds,
+                        estimated_minutes: command.estimated_minutes,
+                        reason_code: 'PREPARATION_ESTIMATE_SET',
+                    },
+                    'KDS_DELIVERY',
+                );
+                return this.toSnapshot(saved);
+            });
+            await this.publishTrackingStatus(snapshot);
+            return snapshot;
+        });
     }
 
     async reject(tenantId: string, id: string, command: DeliveryRejectDto, actor: Actor, idempotencyKey?: string) {

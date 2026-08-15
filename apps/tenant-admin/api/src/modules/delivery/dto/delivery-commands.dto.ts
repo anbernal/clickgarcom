@@ -67,6 +67,14 @@ export class DeliveryRejectDto {
     reason?: string;
 }
 
+export class DeliveryAcceptDto {
+    @Type(() => Number)
+    @IsInt()
+    @Min(1)
+    @Max(240)
+    estimated_minutes!: number;
+}
+
 export class DeliveryCancelDto {
     @IsEnum(DeliveryCancellationReason)
     reason_code!: DeliveryCancellationReason;

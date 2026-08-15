@@ -64,7 +64,7 @@ const MessageGroups = [
         color: 'var(--teal)',
         colorBg: 'var(--teal-light)',
         templates: [
-            { key: 'msg_delivery_preparing', label: 'Pedido em preparo', desc: 'Enviada quando a equipe inicia o preparo no painel Delivery.', vars: ['{codigo_pedido}'] },
+            { key: 'msg_delivery_preparing', label: 'Pedido em preparo', desc: 'Enviada quando a equipe inicia o preparo no painel Delivery.', vars: ['{codigo_pedido}', '{previsao_minutos}'] },
             { key: 'msg_delivery_in_transit', label: 'Pedido a caminho', desc: 'Enviada quando a expedição registra a saída para entrega.', vars: ['{codigo_pedido}'] },
             { key: 'msg_delivery_delivered', label: 'Entrega confirmada', desc: 'Enviada quando a equipe confirma que a entrega própria foi concluída.', vars: [] },
         ],

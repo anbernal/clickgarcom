@@ -76,6 +76,7 @@ export class DeliveryNotificationService {
         if (!delivery.customerPhone) return;
         const body = await this.resolveBody(manager, delivery, milestone, {
             '{codigo_pedido}': delivery.displayCode,
+            '{previsao_minutos}': String(Math.max(1, Math.round(Number(delivery.etaSeconds || 0) / 60)) || 10),
         });
         await this.enqueue(manager, {
             tenantId: delivery.tenantId,

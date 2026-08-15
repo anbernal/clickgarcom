@@ -81,7 +81,7 @@ Valor: R$ {total}
 
 Obrigado pela preferência! 
 Esperamos te receber novamente em breve! 😊`,
-    msg_delivery_preparing: '🍳 Seu pedido *{codigo_pedido}* está sendo preparado.',
+    msg_delivery_preparing: '🍳 Seu pedido *{codigo_pedido}* foi aceito e está sendo preparado. A previsão é de *{previsao_minutos} minutos*.',
     msg_delivery_in_transit: '🛵 Seu pedido *{codigo_pedido}* está indo até você.',
     msg_delivery_delivered: '✅ Entrega confirmada. Volte sempre!',
     msg_delivery_rejected: '❌ O restaurante não conseguiu aceitar o pedido *{codigo_pedido}*.',
