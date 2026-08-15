@@ -773,7 +773,7 @@ Implementação:
 - usar a chave assinada como fallback quando o navegador não receber o parâmetro separado da URL;
 - rejeitar requisição que combine uma chave explícita diferente da chave assinada;
 - aplicar a mesma resolução na abertura do resumo, criação de PIX/cartão e consulta de status;
-- preservar o contrato legado para checkout presencial e para links Delivery antigos que ainda carreguem a chave na URL.
+- preservar o contrato legado para checkout presencial e para links Delivery antigos que ainda carreguem a chave na URL; novos links usam a claim assinada sem o terceiro parâmetro.
 
 Critérios de aceite:
 

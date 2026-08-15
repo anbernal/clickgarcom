@@ -407,7 +407,7 @@ Implementação:
 - incluir `delivery_checkout_key` somente no token público emitido para uma jornada Delivery;
 - manter tokens de checkout presencial sem a claim de Delivery;
 - usar a chave da sessão corrente e da mesma comanda técnica ao emitir um novo link;
-- manter o parâmetro explícito da URL durante a transição para compatibilidade com links já emitidos.
+- aceitar o parâmetro explícito da URL no servidor durante a transição, mas não incluí-lo em novos CTAs para evitar truncamento por clientes WhatsApp.
 
 Critérios de aceite:
 
