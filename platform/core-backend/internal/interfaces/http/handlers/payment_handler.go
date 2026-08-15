@@ -176,6 +176,7 @@ func (h *PaymentHandler) CreatePixPayment(c *fiber.Ctx) error {
 	}
 
 	h.applyPixProviderResponse(c.Context(), localPayment, attempt, mpResp)
+	h.enqueueApprovedPaymentReconciliation(c.Context(), localPayment, attempt, "payment.approved")
 
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"payment_id":           localPayment.ID,
@@ -184,6 +185,7 @@ func (h *PaymentHandler) CreatePixPayment(c *fiber.Ctx) error {
 		"qr_code_base64":       mpResp.PointOfInteraction.TransactionData.QRCodeBase64,
 		"status":               strings.ToLower(strings.TrimSpace(mpResp.Status)),
 		"pending_confirmation": attempt.Status == payment.AttemptStatusProcessing || attempt.Status == payment.AttemptStatusUnknown,
+		"delivery_payment":     isDeliveryPayment(localPayment),
 	})
 }
 
@@ -330,12 +332,14 @@ func (h *PaymentHandler) CreateCardPayment(c *fiber.Ctx) error {
 	}
 
 	h.applyCardProviderResponse(c.Context(), localPayment, attempt, mpResp)
+	h.enqueueApprovedPaymentReconciliation(c.Context(), localPayment, attempt, "payment.approved")
 
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"payment_id":           localPayment.ID,
 		"mp_id":                mpResp.ID,
 		"status":               strings.ToLower(strings.TrimSpace(mpResp.Status)),
 		"pending_confirmation": attempt.Status == payment.AttemptStatusProcessing || attempt.Status == payment.AttemptStatusUnknown,
+		"delivery_payment":     isDeliveryPayment(localPayment),
 	})
 }
 
@@ -401,6 +405,7 @@ func (h *PaymentHandler) GetPaymentStatus(c *fiber.Ctx) error {
 		"pending_confirmation": attempt != nil && (attempt.Status == payment.AttemptStatusUnknown || attempt.Status == payment.AttemptStatusProcessing),
 		"qr_code":              localPayment.PixQRCode,
 		"qr_code_base64":       localPayment.PixQRCodeImage,
+		"delivery_payment":     isDeliveryPayment(localPayment),
 	})
 }
 
@@ -454,7 +459,7 @@ func (h *PaymentHandler) HandleWebhook(c *fiber.Ctx) error {
 	}
 
 	action, _ := webhookPayload["action"].(string)
-	if action != "payment.updated" && action != "payment.created" {
+	if action != "payment.updated" && action != "payment.created" && action != "order.updated" && action != "order.created" {
 		return c.SendStatus(fiber.StatusOK)
 	}
 
@@ -548,6 +553,52 @@ func (h *PaymentHandler) HandleWebhook(c *fiber.Ctx) error {
 
 	h.logger.Info("mp webhook received & published", zap.String("mp_id", mpIDStr))
 	return c.SendStatus(fiber.StatusOK)
+}
+
+func isDeliveryPayment(localPayment *payment.Payment) bool {
+	if localPayment == nil || localPayment.Metadata == nil {
+		return false
+	}
+	return strings.TrimSpace(fmt.Sprint(localPayment.Metadata["delivery_checkout_key"])) != ""
+}
+
+func (h *PaymentHandler) enqueueApprovedPaymentReconciliation(
+	ctx context.Context,
+	localPayment *payment.Payment,
+	attempt *payment.Attempt,
+	action string,
+) {
+	if h.rabbitMQ == nil || localPayment == nil || attempt == nil || localPayment.Status != payment.StatusConfirmed || attempt.SettledAt != nil {
+		return
+	}
+	providerPaymentID := payment.ValueOrEmpty(attempt.ProviderPaymentID)
+	if providerPaymentID == "" || (localPayment.TabID == nil && (localPayment.OrderID == nil || *localPayment.OrderID == uuid.Nil)) {
+		return
+	}
+	payload, err := json.Marshal(map[string]string{
+		"payment_id": localPayment.ID.String(),
+		"attempt_id": attempt.ID.String(),
+		"mp_id":      providerPaymentID,
+		"tenant_id":  localPayment.TenantID.String(),
+		"tab_id": func() string {
+			if localPayment.TabID == nil {
+				return ""
+			}
+			return localPayment.TabID.String()
+		}(),
+		"action": action,
+	})
+	if err != nil {
+		h.logger.Warn("failed to encode approved payment reconciliation", zap.Error(err))
+		return
+	}
+	if err := h.rabbitMQ.Publish(ctx, "", "payment.webhooks", payload); err != nil {
+		h.logger.Warn("failed to enqueue approved payment reconciliation",
+			zap.Error(err), zap.String("payment_id", localPayment.ID.String()))
+		return
+	}
+	h.logger.Info("approved payment reconciliation queued",
+		zap.String("payment_id", localPayment.ID.String()), zap.String("provider_payment_id", providerPaymentID))
 }
 
 var errOrderNotFound = errors.New("pedido nao encontrado")
@@ -781,6 +832,7 @@ func (h *PaymentHandler) refreshPaymentStatus(
 		localPayment.PaidAt = &now
 	}
 	_ = h.paymentRepo.Update(ctx, localPayment)
+	h.enqueueApprovedPaymentReconciliation(ctx, localPayment, attempt, "payment.status_confirmed")
 }
 
 func (h *PaymentHandler) localAPIStatus(localPayment *payment.Payment, attempt *payment.Attempt) string {

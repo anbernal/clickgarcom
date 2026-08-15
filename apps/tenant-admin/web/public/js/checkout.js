@@ -9,6 +9,7 @@ let currentAmount = 0;
 let pixPollingTimer = null;
 let pendingCardReconciliation = false;
 let checkoutExpiryTimer = null;
+let checkoutCloseTimer = null;
 
 const INVALID_CHECKOUT_LINK_MESSAGE = 'Este link de pagamento está incompleto, inválido ou expirou. Volte ao WhatsApp e toque em “Ir para pagamento” para receber um novo link.';
 
@@ -537,6 +538,82 @@ function renderExitValidationQr(tab) {
     }
 }
 
+function isApprovedCheckout(tab) {
+    return !!tab?.closed || Number(tab?.amountDue ?? tab?.total ?? 0) <= 0;
+}
+
+function renderPaymentApproved(options = {}) {
+    stopPixPolling();
+    pendingCardReconciliation = false;
+
+    const paymentPanel = document.querySelector('.payment-panel');
+    if (!paymentPanel) return;
+
+    const delivery = options.delivery ?? !!currentTabData?.isDeliveryCheckout;
+    const transactionCode = normalizeCheckoutText(
+        options.transactionCode
+        || currentTabData?.deliveryCheckout?.paymentReference,
+    );
+
+    const card = document.createElement('section');
+    card.className = 'payment-approved-card';
+    card.setAttribute('role', 'status');
+    card.setAttribute('aria-live', 'polite');
+
+    const icon = document.createElement('div');
+    icon.className = 'payment-approved-icon';
+    icon.textContent = '✓';
+
+    const title = document.createElement('h2');
+    title.className = 'payment-approved-title';
+    title.textContent = 'Pagamento aprovado!';
+
+    const message = document.createElement('p');
+    message.className = 'payment-approved-message';
+    message.textContent = delivery
+        ? 'Seu pedido foi enviado ao restaurante para seguir com a entrega. A confirmação e as próximas atualizações também serão enviadas pelo WhatsApp.'
+        : 'Seu pagamento foi confirmado e a conta foi finalizada com sucesso.';
+
+    card.append(icon, title, message);
+
+    if (transactionCode) {
+        const reference = document.createElement('div');
+        reference.className = 'payment-approved-reference';
+        const label = document.createElement('strong');
+        label.textContent = 'Código da transação';
+        const value = document.createElement('span');
+        value.textContent = transactionCode;
+        reference.append(label, value);
+        card.appendChild(reference);
+    }
+
+    const closeNote = document.createElement('p');
+    closeNote.className = 'payment-approved-close-note';
+    closeNote.textContent = 'Você já pode fechar esta tela com segurança. Tentaremos fechá-la automaticamente em 10 segundos.';
+
+    const closeButton = document.createElement('button');
+    closeButton.type = 'button';
+    closeButton.className = 'payment-approved-close-btn';
+    closeButton.textContent = 'Fechar tela';
+    closeButton.addEventListener('click', () => {
+        window.close();
+        window.setTimeout(() => {
+            closeNote.textContent = 'O navegador não permitiu fechar a aba automaticamente. Você pode fechá-la com segurança.';
+        }, 350);
+    });
+
+    card.append(closeNote, closeButton);
+    paymentPanel.replaceChildren(card);
+
+    if (checkoutCloseTimer) window.clearTimeout(checkoutCloseTimer);
+    checkoutCloseTimer = window.setTimeout(() => {
+        window.close();
+        window.setTimeout(() => {
+            closeNote.textContent = 'O navegador não permitiu fechar a aba automaticamente. Você pode fechá-la com segurança.';
+        }, 350);
+    }, 10000);
+}
+
 function setCheckoutState(tab) {
     currentTabData = tab;
     currentAmount = Number(tab?.amountDue ?? tab?.total ?? 0) || 0;
@@ -557,7 +634,7 @@ function setCheckoutState(tab) {
             : 'Pagamento 100% seguro via PIX.<br>O valor é creditado automaticamente na comanda.';
     }
 
-    const closed = !!tab?.closed || currentAmount <= 0;
+    const closed = isApprovedCheckout(tab);
     if (closed) {
         stopPixPolling();
         if (pixBtn) {
@@ -574,6 +651,10 @@ function setCheckoutState(tab) {
             successEl.textContent = '✅ Conta finalizada com sucesso.';
         }
         renderExitValidationQr(tab);
+        renderPaymentApproved({
+            delivery: !!tab?.isDeliveryCheckout,
+            transactionCode: tab?.deliveryCheckout?.paymentReference,
+        });
     }
 }
 
@@ -627,7 +708,7 @@ async function startPaymentPolling(paymentId, options = {}) {
                 await refreshTabState();
                 pendingCardReconciliation = false;
                 if (options.onApproved) {
-                    options.onApproved();
+                    options.onApproved(status);
                 }
                 return;
             }
@@ -687,6 +768,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         const tab = await loadTabData(currentTabId);
         setCheckoutState(tab);
+
+        if (isApprovedCheckout(tab)) {
+            return;
+        }
 
         fillInstallments();
         const cardEnabled = configureCardCheckoutAvailability(tab);
@@ -805,11 +890,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                 if (String(response?.status || '').trim().toLowerCase() === 'approved' || response?.tabClosed) {
                     await refreshTabState();
-                    const deliveryMessage = response?.deliveryPayment
-                        ? 'Seu pagamento foi aprovado. Estamos confirmando a entrega com o restaurante.'
-                        : 'Sua conta foi finalizada com sucesso.';
-                    document.getElementById('form-checkout').innerHTML =
-                        `<h3 style="color:var(--success);text-align:center">Pagamento aprovado</h3><p style="text-align:center">${deliveryMessage}</p>`;
+                    renderPaymentApproved({
+                        delivery: response?.delivery_payment ?? response?.deliveryPayment ?? !!tab?.isDeliveryCheckout,
+                        transactionCode: response?.mp_id,
+                    });
                     return;
                 }
 
@@ -817,9 +901,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                     pendingCardReconciliation = true;
                     showPaymentInfo('⏳ Pagamento enviado. Estamos confirmando com a operadora e te atualizo em instantes.');
                     startPaymentPolling(String(response.payment_id), {
-                        onApproved: () => {
-                            document.getElementById('form-checkout').innerHTML =
-                                '<h3 style="color:var(--success);text-align:center">Pagamento aprovado</h3><p style="text-align:center">Sua conta foi finalizada com sucesso.</p>';
+                        onApproved: (status) => {
+                            renderPaymentApproved({
+                                delivery: status?.delivery_payment ?? status?.deliveryPayment ?? !!tab?.isDeliveryCheckout,
+                                transactionCode: status?.mp_id,
+                            });
                         },
                         onFailed: (status) => {
                             submitBtn.disabled = false;

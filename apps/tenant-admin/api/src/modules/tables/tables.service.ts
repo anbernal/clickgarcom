@@ -29,6 +29,7 @@ type PublicDeliveryCheckoutContext = {
     orderTotal: number;
     deliveryFee: number;
     totalAmount: number;
+    paymentReference: string | null;
     addressSnapshot: Record<string, any>;
     items: Array<{ name: string; quantity: number; unitPrice: number }>;
 };
@@ -3767,6 +3768,7 @@ export class TablesService {
             `SELECT dc.checkout_key,
                     dc.order_batch_id,
                     dc.status AS checkout_status,
+                    dc.payment_reference,
                     dc.expires_at,
                     dc.order_total,
                     dc.customer_delivery_fee,
@@ -3843,6 +3845,7 @@ export class TablesService {
             orderTotal: this.roundMoney(Number(checkout.order_total)),
             deliveryFee: this.roundMoney(Number(checkout.customer_delivery_fee)),
             totalAmount: this.roundMoney(Number(checkout.total_amount)),
+            paymentReference: String(checkout.payment_reference || '').trim() || null,
             addressSnapshot: this.parseJsonObject(checkout.address_snapshot),
             items: (items || []).map((item: any) => ({
                 name: String(item.name || 'Item'),
@@ -4180,6 +4183,7 @@ export class TablesService {
                 subtotal: checkout.orderTotal,
                 deliveryFee: checkout.deliveryFee,
                 total: checkout.totalAmount,
+                paymentReference: checkout.paymentReference,
                 items: checkout.items,
                 address: checkout.addressSnapshot,
             },

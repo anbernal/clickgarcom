@@ -9,6 +9,7 @@ import { DeliveryQuote } from '../../entities/delivery-quote.entity';
 import { DeliveryFeeService } from './delivery-fee.service';
 import { DeliveryCapacityService } from './delivery-capacity.service';
 import { DeliveryQuoteService } from './delivery-quote.service';
+import { DeliveryNotificationService } from './delivery-notification.service';
 import { DELIVERY_MAPS_PROVIDER, DeliveryMapsProvider } from './maps/maps-provider';
 import { ConfirmDeliveryCheckoutDto, ConfirmPaidDeliveryCheckoutDto, CreateDeliveryCheckoutDto } from './dto/delivery-checkout.dto';
 
@@ -27,6 +28,7 @@ export class DeliveryCheckoutService {
         private readonly feeService: DeliveryFeeService,
         private readonly capacityService: DeliveryCapacityService,
         private readonly quoteService: DeliveryQuoteService,
+        private readonly notificationService: DeliveryNotificationService,
         @Inject(DELIVERY_MAPS_PROVIDER) private readonly mapsProvider: DeliveryMapsProvider,
     ) { }
 
@@ -178,6 +180,7 @@ export class DeliveryCheckoutService {
             if (checkout.status === 'PAID') {
                 if (checkout.paymentReference !== dto.payment_reference) throw new ConflictException('Checkout já foi confirmado com outra referência.');
                 if (Number(checkout.totalAmount) !== paidAmount) throw new ConflictException('Valor pago não corresponde ao checkout.');
+                await this.notificationService.enqueuePaymentApproved(manager, checkout);
                 return checkout;
             }
             if (checkout.status !== 'PENDING_PAYMENT' || checkout.expiresAt <= new Date()) {
@@ -194,7 +197,9 @@ export class DeliveryCheckoutService {
             checkout.status = 'PAID';
             checkout.paymentReference = dto.payment_reference;
             checkout.deliveryId = dto.delivery_id || null;
-            return repository.save(checkout);
+            const saved = await repository.save(checkout);
+            await this.notificationService.enqueuePaymentApproved(manager, saved);
+            return saved;
         });
         return this.view(result, null);
     }

@@ -54,6 +54,7 @@ const MessageGroups = [
         templates: [
             { key: 'msg_payment_pending', label: 'Link de Pagamento', desc: 'Enviada com o QR Code / link PIX para pagamento.', vars: ['{valor}', '{link_pagamento}'] },
             { key: 'msg_payment_confirmed', label: 'Pagamento Aprovado', desc: 'Confirmação automática após aprovação do MercadoPago.', vars: [] },
+            { key: 'msg_delivery_payment_confirmed', label: 'Pagamento do Delivery', desc: 'Confirma o pagamento e informa o código da transação do pedido para entrega.', vars: ['{codigo_pedido}', '{total}', '{codigo_transacao}'] },
         ],
     },
 ];

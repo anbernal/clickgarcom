@@ -15,6 +15,7 @@ export interface MessageTemplates {
     msg_service_request?: string;
     msg_payment_pending?: string;
     msg_payment_confirmed?: string;
+    msg_delivery_payment_confirmed?: string;
     msg_delivery_accepted?: string;
     msg_delivery_manual_acceptance?: string;
     msg_delivery_external_assigned?: string;

@@ -81,6 +81,13 @@ Valor: R$ {total}
 
 Obrigado pela preferência! 
 Esperamos te receber novamente em breve! 😊`,
+    msg_delivery_payment_confirmed: `✅ *Pagamento aprovado!*
+
+Pedido: *{codigo_pedido}*
+Valor: *R$ {total}*
+Código da transação: *{codigo_transacao}*
+
+Seu pedido foi enviado ao restaurante. Você receberá as próximas atualizações por aqui. 🛵`,
     msg_delivery_accepted: '✅ Seu pedido *{codigo_pedido}* foi aceito pelo restaurante.',
     msg_delivery_manual_acceptance: '⏳ Seu pedido *{codigo_pedido}* está aguardando confirmação do restaurante.',
     msg_delivery_external_assigned: '🚚 Seu pedido *{codigo_pedido}* foi encaminhado para entrega.\n\nAcompanhe em tempo real: {link_rastreamento}\n\nCódigo de confirmação do operador: *{codigo_operador}*',
@@ -106,6 +113,7 @@ export const MESSAGE_TEMPLATE_KEYS: Array<keyof MessageTemplates> = [
     'msg_service_request',
     'msg_payment_pending',
     'msg_payment_confirmed',
+    'msg_delivery_payment_confirmed',
     'msg_delivery_accepted',
     'msg_delivery_manual_acceptance',
     'msg_delivery_external_assigned',
