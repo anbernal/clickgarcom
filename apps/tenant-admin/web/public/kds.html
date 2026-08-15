@@ -1570,6 +1570,107 @@
             font-size: 13.5px;
         }
 
+        #deliveryPreparationModal {
+            padding: 16px;
+        }
+
+        #deliveryPreparationModal .modal {
+            width: min(480px, calc(100vw - 32px)) !important;
+            max-height: calc(100vh - 32px);
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        #deliveryPreparationModal .modal-header {
+            flex: 0 0 auto;
+            gap: 16px;
+            margin: 0;
+            padding: 24px 26px 18px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        #deliveryPreparationModal .modal-header > div {
+            min-width: 0;
+        }
+
+        #deliveryPreparationModal .modal-close {
+            flex: 0 0 36px;
+            width: 36px;
+            height: 36px;
+        }
+
+        #deliveryPreparationModal .modal-body {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
+            padding: 22px 26px 26px;
+        }
+
+        #deliveryPreparationModal .modal-label {
+            display: block;
+            margin: 0 0 8px;
+        }
+
+        #deliveryPreparationModal .input {
+            display: block;
+            width: 100%;
+            min-height: 48px;
+            margin: 0;
+            box-sizing: border-box;
+            font-size: 16px;
+        }
+
+        #deliveryPreparationModal .error-msg-inline {
+            margin: 8px 0 0 !important;
+            line-height: 1.4;
+        }
+
+        #deliveryPreparationModal .modal-actions {
+            flex: 0 0 auto;
+            gap: 12px;
+            margin: 0;
+            padding: 18px 26px 24px;
+            border-top: 1px solid var(--border);
+            background: var(--surface);
+        }
+
+        #deliveryPreparationModal .modal-actions .btn {
+            width: 100%;
+            min-height: 48px;
+            margin: 0;
+        }
+
+        @media (max-width: 480px) {
+            #deliveryPreparationModal {
+                align-items: flex-end;
+                padding: 0;
+            }
+
+            #deliveryPreparationModal .modal {
+                width: 100% !important;
+                max-width: none;
+                max-height: calc(100vh - 16px);
+                border-radius: 22px 22px 0 0;
+            }
+
+            #deliveryPreparationModal .modal-header,
+            #deliveryPreparationModal .modal-body {
+                padding-left: 20px;
+                padding-right: 20px;
+            }
+
+            #deliveryPreparationModal .modal-actions {
+                padding: 16px 20px max(20px, env(safe-area-inset-bottom));
+                flex-direction: column-reverse;
+            }
+
+            #deliveryPreparationModal .modal-actions .btn {
+                flex: none;
+            }
+        }
+
         #assignTableModal .modal {
             width: min(680px, 94vw);
             max-height: min(92vh, 760px);
