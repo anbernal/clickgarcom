@@ -4589,7 +4589,11 @@ Esperamos te receber novamente em breve! 😊`;
         const publicKey = usesGatewayConfig
             ? String(configuredGateway?.public_key || '').trim()
             : String(tenantSettings?.mp_public_key || '').trim();
-        const accessTokenEnv = this.detectMercadoPagoEnvironment(accessToken);
+        // Gateway profiles persist the Access Token encrypted (v1.*). The
+        // public checkout must not try to infer its environment from that
+        // ciphertext; the Super Admin validation already checked the pair
+        // before encrypting it.
+        const accessTokenEnv = usesGatewayConfig ? '' : this.detectMercadoPagoEnvironment(accessToken);
         const publicKeyEnv = this.detectMercadoPagoEnvironment(publicKey);
 
         if (usesGatewayConfig && !configuredGateway?.enabled) {
@@ -4617,9 +4621,9 @@ Esperamos te receber novamente em breve! 😊`;
         }
 
         const configuredEnvironment = String(configuredGateway?.environment || '').trim().toLowerCase();
-        const testAccountAppUsrPair = configuredEnvironment === 'test'
-            && accessTokenEnv === 'production'
-            && publicKeyEnv === 'production';
+        const testAccountAppUsrPair = usesGatewayConfig
+            && configuredEnvironment === 'test'
+            && (publicKeyEnv === 'production' || publicKeyEnv === 'test');
         if ((accessTokenEnv && publicKeyEnv && accessTokenEnv !== publicKeyEnv) ||
             (configuredEnvironment && publicKeyEnv && configuredEnvironment !== publicKeyEnv && !testAccountAppUsrPair)) {
             return {
