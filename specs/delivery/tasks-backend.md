@@ -761,23 +761,23 @@ Implementado em:
 - polling de pagamento valida que o pagamento pertence ao mesmo checkout/lote e não executa a finalização genérica da comanda;
 - a liquidação interna também identifica `delivery_checkout_key` no pagamento e deixa a confirmação para o reconciliador do Delivery.
 
-## DEL-V2-BE-031 — Resolver a chave Delivery pelo token público assinado
+## DEL-V2-BE-031 — Resolver acesso Delivery por capacidade curta e token assinado
 
-- Status: [x] Implementado — GET, PIX, cartão e polling usam a chave validada do JWT como fonte autoritativa
+- Status: [x] Implementado — capacidade curta troca por JWT e GET, PIX, cartão e polling usam a chave validada do token
 - Prioridade: P0
 - Dependências: DEL-V2-BE-030, DEL-V2-CORE-017
 
 Implementação:
 
-- ler `delivery_checkout_key` somente depois de validar assinatura, escopo, expiração e `tab_id` do token;
-- usar a chave assinada como fallback quando o navegador não receber o parâmetro separado da URL;
+- trocar a capacidade pública aleatória do checkout por JWT com escopo, `tab_id`, expiração e chave Delivery assinada;
+- usar a chave assinada como fonte autoritativa depois da troca;
 - rejeitar requisição que combine uma chave explícita diferente da chave assinada;
 - aplicar a mesma resolução na abertura do resumo, criação de PIX/cartão e consulta de status;
-- preservar o contrato legado para checkout presencial e para links Delivery antigos que ainda carreguem a chave na URL; novos links usam a claim assinada sem o terceiro parâmetro.
+- preservar o contrato legado para checkout presencial e links Delivery antigos; novos CTAs não carregam JWT nem chave financeira na URL.
 
 Critérios de aceite:
 
-- link Delivery contendo token e `tab_id` válidos abre mesmo sem a query `delivery_checkout_key`;
+- link Delivery curto abre mesmo em clientes WhatsApp que truncam queries longas;
 - valor, itens, endereço e pedido continuam vindo do snapshot congelado do checkout assinado;
 - adulteração da chave explícita retorna não autorizado;
 - links presenciais não passam a exigir claim ou chave Delivery.

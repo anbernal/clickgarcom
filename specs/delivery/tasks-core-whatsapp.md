@@ -396,22 +396,22 @@ Critérios de aceite:
 - seleção de botão antigo não mistura os estados Delivery e presencial;
 - o checkout Delivery continua acessível após a personalização correta do item.
 
-## DEL-V2-CORE-017 — Vincular o checkout Delivery ao token público assinado
+## DEL-V2-CORE-017 — Emitir link curto e seguro para checkout Delivery
 
-- Status: [x] Implementado — a chave congelada do checkout acompanha o JWT emitido pelo Core
+- Status: [x] Implementado — CTA usa capacidade curta e a página obtém JWT assinado somente ao abrir
 - Prioridade: P0
 - Dependências: DEL-V2-CORE-007, DEL-V2-BE-030
 
 Implementação:
 
-- incluir `delivery_checkout_key` somente no token público emitido para uma jornada Delivery;
-- manter tokens de checkout presencial sem a claim de Delivery;
-- usar a chave da sessão corrente e da mesma comanda técnica ao emitir um novo link;
-- aceitar o parâmetro explícito da URL no servidor durante a transição, mas não incluí-lo em novos CTAs para evitar truncamento por clientes WhatsApp.
+- usar o UUID aleatório do checkout como capacidade curta no CTA do WhatsApp;
+- evitar JWT, tab e chave financeira longos na URL enviada ao cliente;
+- manter a chave congelada apenas dentro do JWT trocado pela página pública;
+- preservar suporte aos links legados que ainda carregam token/chave na URL.
 
 Critérios de aceite:
 
-- o checkout abre mesmo quando o cliente do WhatsApp descarta o parâmetro separado da chave;
-- a chave recuperada pela API passou antes pela verificação da assinatura e expiração do JWT;
-- uma chave diferente enviada pelo navegador não substitui a chave assinada;
+- o CTA tem apenas um identificador curto de checkout e não depende do transporte de JWT pelo WhatsApp;
+- o JWT com a chave financeira é emitido somente após validar a capacidade e a expiração do checkout;
+- capacidade inválida, paga ou expirada não gera token;
 - checkout presencial permanece compatível com o contrato anterior.

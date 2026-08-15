@@ -10,7 +10,9 @@ type ReservationStatus = 'HELD' | 'CONFIRMED' | 'RELEASED' | 'EXPIRED';
 
 @Injectable()
 export class DeliveryCapacityService {
-    private readonly holdMinutes = 15;
+    // Must match DeliveryCheckoutService so capacity is not released before
+    // the customer-facing payment checkout expires.
+    private readonly holdMinutes = 30;
 
     constructor(
         @InjectRepository(DeliveryOwnCapacityReservation)

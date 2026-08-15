@@ -7,6 +7,13 @@ import { TablesService } from './tables.service';
 export class PublicTablesController {
     constructor(private readonly tablesService: TablesService) { }
 
+    @Get('delivery-checkouts/:checkoutCapability/access')
+    resolvePublicDeliveryCheckoutAccess(
+        @Param('checkoutCapability') checkoutCapability: string,
+    ) {
+        return this.tablesService.resolvePublicDeliveryCheckoutAccess(checkoutCapability);
+    }
+
     @Get('tabs/:tabId')
     getPublicTabById(
         @Param('tabId') tabId: string,

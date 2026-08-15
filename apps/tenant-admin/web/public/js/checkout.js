@@ -92,14 +92,25 @@ function getCheckoutAccessPayload() {
     const tabIdFromUrl = hashParams.get('tab_id') || searchParams.get('tab_id');
     const accessTokenFromUrl = hashParams.get('access_token') || searchParams.get('access_token');
     const deliveryCheckoutKeyFromUrl = hashParams.get('delivery_checkout_key') || searchParams.get('delivery_checkout_key');
+    const deliveryCheckoutCapabilityFromUrl = hashParams.get('delivery_checkout') || searchParams.get('delivery_checkout');
 
     // A partially copied URL must never fall back to a previous checkout kept
     // in this browser. It could otherwise look like the payment belongs to a
     // different order and result in a misleading authorization error.
-    const hasCheckoutParameter = Boolean(tabIdFromUrl || accessTokenFromUrl || deliveryCheckoutKeyFromUrl);
+    const hasCheckoutParameter = Boolean(tabIdFromUrl || accessTokenFromUrl || deliveryCheckoutKeyFromUrl || deliveryCheckoutCapabilityFromUrl);
+    if (deliveryCheckoutCapabilityFromUrl && !tabIdFromUrl && !accessTokenFromUrl && !deliveryCheckoutKeyFromUrl) {
+        clearCheckoutAccessStorage();
+        return {
+            tabId: null,
+            accessToken: null,
+            deliveryCheckoutKey: null,
+            deliveryCheckoutCapability: deliveryCheckoutCapabilityFromUrl,
+            invalidLink: false,
+        };
+    }
     if (hasCheckoutParameter && (!tabIdFromUrl || !isCompleteCheckoutJwt(accessTokenFromUrl))) {
         clearCheckoutAccessStorage();
-        return { tabId: null, accessToken: null, deliveryCheckoutKey: null, invalidLink: true };
+        return { tabId: null, accessToken: null, deliveryCheckoutKey: null, deliveryCheckoutCapability: null, invalidLink: true };
     }
 
     if (tabIdFromUrl && accessTokenFromUrl) {
@@ -115,6 +126,7 @@ function getCheckoutAccessPayload() {
             tabId: tabIdFromUrl,
             accessToken: accessTokenFromUrl,
             deliveryCheckoutKey: deliveryCheckoutKeyFromUrl,
+            deliveryCheckoutCapability: null,
             invalidLink: false,
         };
     }
@@ -123,6 +135,28 @@ function getCheckoutAccessPayload() {
         tabId: sessionStorage.getItem('checkout.tab_id'),
         accessToken: sessionStorage.getItem('checkout.access_token'),
         deliveryCheckoutKey: sessionStorage.getItem('checkout.delivery_checkout_key'),
+        deliveryCheckoutCapability: null,
+        invalidLink: false,
+    };
+}
+
+async function resolveDeliveryCheckoutCapability(capability) {
+    const response = await fetchJson(buildPublicApiUrl(`/delivery-checkouts/${encodeURIComponent(String(capability || '').trim())}/access`));
+    const tabId = normalizeCheckoutText(response?.tab_id);
+    const accessToken = normalizeCheckoutText(response?.access_token);
+    if (!tabId || !isCompleteCheckoutJwt(accessToken)) {
+        throw new Error(INVALID_CHECKOUT_LINK_MESSAGE);
+    }
+
+    sessionStorage.setItem('checkout.tab_id', tabId);
+    sessionStorage.setItem('checkout.access_token', accessToken);
+    sessionStorage.removeItem('checkout.delivery_checkout_key');
+    window.history.replaceState({}, document.title, window.location.pathname);
+    return {
+        tabId,
+        accessToken,
+        deliveryCheckoutKey: null,
+        deliveryCheckoutCapability: null,
         invalidLink: false,
     };
 }
@@ -599,20 +633,23 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     });
 
-    const checkoutAccess = getCheckoutAccessPayload();
-    currentTabId = checkoutAccess.tabId;
-    currentAccessToken = checkoutAccess.accessToken;
-    currentDeliveryCheckoutKey = checkoutAccess.deliveryCheckoutKey;
-    updateCheckoutExpiryNotice();
-    if (checkoutExpiryTimer) {
-        window.clearInterval(checkoutExpiryTimer);
-    }
-    checkoutExpiryTimer = window.setInterval(updateCheckoutExpiryNotice, 30000);
+    let checkoutAccess = getCheckoutAccessPayload();
 
     const loadingEl = document.getElementById('checkout-loading');
     const contentEl = document.getElementById('checkout-content');
 
     try {
+        if (!checkoutAccess.invalidLink && checkoutAccess.deliveryCheckoutCapability) {
+            checkoutAccess = await resolveDeliveryCheckoutCapability(checkoutAccess.deliveryCheckoutCapability);
+        }
+        currentTabId = checkoutAccess.tabId;
+        currentAccessToken = checkoutAccess.accessToken;
+        currentDeliveryCheckoutKey = checkoutAccess.deliveryCheckoutKey;
+        updateCheckoutExpiryNotice();
+        if (checkoutExpiryTimer) {
+            window.clearInterval(checkoutExpiryTimer);
+        }
+        checkoutExpiryTimer = window.setInterval(updateCheckoutExpiryNotice, 30000);
         if (checkoutAccess.invalidLink || !currentTabId || !isCompleteCheckoutJwt(currentAccessToken)) {
             throw new Error(INVALID_CHECKOUT_LINK_MESSAGE);
         }

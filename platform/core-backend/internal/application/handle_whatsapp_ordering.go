@@ -3739,13 +3739,12 @@ func buildPublicCheckoutURL(baseURL string, tabID string, accessToken string) st
 	return strings.TrimRight(strings.TrimSpace(baseURL), "/") + "/checkout.html#" + query.Encode()
 }
 
-func buildDeliveryPublicCheckoutURL(baseURL string, tabID string, accessToken string, _ string) string {
+func buildDeliveryPublicCheckoutURL(baseURL string, checkoutID string) string {
 	query := url.Values{}
-	query.Set("tab_id", strings.TrimSpace(tabID))
-	query.Set("access_token", strings.TrimSpace(accessToken))
-	// The Delivery key is bound to the signed JWT. Keeping it out of newly
-	// generated CTA URLs avoids a long third query parameter being truncated by
-	// WhatsApp clients. The API still accepts the explicit key for old links.
+	query.Set("delivery_checkout", strings.TrimSpace(checkoutID))
+	// WhatsApp CTA clients can truncate a long JWT query string. The checkout
+	// UUID is a short, random capability that the public web app exchanges for
+	// a signed JWT only after the customer opens this page.
 	return strings.TrimRight(strings.TrimSpace(baseURL), "/") + "/checkout.html?" + query.Encode()
 }
 

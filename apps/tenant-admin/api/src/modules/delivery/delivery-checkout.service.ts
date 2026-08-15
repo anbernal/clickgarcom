@@ -14,7 +14,10 @@ import { ConfirmDeliveryCheckoutDto, ConfirmPaidDeliveryCheckoutDto, CreateDeliv
 
 @Injectable()
 export class DeliveryCheckoutService {
-    private readonly checkoutMinutes = 15;
+    // A customer can receive a payment link after reviewing the order. Keep
+    // the frozen quote valid for 30 minutes so a freshly generated link still
+    // has at least 15 minutes in the normal retry window.
+    private readonly checkoutMinutes = 30;
 
     constructor(
         @InjectRepository(DeliveryCheckout) private readonly checkouts: Repository<DeliveryCheckout>,

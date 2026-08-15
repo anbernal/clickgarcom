@@ -33,6 +33,7 @@ const (
 	deliveryAddressDeleteKey              = "delivery_address_delete_id"
 	deliveryAddressEditKey                = "delivery_address_edit"
 	deliveryCheckoutKeyKey                = "delivery_checkout_key"
+	deliveryCheckoutIDKey                 = "delivery_checkout_id"
 	deliveryCheckoutTokenKey              = "delivery_checkout_confirmation_token"
 	deliveryCheckoutFeeKey                = "delivery_checkout_customer_fee"
 	deliveryCheckoutTotalKey              = "delivery_checkout_total"
@@ -596,6 +597,7 @@ func (uc *HandleWhatsAppMessageUseCase) StartDeliveryCheckout(ctx context.Contex
 		return "❌ Não consegui consultar o frete para este endereço. Tente novamente ou escolha outra modalidade.", session.StateDeliveryReady, nil
 	}
 	sess.SetContext(deliveryCheckoutKeyKey, result.CheckoutKey)
+	sess.SetContext(deliveryCheckoutIDKey, result.CheckoutID.String())
 	sess.SetContext(deliveryCheckoutTokenKey, result.ConfirmationToken)
 	sess.SetContext(deliveryCheckoutFeeKey, result.CustomerDeliveryFee)
 	sess.SetContext(deliveryCheckoutTotalKey, result.TotalAmount)
@@ -653,19 +655,15 @@ func (uc *HandleWhatsAppMessageUseCase) sendDeliveryPaymentLink(ctx context.Cont
 		return "❌ Não consegui abrir o pagamento agora.", session.StateDeliveryCheckoutReview, nil
 	}
 	checkoutKey := strings.TrimSpace(uc.getContextString(sess, deliveryCheckoutKeyKey))
+	checkoutID := strings.TrimSpace(uc.getContextString(sess, deliveryCheckoutIDKey))
 	userTab := uc.findDeliveryOpenTab(ctx, sess)
-	if checkoutKey == "" || userTab == nil {
+	if checkoutKey == "" || checkoutID == "" || userTab == nil {
 		return "❌ Não consegui localizar o checkout deste pedido. Volte e tente novamente.", session.StateDeliveryReady, nil
 	}
-	// Bind the opaque checkout key to the signed token. Some WhatsApp clients
-	// preserve the JWT and tab id but discard an additional URL query parameter;
-	// the Admin API can therefore recover the authoritative key from the verified
-	// token without trusting browser state.
-	accessToken, _, err := buildCheckoutAccessTokenWithDelivery(userTab.ID.String(), "", checkoutKey)
-	if err != nil {
-		return "❌ Não consegui abrir o pagamento agora. Tente novamente.", session.StateDeliveryCheckoutReview, nil
-	}
-	targetURL := buildDeliveryPublicCheckoutURL(uc.resolveCurrentPublicCheckoutBaseURL(), userTab.ID.String(), accessToken, checkoutKey)
+	// A WhatsApp CTA carries only a short, random checkout capability. The web
+	// app exchanges it for a signed, short-lived JWT before loading payment,
+	// avoiding truncation of long JWT query strings in mobile clients.
+	targetURL := buildDeliveryPublicCheckoutURL(uc.resolveCurrentPublicCheckoutBaseURL(), checkoutID)
 	body := "💳 *Pagamento da entrega*\n\nFrete e total estão reservados. Toque no botão abaixo para pagar e enviar o pedido para o restaurante.\n\nSe o link vencer ou não abrir, envie *pagamento* para gerar outro. Para desistir, envie *cancelar pedido*."
 	if sender, ok := uc.sender.(WhatsAppURLButtonSender); ok {
 		_, sendErr := sender.SendInteractiveURLButton(whatsapp.WithTenantID(ctx, sess.TenantID), sess.UserPhone, whatsapp.WithRestaurantHeader(uc.resolveTenantName(ctx, sess.TenantID), body), "💳 Ir para pagamento", targetURL)
@@ -758,7 +756,7 @@ func (uc *HandleWhatsAppMessageUseCase) clearDeliveryCheckoutContext(sess *sessi
 	if sess == nil || sess.Context == nil {
 		return
 	}
-	for _, key := range []string{deliveryCheckoutKeyKey, deliveryCheckoutTokenKey, deliveryCheckoutFeeKey, deliveryCheckoutTotalKey, deliveryCheckoutExpiresKey, deliveryCheckoutModeKey, deliveryCheckoutPaidKey, deliveryCheckoutCancelConfirmationKey, deliveryOrderBatchKey, deliveryPaymentEventKey} {
+	for _, key := range []string{deliveryCheckoutKeyKey, deliveryCheckoutIDKey, deliveryCheckoutTokenKey, deliveryCheckoutFeeKey, deliveryCheckoutTotalKey, deliveryCheckoutExpiresKey, deliveryCheckoutModeKey, deliveryCheckoutPaidKey, deliveryCheckoutCancelConfirmationKey, deliveryOrderBatchKey, deliveryPaymentEventKey} {
 		delete(sess.Context, key)
 	}
 }

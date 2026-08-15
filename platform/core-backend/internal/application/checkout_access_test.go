@@ -52,14 +52,12 @@ func TestBuildDeliveryCheckoutAccessTokenBindsFrozenCheckoutKey(t *testing.T) {
 	}
 }
 
-func TestBuildDeliveryPublicCheckoutURLUsesTheSignedToken(t *testing.T) {
+func TestBuildDeliveryPublicCheckoutURLUsesShortCheckoutCapability(t *testing.T) {
 	got := buildDeliveryPublicCheckoutURL(
 		"https://clickgarcom.example/",
-		"tab-test",
-		"signed-token",
-		"delivery-checkout-key",
+		"delivery-checkout-id",
 	)
-	const want = "https://clickgarcom.example/checkout.html?access_token=signed-token&tab_id=tab-test"
+	const want = "https://clickgarcom.example/checkout.html?delivery_checkout=delivery-checkout-id"
 	if got != want {
 		t.Fatalf("buildDeliveryPublicCheckoutURL() = %q, want %q", got, want)
 	}

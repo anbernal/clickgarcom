@@ -2406,6 +2406,59 @@ export class TablesService {
         return this.buildPublicTabPayload(tab);
     }
 
+    async resolvePublicDeliveryCheckoutAccess(rawCapability: string) {
+        const capability = String(rawCapability || '').trim();
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(capability)) {
+            throw new UnauthorizedException('Link de pagamento inválido ou expirado');
+        }
+
+        const capabilityHash = createHash('sha256').update(capability).digest('hex');
+        const rows = await this.dataSource.query(
+            `SELECT dc.checkout_key,
+                    dc.status AS checkout_status,
+                    dc.expires_at,
+                    ob.tab_id,
+                    tb.user_phone
+               FROM delivery_checkouts dc
+               JOIN order_batches ob
+                 ON ob.id = dc.order_batch_id
+                AND ob.tenant_id = dc.tenant_id
+               JOIN tabs tb
+                 ON tb.id = ob.tab_id
+                AND tb.tenant_id = dc.tenant_id
+              WHERE dc.confirmation_token_hash = $1
+              LIMIT 1`,
+            [capabilityHash],
+        );
+        const checkout = rows?.[0];
+        const expiresAt = checkout?.expires_at ? new Date(checkout.expires_at) : null;
+        if (!checkout || String(checkout.checkout_status || '').trim().toUpperCase() !== 'PENDING_PAYMENT' || !expiresAt || expiresAt <= new Date()) {
+            throw new UnauthorizedException('Link de pagamento inválido ou expirado');
+        }
+
+        const secondsToExpiry = Math.floor((expiresAt.getTime() - Date.now()) / 1000);
+        if (secondsToExpiry <= 0) {
+            throw new UnauthorizedException('Link de pagamento inválido ou expirado');
+        }
+
+        const tabId = String(checkout.tab_id || '').trim();
+        if (!tabId) {
+            throw new UnauthorizedException('Link de pagamento inválido ou expirado');
+        }
+
+        return {
+            tab_id: tabId,
+            access_token: this.jwtService.sign({
+                scope: 'checkout_public',
+                tab_id: tabId,
+                sub: tabId,
+                owner_phone: this.normalizePhoneDigits(checkout.user_phone),
+                delivery_checkout_key: String(checkout.checkout_key || '').trim(),
+            }, { expiresIn: secondsToExpiry }),
+            expires_at: expiresAt.toISOString(),
+        };
+    }
+
     async validatePublicExit(tabId: string, accessToken?: string) {
         const tab = await this.loadPublicTabContext(tabId, accessToken);
         if (!tab) {

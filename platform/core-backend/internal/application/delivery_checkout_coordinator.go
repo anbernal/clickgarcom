@@ -57,6 +57,7 @@ type DeliveryCheckoutCreateInput struct {
 }
 
 type DeliveryCheckoutCreateResult struct {
+	CheckoutID          uuid.UUID
 	CheckoutKey         string
 	ConfirmationToken   string
 	Status              string
@@ -110,6 +111,7 @@ func (c *DeliveryCheckoutCoordinator) Create(ctx context.Context, input Delivery
 		return DeliveryCheckoutCreateResult{}, err
 	}
 	return DeliveryCheckoutCreateResult{
+		CheckoutID:          response.ID,
 		CheckoutKey:         response.CheckoutKey,
 		ConfirmationToken:   deliveryConfirmationToken(response.ConfirmationToken),
 		Status:              response.Status,
