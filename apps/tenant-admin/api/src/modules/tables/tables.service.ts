@@ -4440,6 +4440,7 @@ export class TablesService {
                  WHERE id = $1
                    AND tenant_id = $2
                    AND closed_notified_at IS NULL
+                   AND COALESCE(UPPER(TRIM(opening_channel)), '') <> 'WHATSAPP_DELIVERY'
                    AND NULLIF(TRIM(user_phone), '') IS NOT NULL
              RETURNING id,
                        tenant_id,
