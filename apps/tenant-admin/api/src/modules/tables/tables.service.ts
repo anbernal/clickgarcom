@@ -4147,6 +4147,7 @@ export class TablesService {
             amountDue,
             closed: amountDue <= 0,
             mpPublicKey: cardCheckoutConfig.enabled ? cardCheckoutConfig.publicKey : '',
+            mpEnvironment: cardCheckoutConfig.enabled ? cardCheckoutConfig.environment : '',
             paymentProvider: cardCheckoutConfig.provider,
             paymentProviderLabel: cardCheckoutConfig.provider === 'MERCADO_PAGO' ? 'Mercado Pago' : '',
             cardEnabled: cardCheckoutConfig.enabled,
@@ -4183,6 +4184,7 @@ export class TablesService {
                 address: checkout.addressSnapshot,
             },
             mpPublicKey: cardCheckoutConfig.enabled ? cardCheckoutConfig.publicKey : '',
+            mpEnvironment: cardCheckoutConfig.enabled ? cardCheckoutConfig.environment : '',
             paymentProvider: cardCheckoutConfig.provider,
             paymentProviderLabel: cardCheckoutConfig.provider === 'MERCADO_PAGO' ? 'Mercado Pago' : '',
             cardEnabled: cardCheckoutConfig.enabled,
@@ -4563,16 +4565,22 @@ Esperamos te receber novamente em breve! 😊`;
         }
     }
 
-    private resolvePublicCardCheckoutConfig(tenantSettings: Record<string, unknown>) {
+    private resolvePublicCardCheckoutConfig(tenantSettings: Record<string, unknown>): {
+        provider: string;
+        enabled: boolean;
+        publicKey: string;
+        environment: string;
+        reason: string;
+    } {
         const configuredGateway = tenantSettings?.payment_gateway && typeof tenantSettings.payment_gateway === 'object'
             ? tenantSettings.payment_gateway as Record<string, unknown>
             : null;
         const provider = String(configuredGateway?.provider || '').trim().toUpperCase();
         if (provider === 'NONE') {
-            return { provider: 'NONE', enabled: false, publicKey: '', reason: 'Pagamento online indisponível no momento.' };
+            return { provider: 'NONE', enabled: false, publicKey: '', environment: '', reason: 'Pagamento online indisponível no momento.' };
         }
         if (provider && provider !== 'MERCADO_PAGO') {
-            return { provider, enabled: false, publicKey: '', reason: 'Este gateway ainda não oferece cartão neste checkout.' };
+            return { provider, enabled: false, publicKey: '', environment: '', reason: 'Este gateway ainda não oferece cartão neste checkout.' };
         }
         const usesGatewayConfig = provider === 'MERCADO_PAGO';
         const accessToken = usesGatewayConfig
@@ -4585,7 +4593,7 @@ Esperamos te receber novamente em breve! 😊`;
         const publicKeyEnv = this.detectMercadoPagoEnvironment(publicKey);
 
         if (usesGatewayConfig && !configuredGateway?.enabled) {
-            return { provider: 'MERCADO_PAGO', enabled: false, publicKey: '', reason: 'Pagamento online indisponível no momento.' };
+            return { provider: 'MERCADO_PAGO', enabled: false, publicKey: '', environment: '', reason: 'Pagamento online indisponível no momento.' };
         }
 
         if (!accessToken) {
@@ -4593,6 +4601,7 @@ Esperamos te receber novamente em breve! 😊`;
                 provider: 'MERCADO_PAGO',
                 enabled: false,
                 publicKey: '',
+                environment: '',
                 reason: 'Pagamento com cartão indisponível no momento. O restaurante ainda não configurou o Mercado Pago.',
             };
         }
@@ -4602,17 +4611,22 @@ Esperamos te receber novamente em breve! 😊`;
                 provider: 'MERCADO_PAGO',
                 enabled: false,
                 publicKey: '',
+                environment: '',
                 reason: 'Pagamento com cartão indisponível no momento. Falta configurar a Public Key do Mercado Pago para este restaurante.',
             };
         }
 
         const configuredEnvironment = String(configuredGateway?.environment || '').trim().toLowerCase();
+        const testAccountAppUsrPair = configuredEnvironment === 'test'
+            && accessTokenEnv === 'production'
+            && publicKeyEnv === 'production';
         if ((accessTokenEnv && publicKeyEnv && accessTokenEnv !== publicKeyEnv) ||
-            (configuredEnvironment && publicKeyEnv && configuredEnvironment !== publicKeyEnv)) {
+            (configuredEnvironment && publicKeyEnv && configuredEnvironment !== publicKeyEnv && !testAccountAppUsrPair)) {
             return {
                 provider: 'MERCADO_PAGO',
                 enabled: false,
                 publicKey: '',
+                environment: '',
                 reason: 'Pagamento com cartão indisponível no momento. As credenciais do Mercado Pago estão em ambientes diferentes.',
             };
         }
@@ -4621,6 +4635,7 @@ Esperamos te receber novamente em breve! 😊`;
             provider: 'MERCADO_PAGO',
             enabled: true,
             publicKey,
+            environment: configuredEnvironment === 'test' ? 'TEST' : configuredEnvironment === 'production' ? 'PRODUCTION' : (publicKeyEnv === 'test' ? 'TEST' : 'PRODUCTION'),
             reason: '',
         };
     }

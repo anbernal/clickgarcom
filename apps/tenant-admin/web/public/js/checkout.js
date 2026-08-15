@@ -12,8 +12,9 @@ let checkoutExpiryTimer = null;
 
 const INVALID_CHECKOUT_LINK_MESSAGE = 'Este link de pagamento está incompleto, inválido ou expirou. Volte ao WhatsApp e toque em “Ir para pagamento” para receber um novo link.';
 
-function isMercadoPagoTestEnvironment(publicKey) {
-    return normalizeCheckoutText(publicKey).toUpperCase().startsWith('TEST-');
+function isMercadoPagoTestEnvironment(publicKey, environment) {
+    return normalizeCheckoutText(environment).toUpperCase() === 'TEST'
+        || normalizeCheckoutText(publicKey).toUpperCase().startsWith('TEST-');
 }
 
 function showCardAlert(message, variant = 'error') {
@@ -52,7 +53,7 @@ function configureSandboxHelper(tab) {
     const helperEl = document.getElementById('checkout-card-sandbox-helper');
     if (!helperEl) return;
 
-    if (!isMercadoPagoTestEnvironment(tab?.mpPublicKey)) {
+    if (!isMercadoPagoTestEnvironment(tab?.mpPublicKey, tab?.mpEnvironment)) {
         helperEl.style.display = 'none';
         helperEl.innerHTML = '';
         return;
@@ -732,6 +733,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         const mpPublicKey = String(tab?.mpPublicKey || '').trim();
         const mp = new MercadoPago(mpPublicKey, { locale: 'pt-BR' });
+        const isSandboxPayment = isMercadoPagoTestEnvironment(mpPublicKey, tab?.mpEnvironment);
 
         const cardNumberEl = mp.fields.create('cardNumber', { placeholder: 'Numero do cartao' });
         const expirationDateEl = mp.fields.create('expirationDate', { placeholder: 'MM/YY' });
@@ -779,7 +781,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     payer_cpf: document.getElementById('form-checkout__identificationNumber').value,
                     delivery_checkout_key: currentDeliveryCheckoutKey || undefined,
                 };
-                if (!isMercadoPagoTestEnvironment(mpPublicKey) && cardMetadata.issuerId) {
+                if (!isSandboxPayment && cardMetadata.issuerId) {
                     paymentPayload.issuer_id = cardMetadata.issuerId;
                 }
 

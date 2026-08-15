@@ -2784,8 +2784,10 @@ export class SuperAdminService {
         if (requireAccessToken && !accessToken) throw new BadRequestException('Informe o Access Token do Mercado Pago.');
         if (accessToken) this.validateMercadoPagoCredentials(environment, publicKey, accessToken);
         if (!accessToken && !existing?.access_token_encrypted) throw new BadRequestException('Informe o Access Token do Mercado Pago.');
-        const expectedPrefix = environment === 'TEST' ? 'TEST-' : 'APP_USR-';
-        if (!publicKey.startsWith(expectedPrefix)) throw new BadRequestException(`A Public Key deve ser do ambiente ${environment === 'TEST' ? 'de teste' : 'de produção'}.`);
+        const publicKeyIsValid = environment === 'TEST'
+            ? publicKey.startsWith('TEST-') || publicKey.startsWith('APP_USR-')
+            : publicKey.startsWith('APP_USR-');
+        if (!publicKeyIsValid) throw new BadRequestException(`A Public Key deve ser do ambiente ${environment === 'TEST' ? 'de teste (TEST- ou APP_USR- de conta teste)' : 'de produção'}.`);
         return { name, environment, publicKey, accessToken };
     }
 
@@ -2842,9 +2844,12 @@ export class SuperAdminService {
     }
 
     private validateMercadoPagoCredentials(environment: string, publicKey: string, accessToken: string) {
-        const expectedPrefix = environment === 'TEST' ? 'TEST-' : 'APP_USR-';
-        if (!publicKey.startsWith(expectedPrefix) || !accessToken.startsWith(expectedPrefix)) {
-            throw new BadRequestException(`As credenciais do Mercado Pago devem ser do ambiente ${environment === 'TEST' ? 'de teste' : 'de produção'} e da mesma aplicação.`);
+        const publicFamily = publicKey.startsWith('TEST-') ? 'TEST' : publicKey.startsWith('APP_USR-') ? 'APP_USR' : '';
+        const accessFamily = accessToken.startsWith('TEST-') ? 'TEST' : accessToken.startsWith('APP_USR-') ? 'APP_USR' : '';
+        const validTestPair = environment === 'TEST' && publicFamily === accessFamily && (publicFamily === 'TEST' || publicFamily === 'APP_USR');
+        const validProductionPair = environment === 'PRODUCTION' && publicFamily === 'APP_USR' && accessFamily === 'APP_USR';
+        if (!validTestPair && !validProductionPair) {
+            throw new BadRequestException(`As credenciais do Mercado Pago devem ser do ambiente ${environment === 'TEST' ? 'de teste (TEST- ou APP_USR- de conta teste)' : 'de produção'} e da mesma aplicação.`);
         }
     }
 
