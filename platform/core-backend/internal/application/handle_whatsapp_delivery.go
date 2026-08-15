@@ -40,6 +40,7 @@ const (
 	deliveryCheckoutModeKey               = "delivery_checkout_mode"
 	deliveryCheckoutPaidKey               = "delivery_checkout_paid"
 	deliveryCheckoutCancelConfirmationKey = "delivery_checkout_cancel_confirmation"
+	deliveryCheckoutRetryKeyKey           = "delivery_checkout_retry_key"
 	deliveryOrderBatchKey                 = "delivery_order_batch_id"
 	deliveryPaymentEventKey               = "delivery_payment_event_id"
 	deliveryTabIDKey                      = "delivery_internal_tab_id"
@@ -536,6 +537,9 @@ func (uc *HandleWhatsAppMessageUseCase) StartDeliveryCheckout(ctx context.Contex
 	}
 	if checkoutInput.CheckoutKey == "" {
 		checkoutInput.CheckoutKey = BuildDeliveryCheckoutKey(checkoutInput)
+		if retryKey := strings.TrimSpace(uc.getContextString(sess, deliveryCheckoutRetryKeyKey)); retryKey != "" {
+			checkoutInput.CheckoutKey += "-retry-" + retryKey
+		}
 	}
 	if mode == "EXTERNAL" {
 		if uc.deliveryQuote == nil {
@@ -598,12 +602,19 @@ func (uc *HandleWhatsAppMessageUseCase) StartDeliveryCheckout(ctx context.Contex
 	sess.SetContext(deliveryCheckoutExpiresKey, result.ExpiresAt.UTC().Format(time.RFC3339))
 	sess.SetContext(deliveryCheckoutModeKey, result.FulfillmentMode)
 	sess.SetContext(deliveryCheckoutPaidKey, false)
+	delete(sess.Context, deliveryCheckoutRetryKeyKey)
 	sess.TransitionTo(session.StateDeliveryCheckoutReview)
 	return fmt.Sprintf("🧾 *Revisão da entrega*\n\nSubtotal dos itens: *R$ %s*\nFrete: *R$ %s*\n*Total: R$ %s*\n\nValidade da cotação/hold: %s\n\nToque em *Abrir pagamento* para receber o link. Se desistir, escolha *Cancelar pedido*.", formatBRLCurrency(result.OrderTotal), formatBRLCurrency(result.CustomerDeliveryFee), formatBRLCurrency(result.TotalAmount), result.ExpiresAt.Local().Format("02/01 às 15:04")), session.StateDeliveryCheckoutReview, nil
 }
 
 func (uc *HandleWhatsAppMessageUseCase) handleDeliveryCheckoutReview(ctx context.Context, sess *session.Session, text string) (string, session.ConversationState, error) {
 	if deliveryCheckoutExpired(sess) {
+		// Expiration abandons the previous financial hold and order batch. A
+		// retry must receive a new checkout key; the deterministic base key is
+		// intentionally stable for idempotent retries within one live attempt,
+		// but cannot be reused after a new batch is created.
+		uc.cancelPendingDeliveryOrder(ctx, sess)
+		sess.SetContext(deliveryCheckoutRetryKeyKey, uuid.NewString())
 		uc.clearDeliveryCheckoutContext(sess)
 		return "⏱️ A cotação da entrega expirou. Vamos recalcular o frete antes de continuar.", session.StateDeliveryReady, nil
 	}

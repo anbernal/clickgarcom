@@ -354,3 +354,24 @@ Implementado em:
 - não há mais descoberta/reuso de comanda técnica Delivery aberta pelo telefone;
 - saída/cancelamento limpa a referência técnica para que a próxima jornada crie outro contêiner, sem tocar na comanda presencial do mesmo número;
 - teste cobre que uma comanda Delivery anterior não é herdada por nova jornada.
+
+## DEL-V2-CORE-015 — Renovar checkout Delivery expirado
+
+- Status: [x] Implementado — nova tentativa cancela o hold/lote anterior e usa chave de checkout nova
+- Prioridade: P0
+- Dependências: DEL-V2-CORE-007, DEL-V2-BE-030
+
+Implementação:
+
+- ao expirar a cotação, cancelar de forma idempotente o checkout e o lote Delivery pendentes;
+- preservar um nonce somente para a tentativa de recotação corrente;
+- gerar uma nova `checkout_key` quando um novo lote for criado após a expiração;
+- manter idempotência se o cliente repetir a mesma tentativa de recotação antes de ela concluir;
+- evitar o conflito `Checkout já vinculado a outro lote`.
+
+Critérios de aceite:
+
+- uma cotação expirada pode ser recalculada sem reiniciar manualmente o atendimento;
+- nenhum novo checkout reaproveita a chave financeira de outro lote;
+- o checkout antigo não permanece reservado para cobrança/capacidade;
+- o fluxo presencial não é afetado.

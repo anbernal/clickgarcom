@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -277,6 +278,9 @@ func TestExpiredDeliveryCheckoutClearsSessionBeforePayment(t *testing.T) {
 	}
 	if _, ok := sess.GetContext(deliveryCheckoutKeyKey); ok {
 		t.Fatal("expected expired checkout key to be cleared")
+	}
+	if retryKey, ok := sess.GetContext(deliveryCheckoutRetryKeyKey); !ok || strings.TrimSpace(fmt.Sprint(retryKey)) == "" {
+		t.Fatal("expected expired checkout to retain a retry nonce")
 	}
 }
 
