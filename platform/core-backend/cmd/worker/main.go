@@ -164,6 +164,7 @@ func main() {
 		rabbitPublisher,
 		logger.Log,
 	)
+	deliveryPaymentCoordinator.SetOrderActivationGateway(createOrderUC)
 
 	handleWhatsAppMsg := application.NewHandleWhatsAppMessageUseCase(
 		sessionRepo,

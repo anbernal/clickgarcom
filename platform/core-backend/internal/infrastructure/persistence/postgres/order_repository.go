@@ -121,7 +121,18 @@ func (r *OrderRepository) ListByFilters(ctx context.Context, tenantID uuid.UUID,
 	var orders []*order.Order
 	q := r.db.WithContext(ctx).
 		Preload("Items").
-		Where("tenant_id = ?", tenantID)
+		Where("orders.tenant_id = ?", tenantID).
+		// Delivery orders are persisted before payment to lock their price and
+		// capacity. They are not operational orders yet: expose them to KDS
+		// only after the linked checkout is PAID. This also keeps expired or
+		// cancelled payment attempts out of the kitchen/bar queues.
+		Where(`NOT EXISTS (
+			SELECT 1
+			FROM delivery_checkouts dc
+			WHERE dc.tenant_id = orders.tenant_id
+			  AND dc.order_batch_id = orders.batch_id
+			  AND dc.status <> 'PAID'
+		)`)
 
 	if len(statuses) > 0 {
 		q = q.Where("status IN ?", statuses)

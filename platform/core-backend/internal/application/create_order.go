@@ -43,6 +43,10 @@ type CreateOrderInput struct {
 	Notes                   string
 	ServiceType             orderbatch.ServiceType
 	DeliveryAddressSnapshot map[string]interface{}
+	// DeferOperationalPublication persists a DELIVERY batch solely to bind a
+	// frozen checkout. It must not reach KDS until the payment has been
+	// confirmed by the provider.
+	DeferOperationalPublication bool
 }
 
 // OrderItemInput representa um item do pedido
@@ -278,7 +282,9 @@ func (uc *CreateOrderUseCase) Execute(ctx context.Context, input CreateOrderInpu
 			zap.Float64("order_total", orderTotal),
 		)
 
-		uc.publishOrderCreatedEvent(input.TenantID, newOrder)
+		if !input.DeferOperationalPublication {
+			uc.publishOrderCreatedEvent(input.TenantID, newOrder)
+		}
 	}
 
 	if representativeOrder == nil {
@@ -312,6 +318,35 @@ func (uc *CreateOrderUseCase) Execute(ctx context.Context, input CreateOrderInpu
 	)
 
 	return representativeOrder, nil
+}
+
+// PublishDeliveryBatch makes a previously reserved delivery batch available
+// to the operational screens. It is called only after the immutable checkout
+// is confirmed as paid. Replays are harmless because KDS indexes orders by ID.
+func (uc *CreateOrderUseCase) PublishDeliveryBatch(ctx context.Context, tenantID, batchID uuid.UUID) error {
+	if uc == nil || uc.orderRepo == nil || tenantID == uuid.Nil || batchID == uuid.Nil {
+		return fmt.Errorf("tenant and delivery batch are required")
+	}
+	if uc.orderBatchRepo != nil {
+		batch, err := uc.orderBatchRepo.FindByID(ctx, batchID, tenantID)
+		if err != nil {
+			return fmt.Errorf("load delivery batch: %w", err)
+		}
+		if batch == nil || batch.ServiceType != orderbatch.ServiceTypeDelivery {
+			return fmt.Errorf("delivery batch not found")
+		}
+	}
+	orders, err := uc.orderRepo.FindByBatchID(ctx, batchID, tenantID)
+	if err != nil {
+		return fmt.Errorf("load delivery batch orders: %w", err)
+	}
+	for _, current := range orders {
+		if current == nil || current.Status == order.StatusCanceled {
+			continue
+		}
+		uc.publishOrderCreatedEvent(tenantID, current)
+	}
+	return nil
 }
 
 func (uc *CreateOrderUseCase) publishOrderCreatedEvent(

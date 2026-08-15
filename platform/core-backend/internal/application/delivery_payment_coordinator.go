@@ -22,12 +22,25 @@ type DeliveryPaidPaymentInput struct {
 }
 
 type DeliveryPaymentCoordinator struct {
-	checkout *DeliveryCheckoutCoordinator
-	batch    DeliveryOrderBatchGateway
+	checkout        *DeliveryCheckoutCoordinator
+	batch           DeliveryOrderBatchGateway
+	orderActivation DeliveryOrderActivationGateway
+}
+
+// DeliveryOrderActivationGateway releases the already persisted operational
+// orders only after the delivery checkout has been confirmed as paid.
+type DeliveryOrderActivationGateway interface {
+	PublishDeliveryBatch(ctx context.Context, tenantID, batchID uuid.UUID) error
 }
 
 func NewDeliveryPaymentCoordinator(checkout *DeliveryCheckoutCoordinator, batch DeliveryOrderBatchGateway) *DeliveryPaymentCoordinator {
 	return &DeliveryPaymentCoordinator{checkout: checkout, batch: batch}
+}
+
+func (c *DeliveryPaymentCoordinator) SetOrderActivationGateway(gateway DeliveryOrderActivationGateway) {
+	if c != nil {
+		c.orderActivation = gateway
+	}
 }
 
 // ConfirmPaid projects the DELIVERY batch first and then confirms the
@@ -50,6 +63,13 @@ func (c *DeliveryPaymentCoordinator) ConfirmPaid(ctx context.Context, input Deli
 	if reconciled.DeliveryID == nil || *reconciled.DeliveryID == uuid.Nil {
 		return fmt.Errorf("delivery is not available for payment confirmation: %s", strings.TrimSpace(reconciled.Reason))
 	}
-	_, err = c.checkout.ConfirmPaid(ctx, input.TenantID, input.CheckoutKey, input.OrderBatchID, input.PaymentReference, input.PaidAmount, reconciled.DeliveryID)
-	return err
+	if _, err = c.checkout.ConfirmPaid(ctx, input.TenantID, input.CheckoutKey, input.OrderBatchID, input.PaymentReference, input.PaidAmount, reconciled.DeliveryID); err != nil {
+		return err
+	}
+	if c.orderActivation != nil {
+		if err := c.orderActivation.PublishDeliveryBatch(ctx, input.TenantID, input.OrderBatchID); err != nil {
+			return fmt.Errorf("publish paid delivery batch: %w", err)
+		}
+	}
+	return nil
 }

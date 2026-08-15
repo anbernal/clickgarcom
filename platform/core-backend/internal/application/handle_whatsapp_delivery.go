@@ -575,12 +575,13 @@ func (uc *HandleWhatsAppMessageUseCase) StartDeliveryCheckout(ctx context.Contex
 			return "❌ Não consegui validar os itens do carrinho para a entrega.", session.StateDeliveryReady, nil
 		}
 		createdOrder, createErr := uc.createOrderUC.Execute(ctx, CreateOrderInput{
-			TenantID:                sess.TenantID,
-			TabID:                   userTab.ID,
-			Items:                   orderItems,
-			Notes:                   fmt.Sprintf("Pedido Delivery via WhatsApp - %s", sess.UserPhone),
-			ServiceType:             orderbatch.ServiceTypeDelivery,
-			DeliveryAddressSnapshot: deliveryBatchSnapshot(draft, latitude, longitude),
+			TenantID:                    sess.TenantID,
+			TabID:                       userTab.ID,
+			Items:                       orderItems,
+			Notes:                       fmt.Sprintf("Pedido Delivery via WhatsApp - %s", sess.UserPhone),
+			ServiceType:                 orderbatch.ServiceTypeDelivery,
+			DeliveryAddressSnapshot:     deliveryBatchSnapshot(draft, latitude, longitude),
+			DeferOperationalPublication: true,
 		})
 		if createErr != nil || createdOrder == nil || createdOrder.BatchID == nil {
 			return "❌ Não consegui criar o lote do pedido para a entrega.", session.StateDeliveryReady, nil

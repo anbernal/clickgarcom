@@ -184,6 +184,39 @@ func TestCreateOrderExecuteRejectsItemWithoutStock(t *testing.T) {
 	}
 }
 
+func TestCreateOrderExecuteDefersDeliveryPublicationUntilPayment(t *testing.T) {
+	ctx := context.Background()
+	tenantID, tabID, itemID := uuid.New(), uuid.New(), uuid.New()
+	publisher := &testKDSEventPublisher{}
+	uc := NewCreateOrderUseCase(
+		&testCreateOrderRepo{},
+		&testCreateOrderBatchRepo{},
+		&testCreateOrderTabRepo{tabsByID: map[uuid.UUID]*tab.Tab{
+			tabID: {ID: tabID, TenantID: tenantID, Status: tab.StatusOpen},
+		}},
+		&testCreateOrderMenuRepo{itemsByID: map[uuid.UUID]*menu.Item{
+			itemID: {ID: itemID, TenantID: tenantID, Name: "Pizza", Price: 49, Available: true, Destination: "KITCHEN"},
+		}},
+		nil,
+		publisher,
+		zap.NewNop(),
+	)
+
+	created, err := uc.Execute(ctx, CreateOrderInput{
+		TenantID:                    tenantID,
+		TabID:                       tabID,
+		Items:                       []OrderItemInput{{MenuItemID: itemID, Quantity: 1}},
+		ServiceType:                 orderbatch.ServiceTypeDelivery,
+		DeferOperationalPublication: true,
+	})
+	if err != nil || created == nil || created.BatchID == nil {
+		t.Fatalf("expected deferred delivery order, created=%+v err=%v", created, err)
+	}
+	if len(publisher.events) != 0 {
+		t.Fatalf("delivery awaiting payment must not be published to KDS, got %d events", len(publisher.events))
+	}
+}
+
 type testCreateOrderRepo struct {
 	created []*order.Order
 	byTab   map[uuid.UUID][]*order.Order
