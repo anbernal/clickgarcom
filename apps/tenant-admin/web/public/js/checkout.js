@@ -411,9 +411,13 @@ async function fetchJson(url, options = {}) {
         const payload = await response.json().catch(() => ({}));
         const providerMessage = normalizeCheckoutText(payload?.provider_message);
         const rawUserMessage = normalizeCheckoutText(payload?.message || payload?.error || 'Falha ao processar a requisicao');
-        const userMessage = /missing authorization token|invalid or expired token|link de pagamento inv[aá]lido/i.test(rawUserMessage)
-            ? INVALID_CHECKOUT_LINK_MESSAGE
-            : rawUserMessage;
+        const paymentAction = /\/payments\/(?:pix|card)(?:\?|$)/i.test(String(url || ''));
+        const authorizationFailure = /missing authorization token|invalid or expired token/i.test(rawUserMessage);
+        const userMessage = paymentAction && authorizationFailure
+            ? 'Não foi possível autorizar o pagamento agora. Atualize esta página e tente novamente.'
+            : (/invalid or expired token|link de pagamento inv[aá]lido/i.test(rawUserMessage)
+                ? INVALID_CHECKOUT_LINK_MESSAGE
+                : rawUserMessage);
         const composedMessage = providerMessage
             ? `${userMessage} Detalhe Mercado Pago: ${providerMessage}`
             : userMessage;

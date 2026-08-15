@@ -84,6 +84,7 @@ func SetupRoutes(
 
 	// Tenant-scoped routes must derive scope from the authenticated JWT.
 	jwtAuth := middleware.JWTAuth(authService)
+	serviceOrJWTAuth := middleware.InternalOrJWTAuth(authService, internalToken)
 
 	registerPublicCheckoutProxyRoutes(app, logger)
 	portalWebSocketHandler := handlers.NewPortalWebSocketHandler(db.DB, logger)
@@ -117,7 +118,7 @@ func SetupRoutes(
 	}
 
 	// Payments routes
-	payments := app.Group("/payments", jwtAuth, middleware.TenantScope)
+	payments := app.Group("/payments", serviceOrJWTAuth, middleware.TenantScope)
 	{
 		payments.Post("/pix", paymentHandler.CreatePixPayment)
 		payments.Post("/card", paymentHandler.CreateCardPayment)
@@ -126,7 +127,7 @@ func SetupRoutes(
 	}
 
 	// Wallet routes (Phase 13)
-	wallet := app.Group("/wallet", jwtAuth, middleware.TenantScope)
+	wallet := app.Group("/wallet", serviceOrJWTAuth, middleware.TenantScope)
 	{
 		wallet.Get("/balance", paymentHandler.GetWalletBalance)
 	}

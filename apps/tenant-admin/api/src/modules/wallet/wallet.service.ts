@@ -292,6 +292,9 @@ export class WalletService {
                     timeout: 5000,
                     headers: {
                         'X-Tenant-Id': tenantId,
+                        ...(String(process.env.INTERNAL_SERVICE_TOKEN || '').trim()
+                            ? { 'X-Internal-Token': String(process.env.INTERNAL_SERVICE_TOKEN).trim() }
+                            : {}),
                     },
                 });
 

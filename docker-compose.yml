@@ -321,6 +321,7 @@ services:
       RABBITMQ_URL: amqp://clickgarcom:clickgarcom123@rabbitmq:5672/
       NGROK_API_URL: http://ngrok:4040
       NGROK_PUBLIC_URL: ${NGROK_PUBLIC_URL:-}
+      GO_CORE_BASE_URL: http://go-api:8080
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-clickgarcom-internal-token}
       ADMIN_API_WATCH_MODE: ${ADMIN_API_WATCH_MODE:-false}
     ports:
