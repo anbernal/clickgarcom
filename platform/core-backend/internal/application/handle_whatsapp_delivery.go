@@ -42,6 +42,7 @@ const (
 	deliveryCheckoutPaidKey               = "delivery_checkout_paid"
 	deliveryCheckoutCancelConfirmationKey = "delivery_checkout_cancel_confirmation"
 	deliveryCheckoutRetryKeyKey           = "delivery_checkout_retry_key"
+	deliveryCheckoutMinimumPaymentWindow  = 15 * time.Minute
 	deliveryOrderBatchKey                 = "delivery_order_batch_id"
 	deliveryPaymentEventKey               = "delivery_payment_event_id"
 	deliveryTabIDKey                      = "delivery_internal_tab_id"
@@ -620,6 +621,15 @@ func (uc *HandleWhatsAppMessageUseCase) handleDeliveryCheckoutReview(ctx context
 		uc.clearDeliveryCheckoutContext(sess)
 		return "⏱️ A cotação da entrega expirou. Vamos recalcular o frete antes de continuar.", session.StateDeliveryReady, nil
 	}
+	if deliveryCheckoutNeedsRenewal(sess) {
+		// Never send a payment link that will have less than the advertised
+		// minimum window. A new quote/hold gets a new checkout key and a full
+		// payment window, while the old reservation is released first.
+		uc.cancelPendingDeliveryOrder(ctx, sess)
+		sess.SetContext(deliveryCheckoutRetryKeyKey, uuid.NewString())
+		uc.clearDeliveryCheckoutContext(sess)
+		return "⏱️ Restam menos de 15 minutos para concluir o pagamento. Vamos recalcular o frete e reservar um novo prazo completo.", session.StateDeliveryReady, nil
+	}
 	answer := strings.ToLower(strings.TrimSpace(text))
 	if uc.getContextString(sess, deliveryCheckoutCancelConfirmationKey) == "true" {
 		switch answer {
@@ -750,6 +760,25 @@ func deliveryCheckoutExpired(sess *session.Session) bool {
 	}
 	expiresAt, err := time.Parse(time.RFC3339, raw)
 	return err != nil || !expiresAt.After(time.Now())
+}
+
+// deliveryCheckoutNeedsRenewal protects the customer-facing payment window.
+// It is fail-open when a legacy session has no expiry; NestJS still validates
+// the authoritative checkout before a payment is created.
+func deliveryCheckoutNeedsRenewal(sess *session.Session) bool {
+	if sess == nil {
+		return false
+	}
+	value, ok := sess.GetContext(deliveryCheckoutExpiresKey)
+	if !ok || value == nil {
+		return false
+	}
+	raw := strings.TrimSpace(fmt.Sprint(value))
+	if raw == "" {
+		return false
+	}
+	expiresAt, err := time.Parse(time.RFC3339, raw)
+	return err == nil && !expiresAt.After(time.Now().Add(deliveryCheckoutMinimumPaymentWindow))
 }
 
 func (uc *HandleWhatsAppMessageUseCase) clearDeliveryCheckoutContext(sess *session.Session) {

@@ -407,6 +407,7 @@ Implementação:
 - usar o UUID aleatório do checkout como capacidade curta no CTA do WhatsApp;
 - evitar JWT, tab e chave financeira longos na URL enviada ao cliente;
 - manter a chave congelada apenas dentro do JWT trocado pela página pública;
+- criar checkout/hold com 30 minutos e recalcular antes de emitir link com menos de 15 minutos restantes;
 - preservar suporte aos links legados que ainda carregam token/chave na URL.
 
 Critérios de aceite:
