@@ -39,9 +39,11 @@ function fillSandboxBuyerData() {
 
     if (nameEl) nameEl.value = 'APRO';
     if (documentEl) documentEl.value = '12345678909';
-    if (emailEl) {
-        emailEl.value = 'test@testuser.com';
-    }
+    // O e-mail precisa pertencer a uma conta de teste compradora do mesmo pais
+    // da conta de teste vendedora. Nao preenchemos um valor generico porque
+    // test@testuser.com e destinado ao fluxo Orders e e rejeitado pelo
+    // Checkout Transparente legado (/v1/payments).
+    if (emailEl) emailEl.focus();
 
     clearCardAlert();
 }
@@ -64,8 +66,9 @@ function configureSandboxHelper(tab) {
         <div style="font-weight:700; margin-bottom:8px;">Modo teste Mercado Pago</div>
         <div style="line-height:1.5; margin-bottom:10px;">
             Para forçar aprovação, use titular <strong>APRO</strong>, CPF <strong>12345678909</strong>,
-            cartão <strong>5031 4332 1540 6351</strong>, CVV <strong>123</strong>, validade <strong>11/30</strong>
-            e e-mail <strong>test@testuser.com</strong>, que é o único permitido para testes segundo a documentação do Mercado Pago.
+            cartão <strong>5480 8328 0103 3311</strong>, CVV <strong>123</strong> e validade <strong>11/30</strong>.
+            No e-mail, informe exatamente o usuário da <strong>conta de teste compradora</strong>
+            criada no Mercado Pago. Ela deve ser do mesmo país da conta de teste vendedora.
         </div>
         <button type="button" id="checkout-fill-sandbox-approved" style="border:none; border-radius:12px; padding:10px 14px; font-weight:700; cursor:pointer; background:#2563eb; color:white;">
             Preencher dados de aprovação
@@ -761,14 +764,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             clearCardAlert();
 
             try {
-                if (isMercadoPagoTestEnvironment(mpPublicKey)) {
-                    const sandboxEmail = normalizeCheckoutText(document.getElementById('form-checkout__cardholderEmail')?.value).toLowerCase();
-                    if (sandboxEmail !== 'test@testuser.com') {
-                        showCardAlert('No ambiente de teste do Mercado Pago, o e-mail precisa ser exatamente test@testuser.com.');
-                        return;
-                    }
-                }
-
                 const tokenResp = await mp.fields.createCardToken({
                     cardholderName: document.getElementById('form-checkout__cardholderName').value,
                     identificationType: document.getElementById('form-checkout__identificationType').value,

@@ -1,4 +1,4 @@
-import { Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { HttpException, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import axios, { AxiosError, Method } from 'axios';
 import { DataSource, Repository } from 'typeorm';
@@ -333,17 +333,25 @@ export class WalletService {
 
         const status = error.response?.status || 502;
         const payload = error.response?.data;
+        const responsePayload = payload as {
+            error?: string;
+            message?: string;
+            provider_message?: string;
+        } | undefined;
         const message =
             typeof payload === 'string'
                 ? payload
-                : (payload as { error?: string; message?: string } | undefined)?.message
-                || (payload as { error?: string; message?: string } | undefined)?.error
+                : responsePayload?.message
+                || responsePayload?.error
                 || error.message;
 
-        return new ServiceUnavailableException({
+        return new HttpException({
             statusCode: status,
             message,
-        });
+            ...(responsePayload?.provider_message
+                ? { provider_message: responsePayload.provider_message }
+                : {}),
+        }, status);
     }
 
     private async getMessageUsageAnalytics(
