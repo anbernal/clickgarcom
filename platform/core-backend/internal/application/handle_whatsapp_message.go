@@ -519,6 +519,11 @@ func (uc *HandleWhatsAppMessageUseCase) processMessage(
 	if isMainMenuBackAlias(text) && sess.State != session.StateMainMenu {
 		text = "0"
 	}
+	// Delivery is a separate conversation channel. A stale interactive button
+	// or a legacy transition must never expose the restaurant's dine-in menu.
+	if uc.isDeliveryChannel(sess) && sess.State == session.StateMainMenu {
+		return uc.deliveryMenuMessage(), session.StateDeliveryMenu, nil
+	}
 
 	switch sess.State {
 	case session.StateWelcome:
@@ -1633,6 +1638,9 @@ func (uc *HandleWhatsAppMessageUseCase) handleOptionSelection(
 
 	if text == "0" {
 		uc.clearOrderingContext(sess)
+		if uc.isDeliveryChannel(sess) {
+			return uc.deliveryMenuMessage(), session.StateDeliveryMenu, nil
+		}
 		return whatsapp.MainMenuMessage(), session.StateMainMenu, nil
 	}
 

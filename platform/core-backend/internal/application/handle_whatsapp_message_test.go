@@ -37,6 +37,41 @@ func TestAppendMainMenuBackOption(t *testing.T) {
 	}
 }
 
+func TestDeliveryOrderingBackNeverOpensDineInMenu(t *testing.T) {
+	ctx := context.Background()
+	sess := session.NewSession("5511999999999", uuid.New())
+	sess.SetContext(deliveryChannelKey, deliveryChannelValue)
+	sess.TransitionTo(session.StateSelectingOptions)
+
+	uc := &HandleWhatsAppMessageUseCase{}
+	response, state, err := uc.processMessage(ctx, sess, "Voltar ao menu")
+	if err != nil {
+		t.Fatalf("processMessage() error = %v", err)
+	}
+	if state != session.StateDeliveryMenu {
+		t.Fatalf("expected delivery menu state, got %s", state)
+	}
+	if strings.Contains(response, "Ver minha comanda") || !strings.Contains(response, "Atendimento Delivery") {
+		t.Fatalf("expected delivery-only menu, got %q", response)
+	}
+}
+
+func TestDeliveryLegacyMainMenuStateIsRecoveredToDeliveryMenu(t *testing.T) {
+	ctx := context.Background()
+	sess := session.NewSession("5511999999999", uuid.New())
+	sess.SetContext(deliveryChannelKey, deliveryChannelValue)
+	sess.TransitionTo(session.StateMainMenu)
+
+	uc := &HandleWhatsAppMessageUseCase{}
+	response, state, err := uc.processMessage(ctx, sess, "Ver minha comanda")
+	if err != nil {
+		t.Fatalf("processMessage() error = %v", err)
+	}
+	if state != session.StateDeliveryMenu || strings.Contains(response, "Ver minha comanda") {
+		t.Fatalf("expected delivery-only recovery, state=%s response=%q", state, response)
+	}
+}
+
 func TestRepeatCurrentPromptKeepsServiceRequestState(t *testing.T) {
 	ctx := context.Background()
 	tenantID := uuid.New()

@@ -375,3 +375,23 @@ Critérios de aceite:
 - nenhum novo checkout reaproveita a chave financeira de outro lote;
 - o checkout antigo não permanece reservado para cobrança/capacidade;
 - o fluxo presencial não é afetado.
+
+## DEL-V2-CORE-016 — Manter navegação Delivery isolada durante personalização
+
+- Status: [x] Implementado — retorno e recuperação de estado não exibem menu presencial
+- Prioridade: P0
+- Dependências: DEL-V2-CORE-002, DEL-V2-CORE-014
+
+Implementação:
+
+- `Voltar ao menu` durante a seleção de adicionais retorna ao menu Delivery;
+- uma sessão marcada como Delivery que caia em estado legado `MainMenu` é recuperada para o menu Delivery;
+- opções presenciais como comanda, garçom e mesa não são processadas nessa jornada;
+- botões antigos enviados pelo WhatsApp não reabrem o menu presencial.
+
+Critérios de aceite:
+
+- Delivery nunca apresenta `Ver minha comanda` ou `Chamar garçom`;
+- voltar durante adicionais não envia o cliente para o menu presencial;
+- seleção de botão antigo não mistura os estados Delivery e presencial;
+- o checkout Delivery continua acessível após a personalização correta do item.
