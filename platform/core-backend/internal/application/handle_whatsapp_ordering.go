@@ -3739,12 +3739,13 @@ func buildPublicCheckoutURL(baseURL string, tabID string, accessToken string) st
 	return strings.TrimRight(strings.TrimSpace(baseURL), "/") + "/checkout.html#" + query.Encode()
 }
 
-func buildDeliveryPublicCheckoutURL(baseURL string, checkoutID string) string {
+func buildDeliveryPublicCheckoutURL(baseURL string, checkoutCapability string) string {
 	query := url.Values{}
-	query.Set("delivery_checkout", strings.TrimSpace(checkoutID))
+	query.Set("delivery_checkout", strings.TrimSpace(checkoutCapability))
 	// WhatsApp CTA clients can truncate a long JWT query string. The checkout
-	// UUID is a short, random capability that the public web app exchanges for
-	// a signed JWT only after the customer opens this page.
+	// confirmation token is a short, random capability (stored only as a hash)
+	// that the public web app exchanges for a signed JWT after the customer
+	// opens this page.
 	return strings.TrimRight(strings.TrimSpace(baseURL), "/") + "/checkout.html?" + query.Encode()
 }
 

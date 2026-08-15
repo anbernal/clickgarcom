@@ -55,9 +55,9 @@ func TestBuildDeliveryCheckoutAccessTokenBindsFrozenCheckoutKey(t *testing.T) {
 func TestBuildDeliveryPublicCheckoutURLUsesShortCheckoutCapability(t *testing.T) {
 	got := buildDeliveryPublicCheckoutURL(
 		"https://clickgarcom.example/",
-		"delivery-checkout-id",
+		"delivery-checkout-capability",
 	)
-	const want = "https://clickgarcom.example/checkout.html?delivery_checkout=delivery-checkout-id"
+	const want = "https://clickgarcom.example/checkout.html?delivery_checkout=delivery-checkout-capability"
 	if got != want {
 		t.Fatalf("buildDeliveryPublicCheckoutURL() = %q, want %q", got, want)
 	}

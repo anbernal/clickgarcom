@@ -172,6 +172,22 @@ function clearCheckoutAccessStorage() {
     sessionStorage.removeItem('checkout.delivery_checkout_key');
 }
 
+function showInvalidCheckoutLink(message) {
+    const contentEl = document.getElementById('checkout-content');
+    const paymentPanelEl = document.querySelector('.payment-panel');
+    const deliveryDetailsEl = document.getElementById('delivery-checkout-details');
+    const expiryPillEl = document.getElementById('checkout-security-pill');
+    const expiryDetailEl = document.getElementById('checkout-expiry-detail');
+
+    document.getElementById('checkout-tab-info').textContent = message || INVALID_CHECKOUT_LINK_MESSAGE;
+    document.getElementById('checkout-total-amount').textContent = '—';
+    if (paymentPanelEl) paymentPanelEl.style.display = 'none';
+    if (deliveryDetailsEl) deliveryDetailsEl.style.display = 'none';
+    if (expiryPillEl) expiryPillEl.style.display = 'none';
+    if (expiryDetailEl) expiryDetailEl.style.display = 'none';
+    if (contentEl) contentEl.style.display = 'block';
+}
+
 function fmtBRL(value) {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value || 0);
 }
@@ -815,8 +831,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         });
     } catch (error) {
-        document.getElementById('checkout-tab-info').textContent = error.message || 'Comanda nao encontrada';
-        document.getElementById('checkout-total-amount').textContent = fmtBRL(0);
+        showInvalidCheckoutLink(error?.message || INVALID_CHECKOUT_LINK_MESSAGE);
     } finally {
         if (loadingEl) loadingEl.style.display = 'none';
         if (contentEl) contentEl.style.display = 'block';

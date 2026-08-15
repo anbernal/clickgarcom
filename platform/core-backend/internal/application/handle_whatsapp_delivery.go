@@ -665,15 +665,15 @@ func (uc *HandleWhatsAppMessageUseCase) sendDeliveryPaymentLink(ctx context.Cont
 		return "❌ Não consegui abrir o pagamento agora.", session.StateDeliveryCheckoutReview, nil
 	}
 	checkoutKey := strings.TrimSpace(uc.getContextString(sess, deliveryCheckoutKeyKey))
-	checkoutID := strings.TrimSpace(uc.getContextString(sess, deliveryCheckoutIDKey))
+	checkoutCapability := strings.TrimSpace(uc.getContextString(sess, deliveryCheckoutTokenKey))
 	userTab := uc.findDeliveryOpenTab(ctx, sess)
-	if checkoutKey == "" || checkoutID == "" || userTab == nil {
+	if checkoutKey == "" || checkoutCapability == "" || userTab == nil {
 		return "❌ Não consegui localizar o checkout deste pedido. Volte e tente novamente.", session.StateDeliveryReady, nil
 	}
 	// A WhatsApp CTA carries only a short, random checkout capability. The web
 	// app exchanges it for a signed, short-lived JWT before loading payment,
 	// avoiding truncation of long JWT query strings in mobile clients.
-	targetURL := buildDeliveryPublicCheckoutURL(uc.resolveCurrentPublicCheckoutBaseURL(), checkoutID)
+	targetURL := buildDeliveryPublicCheckoutURL(uc.resolveCurrentPublicCheckoutBaseURL(), checkoutCapability)
 	body := "💳 *Pagamento da entrega*\n\nFrete e total estão reservados. Toque no botão abaixo para pagar e enviar o pedido para o restaurante.\n\nSe o link vencer ou não abrir, envie *pagamento* para gerar outro. Para desistir, envie *cancelar pedido*."
 	if sender, ok := uc.sender.(WhatsAppURLButtonSender); ok {
 		_, sendErr := sender.SendInteractiveURLButton(whatsapp.WithTenantID(ctx, sess.TenantID), sess.UserPhone, whatsapp.WithRestaurantHeader(uc.resolveTenantName(ctx, sess.TenantID), body), "💳 Ir para pagamento", targetURL)
