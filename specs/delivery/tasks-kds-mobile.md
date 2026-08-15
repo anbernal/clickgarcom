@@ -63,3 +63,24 @@ Somente uma nova decisão de produto poderá reabrir:
 - PIN ClickGarçom;
 - geofence/foto;
 - múltiplas entregas por rota.
+
+## DEL-V2-MOB-003 — Criar fila operacional Delivery no KDS
+
+- Status: [x] Concluída
+- Prioridade: P0
+- Dependências: DEL-V2-BE-024, DEL-V2-CORE-008
+
+Implementação:
+
+- adicionar a visão `Delivery` ao KDS para `ADMIN`, `MANAGER`, `WAITER` e `DISPATCHER`;
+- separar pedidos pagos/aceitos, em preparo, prontos para saída e em rota dos cartões presenciais;
+- permitir aceite para preparo, impressão do ticket de expedição, saída própria e confirmação manual de entrega;
+- imprimir itens, endereço, telefone, referência, valor/frete e código do pedido;
+- manter a cozinha/bar responsáveis somente pelo preparo dos itens.
+
+Critérios de aceite:
+
+- pedido Delivery não aparece como ação de mesa/comanda/salão;
+- ação de saída/entrega só é aceita na máquina de estados própria;
+- o usuário que confirma a entrega fica registrado na linha do tempo;
+- KDS presencial continua funcionando sem o módulo Delivery.

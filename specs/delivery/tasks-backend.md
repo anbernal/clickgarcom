@@ -6,6 +6,25 @@ Esta trilha implementa domínio, persistência, contratos HTTP, configurações,
 
 Fonte: `docs/especificacao_tecnica_logistica_delivery.md` v2.0.
 
+## DEL-V2-BE-030 — Projetar marcos de expedição para o KDS Delivery
+
+- Status: [x] Concluída
+- Prioridade: P0
+- Dependências: DEL-V2-BE-024
+
+Implementação:
+
+- reconciliar `ACCEPTED` e `READY` do lote com `PREPARING` e `READY_FOR_DISPATCH` da entrega;
+- expor projeção autorizada para a fila Delivery do KDS;
+- registrar saída e confirmação da própria com RBAC, versão esperada, idempotência e auditoria;
+- manter informações de expedição disponíveis apenas a perfis autorizados.
+
+Critérios de aceite:
+
+- preparar/pronto no KDS atualiza a entrega correspondente;
+- operação própria não cria driver, PIN ou tracking próprio;
+- concorrência não conclui a mesma entrega duas vezes.
+
 ## DEL-V2-BE-001 — Reconciliar requisitos e design legados
 
 - Status: [x] Concluída

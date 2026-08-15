@@ -110,8 +110,8 @@ func (uc *UpdateOrderStatusUseCase) Execute(ctx context.Context, input UpdateOrd
 		uc.logger.Error("failed to sync order batch", zap.Error(err), zap.String("order_id", existingOrder.ID.String()))
 		return nil, fmt.Errorf("failed to sync order batch: %w", err)
 	}
-	if batchChanged && batch != nil && batch.ServiceType == orderbatch.ServiceTypeDelivery && batch.Status == orderbatch.StatusAccepted {
-		uc.publishDeliveryPreparingEvent(existingOrder, batch)
+	if batchChanged && batch != nil && batch.ServiceType == orderbatch.ServiceTypeDelivery && (batch.Status == orderbatch.StatusAccepted || batch.Status == orderbatch.StatusReady) {
+		uc.publishDeliveryBatchReconcile(existingOrder, batch)
 	}
 
 	// 7. Broadcast evento WebSocket
@@ -155,14 +155,14 @@ func (uc *UpdateOrderStatusUseCase) syncOrderBatch(ctx context.Context, currentO
 	return batch, true, nil
 }
 
-func (uc *UpdateOrderStatusUseCase) publishDeliveryPreparingEvent(currentOrder *order.Order, batch *orderbatch.OrderBatch) {
+func (uc *UpdateOrderStatusUseCase) publishDeliveryBatchReconcile(currentOrder *order.Order, batch *orderbatch.OrderBatch) {
 	if uc.deliveryBatch == nil || currentOrder == nil || batch == nil {
 		return
 	}
-	// A stable UUID makes retries/replays of the same order transition
-	// idempotent while allowing a later order in the same batch to emit its own
-	// correlation event when the aggregate first becomes accepted.
-	eventID := uuid.NewSHA1(uuid.Nil, []byte(fmt.Sprintf("delivery-preparing:%s:%s:%s", batch.TenantID, batch.ID, currentOrder.ID)))
+	// A stable UUID makes retries/replays of the same aggregate transition
+	// idempotent. Include the batch state so ACCEPTED (preparing) and READY
+	// (dispatch) are independent level-triggered reconciliations.
+	eventID := uuid.NewSHA1(uuid.Nil, []byte(fmt.Sprintf("delivery-batch:%s:%s:%s:%s", batch.TenantID, batch.ID, currentOrder.ID, batch.Status)))
 	input := nodeadmin.DeliveryOrderBatchReconcileInput{
 		TenantID: batch.TenantID,
 		BatchID:  batch.ID,
@@ -173,7 +173,7 @@ func (uc *UpdateOrderStatusUseCase) publishDeliveryPreparingEvent(currentOrder *
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if _, err := uc.deliveryBatch.Reconcile(ctx, input); err != nil {
-			uc.logger.Warn("delivery preparing event projection failed", zap.Error(err), zap.String("tenant_id", input.TenantID.String()), zap.String("batch_id", input.BatchID.String()), zap.String("event_id", input.EventID.String()))
+			uc.logger.Warn("delivery batch reconciliation failed", zap.Error(err), zap.String("tenant_id", input.TenantID.String()), zap.String("batch_id", input.BatchID.String()), zap.String("event_id", input.EventID.String()))
 		}
 	}()
 }

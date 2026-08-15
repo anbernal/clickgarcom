@@ -660,6 +660,49 @@
             gap: 16px;
         }
 
+        .delivery-grid {
+            grid-template-columns: repeat(4, minmax(230px, 1fr));
+        }
+
+        .delivery-card {
+            border-left: 4px solid var(--accent);
+        }
+
+        .order-card-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            margin-bottom: 10px;
+            font-size: 13px;
+        }
+
+        .order-card-head span,
+        .delivery-external-note {
+            color: var(--text-2);
+            font-size: 11px;
+            font-weight: 700;
+        }
+
+        .delivery-card-address,
+        .delivery-card-items,
+        .delivery-card-total {
+            font-size: 12px;
+            line-height: 1.45;
+        }
+
+        .delivery-card-address { margin-bottom: 10px; }
+        .delivery-card-items { border-top: 1px solid var(--border); padding-top: 9px; }
+        .delivery-card-total { border-top: 1px solid var(--border); margin-top: 9px; padding-top: 9px; }
+
+        @media (max-width: 1360px) {
+            .delivery-grid { grid-template-columns: repeat(2, minmax(250px, 1fr)); }
+        }
+
+        @media (max-width: 760px) {
+            .delivery-grid { grid-template-columns: 1fr; }
+        }
+
         .station-view-toolbar {
             display: flex;
             align-items: center;
@@ -3370,6 +3413,8 @@
                         class="nav-text">Bar</span> <span class="nav-badge" id="nb-bar">0</span></a>
                 <a class="nav-item" data-panel="salao" onclick="switchPanel('salao')"><span class="icon">🏠</span><span
                         class="nav-text">Salão</span> <span class="nav-badge" id="nb-salao">0</span></a>
+                <a class="nav-item" data-panel="delivery" onclick="switchPanel('delivery')"><span class="icon">🛵</span><span
+                        class="nav-text">Delivery</span> <span class="nav-badge" id="nb-delivery">0</span></a>
             </nav>
             <div class="sidebar-footer">
                 <div class="station-status" id="ws-status" data-connection-status>
@@ -3403,6 +3448,7 @@
                     <button class="screen-tab active" data-panel="kitchen" onclick="switchPanel('kitchen')">🍳 Cozinha</button>
                     <button class="screen-tab" data-panel="bar" onclick="switchPanel('bar')">🍹 Bar</button>
                     <button class="screen-tab" data-panel="salao" onclick="switchPanel('salao')">🏠 Salão</button>
+                    <button class="screen-tab" data-panel="delivery" onclick="switchPanel('delivery')">🛵 Delivery</button>
                 </div>
 
                 <!-- COZINHA -->
@@ -3501,6 +3547,20 @@
                         </div>
                     </div>
                     <div class="production-summary" id="production-summary-bar" data-station-summary="bar" hidden></div>
+                </div>
+
+                <!-- DELIVERY: expedição é separada do salão e das bancadas. -->
+                <div id="panel-delivery" class="screen-panel">
+                    <div class="salao-view-heading">
+                        <div><h2>Fila operacional de Delivery</h2><p>Inicie o preparo, imprima a expedição e confirme a entrega própria.</p></div>
+                        <span class="live-dot">Atualização ao vivo</span>
+                    </div>
+                    <div class="orders-grid delivery-grid">
+                        <div class="order-column"><div class="column-header"><div class="column-dot" style="background:var(--red)"></div><span class="column-title">Aguardando preparo</span><span class="column-count" id="cc-d-waiting">0</span></div><div class="column-body" id="col-d-waiting"></div></div>
+                        <div class="order-column"><div class="column-header"><div class="column-dot" style="background:var(--yellow)"></div><span class="column-title">Em preparo</span><span class="column-count" id="cc-d-preparing">0</span></div><div class="column-body" id="col-d-preparing"></div></div>
+                        <div class="order-column"><div class="column-header"><div class="column-dot" style="background:var(--blue)"></div><span class="column-title">Pronto para saída</span><span class="column-count" id="cc-d-ready">0</span></div><div class="column-body" id="col-d-ready"></div></div>
+                        <div class="order-column"><div class="column-header"><div class="column-dot" style="background:var(--green)"></div><span class="column-title">Em rota</span><span class="column-count" id="cc-d-route">0</span></div><div class="column-body" id="col-d-route"></div></div>
+                    </div>
                 </div>
 
                 <!-- SALÃO (unified) -->

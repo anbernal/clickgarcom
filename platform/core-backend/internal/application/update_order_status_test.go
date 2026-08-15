@@ -106,6 +106,34 @@ func TestUpdateOrderStatusPublishesDeliveryPreparingEventAsynchronously(t *testi
 	}
 }
 
+func TestUpdateOrderStatusPublishesDeliveryReconcileWhenBatchBecomesReady(t *testing.T) {
+	ctx := context.Background()
+	tenantID, batchID, orderID, peerID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	repo := &testUpdateOrderStatusRepo{ordersByID: map[uuid.UUID]*order.Order{
+		orderID: {ID: orderID, TenantID: tenantID, BatchID: &batchID, Status: order.StatusAccepted},
+		peerID:  {ID: peerID, TenantID: tenantID, BatchID: &batchID, Status: order.StatusReady},
+	}, ordersByBatch: map[uuid.UUID][]*order.Order{}}
+	repo.ordersByBatch[batchID] = []*order.Order{repo.ordersByID[orderID], repo.ordersByID[peerID]}
+	batchRepo := &testUpdateOrderBatchRepo{batchesByID: map[uuid.UUID]*orderbatch.OrderBatch{
+		batchID: {ID: batchID, TenantID: tenantID, ServiceType: orderbatch.ServiceTypeDelivery, Status: orderbatch.StatusAccepted},
+	}}
+	gateway := &capturingDeliveryBatchGateway{called: make(chan nodeadmin.DeliveryOrderBatchReconcileInput, 1)}
+	uc := NewUpdateOrderStatusUseCase(repo, batchRepo, nil, nil, zap.NewNop())
+	uc.SetDeliveryOrderBatchGateway(gateway)
+
+	if _, err := uc.Execute(ctx, UpdateOrderStatusInput{OrderID: orderID, TenantID: tenantID, NewStatus: order.StatusReady}); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	select {
+	case input := <-gateway.called:
+		if input.TenantID != tenantID || input.BatchID != batchID || input.OrderID != orderID || input.EventID == uuid.Nil {
+			t.Fatalf("unexpected delivery ready reconcile input: %+v", input)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected delivery ready reconciliation")
+	}
+}
+
 type capturingDeliveryBatchGateway struct {
 	called chan nodeadmin.DeliveryOrderBatchReconcileInput
 }

@@ -113,6 +113,7 @@ if (authSession?.token) {
 
 // ─── STATE ─────────────────────────────────────────────────────
 let allOrders = {};  // id -> order
+let allDeliveries = {}; // id -> delivery operational snapshot
 let activePanel = 'kitchen';
 let modalState = { orderId: null, tab: 'accept' };
 let ws = null;
@@ -147,7 +148,7 @@ const pendingOrderTransitions = new Set();
 const stationPresentationByPanel = { kitchen: 'orders', bar: 'orders' };
 const stationSummaryStageByPanel = { kitchen: 'ACCEPTED', bar: 'ACCEPTED' };
 let currentKdsDensity = 'comfortable';
-const PANEL_ORDER = ['kitchen', 'bar', 'salao'];
+const PANEL_ORDER = ['kitchen', 'bar', 'salao', 'delivery'];
 const SALAO_STATS_CARD_DEFINITIONS = [
   {
     key: 'availableTables',
@@ -207,6 +208,8 @@ const KDS_ROLE_ALIASES = {
   BAR: 'BAR',
   CASHIER: 'CASHIER',
   CAIXA: 'CASHIER',
+  DISPATCHER: 'DISPATCHER',
+  DESPACHANTE: 'DISPATCHER',
 };
 const KDS_SYNC_CHANNEL_NAME = 'clickgarcom-kds-sync';
 const KDS_SYNC_STORAGE_KEY = 'clickgarcom_kds_sync_event';
@@ -234,12 +237,14 @@ function resolveRequestedPanel(panel) {
   if (normalized === 'attendance' || normalized === 'atendimento' || normalized === 'salao' || normalized === 'salão') return 'salao';
   if (normalized === 'kitchen' || normalized === 'cozinha') return 'kitchen';
   if (normalized === 'bar') return 'bar';
+  if (normalized === 'delivery' || normalized === 'entregas' || normalized === 'entrega') return 'delivery';
   return null;
 }
 
 function getPanelsAllowedForRole(role) {
   if (role === 'KITCHEN') return ['kitchen'];
   if (role === 'BAR') return ['bar'];
+  if (role === 'DISPATCHER') return ['delivery'];
   if (role === 'WAITER' || role === 'ADMIN' || role === 'MANAGER') return [...PANEL_ORDER];
   return [];
 }
@@ -260,7 +265,7 @@ function buildKdsAccess() {
   const defaultPanel = requestedPanel && rolePanels.includes(requestedPanel)
     ? requestedPanel
     : roleDefaultPanel;
-  const isDedicatedStationRole = role === 'KITCHEN' || role === 'BAR';
+  const isDedicatedStationRole = role === 'KITCHEN' || role === 'BAR' || role === 'DISPATCHER';
   const stationMode = isDedicatedStationRole
     || (hasFullKdsAccess && requestedMode === 'station' && ['kitchen', 'bar'].includes(defaultPanel));
 
@@ -273,6 +278,7 @@ function buildKdsAccess() {
     stationMode,
     canExitStationMode: stationMode && hasFullKdsAccess,
     canViewSalao: rolePanels.includes('salao'),
+    canViewDelivery: rolePanels.includes('delivery'),
     canLoadTables: ['ADMIN', 'MANAGER', 'WAITER'].includes(role),
   };
 }
@@ -412,6 +418,7 @@ function handleKdsSyncEvent(event) {
 
 function refreshKdsRealtimeState() {
   loadOrders();
+  if (KDS_ACCESS.canViewDelivery) loadDeliveries();
   if (KDS_ACCESS.canViewSalao) {
     loadPendingRequests();
     loadWaiterChats();
@@ -442,6 +449,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
   const startupTasks = [];
+  if (KDS_ACCESS.canViewDelivery) startupTasks.push(loadDeliveries());
   if (KDS_ACCESS.canViewSalao) {
     startupTasks.push(loadPendingRequests(), loadWaiterChats(), loadCloseRequests(), loadManualOpenTabs());
   }
@@ -627,6 +635,22 @@ async function loadOrders() {
   }
 }
 
+async function loadDeliveries() {
+  try {
+    const response = await apiGet('/deliveries?status=PENDING_RESTAURANT_ACCEPTANCE,ACCEPTED,PREPARING,READY_FOR_DISPATCH,IN_TRANSIT,ASSIGNED,PICKED_UP,ARRIVED&limit=100');
+    const deliveries = Array.isArray(response) ? response : (response?.data || []);
+    allDeliveries = {};
+    deliveries.forEach((delivery) => {
+      if (delivery?.id) allDeliveries[delivery.id] = delivery;
+    });
+    if (activePanel === 'delivery') renderAll();
+    else updateNavBadges();
+  } catch (error) {
+    console.error('Failed to load deliveries:', error);
+    if (activePanel === 'delivery') toast('t-error', '❌ Erro', 'Falha ao carregar a fila de entregas');
+  }
+}
+
 async function refreshOperationsSummary(shouldRender = true) {
   try {
     const summary = await apiGet(`/orders/operations/summary?tenant_id=${CONFIG.TENANT_ID}`);
@@ -682,7 +706,10 @@ function scheduleReconnect() {
 
 function startPolling() {
   stopPolling();
-  pollTimer = setInterval(loadOrders, CONFIG.POLL_INTERVAL);
+  pollTimer = setInterval(() => {
+    loadOrders();
+    if (KDS_ACCESS.canViewDelivery) loadDeliveries();
+  }, CONFIG.POLL_INTERVAL);
 }
 
 function stopPolling() {
@@ -773,11 +800,94 @@ function renderCurrentPanel() {
     renderSalao();
     return;
   }
+  if (activePanel === 'delivery') {
+    renderDeliveryPanel();
+    return;
+  }
   renderPanel('kitchen', 'KITCHEN');
 }
 
+const DELIVERY_COLUMNS = [
+  { id: 'waiting', label: 'Aguardando preparo', statuses: ['PENDING_RESTAURANT_ACCEPTANCE', 'ACCEPTED'], color: 'var(--red)' },
+  { id: 'preparing', label: 'Em preparo', statuses: ['PREPARING'], color: 'var(--yellow)' },
+  { id: 'ready', label: 'Pronto para saída', statuses: ['READY_FOR_DISPATCH'], color: 'var(--blue)' },
+  { id: 'route', label: 'Em rota', statuses: ['IN_TRANSIT', 'ASSIGNED', 'PICKED_UP', 'ARRIVED'], color: 'var(--green)' },
+];
+
+function deliveryOrders(delivery) {
+  return Object.values(allOrders).filter((order) => String(order.batch_id || order.batchId || '') === String(delivery.batch_id || ''));
+}
+
+function deliveryItemsTotal(delivery) {
+  return deliveryOrders(delivery).reduce((total, order) => total + Number(order.total || order.total_amount || order.subtotal || 0), 0);
+}
+
+function formatCurrency(value) {
+  return Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+function deliveryAddress(delivery) {
+  if (delivery.formatted_address) return String(delivery.formatted_address);
+  return [delivery.street, delivery.address_number, delivery.address_complement, delivery.neighborhood, delivery.city, delivery.state, delivery.postal_code]
+    .filter((part) => String(part || '').trim())
+    .join(' · ') || 'Endereço não informado';
+}
+
+function deliveryItemSummary(delivery) {
+  const items = deliveryOrders(delivery)
+    .flatMap((order) => Array.isArray(order.items) ? order.items : [])
+    .map((item) => escapeHTML(`${Number(item.quantity || 1)}x ${String(item.name || item.menu_item_name || 'Item')}`));
+  return items.length ? items.join('<br>') : 'Itens serão exibidos assim que a cozinha carregar o pedido.';
+}
+
+function deliveryActionButtons(delivery) {
+  const id = escapeHTML(String(delivery.id));
+  const status = String(delivery.status || '');
+  const own = String(delivery.default_fulfillment_mode || 'OWN').toUpperCase() === 'OWN';
+  if (['PENDING_RESTAURANT_ACCEPTANCE', 'ACCEPTED'].includes(status)) {
+    return `<button class="action-btn accept" onclick="startDeliveryPreparation('${id}')">🍳 Iniciar preparo</button>`;
+  }
+  if (status === 'READY_FOR_DISPATCH') {
+    const dispatch = own
+      ? `<button class="action-btn accept" onclick="startOwnDelivery('${id}')">🛵 Registrar saída</button>`
+      : '<span class="delivery-external-note">Aguardando operador externo</span>';
+    return `<button class="action-btn secondary" onclick="printDeliveryDispatch('${id}')">🖨️ Imprimir expedição</button>${dispatch}`;
+  }
+  if (status === 'IN_TRANSIT' && own) {
+    return `<button class="action-btn accept" onclick="completeOwnDelivery('${id}')">✅ Confirmar entrega</button>`;
+  }
+  return '<span class="delivery-external-note">Atualização recebida do operador.</span>';
+}
+
+function renderDeliveryPanel() {
+  const deliveries = Object.values(allDeliveries);
+  DELIVERY_COLUMNS.forEach((column) => {
+    const columnDeliveries = deliveries.filter((delivery) => column.statuses.includes(String(delivery.status || '')));
+    const count = document.getElementById(`cc-d-${column.id}`);
+    const body = document.getElementById(`col-d-${column.id}`);
+    if (count) count.textContent = String(columnDeliveries.length);
+    if (!body) return;
+    body.innerHTML = columnDeliveries.length ? columnDeliveries.map((delivery) => {
+      const itemsTotal = deliveryItemsTotal(delivery);
+      const deliveryFee = Number(delivery.customer_delivery_fee ?? delivery.delivery_fee ?? 0);
+      const total = itemsTotal + deliveryFee;
+      return `<article class="order-card delivery-card" data-id="${escapeHTML(String(delivery.id))}">
+        <div class="order-card-head"><strong>🛵 ${escapeHTML(delivery.display_code || String(delivery.id).slice(0, 8))}</strong><span>${escapeHTML(String(delivery.default_fulfillment_mode || 'OWN'))}</span></div>
+        <div class="delivery-card-address"><strong>${escapeHTML(delivery.customer_name || 'Cliente')}</strong><br>${escapeHTML(deliveryAddress(delivery))}${delivery.customer_phone ? `<br>📞 ${escapeHTML(String(delivery.customer_phone))}` : ''}</div>
+        <div class="delivery-card-items">${deliveryItemSummary(delivery)}</div>
+        <div class="delivery-card-total">Itens ${formatCurrency(itemsTotal)} · Frete ${formatCurrency(deliveryFee)}<br><strong>Total ${formatCurrency(total)}</strong></div>
+        <div class="order-actions">${deliveryActionButtons(delivery)}</div>
+      </article>`;
+    }).join('') : '<div class="empty-column">Nenhuma entrega nesta etapa.</div>';
+  });
+}
+
 function renderPanel(panel, destination) {
-  const orders = Object.values(allOrders).filter(o => o.destination === destination);
+  const deliveryBatchIds = new Set(Object.values(allDeliveries).map((delivery) => String(delivery.batch_id || '')));
+  const orders = Object.values(allOrders).filter((order) => (
+    order.destination === destination
+    && !deliveryBatchIds.has(String(order.batch_id || order.batchId || ''))
+  ));
   const pending = orders.filter(o => o.status === 'PENDING');
   const accepted = orders.filter(o => o.status === 'ACCEPTED');
   const ready = orders.filter(o => o.status === 'READY');
@@ -2459,9 +2569,80 @@ function updateNavBadges() {
   document.getElementById('nb-kitchen').textContent = kitchen;
   document.getElementById('nb-bar').textContent = bar;
   document.getElementById('nb-salao').textContent = pendingRequests.length + readyOrders + waiterChats.length + closeBillRequests.length;
+  const deliveryBadge = document.getElementById('nb-delivery');
+  if (deliveryBadge) {
+    deliveryBadge.textContent = String(Object.values(allDeliveries).filter((delivery) => !['DELIVERED', 'CANCELED', 'REJECTED'].includes(String(delivery.status || ''))).length);
+  }
 }
 
 // ─── ACTIONS ───────────────────────────────────────────────────
+async function startDeliveryPreparation(deliveryId) {
+  const delivery = allDeliveries[deliveryId];
+  if (!delivery) return;
+  try {
+    if (String(delivery.status) === 'PENDING_RESTAURANT_ACCEPTANCE') {
+      await apiPost(`/deliveries/${encodeURIComponent(deliveryId)}/accept`, {});
+    }
+    const orders = deliveryOrders(delivery).filter((order) => String(order.status) === 'PENDING');
+    await Promise.all(orders.map((order) => apiPatch(`/orders/${encodeURIComponent(order.id)}/status?tenant_id=${CONFIG.TENANT_ID}`, { status: 'ACCEPTED' })));
+    toast('t-success', '🍳 Preparo iniciado', 'O cliente foi avisado e a cozinha recebeu o pedido.');
+    await Promise.all([loadOrders(), loadDeliveries()]);
+  } catch (error) {
+    console.error('Failed to start delivery preparation:', error);
+    toast('t-error', '❌ Não foi possível iniciar', error.message || 'Atualize a fila e tente novamente.');
+  }
+}
+
+async function startOwnDelivery(deliveryId) {
+  const delivery = allDeliveries[deliveryId];
+  if (!delivery) return;
+  try {
+    await apiPost(`/deliveries/${encodeURIComponent(deliveryId)}/own/start`, {
+      expected_version: Number(delivery.version),
+    });
+    toast('t-success', '🛵 Saída registrada', 'O cliente foi avisado que o pedido está a caminho.');
+    await loadDeliveries();
+  } catch (error) {
+    console.error('Failed to start own delivery:', error);
+    toast('t-error', '❌ Não foi possível registrar a saída', error.message || 'Atualize a fila e tente novamente.');
+  }
+}
+
+async function completeOwnDelivery(deliveryId) {
+  const delivery = allDeliveries[deliveryId];
+  if (!delivery) return;
+  try {
+    await apiPost(`/deliveries/${encodeURIComponent(deliveryId)}/own/complete`, {
+      expected_version: Number(delivery.version),
+    });
+    toast('t-success', '✅ Entrega confirmada', 'Capacidade liberada e cliente avisado.');
+    await loadDeliveries();
+  } catch (error) {
+    console.error('Failed to complete own delivery:', error);
+    toast('t-error', '❌ Não foi possível confirmar a entrega', error.message || 'Atualize a fila e tente novamente.');
+  }
+}
+
+function printDeliveryDispatch(deliveryId) {
+  const delivery = allDeliveries[deliveryId];
+  if (!delivery) return;
+  const items = deliveryOrders(delivery).flatMap((order) => Array.isArray(order.items) ? order.items : []);
+  const itemRows = items.length
+    ? items.map((item) => `<li>${escapeHTML(`${Number(item.quantity || 1)}x ${item.name || item.menu_item_name || 'Item'}`)}</li>`).join('')
+    : '<li>Itens indisponíveis no painel; consulte o pedido da cozinha.</li>';
+  const itemsTotal = deliveryItemsTotal(delivery);
+  const fee = Number(delivery.customer_delivery_fee ?? delivery.delivery_fee ?? 0);
+  const printWindow = window.open('', '_blank', 'width=420,height=640');
+  if (!printWindow) {
+    toast('t-error', '⚠️ Impressão bloqueada', 'Permita pop-ups para imprimir a expedição.');
+    return;
+  }
+  printWindow.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Expedição ${escapeHTML(delivery.display_code || '')}</title><style>body{font:14px Arial;margin:22px;color:#111}h1{font-size:20px;margin:0 0 6px}h2{font-size:16px;border-top:1px dashed #555;padding-top:12px}p{margin:5px 0}.muted{color:#555}.total{font-size:16px;font-weight:bold;margin-top:12px}</style></head><body><h1>🛵 TICKET DE EXPEDIÇÃO</h1><p><strong>Pedido:</strong> ${escapeHTML(delivery.display_code || delivery.id)}</p><p class="muted">Impresso em ${new Date().toLocaleString('pt-BR')}</p><h2>Destino</h2><p><strong>${escapeHTML(delivery.customer_name || 'Cliente')}</strong></p><p>${escapeHTML(deliveryAddress(delivery))}</p>${delivery.address_reference ? `<p>Referência: ${escapeHTML(String(delivery.address_reference))}</p>` : ''}${delivery.customer_phone ? `<p>Telefone: ${escapeHTML(String(delivery.customer_phone))}</p>` : ''}<h2>Itens</h2><ul>${itemRows}</ul><p class="total">Itens ${formatCurrency(itemsTotal)} · Frete ${formatCurrency(fee)}<br>Total ${formatCurrency(itemsTotal + fee)}</p></body></html>`);
+  printWindow.document.close();
+  printWindow.focus();
+  printWindow.print();
+}
+
 async function updateStatus(orderId, newStatus, cancelReason, prepMinutes, cancelReasonCode, cancelCategory) {
   if (pendingOrderTransitions.has(orderId)) return;
   pendingOrderTransitions.add(orderId);

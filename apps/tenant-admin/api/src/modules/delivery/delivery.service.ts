@@ -68,7 +68,16 @@ type DeliverySnapshot = {
     customer_name: string | null;
     customer_id: string | null;
     customer_address_id: string | null;
+    customer_phone: string | null;
     formatted_address: string | null;
+    postal_code: string | null;
+    street: string | null;
+    address_number: string | null;
+    address_complement: string | null;
+    neighborhood: string | null;
+    city: string | null;
+    state: string | null;
+    address_reference: string | null;
     destination_lat: number | null;
     destination_lng: number | null;
     delivery_fee: number;
@@ -393,10 +402,8 @@ export class DeliveryService {
             await this.appendEvent(manager, saved, DeliveryEventType.Created, null, saved.status, { acceptance_mode: saved.acceptanceMode });
             if (decision.result === 'AUTO_ACCEPTED') {
                 await this.appendEvent(manager, saved, DeliveryEventType.Accepted, null, saved.status, { policy: decision });
-                await this.notificationService.enqueueMilestone(manager, saved, DeliveryNotificationMilestone.Accepted);
             } else {
                 await this.appendEvent(manager, saved, DeliveryEventType.ManualAcceptanceRequired, null, saved.status, { policy: decision });
-                await this.notificationService.enqueueMilestone(manager, saved, DeliveryNotificationMilestone.ManualAcceptanceRequired);
             }
             return this.toSnapshot(saved);
         });
@@ -626,6 +633,7 @@ export class DeliveryService {
                         fulfillment_mode: 'OWN',
                         reason: command.notes || null,
                     }, 'OWN_OPERATION');
+                    await this.enqueueMilestoneForStatus(manager, saved, DeliveryStatus.InTransit);
                     return this.toSnapshot(saved);
                 });
                 await this.publishTrackingStatus(snapshot);
@@ -1094,9 +1102,9 @@ export class DeliveryService {
 
     private async enqueueMilestoneForStatus(manager: any, delivery: Delivery, status: DeliveryStatus): Promise<void> {
         const milestones: Partial<Record<DeliveryStatus, DeliveryNotificationMilestone>> = {
-            [DeliveryStatus.Accepted]: DeliveryNotificationMilestone.Accepted,
+            [DeliveryStatus.Preparing]: DeliveryNotificationMilestone.Preparing,
+            [DeliveryStatus.InTransit]: DeliveryNotificationMilestone.InTransit,
             [DeliveryStatus.Rejected]: DeliveryNotificationMilestone.Rejected,
-            [DeliveryStatus.Arrived]: DeliveryNotificationMilestone.Arrived,
             [DeliveryStatus.Delivered]: DeliveryNotificationMilestone.Delivered,
         };
         const milestone = milestones[status];
@@ -1235,7 +1243,16 @@ export class DeliveryService {
             customer_name: delivery.customerName,
             customer_id: delivery.customerId,
             customer_address_id: delivery.customerAddressId,
+            customer_phone: delivery.customerPhone,
             formatted_address: delivery.formattedAddress,
+            postal_code: delivery.postalCode,
+            street: delivery.street,
+            address_number: delivery.addressNumber,
+            address_complement: delivery.addressComplement,
+            neighborhood: delivery.neighborhood,
+            city: delivery.city,
+            state: delivery.state,
+            address_reference: delivery.addressReference,
             destination_lat: delivery.destinationLat === null ? null : Number(delivery.destinationLat),
             destination_lng: delivery.destinationLng === null ? null : Number(delivery.destinationLng),
             delivery_fee: Number(delivery.deliveryFee || 0),

@@ -54,7 +54,19 @@ const MessageGroups = [
         templates: [
             { key: 'msg_payment_pending', label: 'Link de Pagamento', desc: 'Enviada com o QR Code / link PIX para pagamento.', vars: ['{valor}', '{link_pagamento}'] },
             { key: 'msg_payment_confirmed', label: 'Pagamento Aprovado', desc: 'Confirmação automática após aprovação do MercadoPago.', vars: [] },
-            { key: 'msg_delivery_payment_confirmed', label: 'Pagamento do Delivery', desc: 'Confirma o pagamento e informa o código da transação do pedido para entrega.', vars: ['{codigo_pedido}', '{total}', '{codigo_transacao}'] },
+        ],
+    },
+    {
+        id: 'delivery',
+        icon: '🛵',
+        title: 'Delivery',
+        subtitle: 'As três atualizações normais enviadas durante a entrega',
+        color: 'var(--teal)',
+        colorBg: 'var(--teal-light)',
+        templates: [
+            { key: 'msg_delivery_preparing', label: 'Pedido em preparo', desc: 'Enviada quando a equipe inicia o preparo no painel Delivery.', vars: ['{codigo_pedido}'] },
+            { key: 'msg_delivery_in_transit', label: 'Pedido a caminho', desc: 'Enviada quando a expedição registra a saída para entrega.', vars: ['{codigo_pedido}'] },
+            { key: 'msg_delivery_delivered', label: 'Entrega confirmada', desc: 'Enviada quando a equipe confirma que a entrega própria foi concluída.', vars: [] },
         ],
     },
 ];

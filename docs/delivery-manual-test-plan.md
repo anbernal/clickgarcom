@@ -210,16 +210,41 @@ indisponível e nenhuma fórmula é calculada pelo navegador.
 separado, o preço fica congelado e o card não exibe motorista, GPS, PIN ou
 tracking próprio.
 
-### T08 — Sair e entregar
+### T08 — Fila Delivery no KDS, expedição e entrega própria
 
-1. Iniciar o preparo e aguardar `READY_FOR_DISPATCH`.
-2. Clicar em **Marcar como saiu**.
-3. Clicar em **Marcar entregue**.
-4. Repetir rapidamente os dois cliques.
-5. Abrir reservas de capacidade.
+1. Abrir o KDS como `ADMIN`, `MANAGER`, `WAITER` ou `DISPATCHER` e acessar a
+   aba **🛵 Delivery**.
+2. Confirmar que o pedido pago aparece em **Aguardando preparo**, sem ação de
+   mesa, comanda ou chamar garçom.
+3. Clicar em **Iniciar preparo** e confirmar que o pedido aparece na cozinha/bar
+   somente como item de preparo e que a entrega muda para **Em preparo**.
+4. Marcar todos os itens como prontos no KDS de cozinha/bar.
+5. Confirmar que a entrega migra para **Pronto para saída** e clicar em
+   **Imprimir expedição**.
+6. Conferir no ticket: código do pedido, itens, endereço, referência, telefone,
+   frete e total.
+7. Clicar em **Registrar saída** e depois em **Confirmar entrega**.
+8. Repetir rapidamente os dois comandos e abrir a linha do tempo/reservas.
 
-**Esperado:** a jornada é `aguardando -> saiu -> entregue`, a segunda tentativa
-não cria nova transição e a reserva é liberada uma única vez.
+**Esperado:** a jornada é `aguardando preparo -> em preparo -> pronto para
+saída -> em rota -> entregue`; não há motorista individual, PIN ou tracking
+próprio. A segunda tentativa é idempotente, a reserva é liberada uma única vez
+e o usuário responsável fica registrado na auditoria.
+
+### T08.1 — Mensagens ao cliente durante a entrega
+
+1. Repetir T08 usando um telefone de QA no WhatsApp.
+2. Após **Iniciar preparo**, confirmar uma única mensagem: “Seu pedido está
+   sendo preparado”.
+3. Após **Registrar saída**, confirmar uma única mensagem: “Seu pedido está indo
+   até você”.
+4. Após **Confirmar entrega**, confirmar uma única mensagem: “Entrega
+   confirmada. Volte sempre!”.
+5. Confirmar que a aprovação do pagamento é informada apenas no checkout e não
+   gera uma quarta mensagem normal no WhatsApp.
+
+**Esperado:** exatamente três mensagens no fluxo feliz. Mensagens de falha ou
+cancelamento continuam sendo exceções operacionais e não contam neste total.
 
 ## 5. Fluxo externo fake
 
@@ -300,20 +325,21 @@ visível e mensagens de erro próximas ao campo correspondente.
 
 ## 7. Regressão KDS/mobile
 
-1. Abrir o KDS Web e validar cozinha, bar, salão e comandas.
+1. Abrir o KDS Web e validar cozinha, bar, salão, comandas e a nova fila
+   **Delivery**.
 2. Abrir uma nova comanda e confirmar alinhamento dos campos.
 3. Validar QR/link seguro e encerramento da comanda.
 4. Abrir o KDS mobile com `npm run web` e testar a tela de demonstração.
 5. Repetir em viewport de telefone.
 
-**Esperado:** Delivery não exige o app de entregador, e DINE_IN/TAKEOUT continuam
-operando sem alteração.
+**Esperado:** Delivery não exige o app de entregador, não se mistura ao painel
+presencial, e DINE_IN/TAKEOUT continuam operando sem alteração.
 
 ## 8. Evidências e limpeza
 
 Para cada caso registrar:
 
-- número do caso (`T01`–`T14`);
+- número do caso (`T01`–`T14`, incluindo `T08.1`);
 - screenshot ou gravação curta;
 - tenant fictício, `delivery_id` e `checkout_key` sem PII;
 - status observado e resultado esperado;

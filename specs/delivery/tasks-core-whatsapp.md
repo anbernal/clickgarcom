@@ -416,3 +416,24 @@ Critérios de aceite:
 - o JWT com a chave financeira é emitido somente após validar a capacidade e a expiração do checkout;
 - capacidade inválida, paga ou expirada não gera token;
 - checkout presencial permanece compatível com o contrato anterior.
+# Complemento operacional — mensagens Delivery no KDS
+
+## DEL-V2-CORE-018 — Reduzir notificações do cliente a marcos operacionais
+
+- Status: [x] Concluída
+- Prioridade: P0
+- Dependências: DEL-V2-MOB-003
+
+Implementação:
+
+- não enviar confirmação genérica de pagamento ou aceite pelo WhatsApp para Delivery;
+- enviar `Seu pedido está sendo preparado` quando o lote entrar em preparo;
+- enviar `Seu pedido está indo até você` na saída própria ou coleta externa;
+- enviar `Entrega confirmada. Volte sempre!` na conclusão;
+- preservar notificações de exceção/cancelamento separadas do fluxo feliz.
+
+Critérios de aceite:
+
+- fluxo feliz gera exatamente três mensagens ao cliente;
+- repetição de evento não duplica mensagem;
+- mensagens presenciais não mudam.
