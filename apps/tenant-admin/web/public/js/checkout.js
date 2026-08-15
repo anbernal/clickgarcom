@@ -176,6 +176,13 @@ function clearCheckoutAccessStorage() {
     sessionStorage.removeItem('checkout.delivery_checkout_key');
 }
 
+function revealCheckoutContent() {
+    const contentEl = document.getElementById('checkout-content');
+    if (!contentEl) return;
+    contentEl.style.removeProperty('display');
+    contentEl.classList.add('is-visible');
+}
+
 function showInvalidCheckoutLink(message) {
     const contentEl = document.getElementById('checkout-content');
     const paymentPanelEl = document.querySelector('.payment-panel');
@@ -189,7 +196,7 @@ function showInvalidCheckoutLink(message) {
     if (deliveryDetailsEl) deliveryDetailsEl.style.display = 'none';
     if (expiryPillEl) expiryPillEl.style.display = 'none';
     if (expiryDetailEl) expiryDetailEl.style.display = 'none';
-    if (contentEl) contentEl.style.display = 'block';
+    revealCheckoutContent();
 }
 
 function fmtBRL(value) {
@@ -698,7 +705,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
-                        payer_email: 'cliente@email.com',
+                        payer_email: isMercadoPagoTestEnvironment(tab?.mpPublicKey, tab?.mpEnvironment)
+                            ? 'test@testuser.com'
+                            : 'cliente@email.com',
                         payer_name: 'Visitante',
                         payer_cpf: '19119119100',
                         delivery_checkout_key: currentDeliveryCheckoutKey || undefined,
@@ -835,6 +844,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         showInvalidCheckoutLink(error?.message || INVALID_CHECKOUT_LINK_MESSAGE);
     } finally {
         if (loadingEl) loadingEl.style.display = 'none';
-        if (contentEl) contentEl.style.display = 'block';
+        revealCheckoutContent();
     }
 });

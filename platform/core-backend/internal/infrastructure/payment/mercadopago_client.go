@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 type MercadoPagoClient struct {
 	httpClient *http.Client
 	logger     *zap.Logger
+	baseURL    string
 }
 
 type APIError struct {
@@ -52,7 +54,28 @@ func NewMercadoPagoClient(logger *zap.Logger) *MercadoPagoClient {
 	return &MercadoPagoClient{
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 		logger:     logger,
+		baseURL:    "https://api.mercadopago.com",
 	}
+}
+
+type ProviderID string
+
+func (id ProviderID) String() string {
+	return string(id)
+}
+
+func (id *ProviderID) UnmarshalJSON(data []byte) error {
+	var text string
+	if err := json.Unmarshal(data, &text); err == nil {
+		*id = ProviderID(text)
+		return nil
+	}
+	var number json.Number
+	if err := json.Unmarshal(data, &number); err != nil {
+		return err
+	}
+	*id = ProviderID(number.String())
+	return nil
 }
 
 // ==========================================
@@ -76,10 +99,10 @@ type PixPaymentRequest struct {
 }
 
 type PixPaymentResponse struct {
-	ID                 int64  `json:"id"`
-	Status             string `json:"status"` // "pending", "approved", etc
-	StatusDetail       string `json:"status_detail"`
-	ExternalReference  string `json:"external_reference"`
+	ID                 ProviderID `json:"id"`
+	Status             string     `json:"status"` // "pending", "approved", etc
+	StatusDetail       string     `json:"status_detail"`
+	ExternalReference  string     `json:"external_reference"`
 	PointOfInteraction struct {
 		TransactionData struct {
 			QRCode       string `json:"qr_code"`
@@ -89,7 +112,7 @@ type PixPaymentResponse struct {
 }
 
 func (client *MercadoPagoClient) CreatePixPayment(ctx context.Context, accessToken string, idempotencyKey string, req PixPaymentRequest) (*PixPaymentResponse, error) {
-	url := "https://api.mercadopago.com/v1/payments"
+	url := client.baseURL + "/v1/payments"
 
 	req.PaymentMethodID = "pix"
 
@@ -112,7 +135,11 @@ func (client *MercadoPagoClient) CreatePixPayment(ctx context.Context, accessTok
 			zap.Int("status", resp.StatusCode),
 			zap.String("response", string(errorBody)),
 		)
-		return nil, parseAPIError(resp.StatusCode, errorBody)
+		apiErr := parseAPIError(resp.StatusCode, errorBody)
+		if shouldUseOrdersAPI(apiErr) {
+			return client.createPixOrder(ctx, accessToken, idempotencyKey, req)
+		}
+		return nil, apiErr
 	}
 
 	var pixResp PixPaymentResponse
@@ -124,10 +151,10 @@ func (client *MercadoPagoClient) CreatePixPayment(ctx context.Context, accessTok
 }
 
 type PaymentStatusResponse struct {
-	ID                 int64  `json:"id"`
-	Status             string `json:"status"`
-	StatusDetail       string `json:"status_detail"`
-	ExternalReference  string `json:"external_reference"`
+	ID                 ProviderID `json:"id"`
+	Status             string     `json:"status"`
+	StatusDetail       string     `json:"status_detail"`
+	ExternalReference  string     `json:"external_reference"`
 	PointOfInteraction struct {
 		TransactionData struct {
 			QRCode       string `json:"qr_code"`
@@ -137,7 +164,10 @@ type PaymentStatusResponse struct {
 }
 
 func (client *MercadoPagoClient) GetPayment(ctx context.Context, accessToken string, paymentID string) (*PaymentStatusResponse, error) {
-	url := fmt.Sprintf("https://api.mercadopago.com/v1/payments/%s", paymentID)
+	if strings.HasPrefix(strings.ToUpper(strings.TrimSpace(paymentID)), "ORD") {
+		return client.getOrder(ctx, accessToken, paymentID)
+	}
+	url := fmt.Sprintf("%s/v1/payments/%s", client.baseURL, paymentID)
 
 	httpReq, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
 	httpReq.Header.Set("Authorization", "Bearer "+accessToken)
@@ -155,7 +185,8 @@ func (client *MercadoPagoClient) GetPayment(ctx context.Context, accessToken str
 			zap.String("response", string(errorBody)),
 			zap.String("payment_id", paymentID),
 		)
-		return nil, parseAPIError(resp.StatusCode, errorBody)
+		apiErr := parseAPIError(resp.StatusCode, errorBody)
+		return nil, apiErr
 	}
 
 	var paymentResp PaymentStatusResponse
@@ -188,14 +219,14 @@ type CardPaymentRequest struct {
 }
 
 type CardPaymentResponse struct {
-	ID                int64  `json:"id"`
-	Status            string `json:"status"` // "approved", "rejected", "in_process"
-	StatusDetail      string `json:"status_detail"`
-	ExternalReference string `json:"external_reference"`
+	ID                ProviderID `json:"id"`
+	Status            string     `json:"status"` // "approved", "rejected", "in_process"
+	StatusDetail      string     `json:"status_detail"`
+	ExternalReference string     `json:"external_reference"`
 }
 
 func (client *MercadoPagoClient) CreateCardPayment(ctx context.Context, accessToken string, idempotencyKey string, req CardPaymentRequest) (*CardPaymentResponse, error) {
-	url := "https://api.mercadopago.com/v1/payments"
+	url := client.baseURL + "/v1/payments"
 
 	bodyBytes, _ := json.Marshal(req)
 	httpReq, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(bodyBytes))
@@ -216,7 +247,11 @@ func (client *MercadoPagoClient) CreateCardPayment(ctx context.Context, accessTo
 			zap.Int("status", resp.StatusCode),
 			zap.String("response", string(errorBody)),
 		)
-		return nil, parseAPIError(resp.StatusCode, errorBody)
+		apiErr := parseAPIError(resp.StatusCode, errorBody)
+		if shouldUseOrdersAPI(apiErr) {
+			return client.createCardOrder(ctx, accessToken, idempotencyKey, req)
+		}
+		return nil, apiErr
 	}
 
 	var cardResp CardPaymentResponse
@@ -225,6 +260,238 @@ func (client *MercadoPagoClient) CreateCardPayment(ctx context.Context, accessTo
 	}
 
 	return &cardResp, nil
+}
+
+type orderPaymentMethod struct {
+	ID           string `json:"id"`
+	Type         string `json:"type"`
+	Token        string `json:"token,omitempty"`
+	Installments int    `json:"installments,omitempty"`
+	IssuerID     string `json:"issuer_id,omitempty"`
+	QRCode       string `json:"qr_code"`
+	QRCodeBase64 string `json:"qr_code_base64"`
+}
+
+type orderPayment struct {
+	ID            ProviderID         `json:"id"`
+	Amount        string             `json:"amount"`
+	Status        string             `json:"status"`
+	StatusDetail  string             `json:"status_detail"`
+	PaymentMethod orderPaymentMethod `json:"payment_method"`
+}
+
+type orderResponse struct {
+	ID                ProviderID `json:"id"`
+	Status            string     `json:"status"`
+	StatusDetail      string     `json:"status_detail"`
+	ExternalReference string     `json:"external_reference"`
+	Transactions      struct {
+		Payments []orderPayment `json:"payments"`
+	} `json:"transactions"`
+}
+
+func shouldUseOrdersAPI(err error) bool {
+	apiErr, ok := err.(*APIError)
+	if !ok || apiErr.Status != http.StatusUnauthorized {
+		return false
+	}
+	message := strings.ToLower(strings.TrimSpace(apiErr.ProviderMessage()))
+	return apiErr.CauseCode == 7 || strings.Contains(message, "unauthorized use of live credentials")
+}
+
+func (client *MercadoPagoClient) createCardOrder(
+	ctx context.Context,
+	accessToken string,
+	idempotencyKey string,
+	req CardPaymentRequest,
+) (*CardPaymentResponse, error) {
+	amount := formatOrderAmount(req.TransactionAmount)
+	paymentType := "credit_card"
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(req.PaymentMethodID)), "deb") {
+		paymentType = "debit_card"
+	}
+	payload := map[string]any{
+		"type":               "online",
+		"external_reference": req.ExternalReference,
+		"total_amount":       amount,
+		"capture_mode":       "automatic",
+		"processing_mode":    "automatic",
+		"description":        req.Description,
+		"transactions": map[string]any{"payments": []any{map[string]any{
+			"amount": amount,
+			"payment_method": map[string]any{
+				"id":           req.PaymentMethodID,
+				"type":         paymentType,
+				"token":        req.Token,
+				"installments": req.Installments,
+			},
+		}}},
+		"payer": map[string]any{
+			"email":       req.Payer.Email,
+			"entity_type": "individual",
+			"identification": map[string]any{
+				"type": req.Payer.Identification.Type, "number": req.Payer.Identification.Number,
+			},
+		},
+	}
+	if strings.TrimSpace(req.IssuerID) != "" {
+		payments := payload["transactions"].(map[string]any)["payments"].([]any)
+		method := payments[0].(map[string]any)["payment_method"].(map[string]any)
+		method["issuer_id"] = req.IssuerID
+	}
+
+	order, err := client.postOrder(ctx, accessToken, idempotencyKey, payload)
+	if err != nil {
+		return nil, err
+	}
+	status, detail := normalizeOrderStatus(order)
+	return &CardPaymentResponse{
+		ID: order.ID, Status: status, StatusDetail: detail, ExternalReference: order.ExternalReference,
+	}, nil
+}
+
+func (client *MercadoPagoClient) createPixOrder(
+	ctx context.Context,
+	accessToken string,
+	idempotencyKey string,
+	req PixPaymentRequest,
+) (*PixPaymentResponse, error) {
+	amount := formatOrderAmount(req.TransactionAmount)
+	payload := map[string]any{
+		"type":               "online",
+		"external_reference": req.ExternalReference,
+		"total_amount":       amount,
+		"processing_mode":    "automatic",
+		"description":        req.Description,
+		"transactions": map[string]any{"payments": []any{map[string]any{
+			"amount":         amount,
+			"payment_method": map[string]any{"id": "pix", "type": "bank_transfer"},
+		}}},
+		"payer": map[string]any{
+			"email":      req.Payer.Email,
+			"first_name": req.Payer.FirstName,
+			"identification": map[string]any{
+				"type": req.Payer.Identification.Type, "number": req.Payer.Identification.Number,
+			},
+		},
+	}
+	order, err := client.postOrder(ctx, accessToken, idempotencyKey, payload)
+	if err != nil {
+		return nil, err
+	}
+	status, detail := normalizeOrderStatus(order)
+	response := &PixPaymentResponse{
+		ID: order.ID, Status: status, StatusDetail: detail, ExternalReference: order.ExternalReference,
+	}
+	if len(order.Transactions.Payments) > 0 {
+		method := order.Transactions.Payments[0].PaymentMethod
+		response.PointOfInteraction.TransactionData.QRCode = method.QRCode
+		response.PointOfInteraction.TransactionData.QRCodeBase64 = method.QRCodeBase64
+	}
+	return response, nil
+}
+
+func (client *MercadoPagoClient) postOrder(
+	ctx context.Context,
+	accessToken string,
+	idempotencyKey string,
+	payload map[string]any,
+) (*orderResponse, error) {
+	bodyBytes, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode mp order request: %w", err)
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, client.baseURL+"/v1/orders", bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create mp order request: %w", err)
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+accessToken)
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("X-Idempotency-Key", idempotencyKey)
+
+	resp, err := client.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("mp orders api error: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		errorBody, _ := io.ReadAll(resp.Body)
+		client.logger.Error("MercadoPago Order creation failed",
+			zap.Int("status", resp.StatusCode), zap.String("response", string(errorBody)))
+		return nil, parseAPIError(resp.StatusCode, errorBody)
+	}
+	var order orderResponse
+	if err := json.NewDecoder(resp.Body).Decode(&order); err != nil {
+		return nil, fmt.Errorf("failed to decode mp order response: %w", err)
+	}
+	return &order, nil
+}
+
+func (client *MercadoPagoClient) getOrder(ctx context.Context, accessToken string, orderID string) (*PaymentStatusResponse, error) {
+	endpoint := fmt.Sprintf("%s/v1/orders/%s", client.baseURL, url.PathEscape(strings.TrimSpace(orderID)))
+	httpReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	httpReq.Header.Set("Authorization", "Bearer "+accessToken)
+	resp, err := client.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("mp orders api error: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		errorBody, _ := io.ReadAll(resp.Body)
+		return nil, parseAPIError(resp.StatusCode, errorBody)
+	}
+	var order orderResponse
+	if err := json.NewDecoder(resp.Body).Decode(&order); err != nil {
+		return nil, fmt.Errorf("failed to decode mp order response: %w", err)
+	}
+	return paymentStatusFromOrder(&order), nil
+}
+
+func paymentStatusFromOrder(order *orderResponse) *PaymentStatusResponse {
+	if order == nil {
+		return nil
+	}
+	status, detail := normalizeOrderStatus(order)
+	response := &PaymentStatusResponse{
+		ID: order.ID, Status: status, StatusDetail: detail, ExternalReference: order.ExternalReference,
+	}
+	if len(order.Transactions.Payments) > 0 {
+		method := order.Transactions.Payments[0].PaymentMethod
+		response.PointOfInteraction.TransactionData.QRCode = method.QRCode
+		response.PointOfInteraction.TransactionData.QRCodeBase64 = method.QRCodeBase64
+	}
+	return response
+}
+
+func normalizeOrderStatus(order *orderResponse) (string, string) {
+	status, detail := strings.ToLower(strings.TrimSpace(order.Status)), strings.TrimSpace(order.StatusDetail)
+	if len(order.Transactions.Payments) > 0 {
+		payment := order.Transactions.Payments[0]
+		if strings.TrimSpace(payment.Status) != "" {
+			status = strings.ToLower(strings.TrimSpace(payment.Status))
+		}
+		if strings.TrimSpace(payment.StatusDetail) != "" {
+			detail = strings.TrimSpace(payment.StatusDetail)
+		}
+	}
+	switch status {
+	case "processed", "approved":
+		return "approved", detail
+	case "action_required", "pending":
+		return "pending", detail
+	case "processing", "in_process":
+		return "in_process", detail
+	case "failed", "rejected":
+		return "rejected", detail
+	case "cancelled", "canceled", "expired":
+		return status, detail
+	default:
+		return status, detail
+	}
+}
+
+func formatOrderAmount(amount float64) string {
+	return strconv.FormatFloat(amount, 'f', 2, 64)
 }
 
 type PaymentSearchResponse struct {
@@ -246,7 +513,7 @@ func (client *MercadoPagoClient) SearchPaymentsByExternalReference(
 	query.Set("criteria", "desc")
 	query.Set("limit", "1")
 
-	endpoint := fmt.Sprintf("https://api.mercadopago.com/v1/payments/search?%s", query.Encode())
+	endpoint := fmt.Sprintf("%s/v1/payments/search?%s", client.baseURL, query.Encode())
 	httpReq, _ := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
 	httpReq.Header.Set("Authorization", "Bearer "+accessToken)
 
@@ -263,7 +530,11 @@ func (client *MercadoPagoClient) SearchPaymentsByExternalReference(
 			zap.String("response", string(errorBody)),
 			zap.String("external_reference", externalReference),
 		)
-		return nil, parseAPIError(resp.StatusCode, errorBody)
+		apiErr := parseAPIError(resp.StatusCode, errorBody)
+		if shouldUseOrdersAPI(apiErr) {
+			return client.searchOrdersByExternalReference(ctx, accessToken, externalReference)
+		}
+		return nil, apiErr
 	}
 
 	var searchResp PaymentSearchResponse
@@ -275,6 +546,45 @@ func (client *MercadoPagoClient) SearchPaymentsByExternalReference(
 	}
 
 	return &searchResp.Results[0], nil
+}
+
+func (client *MercadoPagoClient) searchOrdersByExternalReference(
+	ctx context.Context,
+	accessToken string,
+	externalReference string,
+) (*PaymentStatusResponse, error) {
+	query := url.Values{}
+	query.Set("begin_date", time.Now().AddDate(0, 0, -7).UTC().Format(time.RFC3339Nano))
+	query.Set("end_date", time.Now().Add(5*time.Minute).UTC().Format(time.RFC3339Nano))
+	query.Set("external_reference", externalReference)
+	query.Set("type", "online")
+	query.Set("page", "1")
+	query.Set("page_size", "1")
+	query.Set("sort_by", "created_date")
+	query.Set("sort_order", "desc")
+
+	endpoint := fmt.Sprintf("%s/v1/orders?%s", client.baseURL, query.Encode())
+	httpReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	httpReq.Header.Set("Authorization", "Bearer "+accessToken)
+	resp, err := client.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("mp orders api error: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		errorBody, _ := io.ReadAll(resp.Body)
+		return nil, parseAPIError(resp.StatusCode, errorBody)
+	}
+	var result struct {
+		Data []orderResponse `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode mp order search response: %w", err)
+	}
+	if len(result.Data) == 0 {
+		return nil, nil
+	}
+	return paymentStatusFromOrder(&result.Data[0]), nil
 }
 
 func parseAPIError(status int, body []byte) error {

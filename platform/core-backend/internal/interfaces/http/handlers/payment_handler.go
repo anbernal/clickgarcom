@@ -636,7 +636,7 @@ func (h *PaymentHandler) applyPixProviderResponse(
 	mpResp *infraMP.PixPaymentResponse,
 ) {
 	now := time.Now()
-	providerPaymentID := strings.TrimSpace(fmt.Sprintf("%d", mpResp.ID))
+	providerPaymentID := strings.TrimSpace(mpResp.ID.String())
 	attempt.ProviderPaymentID = payment.OptionalString(providerPaymentID)
 	attempt.ProviderStatus = strings.TrimSpace(mpResp.Status)
 	attempt.ProviderStatusInfo = strings.TrimSpace(mpResp.StatusDetail)
@@ -670,7 +670,7 @@ func (h *PaymentHandler) applyCardProviderResponse(
 	mpResp *infraMP.CardPaymentResponse,
 ) {
 	now := time.Now()
-	providerPaymentID := strings.TrimSpace(fmt.Sprintf("%d", mpResp.ID))
+	providerPaymentID := strings.TrimSpace(mpResp.ID.String())
 	attempt.ProviderPaymentID = payment.OptionalString(providerPaymentID)
 	attempt.ProviderStatus = strings.TrimSpace(mpResp.Status)
 	attempt.ProviderStatusInfo = strings.TrimSpace(mpResp.StatusDetail)
@@ -753,7 +753,7 @@ func (h *PaymentHandler) refreshPaymentStatus(
 
 	now := time.Now()
 	if attempt != nil {
-		attempt.ProviderPaymentID = payment.OptionalString(fmt.Sprintf("%d", providerDetails.ID))
+		attempt.ProviderPaymentID = payment.OptionalString(providerDetails.ID.String())
 		attempt.ProviderStatus = strings.TrimSpace(providerDetails.Status)
 		attempt.ProviderStatusInfo = strings.TrimSpace(providerDetails.StatusDetail)
 		attempt.Status = mapProviderStatusToAttemptStatus(providerDetails.Status)
@@ -769,7 +769,7 @@ func (h *PaymentHandler) refreshPaymentStatus(
 		_ = h.paymentAttemptRepo.Update(ctx, attempt)
 	}
 
-	localPayment.ExternalReference = strings.TrimSpace(fmt.Sprintf("%d", providerDetails.ID))
+	localPayment.ExternalReference = strings.TrimSpace(providerDetails.ID.String())
 	if strings.TrimSpace(providerDetails.PointOfInteraction.TransactionData.QRCode) != "" {
 		localPayment.PixQRCode = strings.TrimSpace(providerDetails.PointOfInteraction.TransactionData.QRCode)
 	}
