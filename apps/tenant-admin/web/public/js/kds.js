@@ -972,6 +972,7 @@ function renderPanel(panel, destination) {
   const deliveryBatchIds = new Set(Object.values(allDeliveries).map((delivery) => String(delivery.batch_id || '')));
   const orders = Object.values(allOrders).filter((order) => (
     order.destination === destination
+    && String(order.service_type || order.serviceType || '').toUpperCase() !== 'DELIVERY'
     && !deliveryBatchIds.has(String(order.batch_id || order.batchId || ''))
   ));
   const pending = orders.filter(o => o.status === 'PENDING');
@@ -3013,6 +3014,8 @@ function normalizeOrder(order) {
     notes: normalizeOptionalDisplayText(order.notes),
     batch_id: order.batch_id || order.batchId || null,
     batchId: order.batchId || order.batch_id || null,
+    service_type: order.service_type || order.serviceType || '',
+    serviceType: order.serviceType || order.service_type || '',
     batch_display_code: order.batch_display_code || order.batchDisplayCode || '',
     batchDisplayCode: order.batchDisplayCode || order.batch_display_code || '',
     tab_id: order.tab_id || order.tabId || null,

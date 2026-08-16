@@ -182,7 +182,8 @@ export class OrdersService {
             relations: ['items'],
             order: { createdAt: 'DESC' },
         });
-        return orders.map((order) => this.projectOperationalOrder(order));
+        const serviceTypeByBatch = await this.resolveServiceTypesByBatch(tenantId, orders);
+        return orders.map((order) => this.projectOperationalOrder(order, serviceTypeByBatch.get(String(order.batchId || '')) || null));
     }
 
     async findOne(id: string, tenantId: string) {
@@ -599,9 +600,30 @@ export class OrdersService {
         }
     }
 
-    private projectOperationalOrder(order: Order) {
+    private async resolveOrderServiceType(order: Order): Promise<string | null> {
+        if (!order?.batchId) return null;
+        const batch = await this.orderBatchRepo.findOne({
+            where: { id: order.batchId, tenantId: order.tenantId },
+            select: ['serviceType'],
+        });
+        return batch?.serviceType || null;
+    }
+
+    private async resolveServiceTypesByBatch(tenantId: string, orders: Order[]) {
+        const batchIds = [...new Set(orders.map((order) => order.batchId).filter(Boolean))] as string[];
+        if (!batchIds.length) return new Map<string, string>();
+
+        const batches = await this.orderBatchRepo.find({
+            where: { tenantId, id: In(batchIds) },
+            select: ['id', 'serviceType'],
+        });
+        return new Map(batches.map((batch) => [String(batch.id), String(batch.serviceType || '')]));
+    }
+
+    private projectOperationalOrder(order: Order, serviceType?: string | null) {
         return {
             ...order,
+            service_type: serviceType || null,
             notes: normalizeOptionalText(order.notes),
             items: (order.items || [])
                 .map((item: any) => ({
@@ -701,7 +723,7 @@ export class OrdersService {
     }
 
     private async publishOrderEvent(order: Order, type: string) {
-        const payload = this.buildOrderEventPayload(order, type);
+        const payload = this.buildOrderEventPayload(order, type, await this.resolveOrderServiceType(order));
         try {
             await this.broadcastKDSEventToGoCore(payload);
         } catch (error) {
@@ -714,7 +736,7 @@ export class OrdersService {
         }
     }
 
-    private buildOrderEventPayload(order: Order, type: string) {
+    private buildOrderEventPayload(order: Order, type: string, serviceType?: string | null) {
         return {
             type,
             timestamp: new Date().toISOString(),
@@ -725,6 +747,7 @@ export class OrdersService {
                 tab_id: order.tabId,
                 batch_id: order.batchId,
                 batch_display_code: this.resolveOrderMessageCode(order),
+                service_type: serviceType || null,
                 destination: order.destination,
                 status: order.status,
                 notes: normalizeOptionalText(order.notes),
@@ -1654,7 +1677,7 @@ export class OrdersService {
     }
 
     private async publishOrderStatusChanged(order: Order) {
-        const payload = this.buildOrderStatusChangedEventPayload(order);
+        const payload = await this.buildOrderStatusChangedEventPayload(order);
 
         try {
             await this.broadcastKDSEventToGoCore(payload);
@@ -1669,8 +1692,8 @@ export class OrdersService {
         }
     }
 
-    private buildOrderStatusChangedEventPayload(order: Order) {
-        return this.buildOrderEventPayload(order, 'order.status_changed');
+    private async buildOrderStatusChangedEventPayload(order: Order) {
+        return this.buildOrderEventPayload(order, 'order.status_changed', await this.resolveOrderServiceType(order));
     }
 
     private async recordOrderStatusAuditEvent(input: {
