@@ -134,6 +134,10 @@ const (
 	deliveryKeepOrderActionID          = "delivery:keep-order"
 )
 
+// WhatsApp reply button titles are limited to 20 characters. Keep the full
+// wording in the menu text and use this concise equivalent for the CTA.
+const deliveryActionButtonTitle = "Pedido p/ entrega"
+
 const mainMenuBackOptionText = "*0* - ◂ Voltar ao menu principal"
 
 func appendMainMenuBackOption(message string) string {
@@ -448,7 +452,7 @@ func (uc *HandleWhatsAppMessageUseCase) deliveryPromptButtons(state session.Conv
 
 	switch state {
 	case session.StateDeliveryMenu:
-		return []whatsapp.InteractiveButton{button(deliveryStartActionID, "🛵 Pedido para entregar")}
+		return []whatsapp.InteractiveButton{button(deliveryStartActionID, deliveryActionButtonTitle)}
 	case session.StateDeliveryCustomerName:
 		return nil
 	case session.StateDeliveryAddressSelection:
@@ -1434,7 +1438,7 @@ func buildDefaultWelcomeButtons(includeDelivery bool) []whatsapp.InteractiveButt
 		buttons = append(buttons, whatsapp.InteractiveButton{Type: "reply", Reply: struct {
 			ID    string `json:"id"`
 			Title string `json:"title"`
-		}{ID: deliveryStartActionID, Title: "🛵 Pedido para entregar"}})
+		}{ID: deliveryStartActionID, Title: deliveryActionButtonTitle}})
 	}
 	return buttons
 }
