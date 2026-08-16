@@ -124,6 +124,7 @@ let tenantPrintProfile = {
   ).trim(),
 };
 let ordersLoadPromise = null;
+let deliveriesLoadPromise = null;
 let activePanel = 'kitchen';
 let modalState = { orderId: null, tab: 'accept' };
 let ws = null;
@@ -132,6 +133,7 @@ let wsReconnectTimer = null;
 let pollTimer = null;
 let timerInterval = null;
 let recentWSEventKeys = new Map();
+let deliveryRefreshTimer = null;
 let menuItemNameById = new Map();
 let menuItemMetaById = new Map();
 let pendingRequests = [];
@@ -427,7 +429,7 @@ function handleKdsSyncEvent(event) {
 }
 
 function refreshKdsRealtimeState() {
-  loadOrders();
+  if (activePanel !== 'delivery') loadOrders();
   if (KDS_ACCESS.canViewDelivery) loadDeliveries();
   if (KDS_ACCESS.canViewSalao) {
     loadPendingRequests();
@@ -453,12 +455,14 @@ document.addEventListener('DOMContentLoaded', () => {
   applySidebarTenantName();
   loadTenantPrintProfile();
   startClock();
-  // Orders and deliveries are the critical path. Menu metadata enriches
-  // legacy orders, but must not delay the first operational render.
-  loadOrders().then(() => {
-    connectWebSocket();
-    startTimerUpdates();
-  });
+  // Connect immediately. Delivery updates use their own KDS invalidation
+  // event and must not wait for the broader orders query to finish.
+  connectWebSocket();
+  startTimerUpdates();
+  // Orders and deliveries are independent critical paths. A Delivery card
+  // already contains its compact order-items projection, so a slow kitchen
+  // query is deferred until its panel is opened.
+  if (activePanel !== 'delivery') loadOrders();
   loadMenuItems().then(renderAll);
   const startupTasks = [];
   if (KDS_ACCESS.canViewDelivery) startupTasks.push(loadDeliveries());
@@ -672,25 +676,26 @@ async function loadOrders() {
 }
 
 async function loadDeliveries() {
+  if (deliveriesLoadPromise) return deliveriesLoadPromise;
+  deliveriesLoadPromise = (async () => {
+    try {
+      const response = await apiGet('/deliveries?status=PENDING_RESTAURANT_ACCEPTANCE,ACCEPTED,PREPARING,READY_FOR_DISPATCH,IN_TRANSIT,ASSIGNED,PICKED_UP,ARRIVED&limit=100');
+      const deliveries = Array.isArray(response) ? response : (response?.data || []);
+      allDeliveries = {};
+      deliveries.forEach((delivery) => {
+        if (delivery?.id) allDeliveries[delivery.id] = delivery;
+      });
+      if (activePanel === 'delivery') renderAll();
+      else updateNavBadges();
+    } catch (error) {
+      console.error('Failed to load deliveries:', error);
+      if (activePanel === 'delivery') toast('t-error', '❌ Erro', 'Falha ao carregar a fila de entregas');
+    }
+  })();
   try {
-    const response = await apiGet('/deliveries?status=PENDING_RESTAURANT_ACCEPTANCE,ACCEPTED,PREPARING,READY_FOR_DISPATCH,IN_TRANSIT,ASSIGNED,PICKED_UP,ARRIVED&limit=100');
-    const deliveries = Array.isArray(response) ? response : (response?.data || []);
-    allDeliveries = {};
-    deliveries.forEach((delivery) => {
-      if (delivery?.id) allDeliveries[delivery.id] = delivery;
-    });
-    // A paid delivery is intentionally not broadcast as a generic
-    // order.created event (that would put it in the kitchen station). Refresh
-    // the paid order projection here so it is available exclusively to the
-    // Delivery panel and can be joined by batch_id.
-    const deliveryBatchIds = new Set(deliveries.map((delivery) => String(delivery?.batch_id || '')).filter(Boolean));
-    const hasMissingOrder = [...deliveryBatchIds].some((batchId) => !Object.values(allOrders).some((order) => String(order?.batch_id || order?.batchId || '') === batchId));
-    if (hasMissingOrder) await loadOrders();
-    if (activePanel === 'delivery') renderAll();
-    else updateNavBadges();
-  } catch (error) {
-    console.error('Failed to load deliveries:', error);
-    if (activePanel === 'delivery') toast('t-error', '❌ Erro', 'Falha ao carregar a fila de entregas');
+    return await deliveriesLoadPromise;
+  } finally {
+    deliveriesLoadPromise = null;
   }
 }
 
@@ -750,7 +755,7 @@ function scheduleReconnect() {
 function startPolling() {
   stopPolling();
   pollTimer = setInterval(() => {
-    loadOrders();
+    if (activePanel !== 'delivery') loadOrders();
     if (KDS_ACCESS.canViewDelivery) loadDeliveries();
   }, CONFIG.POLL_INTERVAL);
 }
@@ -800,6 +805,11 @@ function handleWSEvent(event) {
   if (event.type === 'connected') return;
   if (!shouldHandleWSEvent(event)) return;
 
+  if (event.type === 'delivery.updated') {
+    scheduleDeliveryRefresh();
+    return;
+  }
+
   if (event.type === 'order.created') {
     const order = normalizeOrder(event.data);
     allOrders[order.id] = order;
@@ -826,6 +836,14 @@ function handleWSEvent(event) {
     renderAll();
     refreshOperationsSummary();
   }
+}
+
+function scheduleDeliveryRefresh() {
+  if (!KDS_ACCESS.canViewDelivery) return;
+  clearTimeout(deliveryRefreshTimer);
+  deliveryRefreshTimer = setTimeout(() => {
+    loadDeliveries();
+  }, 80);
 }
 
 // ─── RENDER ────────────────────────────────────────────────────
@@ -858,6 +876,7 @@ const DELIVERY_COLUMNS = [
 ];
 
 function deliveryOrders(delivery) {
+  if (Array.isArray(delivery?.orders)) return delivery.orders;
   return Object.values(allOrders).filter((order) => String(order.batch_id || order.batchId || '') === String(delivery.batch_id || ''));
 }
 
@@ -2685,7 +2704,7 @@ async function startDeliveryPreparation(deliveryId, estimateMinutes) {
     await Promise.all(orders.map((order) => apiPatch(`/orders/${encodeURIComponent(order.id)}/status?tenant_id=${CONFIG.TENANT_ID}`, { status: 'ACCEPTED' })));
     closeDeliveryPreparationModal();
     toast('t-success', '🍳 Preparo iniciado', `Previsão de ${estimateMinutes} minutos enviada ao cliente.`);
-    await Promise.all([loadOrders(), loadDeliveries()]);
+    await loadDeliveries();
   } catch (error) {
     console.error('Failed to start delivery preparation:', error);
     toast('t-error', '❌ Não foi possível iniciar', error.message || 'Atualize a fila e tente novamente.');
@@ -3218,6 +3237,7 @@ const TITLES = {
   kitchen: ['Estação da Cozinha', '— aceite e gerencie os pedidos da cozinha'],
   bar: ['Estação do Bar', '— aceite e gerencie os pedidos do bar'],
   salao: ['Painel do Salão', '— gerencie clientes, entregas, contas e conversas'],
+  delivery: ['Fila operacional de Delivery', '— inicie o preparo, imprima a expedição e confirme a entrega própria'],
 };
 
 function switchPanel(name) {
@@ -3228,8 +3248,10 @@ function switchPanel(name) {
   document.getElementById('panel-' + nextPanel).classList.add('active');
   document.querySelectorAll('.screen-tab[data-panel]').forEach((tab) => tab.classList.toggle('active', tab.dataset.panel === nextPanel));
   document.querySelectorAll('.sidebar-nav .nav-item[data-panel]').forEach((navItem) => navItem.classList.toggle('active', navItem.dataset.panel === nextPanel));
-  document.getElementById('topbar-title').textContent = TITLES[nextPanel][0];
-  document.getElementById('topbar-sub').textContent = TITLES[nextPanel][1];
+  document.getElementById('topbar-title').textContent = TITLES[nextPanel]?.[0] || 'ClickGarçom';
+  document.getElementById('topbar-sub').textContent = TITLES[nextPanel]?.[1] || '';
+  if (nextPanel === 'delivery') loadDeliveries();
+  else loadOrders();
   renderCurrentPanel();
   updateNavBadges();
 }

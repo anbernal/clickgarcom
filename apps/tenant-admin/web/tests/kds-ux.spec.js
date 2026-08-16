@@ -7,6 +7,7 @@ function minutesAgo(minutes) {
 async function prepareKds(page, options = {}) {
   const role = options.role || 'KITCHEN';
   const orders = options.orders || [];
+  const deliveries = options.deliveries || [];
   const tables = options.tables || [];
   const payload = Buffer.from(JSON.stringify({ tenant_id: 'tenant-ux-test', role })).toString('base64url');
   await page.addInitScript(({ payloadValue, roleValue }) => {
@@ -21,6 +22,7 @@ async function prepareKds(page, options = {}) {
     const path = new URL(route.request().url()).pathname;
     let response = [];
     if (path.endsWith('/orders/operations/summary')) response = options.operationsSummary || { stations: [], stationSla: {} };
+    else if (path.endsWith('/deliveries')) response = { data: deliveries, page: 1, limit: 100, total: deliveries.length, has_more: false };
     else if (path.endsWith('/orders')) response = orders;
     else if (path.endsWith('/tables/requests/pending')) response = options.pendingRequests || [];
     else if (path.endsWith('/tables/waiter/chats/open')) response = options.chats || [];
@@ -36,6 +38,33 @@ async function prepareKds(page, options = {}) {
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(response) });
   });
 }
+
+test('Delivery recarrega pelo websocket e usa os itens da própria projeção', async ({ page }) => {
+  const delivery = {
+    id: '485971f1-e914-4de3-9d34-c4d69ca42470', batch_id: '1a876ad4-9f6b-4d11-8ea4-04fd2c4cda31',
+    display_code: '482193', status: 'PENDING_RESTAURANT_ACCEPTANCE', version: 1,
+    customer_name: 'Mariana', customer_phone: '5511999999999', formatted_address: 'Rua das Flores, 120, São Paulo/SP',
+    customer_delivery_fee: 8.5, default_fulfillment_mode: 'OWN', orders: [{
+      id: '2f6f4d95-1869-4377-9183-9813697c4f7d', batch_id: '1a876ad4-9f6b-4d11-8ea4-04fd2c4cda31', status: 'PENDING',
+      items: [{ id: 'e8a6f4bf-1d7d-4f47-a0c2-3bf579aac468', quantity: 2, unit_price: 29.9, item_name_snapshot: 'Smash Clássico', menu_item_id: 'menu-1' }],
+    }],
+  };
+  await prepareKds(page, { role: 'DISPATCHER', deliveries: [delivery] });
+  await page.goto('/kds.html?panel=delivery');
+
+  await expect(page.locator('#panel-delivery')).toHaveClass(/active/);
+  await expect(page.locator('.delivery-card')).toContainText('2x Smash Clássico');
+  await expect(page.locator('.delivery-card')).toContainText('R$ 59,80');
+  await expect(page.locator('#topbar-title')).toHaveText('Fila operacional de Delivery');
+
+  delivery.status = 'PREPARING';
+  delivery.version = 2;
+  await page.evaluate(() => handleWSEvent({
+    type: 'delivery.updated', timestamp: new Date().toISOString(), tenant_id: 'tenant-ux-test',
+    data: { id: '485971f1-e914-4de3-9d34-c4d69ca42470', status: 'PREPARING', version: 2 },
+  }));
+  await expect(page.locator('#col-d-preparing .delivery-card')).toHaveCount(1);
+});
 
 test('modo estação respeita perfil, métricas e hierarquia touch', async ({ page }) => {
   const orders = [

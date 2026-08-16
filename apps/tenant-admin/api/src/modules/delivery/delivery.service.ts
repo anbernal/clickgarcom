@@ -94,6 +94,21 @@ type DeliverySnapshot = {
     delivered_at: Date | null;
     created_at: Date;
     updated_at: Date;
+    // The delivery board needs the order items to render its operational card.
+    // Keeping this compact projection on the delivery endpoint avoids a second,
+    // tenant-wide orders query every time the board is refreshed.
+    orders?: Array<{
+        id: string;
+        batch_id: string | null;
+        status: string;
+        items: Array<{
+            id: string;
+            quantity: number;
+            unit_price: number;
+            item_name_snapshot: string | null;
+            menu_item_id: string;
+        }>;
+    }>;
 };
 
 const ACTIVE_STATUSES = [
@@ -161,8 +176,22 @@ export class DeliveryService {
         if (query.code) qb.andWhere('delivery.display_code ILIKE :code', { code: `%${query.code.trim()}%` });
 
         const [rows, total] = await qb.getManyAndCount();
+        const batchIds = [...new Set(rows.map((delivery) => delivery.batchId).filter(Boolean))];
+        const orders = batchIds.length
+            ? await this.orderRepository.find({
+                where: { tenantId, batchId: In(batchIds) },
+                order: { createdAt: 'ASC' },
+            })
+            : [];
+        const ordersByBatch = new Map<string, Order[]>();
+        orders.forEach((order) => {
+            if (!order.batchId) return;
+            const batchOrders = ordersByBatch.get(order.batchId) || [];
+            batchOrders.push(order);
+            ordersByBatch.set(order.batchId, batchOrders);
+        });
         return {
-            data: rows.map((delivery) => this.toSnapshot(delivery)),
+            data: rows.map((delivery) => this.toSnapshot(delivery, ordersByBatch.get(delivery.batchId) || [])),
             page,
             limit,
             total,
@@ -391,7 +420,7 @@ export class DeliveryService {
             acceptedAt: decision.result === 'AUTO_ACCEPTED' ? new Date() : null,
         });
 
-        return this.dataSource.transaction(async (manager) => {
+        const snapshot = await this.dataSource.transaction(async (manager) => {
             const currentBatch = await manager.getRepository(OrderBatch).findOne({
                 where: { id: input.batch_id, tenantId: input.tenant_id },
             });
@@ -416,6 +445,11 @@ export class DeliveryService {
             }
             return this.toSnapshot(saved);
         });
+        // A paid delivery deliberately does not emit order.created: that event
+        // belongs to the dine-in kitchen queue. Emit its own KDS refresh signal
+        // as soon as its operational projection exists instead.
+        await this.publishTrackingStatus(snapshot);
+        return snapshot;
     }
 
     /**
@@ -1305,6 +1339,61 @@ export class DeliveryService {
                 eta_updated_at: snapshot.updated_at,
             },
         }).catch(() => undefined);
+        await this.publishKDSDeliveryRefresh(snapshot);
+    }
+
+    /**
+     * The generic KDS socket is tenant-scoped. Delivery tracking uses a
+     * separate, customer-scoped socket, so it cannot update the operational
+     * Delivery board. Broadcast a tiny invalidation event to the KDS hub and
+     * let the browser fetch the authoritative delivery snapshot.
+     */
+    private async publishKDSDeliveryRefresh(snapshot: DeliverySnapshot) {
+        const payload = {
+            type: 'delivery.updated',
+            timestamp: new Date().toISOString(),
+            tenant_id: snapshot.tenant_id,
+            data: {
+                id: snapshot.id,
+                tenant_id: snapshot.tenant_id,
+                status: snapshot.status,
+                version: snapshot.version,
+                batch_id: snapshot.batch_id,
+            },
+        };
+
+        const token = String(process.env.INTERNAL_SERVICE_TOKEN || 'clickgarcom-internal-token').trim()
+            || 'clickgarcom-internal-token';
+        const baseUrls = [...new Set([
+            String(process.env.GO_CORE_BASE_URL || '').trim(),
+            'http://go-api:8080',
+            'http://localhost:8080',
+        ].filter(Boolean))];
+
+        const relay = async () => {
+            for (const baseUrl of baseUrls) {
+                try {
+                    const response = await fetch(`${baseUrl}/internal/kds/events/broadcast`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Internal-Token': token,
+                        },
+                        body: JSON.stringify(payload),
+                        signal: AbortSignal.timeout(2000),
+                    });
+                    if (response.ok) return;
+                } catch (_error) {
+                    // AMQP below remains the durable fallback for a briefly
+                    // unavailable go-api process.
+                }
+            }
+        };
+
+        await Promise.all([
+            relay(),
+            this.amqpService.publishKDSEvent(payload, 'delivery.updated').catch(() => undefined),
+        ]);
     }
 
     private async appendEvent(
@@ -1406,7 +1495,7 @@ export class DeliveryService {
         return Math.round(2 * earthRadius * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
     }
 
-    private toSnapshot(delivery: Delivery): DeliverySnapshot {
+    private toSnapshot(delivery: Delivery, orders: Order[] = []): DeliverySnapshot {
         return {
             id: delivery.id,
             tenant_id: delivery.tenantId,
@@ -1444,6 +1533,18 @@ export class DeliveryService {
             delivered_at: delivery.deliveredAt,
             created_at: delivery.createdAt,
             updated_at: delivery.updatedAt,
+            orders: orders.map((order) => ({
+                id: order.id,
+                batch_id: order.batchId,
+                status: order.status,
+                items: (order.items || []).map((item) => ({
+                    id: item.id,
+                    quantity: Number(item.quantity || 0),
+                    unit_price: Number(item.unitPrice || 0),
+                    item_name_snapshot: item.itemNameSnapshot || null,
+                    menu_item_id: item.menuItemId,
+                })),
+            })),
         };
     }
 
