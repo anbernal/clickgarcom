@@ -826,7 +826,15 @@ function deliveryOrders(delivery) {
 }
 
 function deliveryItemsTotal(delivery) {
-  return deliveryOrders(delivery).reduce((total, order) => total + Number(order.total || order.total_amount || order.subtotal || 0), 0);
+  return deliveryOrders(delivery).reduce((total, order) => {
+    const reportedTotal = Number(order.total || order.total_amount || order.subtotal || 0);
+    if (reportedTotal > 0) return total + reportedTotal;
+    return total + (Array.isArray(order.items) ? order.items.reduce((itemsTotal, item) => {
+      const quantity = Math.max(0, Number(item.quantity || 0));
+      const unitPrice = Number(item.unit_price ?? item.unitPrice ?? item.price ?? 0);
+      return itemsTotal + quantity * unitPrice;
+    }, 0) : 0);
+  }, 0);
 }
 
 function formatCurrency(value) {
@@ -843,7 +851,7 @@ function deliveryAddress(delivery) {
 function deliveryItemSummary(delivery) {
   const items = deliveryOrders(delivery)
     .flatMap((order) => Array.isArray(order.items) ? order.items : [])
-    .map((item) => escapeHTML(`${Number(item.quantity || 1)}x ${String(item.name || item.menu_item_name || 'Item')}`));
+    .map((item) => escapeHTML(`${Number(item.quantity || 1)}x ${String(item.name || item.menu_item_name || item.menuItemName || item.item_name_snapshot || item.itemNameSnapshot || 'Item')}`));
   return items.length ? items.join('<br>') : 'Itens serão exibidos assim que a cozinha carregar o pedido.';
 }
 
@@ -2858,7 +2866,8 @@ function normalizeOrder(order) {
       ...item,
       observations: normalizeOptionalDisplayText(item.observations),
       menu_item_id: item.menu_item_id || item.menuItemId || null,
-      menu_item_name: item.menu_item_name || item.menuItemName || item.name || item.menuItem?.name || '',
+      menu_item_name: item.menu_item_name || item.menuItemName || item.name || item.item_name_snapshot || item.itemNameSnapshot || item.menuItem?.name || '',
+      name: item.name || item.menu_item_name || item.menuItemName || item.item_name_snapshot || item.itemNameSnapshot || item.menuItem?.name || '',
       unit_price: item.unit_price || item.unitPrice || item.price || null,
       selected_options: Array.isArray(item.selected_options)
         ? item.selected_options
