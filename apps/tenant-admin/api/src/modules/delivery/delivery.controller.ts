@@ -82,6 +82,12 @@ export class DeliveryController {
         return this.deliveryService.startOwn(request.user.tenantId, id, this.actor(request), body, idempotencyKey);
     }
 
+    @Post(':id/own/ready')
+    @Roles(...TENANT_DELIVERY_DISPATCH_ROLES)
+    readyOwn(@Request() request: any, @Param('id') id: string, @Body() body: DeliveryOwnOperationDto, @Headers('idempotency-key') idempotencyKey?: string) {
+        return this.deliveryService.readyOwn(request.user.tenantId, id, this.actor(request), body, idempotencyKey);
+    }
+
     @Post(':id/own/complete')
     @Roles(...TENANT_DELIVERY_DISPATCH_ROLES)
     completeOwn(@Request() request: any, @Param('id') id: string, @Body() body: DeliveryOwnOperationDto, @Headers('idempotency-key') idempotencyKey?: string) {

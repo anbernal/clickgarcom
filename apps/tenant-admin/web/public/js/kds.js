@@ -887,6 +887,9 @@ function deliveryActionButtons(delivery) {
       : '<span class="delivery-external-note">Aguardando operador externo</span>';
     return `<button class="action-btn secondary" onclick="printDeliveryDispatch('${id}')">🖨️ Imprimir expedição</button>${dispatch}`;
   }
+  if (status === 'PREPARING' && own) {
+    return `<button class="action-btn accept" onclick="markOwnDeliveryReady('${id}')">✅ Marcar pronto para saída</button>`;
+  }
   if (status === 'IN_TRANSIT' && own) {
     return `<button class="action-btn accept" onclick="completeOwnDelivery('${id}')">✅ Confirmar entrega</button>`;
   }
@@ -2679,6 +2682,21 @@ async function startOwnDelivery(deliveryId) {
   } catch (error) {
     console.error('Failed to start own delivery:', error);
     toast('t-error', '❌ Não foi possível registrar a saída', error.message || 'Atualize a fila e tente novamente.');
+  }
+}
+
+async function markOwnDeliveryReady(deliveryId) {
+  const delivery = allDeliveries[deliveryId];
+  if (!delivery) return;
+  try {
+    await apiPost(`/deliveries/${encodeURIComponent(deliveryId)}/own/ready`, {
+      expected_version: Number(delivery.version),
+    });
+    toast('t-success', '✅ Pedido pronto', 'A expedição já pode ser impressa e a saída registrada.');
+    await loadDeliveries();
+  } catch (error) {
+    console.error('Failed to mark own delivery ready:', error);
+    toast('t-error', '❌ Não foi possível avançar', error.message || 'Atualize a fila e tente novamente.');
   }
 }
 

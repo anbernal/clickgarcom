@@ -651,6 +651,58 @@ export class DeliveryService {
         });
     }
 
+    /** Marks the restaurant-owned preparation as ready for dispatch. */
+    async readyOwn(
+        tenantId: string,
+        id: string,
+        actor: Actor,
+        command: DeliveryOwnOperationDto,
+        idempotencyKey?: string,
+    ) {
+        return this.runIdempotent(
+            tenantId,
+            id,
+            'own-ready',
+            idempotencyKey,
+            actor,
+            command as unknown as Record<string, unknown>,
+            async () => {
+                const snapshot = await this.dataSource.transaction(async (manager) => {
+                    const deliveryRepository = manager.getRepository(Delivery);
+                    const fulfillmentRepository = manager.getRepository(DeliveryFulfillment);
+                    const delivery = await deliveryRepository.createQueryBuilder('delivery')
+                        .where('delivery.id = :id AND delivery.tenant_id = :tenantId', { id, tenantId })
+                        .setLock('pessimistic_write')
+                        .getOne();
+                    if (!delivery) throw new NotFoundException('Entrega não encontrada.');
+                    const fulfillment = await fulfillmentRepository.createQueryBuilder('fulfillment')
+                        .where('fulfillment.delivery_id = :id AND fulfillment.tenant_id = :tenantId AND fulfillment.is_current = TRUE', { id, tenantId })
+                        .setLock('pessimistic_write')
+                        .getOne();
+                    if (!fulfillment || fulfillment.mode !== 'OWN') throw new UnprocessableEntityException('A entrega não está configurada para operação própria.');
+                    if (delivery.status === DeliveryStatus.ReadyForDispatch && fulfillment.status === 'WAITING_DISPATCH') return this.toSnapshot(delivery);
+                    if (delivery.version !== command.expected_version) throw new ConflictException('A entrega foi alterada. Atualize e tente novamente.');
+                    if (delivery.status !== DeliveryStatus.Preparing) throw new UnprocessableEntityException('A entrega própria ainda não está em preparo.');
+                    const previousStatus = delivery.status;
+                    delivery.status = DeliveryStatus.ReadyForDispatch;
+                    delivery.version += 1;
+                    this.applyTimestamp(delivery, DeliveryStatus.ReadyForDispatch);
+                    fulfillment.status = 'WAITING_DISPATCH';
+                    const saved = await deliveryRepository.save(delivery);
+                    await fulfillmentRepository.save(fulfillment);
+                    await this.appendEvent(manager, saved, DeliveryEventType.ReadyForDispatch, actor, saved.status, {
+                        previous_status: previousStatus,
+                        fulfillment_mode: 'OWN',
+                        reason: command.notes || null,
+                    }, 'OWN_OPERATION');
+                    return this.toSnapshot(saved);
+                });
+                await this.publishTrackingStatus(snapshot);
+                return snapshot;
+            },
+        );
+    }
+
     /**
      * Starts a restaurant-owned delivery. There is deliberately no driver
      * assignment, pickup, PIN or tracking side effect in this path: the

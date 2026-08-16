@@ -465,6 +465,7 @@ export function buildDeliveryOpenApiPaths(): Record<string, OpenApiPath> {
 
     for (const [action, summary] of [
         ['own/start', 'Inicia a saída de uma entrega própria'],
+        ['own/ready', 'Marca o preparo como pronto para saída'],
         ['own/complete', 'Conclui uma entrega própria'],
     ] as Array<[string, string]>) {
         routes[`${adminBase}/deliveries/{id}/${action}`] = {
