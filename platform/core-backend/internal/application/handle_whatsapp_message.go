@@ -265,6 +265,21 @@ func (uc *HandleWhatsAppMessageUseCase) Execute(ctx context.Context, input Handl
 	}
 
 	// 3. Enviar resposta
+	// A completed Delivery conversation is reset before rendering the next
+	// greeting. The delivered notification already closed that journey, so a
+	// new customer message should receive only the initial menu.
+	if response == "" && newState == session.StateWelcome && isDeliveryConversationState(sess.State) {
+		t, tenantErr := uc.tenantRepo.FindByID(ctx, input.TenantID)
+		if tenantErr != nil {
+			return fmt.Errorf("failed to find tenant: %w", tenantErr)
+		}
+		if t == nil {
+			return fmt.Errorf("tenant not found: %s", input.TenantID.String())
+		}
+		if err := uc.sendWelcomeMenu(ctx, input.From, t, ""); err != nil {
+			return fmt.Errorf("failed to send welcome menu response: %w", err)
+		}
+	}
 	if response == "" && sess.State == session.StateWelcome && (newState == "" || newState == session.StateWelcome) {
 		t, tenantErr := uc.tenantRepo.FindByID(ctx, input.TenantID)
 		if tenantErr != nil {

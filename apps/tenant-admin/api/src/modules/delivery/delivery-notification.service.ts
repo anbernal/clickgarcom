@@ -98,6 +98,10 @@ export class DeliveryNotificationService {
     ): Promise<string> {
         const tenant = await manager.getRepository(Tenant).findOne({ where: { id: delivery.tenantId } });
         const templates = tenant?.settings?.messages || {};
+        const templateReplacements = {
+            ...replacements,
+            '{nome_restaurante}': String(tenant?.name || 'Restaurante').trim() || 'Restaurante',
+        };
         const templateByMilestone: Record<DeliveryNotificationMilestone, keyof typeof DEFAULT_MESSAGE_TEMPLATES> = {
             [DeliveryNotificationMilestone.Preparing]: 'msg_delivery_preparing',
             [DeliveryNotificationMilestone.InTransit]: 'msg_delivery_in_transit',
@@ -106,7 +110,7 @@ export class DeliveryNotificationService {
             [DeliveryNotificationMilestone.CycleExhausted]: 'msg_delivery_cycle_exhausted',
         };
         const key = templateByMilestone[milestone];
-        const body = resolveMessageTemplate(templates[key], DEFAULT_MESSAGE_TEMPLATES[key], replacements);
+        const body = resolveMessageTemplate(templates[key], DEFAULT_MESSAGE_TEMPLATES[key], templateReplacements);
         const customerName = this.customerName(delivery);
         // Tenant-specific legacy templates may not yet use {nome_cliente}.
         // Prefix only Delivery messages so the customer's name is still present

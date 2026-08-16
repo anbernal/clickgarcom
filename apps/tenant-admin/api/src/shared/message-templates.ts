@@ -84,7 +84,12 @@ Obrigado pela preferência!
 Esperamos te receber novamente em breve! 😊`,
     msg_delivery_preparing: '🍳 {nome_cliente}, seu pedido *{codigo_pedido}* foi aceito e está sendo preparado. A previsão é de *{previsao_minutos} minutos*.',
     msg_delivery_in_transit: '🛵 {nome_cliente}, seu pedido *{codigo_pedido}* está indo até você.',
-    msg_delivery_delivered: '✅ {nome_cliente}, entrega confirmada. Volte sempre!',
+    msg_delivery_delivered: `🍽️ {nome_restaurante}
+_________
+
+✅ {nome_cliente}, sua entrega foi confirmada!
+
+Obrigado pela preferência. Esperamos receber você novamente em breve! 😊`,
     msg_delivery_rejected: '❌ O restaurante não conseguiu aceitar o pedido *{codigo_pedido}*.',
     msg_delivery_cycle_exhausted: '⚠️ Não encontramos um entregador para o pedido *{codigo_pedido}*. O restaurante foi avisado e poderá assumir a entrega manualmente.',
 };
