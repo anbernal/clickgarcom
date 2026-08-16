@@ -114,6 +114,15 @@ if (authSession?.token) {
 // ─── STATE ─────────────────────────────────────────────────────
 let allOrders = {};  // id -> order
 let allDeliveries = {}; // id -> delivery operational snapshot
+let tenantPrintProfile = {
+  name: String(authSession?.user?.tenant_name || CONFIG.TENANT_NAME || 'Restaurante').trim() || 'Restaurante',
+  contact: String(
+    authSession?.user?.tenant_whatsapp_number ||
+    authSession?.user?.tenant_whatsapp ||
+    authSession?.user?.whatsapp_number ||
+    ''
+  ).trim(),
+};
 let ordersLoadPromise = null;
 let activePanel = 'kitchen';
 let modalState = { orderId: null, tab: 'accept' };
@@ -442,6 +451,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.addEventListener('fullscreenchange', updateFullscreenButtons);
   switchPanel(resolveInitialPanel());
   applySidebarTenantName();
+  loadTenantPrintProfile();
   startClock();
   // Orders and deliveries are the critical path. Menu metadata enriches
   // legacy orders, but must not delay the first operational render.
@@ -502,6 +512,18 @@ function applySidebarTenantName() {
   const first = escapeHTML(parts.shift());
   const rest = escapeHTML(parts.join(' '));
   el.innerHTML = `${first}<span>${rest}</span>`;
+}
+
+async function loadTenantPrintProfile() {
+  try {
+    const profile = await apiGet('/auth/me');
+    tenantPrintProfile = {
+      name: String(profile?.tenant_name || tenantPrintProfile.name || 'Restaurante').trim() || 'Restaurante',
+      contact: String(profile?.tenant_whatsapp_number || tenantPrintProfile.contact || '').trim(),
+    };
+  } catch (error) {
+    console.warn('Não foi possível atualizar os dados do restaurante para impressão:', error);
+  }
 }
 
 async function loadMenuItems() {
@@ -2720,19 +2742,98 @@ function printDeliveryDispatch(deliveryId) {
   if (!delivery) return;
   const items = deliveryOrders(delivery).flatMap((order) => Array.isArray(order.items) ? order.items : []);
   const itemRows = items.length
-    ? items.map((item) => `<li>${escapeHTML(`${Number(item.quantity || 1)}x ${item.name || item.menu_item_name || 'Item'}`)}</li>`).join('')
-    : '<li>Itens indisponíveis no painel; consulte o pedido da cozinha.</li>';
+    ? items.map((item) => {
+      const quantity = Math.max(1, Number(item.quantity || 1));
+      const name = String(item.name || item.menu_item_name || item.menuItemName || item.item_name_snapshot || item.itemNameSnapshot || 'Item');
+      const unitPrice = Number(item.unit_price ?? item.unitPrice ?? item.price ?? 0);
+      return `<tr><td class="item-quantity">${escapeHTML(`${quantity}x`)}</td><td>${escapeHTML(name)}</td><td class="money">${escapeHTML(formatCurrency(quantity * unitPrice))}</td></tr>`;
+    }).join('')
+    : '<tr><td colspan="3" class="empty-items">Itens indisponíveis no painel; consulte o pedido da cozinha.</td></tr>';
   const itemsTotal = deliveryItemsTotal(delivery);
   const fee = Number(delivery.customer_delivery_fee ?? delivery.delivery_fee ?? 0);
+  const total = itemsTotal + fee;
+  const restaurantName = tenantPrintProfile.name || CONFIG.TENANT_NAME || 'Restaurante';
+  const restaurantContact = tenantPrintProfile.contact
+    ? formatBrazilianPhoneMask(tenantPrintProfile.contact)
+    : '';
+  const customerPhone = delivery.customer_phone
+    ? formatBrazilianPhoneMask(String(delivery.customer_phone))
+    : '';
+  const orderCode = String(delivery.display_code || delivery.id || '').replace(/^#/, '');
+  const printedAt = new Date().toLocaleString('pt-BR');
   const printWindow = window.open('', '_blank', 'width=420,height=640');
   if (!printWindow) {
     toast('t-error', '⚠️ Impressão bloqueada', 'Permita pop-ups para imprimir a expedição.');
     return;
   }
-  printWindow.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Expedição ${escapeHTML(delivery.display_code || '')}</title><style>body{font:14px Arial;margin:22px;color:#111}h1{font-size:20px;margin:0 0 6px}h2{font-size:16px;border-top:1px dashed #555;padding-top:12px}p{margin:5px 0}.muted{color:#555}.total{font-size:16px;font-weight:bold;margin-top:12px}</style></head><body><h1>🛵 TICKET DE EXPEDIÇÃO</h1><p><strong>Pedido:</strong> ${escapeHTML(delivery.display_code || delivery.id)}</p><p class="muted">Impresso em ${new Date().toLocaleString('pt-BR')}</p><h2>Destino</h2><p><strong>${escapeHTML(delivery.customer_name || 'Cliente')}</strong></p><p>${escapeHTML(deliveryAddress(delivery))}</p>${delivery.address_reference ? `<p>Referência: ${escapeHTML(String(delivery.address_reference))}</p>` : ''}${delivery.customer_phone ? `<p>Telefone: ${escapeHTML(String(delivery.customer_phone))}</p>` : ''}<h2>Itens</h2><ul>${itemRows}</ul><p class="total">Itens ${formatCurrency(itemsTotal)} · Frete ${formatCurrency(fee)}<br>Total ${formatCurrency(itemsTotal + fee)}</p></body></html>`);
+  printWindow.document.write(`<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Expedição ${escapeHTML(orderCode)}</title>
+  <style>
+    *{box-sizing:border-box}
+    :root{--ink:#111827;--muted:#5f6877;--line:#cbd2dc;--soft:#f3f5f7;--address:#fff4c7}
+    html,body{margin:0;padding:0;background:#fff;color:var(--ink);font-family:Arial,Helvetica,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    body{padding:20px;font-size:13px;line-height:1.35}
+    .ticket{width:100%;max-width:760px;margin:0 auto;border:2px solid var(--ink);border-radius:14px;overflow:hidden}
+    .restaurant{padding:17px 20px;text-align:center;border-bottom:2px solid var(--ink)}
+    .restaurant-name{font-size:24px;font-weight:900;line-height:1.15;letter-spacing:-.3px}
+    .restaurant-contact{margin-top:5px;color:var(--muted);font-size:12px;font-weight:700}
+    .title-row{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:14px 20px;background:var(--ink);color:#fff}
+    .title{font-size:20px;font-weight:900;letter-spacing:.4px}.order-code{text-align:right}.order-code span{display:block;font-size:10px;text-transform:uppercase;letter-spacing:1px;opacity:.75}.order-code strong{font-size:24px}
+    .meta{display:flex;justify-content:space-between;gap:12px;padding:8px 20px;border-bottom:1px solid var(--line);color:var(--muted);font-size:11px}
+    .section{padding:15px 20px;border-bottom:1px dashed #8b94a2}.section:last-child{border-bottom:0}
+    .label{display:block;margin-bottom:7px;font-size:10px;font-weight:900;letter-spacing:1.15px;text-transform:uppercase;color:var(--muted)}
+    .address-box{padding:15px 16px;border:2px solid var(--ink);border-radius:10px;background:var(--address)}
+    .address{font-size:21px;font-weight:900;line-height:1.25;overflow-wrap:anywhere}
+    .reference{margin-top:9px;padding-top:8px;border-top:1px solid rgba(17,24,39,.3);font-size:13px;font-weight:700}
+    .customer-grid{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px;align-items:end;margin-top:12px}
+    .customer-grid strong{display:block;font-size:15px}.customer-phone{font-size:15px;font-weight:900;white-space:nowrap}
+    table{width:100%;border-collapse:collapse}.items th{padding:0 5px 7px;border-bottom:2px solid var(--ink);font-size:10px;text-align:left;text-transform:uppercase;letter-spacing:.8px}.items td{padding:9px 5px;border-bottom:1px solid var(--line);font-size:14px}.items th:first-child,.items td:first-child{padding-left:0}.items th:last-child,.items td:last-child{padding-right:0}.item-quantity{width:48px;font-weight:900}.money{text-align:right;white-space:nowrap;font-weight:700}.empty-items{text-align:center;color:var(--muted)}
+    .totals{margin:0 0 0 auto;width:min(100%,310px)}.totals td{padding:3px 0}.totals td:last-child{text-align:right;font-weight:700}.totals .grand td{padding-top:8px;border-top:2px solid var(--ink);font-size:20px;font-weight:900}
+    .footer{display:grid;grid-template-columns:1fr 1fr;gap:20px;padding:17px 20px}.sign{padding-top:22px;border-bottom:1px solid var(--ink);text-align:center;font-size:10px;color:var(--muted)}
+    @media(max-width:520px){body{padding:8px}.ticket{border-radius:0}.restaurant,.title-row,.meta,.section,.footer{padding-left:12px;padding-right:12px}.restaurant-name{font-size:20px}.address{font-size:18px}.customer-grid{grid-template-columns:1fr}.title{font-size:17px}.order-code strong{font-size:20px}}
+    @media print{@page{margin:7mm}body{padding:0}.ticket{max-width:none}.footer{break-inside:avoid}}
+  </style>
+</head>
+<body>
+  <main class="ticket">
+    <header class="restaurant">
+      <div class="restaurant-name">${escapeHTML(restaurantName)}</div>
+      ${restaurantContact ? `<div class="restaurant-contact">Contato do restaurante: ${escapeHTML(restaurantContact)}</div>` : ''}
+    </header>
+    <div class="title-row">
+      <div class="title">🛵 EXPEDIÇÃO DELIVERY</div>
+      <div class="order-code"><span>Pedido</span><strong>#${escapeHTML(orderCode)}</strong></div>
+    </div>
+    <div class="meta"><span>Impresso em ${escapeHTML(printedAt)}</span><strong>${escapeHTML(deliveryModeLabel(delivery.default_fulfillment_mode))}</strong></div>
+    <section class="section">
+      <span class="label">📍 Entregar em</span>
+      <div class="address-box">
+        <div class="address">${escapeHTML(deliveryAddress(delivery))}</div>
+        ${delivery.address_reference ? `<div class="reference">Referência: ${escapeHTML(String(delivery.address_reference))}</div>` : ''}
+      </div>
+      <div class="customer-grid">
+        <div><span class="label">Cliente</span><strong>${escapeHTML(delivery.customer_name || 'Cliente do WhatsApp')}</strong></div>
+        ${customerPhone ? `<div><span class="label">Contato do cliente</span><div class="customer-phone">☎ ${escapeHTML(customerPhone)}</div></div>` : ''}
+      </div>
+    </section>
+    <section class="section">
+      <span class="label">Itens do pedido</span>
+      <table class="items"><thead><tr><th>Qtd.</th><th>Item</th><th class="money">Valor</th></tr></thead><tbody>${itemRows}</tbody></table>
+    </section>
+    <section class="section">
+      <table class="totals"><tbody><tr><td>Itens</td><td>${escapeHTML(formatCurrency(itemsTotal))}</td></tr><tr><td>Frete</td><td>${escapeHTML(formatCurrency(fee))}</td></tr><tr class="grand"><td>Total</td><td>${escapeHTML(formatCurrency(total))}</td></tr></tbody></table>
+    </section>
+    <footer class="footer"><div class="sign">Separado por</div><div class="sign">Saída às</div></footer>
+  </main>
+</body>
+</html>`);
   printWindow.document.close();
   printWindow.focus();
-  printWindow.print();
+  printWindow.setTimeout(() => printWindow.print(), 150);
 }
 
 async function updateStatus(orderId, newStatus, cancelReason, prepMinutes, cancelReasonCode, cancelCategory) {

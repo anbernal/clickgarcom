@@ -730,6 +730,7 @@ export class AuthService {
             role: normalizedRole,
             tenant_id: user.tenantId,
             tenant_name: user.tenant?.name,
+            tenant_whatsapp_number: user.tenant?.whatsappNumber || null,
             tenant_document: settings.document || null,
             tenant_address: settings.address || null,
             billing_plan: user.tenant?.billingPlan || 'pre_paid',
