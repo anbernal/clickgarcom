@@ -284,6 +284,36 @@ func TestExpiredDeliveryCheckoutClearsSessionBeforePayment(t *testing.T) {
 	}
 }
 
+func TestPaidDeliveryCheckoutDoesNotShowExpiredQuoteOnNextMessage(t *testing.T) {
+	tenantID := uuid.New()
+	checkoutKey := "wa-paid-after-delivery"
+	paid := "provider-payment"
+	checkoutGateway := &fakeDeliveryCheckoutGatewayWithGet{
+		response: nodeadmin.DeliveryCheckoutResponse{
+			TenantID: tenantID, CheckoutKey: checkoutKey, Status: "PAID", PaymentReference: &paid,
+		},
+	}
+	uc := &HandleWhatsAppMessageUseCase{
+		deliveryCheckout: NewDeliveryCheckoutCoordinator(checkoutGateway, zap.NewNop()),
+		logger:           zap.NewNop(),
+	}
+	sess := session.NewSession("5511999999999", tenantID)
+	sess.TransitionTo(session.StateDeliveryCheckoutReview)
+	sess.SetContext(deliveryCheckoutKeyKey, checkoutKey)
+	sess.SetContext(deliveryCheckoutExpiresKey, time.Now().Add(-time.Hour).UTC().Format(time.RFC3339))
+
+	message, state, err := uc.handleDeliveryCheckoutReview(context.Background(), sess, "ola")
+	if err != nil || state != session.StateDeliveryMenu {
+		t.Fatalf("expected finalized delivery to return to menu, state=%s err=%v message=%q", state, err, message)
+	}
+	if strings.Contains(strings.ToLower(message), "expirou") {
+		t.Fatalf("did not expect expired quote prompt after payment, got %q", message)
+	}
+	if checkoutGateway.key != checkoutKey {
+		t.Fatalf("expected authoritative checkout reconciliation for %q, got %q", checkoutKey, checkoutGateway.key)
+	}
+}
+
 func TestDeliveryCheckoutReviewRequiresConfirmationBeforeCancellation(t *testing.T) {
 	tenantID := uuid.New()
 	uc := &HandleWhatsAppMessageUseCase{logger: zap.NewNop()}

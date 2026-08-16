@@ -612,6 +612,17 @@ func (uc *HandleWhatsAppMessageUseCase) StartDeliveryCheckout(ctx context.Contex
 }
 
 func (uc *HandleWhatsAppMessageUseCase) handleDeliveryCheckoutReview(ctx context.Context, sess *session.Session, text string) (string, session.ConversationState, error) {
+	// Payment confirmation is reconciled asynchronously, so the WhatsApp
+	// session can still be parked on the old checkout-review state after the
+	// delivery has already been paid and completed. Never re-enter the expiry
+	// branch for a finalized checkout when the customer sends a new message.
+	if uc.deliveryCheckoutFinalized(ctx, sess) {
+		uc.clearDeliveryAddressContext(sess)
+		uc.clearOrderingContext(sess)
+		delete(sess.Context, deliveryTabIDKey)
+		delete(sess.Context, deliveryPreOrderAddressKey)
+		return uc.deliveryMenuMessage(), session.StateDeliveryMenu, nil
+	}
 	if deliveryCheckoutExpired(sess) {
 		// Expiration abandons the previous financial hold and order batch. A
 		// retry must receive a new checkout key; the deterministic base key is
@@ -651,6 +662,31 @@ func (uc *HandleWhatsAppMessageUseCase) handleDeliveryCheckoutReview(ctx context
 		return uc.sendDeliveryPaymentLink(ctx, sess)
 	}
 	return uc.repeatDeliveryCheckoutReview(sess), session.StateDeliveryCheckoutReview, nil
+}
+
+// deliveryCheckoutFinalized checks both the local session marker and the
+// authoritative Node Admin checkout. The webhook runs independently from the
+// WhatsApp session, therefore relying only on deliveryCheckoutPaidKey leaves
+// a paid session vulnerable to showing an old "quote expired" prompt later.
+func (uc *HandleWhatsAppMessageUseCase) deliveryCheckoutFinalized(ctx context.Context, sess *session.Session) bool {
+	if sess == nil {
+		return false
+	}
+	if strings.EqualFold(uc.getContextString(sess, deliveryCheckoutPaidKey), "true") {
+		return true
+	}
+	checkoutKey := strings.TrimSpace(uc.getContextString(sess, deliveryCheckoutKeyKey))
+	if checkoutKey == "" || uc.deliveryCheckout == nil {
+		return false
+	}
+	checkout, err := uc.deliveryCheckout.Reconcile(ctx, sess.TenantID, checkoutKey)
+	if err != nil {
+		// A temporary reconciliation failure must not hide a still-pending
+		// checkout or change its existing expiry behavior.
+		return false
+	}
+	status := strings.ToUpper(strings.TrimSpace(checkout.Status))
+	return status == "PAID" || status == "CANCELED" || status == "CANCELLED"
 }
 
 func (uc *HandleWhatsAppMessageUseCase) repeatDeliveryCheckoutReview(sess *session.Session) string {
