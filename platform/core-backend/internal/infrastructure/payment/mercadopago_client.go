@@ -150,6 +150,18 @@ func (client *MercadoPagoClient) CreatePixPayment(ctx context.Context, accessTok
 	return &pixResp, nil
 }
 
+// CreatePixSandboxPayment uses the Orders API test scenario documented by
+// Mercado Pago. In that scenario payer.first_name=APRO creates a PIX order in
+// action_required and the provider promotes it automatically to approved.
+// This method must only be selected by an explicitly TEST-configured gateway.
+func (client *MercadoPagoClient) CreatePixSandboxPayment(ctx context.Context, accessToken string, idempotencyKey string, req PixPaymentRequest) (*PixPaymentResponse, error) {
+	req.Payer.FirstName = "APRO"
+	req.Payer.Email = "test_user_br@testuser.com"
+	req.Payer.Identification.Type = ""
+	req.Payer.Identification.Number = ""
+	return client.createPixOrder(ctx, accessToken, idempotencyKey, req)
+}
+
 type PaymentStatusResponse struct {
 	ID                 ProviderID `json:"id"`
 	Status             string     `json:"status"`
@@ -357,6 +369,15 @@ func (client *MercadoPagoClient) createPixOrder(
 	req PixPaymentRequest,
 ) (*PixPaymentResponse, error) {
 	amount := formatOrderAmount(req.TransactionAmount)
+	payer := map[string]any{
+		"email":      req.Payer.Email,
+		"first_name": req.Payer.FirstName,
+	}
+	if strings.TrimSpace(req.Payer.Identification.Type) != "" && strings.TrimSpace(req.Payer.Identification.Number) != "" {
+		payer["identification"] = map[string]any{
+			"type": req.Payer.Identification.Type, "number": req.Payer.Identification.Number,
+		}
+	}
 	payload := map[string]any{
 		"type":               "online",
 		"external_reference": req.ExternalReference,
@@ -367,13 +388,7 @@ func (client *MercadoPagoClient) createPixOrder(
 			"amount":         amount,
 			"payment_method": map[string]any{"id": "pix", "type": "bank_transfer"},
 		}}},
-		"payer": map[string]any{
-			"email":      req.Payer.Email,
-			"first_name": req.Payer.FirstName,
-			"identification": map[string]any{
-				"type": req.Payer.Identification.Type, "number": req.Payer.Identification.Number,
-			},
-		},
+		"payer": payer,
 	}
 	order, err := client.postOrder(ctx, accessToken, idempotencyKey, payload)
 	if err != nil {

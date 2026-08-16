@@ -94,3 +94,74 @@ func TestCreatePixPaymentFallsBackToOrdersAndMapsQRCode(t *testing.T) {
 		t.Fatalf("PIX data was not mapped: %#v", response.PointOfInteraction.TransactionData)
 	}
 }
+
+func TestCreatePixSandboxPaymentUsesOrdersAPROScenarioDirectly(t *testing.T) {
+	var paymentCalls, orderCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/payments":
+			paymentCalls++
+			http.Error(w, "legacy payments endpoint must not be used", http.StatusInternalServerError)
+		case "/v1/orders":
+			orderCalls++
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode sandbox PIX order: %v", err)
+			}
+			payer, _ := payload["payer"].(map[string]any)
+			if payer["first_name"] != "APRO" || payer["email"] != "test_user_br@testuser.com" {
+				t.Fatalf("unexpected sandbox payer: %#v", payer)
+			}
+			if _, exists := payer["identification"]; exists {
+				t.Fatalf("sandbox PIX preset must not send buyer identification: %#v", payer)
+			}
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"id":"ORD01PIXTEST","external_reference":"local-pix-test","status":"action_required","status_detail":"waiting_transfer","transactions":{"payments":[{"id":"PAY01PIXTEST","status":"action_required","status_detail":"waiting_transfer","payment_method":{"id":"pix","type":"bank_transfer","qr_code":"sandbox-pix-code"}}]}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := NewMercadoPagoClient(zap.NewNop())
+	client.baseURL = server.URL
+	var request PixPaymentRequest
+	request.TransactionAmount = 44.90
+	request.ExternalReference = "local-pix-test"
+	request.Payer.Email = "buyer-provided@example.com"
+	request.Payer.FirstName = "Visitante"
+	request.Payer.Identification.Type = "CPF"
+	request.Payer.Identification.Number = "19119119100"
+
+	response, err := client.CreatePixSandboxPayment(context.Background(), "APP_USR-test", "sandbox-idempotency", request)
+	if err != nil {
+		t.Fatalf("CreatePixSandboxPayment: %v", err)
+	}
+	if paymentCalls != 0 || orderCalls != 1 {
+		t.Fatalf("expected direct Orders API call, got payments=%d orders=%d", paymentCalls, orderCalls)
+	}
+	if response.ID.String() != "ORD01PIXTEST" || response.Status != "pending" || response.PointOfInteraction.TransactionData.QRCode != "sandbox-pix-code" {
+		t.Fatalf("unexpected sandbox PIX response: %#v", response)
+	}
+}
+
+func TestGetPaymentReadsApprovedSandboxOrder(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/orders/ORD01PIXTEST" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`{"id":"ORD01PIXTEST","external_reference":"local-pix-test","status":"processed","status_detail":"accredited","transactions":{"payments":[{"id":"PAY01PIXTEST","status":"processed","status_detail":"accredited","payment_method":{"id":"pix","type":"bank_transfer"}}]}}`))
+	}))
+	defer server.Close()
+
+	client := NewMercadoPagoClient(zap.NewNop())
+	client.baseURL = server.URL
+	response, err := client.GetPayment(context.Background(), "APP_USR-test", "ORD01PIXTEST")
+	if err != nil {
+		t.Fatalf("GetPayment: %v", err)
+	}
+	if response.Status != "approved" || response.StatusDetail != "accredited" {
+		t.Fatalf("expected approved sandbox order, got %#v", response)
+	}
+}

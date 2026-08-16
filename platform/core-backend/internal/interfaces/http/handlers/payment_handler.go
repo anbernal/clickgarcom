@@ -132,6 +132,15 @@ func (h *PaymentHandler) CreatePixPayment(c *fiber.Ctx) error {
 	mpReq.Payer.FirstName = reqBody.PayerName
 	mpReq.Payer.Identification.Type = "CPF"
 	mpReq.Payer.Identification.Number = reqBody.PayerCPF
+	isSandboxPix := strings.EqualFold(strings.TrimSpace(gateway.Environment), "TEST")
+	if isSandboxPix {
+		// Mercado Pago's PIX sandbox is a predefined Orders API scenario. APRO
+		// causes the pending order to be approved automatically by the provider.
+		mpReq.Payer.FirstName = "APRO"
+		mpReq.Payer.Email = "test_user_br@testuser.com"
+		mpReq.Payer.Identification.Type = ""
+		mpReq.Payer.Identification.Number = ""
+	}
 
 	attempt := &payment.Attempt{
 		PaymentID:         localPayment.ID,
@@ -146,10 +155,11 @@ func (h *PaymentHandler) CreatePixPayment(c *fiber.Ctx) error {
 		RequestPayload: payment.JSONMap{
 			"amount":             reqBody.Amount,
 			"description":        reqBody.Description,
-			"payer_email":        reqBody.PayerEmail,
-			"payer_name":         reqBody.PayerName,
+			"payer_email":        mpReq.Payer.Email,
+			"payer_name":         mpReq.Payer.FirstName,
 			"payer_cpf":          reqBody.PayerCPF,
 			"payment_method_id":  "pix",
+			"sandbox":            isSandboxPix,
 			"wallet_recharge":    walletRecharge,
 			"local_payment_id":   localPayment.ID.String(),
 			"local_reference_id": externalReference,
@@ -160,7 +170,11 @@ func (h *PaymentHandler) CreatePixPayment(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to create payment attempt"})
 	}
 
-	mpResp, err := h.mpClient.CreatePixPayment(c.Context(), gateway.AccessToken, idempotencyKey, mpReq)
+	createPix := h.mpClient.CreatePixPayment
+	if isSandboxPix {
+		createPix = h.mpClient.CreatePixSandboxPayment
+	}
+	mpResp, err := createPix(c.Context(), gateway.AccessToken, idempotencyKey, mpReq)
 	if err != nil {
 		h.persistIndeterminateAttempt(c.Context(), attempt, err)
 		if h.isIndeterminateProviderError(err) {
@@ -186,6 +200,7 @@ func (h *PaymentHandler) CreatePixPayment(c *fiber.Ctx) error {
 		"status":               strings.ToLower(strings.TrimSpace(mpResp.Status)),
 		"pending_confirmation": attempt.Status == payment.AttemptStatusProcessing || attempt.Status == payment.AttemptStatusUnknown,
 		"delivery_payment":     isDeliveryPayment(localPayment),
+		"sandbox":              isSandboxPix,
 	})
 }
 

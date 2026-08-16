@@ -210,6 +210,56 @@ indisponível e nenhuma fórmula é calculada pelo navegador.
 separado, o preço fica congelado e o card não exibe motorista, GPS, PIN ou
 tracking próprio.
 
+### T07.1 — PIX no sandbox do Mercado Pago
+
+#### Preparação no Mercado Pago
+
+1. Em **Mercado Pago Developers > Suas integrações**, abrir a aplicação usada
+   pelo restaurante de teste.
+2. Em **Testes > Credenciais de teste**, copiar a **Public Key** e o **Access
+   Token** da mesma aplicação. Nunca registrar essas chaves nas evidências.
+3. Não tentar pagar o QR Code com uma conta bancária real. O sandbox PIX é um
+   cenário predefinido da Orders API e aprova a order automaticamente quando o
+   backend envia `APRO` e `test_user_br@testuser.com`. Esses valores são
+   aplicados automaticamente e não precisam ser informados pelo cliente.
+
+#### Configuração no ClickGarçom
+
+1. Entrar no **Super Admin**, localizar o tenant e clicar em **Pagamento**.
+2. Clicar em **Nova credencial** e preencher:
+
+   - **Nome da credencial:** por exemplo, `Mercado Pago Sandbox`;
+   - **Ambiente:** `Teste`;
+   - **Public Key:** chave de teste da aplicação;
+   - **Access Token:** token de teste da mesma aplicação;
+   - **Usar esta credencial como ativa para o tenant:** marcado.
+3. Salvar e confirmar que a credencial aparece como **Ativa · TEST**.
+
+#### Execução do teste
+
+1. Iniciar um pedido Delivery pelo WhatsApp e avançar até **Abrir pagamento**.
+2. No checkout, selecionar **PIX** e confirmar a mensagem **Modo teste Mercado
+   Pago**.
+3. Clicar em **Gerar QR Code PIX**. O backend deve criar diretamente uma order
+   em `/v1/orders`; nenhuma chamada inicial a `/v1/payments` deve ser necessária.
+4. Confirmar que o QR Code ou o código copia e cola aparece e aguardar. A tela
+   consulta o status a cada 5 segundos.
+5. Confirmar a mudança automática para **Pagamento aprovado**, sem escanear nem
+   transferir dinheiro real.
+6. Confirmar que o pedido é liberado uma única vez para o restaurante, aparece
+   na fila Delivery e segue para **Aguardando preparo**.
+7. Reabrir/atualizar o checkout e confirmar que a cobrança não é duplicada.
+
+**Esperado:** a order começa como `action_required/waiting_transfer`, é
+normalizada localmente como pendente e depois muda para `approved/accredited`.
+O valor aprovado deve ser exatamente o total congelado do checkout (itens mais
+frete), e a conciliação deve ocorrer uma única vez.
+
+**Diagnóstico rápido:** se o checkout não mostrar **Modo teste Mercado Pago**,
+a credencial ativa não está configurada como `TEST`. Se a API responder sobre
+uso não autorizado de credenciais live, revisar se Public Key e Access Token
+pertencem à mesma aplicação/conta de teste e se o perfil correto está ativo.
+
 ### T08 — Fila Delivery no KDS, expedição e entrega própria
 
 1. Abrir o KDS como `ADMIN`, `MANAGER`, `WAITER` ou `DISPATCHER` e acessar a
@@ -341,7 +391,7 @@ presencial, e DINE_IN/TAKEOUT continuam operando sem alteração.
 
 Para cada caso registrar:
 
-- número do caso (`T01`–`T14`, incluindo `T08.1`);
+- número do caso (`T01`–`T14`, incluindo `T07.1` e `T08.1`);
 - screenshot ou gravação curta;
 - tenant fictício, `delivery_id` e `checkout_key` sem PII;
 - status observado e resultado esperado;
@@ -360,6 +410,7 @@ Ao terminar:
 
 ## 9. Bloqueios conhecidos
 
-O adapter iFood real, sandbox, pagamento real, scanner axe/LGPD, métricas em
-infraestrutura e teste de carga com PostgreSQL/RabbitMQ continuam fora deste
-roteiro fake e devem ser executados na homologação.
+O adapter iFood real e seu sandbox, pagamento real, scanner axe/LGPD, métricas
+em infraestrutura e teste de carga com PostgreSQL/RabbitMQ continuam fora deste
+roteiro fake e devem ser executados na homologação. O sandbox PIX do Mercado
+Pago está coberto por T07.1 e não movimenta dinheiro real.

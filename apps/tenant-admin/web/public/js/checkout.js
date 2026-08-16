@@ -629,9 +629,13 @@ function setCheckoutState(tab) {
     renderDeliveryCheckoutDetails(tab);
     updateCheckoutExpiryNotice();
     if (pixInfoEl) {
-        pixInfoEl.innerHTML = tab?.isDeliveryCheckout
-            ? 'Pagamento seguro via PIX.<br>Após a confirmação, seu pedido é liberado para o restaurante.'
-            : 'Pagamento 100% seguro via PIX.<br>O valor é creditado automaticamente na comanda.';
+        if (isMercadoPagoTestEnvironment(tab?.mpPublicKey, tab?.mpEnvironment)) {
+            pixInfoEl.innerHTML = 'Modo teste Mercado Pago.<br>O PIX será aprovado automaticamente após a geração do QR Code.';
+        } else {
+            pixInfoEl.innerHTML = tab?.isDeliveryCheckout
+                ? 'Pagamento seguro via PIX.<br>Após a confirmação, seu pedido é liberado para o restaurante.'
+                : 'Pagamento 100% seguro via PIX.<br>O valor é creditado automaticamente na comanda.';
+        }
     }
 
     const closed = isApprovedCheckout(tab);
@@ -791,9 +795,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                     },
                     body: JSON.stringify({
                         payer_email: isMercadoPagoTestEnvironment(tab?.mpPublicKey, tab?.mpEnvironment)
-                            ? 'test@testuser.com'
+                            ? 'test_user_br@testuser.com'
                             : 'cliente@email.com',
-                        payer_name: 'Visitante',
+                        payer_name: isMercadoPagoTestEnvironment(tab?.mpPublicKey, tab?.mpEnvironment)
+                            ? 'APRO'
+                            : 'Visitante',
                         payer_cpf: '19119119100',
                         delivery_checkout_key: currentDeliveryCheckoutKey || undefined,
                     }),
