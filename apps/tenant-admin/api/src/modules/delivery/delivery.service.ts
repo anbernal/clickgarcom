@@ -630,6 +630,10 @@ export class DeliveryService {
                     },
                     'KDS_DELIVERY',
                 );
+                // The accept action starts preparation in the same command.
+                // Keep the customer notification transactional with the status
+                // change, just like the generic transition path.
+                await this.enqueueMilestoneForStatus(manager, saved, saved.status as DeliveryStatus);
                 return this.toSnapshot(saved);
             });
             if (snapshot.status === DeliveryStatus.Preparing) {
