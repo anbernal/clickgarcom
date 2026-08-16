@@ -666,9 +666,11 @@
 
         .delivery-card {
             border-left: 4px solid var(--accent);
+            padding: 16px;
         }
 
-        .order-card-head {
+        .order-card-head,
+        .delivery-card-head {
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -677,23 +679,93 @@
             font-size: 13px;
         }
 
-        .order-card-head span,
         .delivery-external-note {
             color: var(--text-2);
             font-size: 11px;
             font-weight: 700;
         }
 
-        .delivery-card-address,
-        .delivery-card-items,
-        .delivery-card-total {
-            font-size: 12px;
-            line-height: 1.45;
+        .delivery-card-head > div,
+        .delivery-card-customer > div {
+            display: grid;
+            gap: 2px;
         }
 
-        .delivery-card-address { margin-bottom: 10px; }
-        .delivery-card-items { border-top: 1px solid var(--border); padding-top: 9px; }
-        .delivery-card-total { border-top: 1px solid var(--border); margin-top: 9px; padding-top: 9px; }
+        .delivery-card-head strong { font-size: 15px; }
+        .delivery-card-eyebrow {
+            color: var(--text-2);
+            font-size: 9px;
+            font-weight: 800;
+            letter-spacing: .08em;
+            text-transform: uppercase;
+        }
+        .delivery-mode-badge {
+            flex: 0 0 auto;
+            padding: 5px 8px;
+            border-radius: 999px;
+            font-size: 10px;
+            font-weight: 800;
+            white-space: nowrap;
+        }
+        .delivery-mode-badge--own { color: #176b57; background: #e7f7f1; }
+        .delivery-mode-badge--external { color: #8b5d00; background: #fff4d6; }
+        .delivery-card-customer {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 12px 0;
+            padding: 10px;
+            border-radius: 10px;
+            background: #f7faf9;
+        }
+        .delivery-card-avatar {
+            display: grid;
+            place-items: center;
+            width: 34px;
+            height: 34px;
+            border-radius: 50%;
+            background: #e7f7f1;
+        }
+        .delivery-card-customer strong { font-size: 12px; }
+        .delivery-card-customer a { color: var(--text-2); font-size: 11px; text-decoration: none; }
+        .delivery-card-section {
+            display: grid;
+            gap: 6px;
+            padding: 11px 0;
+            border-top: 1px solid var(--border);
+            font-size: 11px;
+            line-height: 1.45;
+        }
+        .delivery-card-address strong { font-weight: 650; }
+        .delivery-card-address small { color: var(--text-2); }
+        .delivery-card-item-row {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 10px;
+        }
+        .delivery-card-item-row > span { min-width: 0; overflow-wrap: anywhere; }
+        .delivery-card-item-row > strong { flex: 0 0 auto; }
+        .delivery-card-loading { color: var(--text-2); font-size: 10px; }
+        .delivery-card-totals {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 6px;
+            margin: 2px 0 12px;
+        }
+        .delivery-card-totals > div {
+            display: grid;
+            gap: 3px;
+            padding: 8px;
+            border-radius: 9px;
+            background: #f5f7f6;
+        }
+        .delivery-card-totals span { color: var(--text-2); font-size: 9px; font-weight: 700; }
+        .delivery-card-totals strong { font-size: 11px; }
+        .delivery-card-totals .delivery-card-grand-total { color: #fff; background: #173f36; }
+        .delivery-card-grand-total span { color: #cfe9e2; }
+        .delivery-card .order-actions { margin-top: 0; }
+        .delivery-card .order-actions .action-btn { width: 100%; justify-content: center; }
 
         @media (max-width: 1360px) {
             .delivery-grid { grid-template-columns: repeat(2, minmax(250px, 1fr)); }
@@ -3942,7 +4014,7 @@
     <div class="toast-container" id="toasts"></div>
 
     <script src="/js/receipt.js"></script>
-    <script src="js/kds.js"></script>
+    <script src="js/kds.js?v=20260815-card2"></script>
 </body>
 
 </html>

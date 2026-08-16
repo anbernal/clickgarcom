@@ -114,6 +114,7 @@ if (authSession?.token) {
 // ─── STATE ─────────────────────────────────────────────────────
 let allOrders = {};  // id -> order
 let allDeliveries = {}; // id -> delivery operational snapshot
+let ordersLoadPromise = null;
 let activePanel = 'kitchen';
 let modalState = { orderId: null, tab: 'accept' };
 let ws = null;
@@ -442,12 +443,13 @@ document.addEventListener('DOMContentLoaded', () => {
   switchPanel(resolveInitialPanel());
   applySidebarTenantName();
   startClock();
-  loadMenuItems().finally(() => {
-    loadOrders().then(() => {
-      connectWebSocket();
-      startTimerUpdates();
-    });
+  // Orders and deliveries are the critical path. Menu metadata enriches
+  // legacy orders, but must not delay the first operational render.
+  loadOrders().then(() => {
+    connectWebSocket();
+    startTimerUpdates();
   });
+  loadMenuItems().then(renderAll);
   const startupTasks = [];
   if (KDS_ACCESS.canViewDelivery) startupTasks.push(loadDeliveries());
   if (KDS_ACCESS.canViewSalao) {
@@ -616,22 +618,34 @@ function formatApiErrorMessage(payload, status) {
 }
 
 async function loadOrders() {
+  if (ordersLoadPromise) return ordersLoadPromise;
+  ordersLoadPromise = (async () => {
+    try {
+      const data = await apiGet(`/orders?tenant_id=${CONFIG.TENANT_ID}&status=PENDING,ACCEPTED,READY`);
+      const orders = Array.isArray(data) ? data : (data.orders || []);
+      allOrders = {};
+      orders.forEach((order) => {
+        const normalized = normalizeOrder(order);
+        allOrders[normalized.id] = normalized;
+      });
+      renderAll();
+      // Operational indicators are secondary information. Load them after
+      // the cards are visible so an aggregate query never blocks the KDS.
+      apiGet(`/orders/operations/summary?tenant_id=${CONFIG.TENANT_ID}`)
+        .then((summary) => {
+          operationsSummary = summary;
+          renderAll();
+        })
+        .catch((error) => console.warn('Failed to load operations summary:', error));
+    } catch (e) {
+      console.error('Failed to load orders:', e);
+      toast('t-error', '❌ Erro', 'Falha ao carregar pedidos');
+    }
+  })();
   try {
-    const [data, summary] = await Promise.all([
-      apiGet(`/orders?tenant_id=${CONFIG.TENANT_ID}&status=PENDING,ACCEPTED,READY`),
-      apiGet(`/orders/operations/summary?tenant_id=${CONFIG.TENANT_ID}`).catch(() => null),
-    ]);
-    const orders = Array.isArray(data) ? data : (data.orders || []);
-    operationsSummary = summary;
-    allOrders = {};
-    orders.forEach((order) => {
-      const normalized = normalizeOrder(order);
-      allOrders[normalized.id] = normalized;
-    });
-    renderAll();
-  } catch (e) {
-    console.error('Failed to load orders:', e);
-    toast('t-error', '❌ Erro', 'Falha ao carregar pedidos');
+    return await ordersLoadPromise;
+  } finally {
+    ordersLoadPromise = null;
   }
 }
 
@@ -851,8 +865,13 @@ function deliveryAddress(delivery) {
 function deliveryItemSummary(delivery) {
   const items = deliveryOrders(delivery)
     .flatMap((order) => Array.isArray(order.items) ? order.items : [])
-    .map((item) => escapeHTML(`${Number(item.quantity || 1)}x ${String(item.name || item.menu_item_name || item.menuItemName || item.item_name_snapshot || item.itemNameSnapshot || 'Item')}`));
-  return items.length ? items.join('<br>') : 'Itens serão exibidos assim que a cozinha carregar o pedido.';
+    .map((item) => {
+      const quantity = Math.max(1, Number(item.quantity || 1));
+      const name = String(item.name || item.menu_item_name || item.menuItemName || item.item_name_snapshot || item.itemNameSnapshot || 'Item');
+      const unitPrice = Number(item.unit_price ?? item.unitPrice ?? item.price ?? 0);
+      return `<div class="delivery-card-item-row"><span><b>${quantity}x</b> ${escapeHTML(name)}</span><strong>${formatCurrency(quantity * unitPrice)}</strong></div>`;
+    });
+  return items.length ? items.join('') : '<div class="delivery-card-loading">Carregando itens do pedido…</div>';
 }
 
 function deliveryActionButtons(delivery) {
@@ -890,11 +909,15 @@ function renderDeliveryPanel() {
       const itemsTotal = deliveryItemsTotal(delivery);
       const deliveryFee = Number(delivery.customer_delivery_fee ?? delivery.delivery_fee ?? 0);
       const total = itemsTotal + deliveryFee;
+      const mode = String(delivery.default_fulfillment_mode || 'OWN').toUpperCase();
+      const customerName = String(delivery.customer_name || 'Cliente do WhatsApp');
+      const phone = String(delivery.customer_phone || '').trim();
       return `<article class="order-card delivery-card" data-id="${escapeHTML(String(delivery.id))}">
-        <div class="order-card-head"><strong>🛵 ${escapeHTML(delivery.display_code || String(delivery.id).slice(0, 8))}</strong><span>${escapeHTML(deliveryModeLabel(delivery.default_fulfillment_mode))}</span></div>
-        <div class="delivery-card-address"><strong>${escapeHTML(delivery.customer_name || 'Cliente')}</strong><br>${escapeHTML(deliveryAddress(delivery))}${delivery.customer_phone ? `<br>📞 ${escapeHTML(String(delivery.customer_phone))}` : ''}</div>
-        <div class="delivery-card-items">${deliveryItemSummary(delivery)}</div>
-        <div class="delivery-card-total">Itens ${formatCurrency(itemsTotal)} · Frete ${formatCurrency(deliveryFee)}<br><strong>Total ${formatCurrency(total)}</strong></div>
+        <div class="delivery-card-head"><div><span class="delivery-card-eyebrow">Pedido</span><strong>🛵 #${escapeHTML(delivery.display_code || String(delivery.id).slice(0, 8))}</strong></div><span class="delivery-mode-badge delivery-mode-badge--${mode === 'OWN' ? 'own' : 'external'}">${escapeHTML(deliveryModeLabel(mode))}</span></div>
+        <div class="delivery-card-customer"><span class="delivery-card-avatar" aria-hidden="true">👤</span><div><span class="delivery-card-eyebrow">Cliente</span><strong>${escapeHTML(customerName)}</strong>${phone ? `<a href="tel:${escapeHTML(phone)}">📞 ${escapeHTML(formatBrazilianPhoneMask(phone))}</a>` : ''}</div></div>
+        <div class="delivery-card-section delivery-card-address"><span class="delivery-card-eyebrow">Entregar em</span><strong>📍 ${escapeHTML(deliveryAddress(delivery))}</strong>${delivery.address_reference ? `<small>Referência: ${escapeHTML(String(delivery.address_reference))}</small>` : ''}</div>
+        <div class="delivery-card-section delivery-card-items"><span class="delivery-card-eyebrow">Itens do pedido</span>${deliveryItemSummary(delivery)}</div>
+        <div class="delivery-card-totals"><div><span>Itens</span><strong>${formatCurrency(itemsTotal)}</strong></div><div><span>Frete</span><strong>${formatCurrency(deliveryFee)}</strong></div><div class="delivery-card-grand-total"><span>Total</span><strong>${formatCurrency(total)}</strong></div></div>
         <div class="order-actions">${deliveryActionButtons(delivery)}</div>
       </article>`;
     }).join('') : '<div class="empty-column">Nenhuma entrega nesta etapa.</div>';
