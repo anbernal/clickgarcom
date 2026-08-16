@@ -187,6 +187,11 @@ func (uc *ReconcilePaymentWebhookUseCase) Execute(ctx context.Context, body []by
 	// the dine-in settlement path, which would emit a second generic payment
 	// message and can project it into the kitchen station.
 	if deliveryPaymentConfirmed {
+		attempt.LastError = ""
+		attempt.SettledAt = &now
+		if err := uc.paymentAttemptRepo.Update(ctx, attempt); err != nil && uc.logger != nil {
+			uc.logger.Warn("failed to mark delivery payment attempt as settled", zap.Error(err), zap.String("attempt_id", attempt.ID.String()))
+		}
 		return nil
 	}
 
