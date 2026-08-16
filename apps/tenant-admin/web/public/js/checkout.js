@@ -810,6 +810,19 @@ document.addEventListener('DOMContentLoaded', async () => {
                     return;
                 }
 
+                // O cartão encerra o checkout assim que a operadora responde
+                // aprovado. O PIX precisa seguir exatamente o mesmo contrato:
+                // não devemos deixar o cliente esperando o próximo ciclo de
+                // polling quando a confirmação já chegou nesta resposta.
+                if (String(data?.status || '').trim().toLowerCase() === 'approved') {
+                    await refreshTabState();
+                    renderPaymentApproved({
+                        delivery: data?.delivery_payment ?? data?.deliveryPayment ?? !!tab?.isDeliveryCheckout,
+                        transactionCode: data?.mp_id,
+                    });
+                    return;
+                }
+
                 renderPixDetails(data);
                 if (data?.qr_code || data?.qr_code_base64) {
                     btn.style.display = 'none';
@@ -818,7 +831,20 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
 
                 if (data?.payment_id) {
-                    startPaymentPolling(String(data.payment_id));
+                    startPaymentPolling(String(data.payment_id), {
+                        onApproved: (status) => {
+                            renderPaymentApproved({
+                                delivery: status?.delivery_payment ?? status?.deliveryPayment ?? !!tab?.isDeliveryCheckout,
+                                transactionCode: status?.mp_id || data?.mp_id,
+                            });
+                        },
+                        onFailed: (status) => {
+                            btn.style.display = '';
+                            btn.disabled = false;
+                            btn.innerHTML = 'Gerar QR Code PIX ⚡';
+                            showPaymentInfo(`Não foi possível confirmar o PIX${status?.status ? ` (${status.status})` : ''}. Gere um novo QR Code para tentar novamente.`);
+                        },
+                    });
                 }
             } catch (error) {
                 alert(error.message || 'Erro ao gerar PIX');
