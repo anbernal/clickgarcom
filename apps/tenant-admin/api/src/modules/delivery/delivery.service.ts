@@ -578,13 +578,33 @@ export class DeliveryService {
                 if (delivery.status === DeliveryStatus.PendingRestaurantAcceptance) {
                     delivery.status = DeliveryStatus.Accepted;
                     this.applyTimestamp(delivery, DeliveryStatus.Accepted);
+                    await this.appendEvent(
+                        manager,
+                        delivery,
+                        DeliveryEventType.Accepted,
+                        actor,
+                        delivery.status,
+                        {
+                            previous_status: previousStatus,
+                            estimated_minutes: command.estimated_minutes,
+                            reason_code: 'PREPARATION_ESTIMATE_SET',
+                        },
+                        'KDS_DELIVERY',
+                    );
+                }
+                // The KDS action is explicitly “iniciar preparo”. Advance the
+                // delivery projection in the same command instead of waiting
+                // for a separate Core event that may be delivered later.
+                if (delivery.status === DeliveryStatus.Accepted) {
+                    delivery.status = DeliveryStatus.Preparing;
+                    this.applyTimestamp(delivery, DeliveryStatus.Preparing);
                 }
                 delivery.version += 1;
                 const saved = await repository.save(delivery);
                 await this.appendEvent(
                     manager,
                     saved,
-                    previousStatus === DeliveryStatus.PendingRestaurantAcceptance ? DeliveryEventType.Accepted : DeliveryEventType.StatusChanged,
+                    DeliveryEventType.StatusChanged,
                     actor,
                     saved.status,
                     {
@@ -597,6 +617,17 @@ export class DeliveryService {
                 );
                 return this.toSnapshot(saved);
             });
+            if (snapshot.status === DeliveryStatus.Preparing) {
+                // Starting an external cycle is best effort here; maintenance
+                // reconciliation remains the durable fallback if the provider
+                // is temporarily unavailable. OWN deliveries are a no-op.
+                try {
+                    await this.fulfillmentService.startExternalCycle(tenantId, snapshot.id);
+                } catch (_error) {
+                    // Keep the preparation transition successful; the retrying
+                    // maintenance worker will handle provider allocation.
+                }
+            }
             await this.publishTrackingStatus(snapshot);
             return snapshot;
         });

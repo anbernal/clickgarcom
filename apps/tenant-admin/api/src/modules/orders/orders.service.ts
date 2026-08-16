@@ -554,7 +554,10 @@ export class OrdersService {
             ? await this.syncBatchStatus(saved.batchId, tenantId)
             : null;
 
-        if (newStatus === 'ACCEPTED') {
+        // Delivery has its own lifecycle and notification contract. The
+        // delivery command emits the preparation milestone with the ETA
+        // chosen by the operator; do not also send the generic order message.
+        if (newStatus === 'ACCEPTED' && batchSync?.batch.serviceType !== 'DELIVERY') {
             await this.enqueueAcceptedMessage(saved, tenantId, prepMinutes);
         }
         if (newStatus === 'READY') {
@@ -1600,8 +1603,7 @@ export class OrdersService {
     }
 
     private normalizePrepMinutes(prepMinutes?: number): number {
-        const allowed = new Set([5, 10, 15, 20, 25, 30, 40, 45]);
-        if (prepMinutes && allowed.has(prepMinutes)) return prepMinutes;
+        if (Number.isInteger(prepMinutes) && prepMinutes >= 1 && prepMinutes <= 240) return prepMinutes;
         return 10;
     }
 
