@@ -242,7 +242,12 @@ func (uc *ReconcilePaymentWebhookUseCase) notifyDeliveryPayment(ctx context.Cont
 		}
 		return nil
 	}
-	body := fmt.Sprintf("✅ *Pagamento aprovado!*\n\nSeu pedido para entrega foi enviado ao restaurante.\nValor pago: *R$ %.2f*\nCódigo da transação: *%s*\n\nVocê receberá as próximas atualizações por aqui. 🛵", localPayment.Amount, strings.TrimSpace(providerPaymentID))
+	customerName := deliveryCustomerNameFromSnapshot(batch.DeliveryAddressSnapshot)
+	prefix := ""
+	if customerName != "" {
+		prefix = customerName + ",\n\n"
+	}
+	body := prefix + fmt.Sprintf("✅ *Pagamento aprovado!*\n\nSeu pedido para entrega foi enviado ao restaurante.\nValor pago: *R$ %.2f*\nCódigo da transação: *%s*\n\nVocê receberá as próximas atualizações por aqui. 🛵", localPayment.Amount, strings.TrimSpace(providerPaymentID))
 	if err := uc.whatsappSender.SendText(whatsappDomain.WithTenantID(ctx, localPayment.TenantID), strings.TrimSpace(batch.CustomerPhone), body); err != nil {
 		return err
 	}
@@ -251,6 +256,21 @@ func (uc *ReconcilePaymentWebhookUseCase) notifyDeliveryPayment(ctx context.Cont
 	}
 	localPayment.Metadata["delivery_confirmation_sent"] = true
 	return uc.paymentRepo.Update(ctx, localPayment)
+}
+
+func deliveryCustomerNameFromSnapshot(snapshot json.RawMessage) string {
+	if len(snapshot) == 0 {
+		return ""
+	}
+	var values map[string]interface{}
+	if err := json.Unmarshal(snapshot, &values); err != nil {
+		return ""
+	}
+	name := strings.Join(strings.Fields(strings.TrimSpace(fmt.Sprint(values["customer_name"]))), " ")
+	if len([]rune(name)) < 2 || len([]rune(name)) > 120 {
+		return ""
+	}
+	return name
 }
 
 func deliveryPaymentMetadata(metadata payment.JSONMap) (string, uuid.UUID, bool, error) {

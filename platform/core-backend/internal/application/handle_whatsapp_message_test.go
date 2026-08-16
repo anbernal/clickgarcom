@@ -205,7 +205,7 @@ func TestDeliveryWhatsAppEntryRespectsTenantModeAndCreatesCustomerTab(t *testing
 	sess.TableID = &tableID
 
 	baseWelcome := whatsapp.WelcomeMenuMessage(tenantObj.Name, tenantObj.Settings.Messages)
-	if got := uc.appendDeliveryWelcomeOption(baseWelcome, tenantObj); !strings.Contains(got, "Já tenho número de comanda") || !strings.Contains(got, "solicitar uma comanda") || !strings.Contains(got, "Fazer pedido para entrega") || !strings.Contains(got, "Pedidos para entrega não usam comanda") {
+	if got := uc.appendDeliveryWelcomeOption(baseWelcome, tenantObj); !strings.Contains(got, "Já tenho número de comanda") || !strings.Contains(got, "solicitar uma comanda") || !strings.Contains(got, "Pedido para entregar") || !strings.Contains(got, "Pedidos para entrega não usam comanda") {
 		t.Fatalf("expected additive delivery entry in existing welcome menu, got %q", got)
 	}
 	if err := uc.sendDefaultWelcomeMenu(ctx, sess.UserPhone, tenantObj, ""); err != nil {
@@ -214,10 +214,10 @@ func TestDeliveryWhatsAppEntryRespectsTenantModeAndCreatesCustomerTab(t *testing
 	if len(sender.interactiveMessages) != 1 || len(sender.interactiveMessages[0].Buttons) != 3 {
 		t.Fatalf("expected three welcome buttons when WhatsApp delivery is enabled, got %+v", sender.interactiveMessages)
 	}
-	if strings.Contains(sender.interactiveMessages[0].Body, "Fazer pedido para entrega") || strings.Contains(sender.interactiveMessages[0].Body, "*3*") {
+	if strings.Contains(sender.interactiveMessages[0].Body, "Pedido para entregar") || strings.Contains(sender.interactiveMessages[0].Body, "*3*") {
 		t.Fatalf("interactive welcome must not duplicate the delivery action as text, got %q", sender.interactiveMessages[0].Body)
 	}
-	if got := sender.interactiveMessages[0].Buttons[2].Reply.Title; got != "🛵 Pedir entrega" {
+	if got := sender.interactiveMessages[0].Buttons[2].Reply.Title; got != "🛵 Pedido para entregar" {
 		t.Fatalf("expected customer-oriented delivery button title, got %q", got)
 	}
 	response, state, err := uc.handleWelcomeMenu(ctx, sess, deliveryStartActionID)
@@ -276,12 +276,12 @@ func TestDeliveryWhatsAppEntryRespectsTenantModeAndCreatesCustomerTab(t *testing
 	}
 
 	tenantObj.Settings.Delivery.WhatsAppOrderMode = "DELIVERY_ONLY"
-	if got := uc.appendDeliveryWelcomeOption(baseWelcome, tenantObj); strings.Count(got, "Fazer pedido para entrega") != 1 {
+	if got := uc.appendDeliveryWelcomeOption(baseWelcome, tenantObj); strings.Count(got, "Pedido para entregar") != 1 {
 		t.Fatalf("expected one delivery option for delivery-only mode, got %q", got)
 	}
 
 	tenantObj.Settings.Delivery.WhatsAppOrderEnabled = false
-	if got := uc.appendDeliveryWelcomeOption(baseWelcome, tenantObj); strings.Contains(got, "Fazer pedido para entrega") {
+	if got := uc.appendDeliveryWelcomeOption(baseWelcome, tenantObj); strings.Contains(got, "Pedido para entregar") {
 		t.Fatalf("expected delivery option to be hidden when WhatsApp activation is disabled, got %q", got)
 	}
 }

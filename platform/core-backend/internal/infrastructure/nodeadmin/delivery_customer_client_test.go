@@ -22,7 +22,8 @@ func TestDeliveryCustomerClientResolveAndListAddresses(t *testing.T) {
 			var body map[string]interface{}
 			require.NoError(t, json.NewDecoder(request.Body).Decode(&body))
 			require.Equal(t, tenantID.String(), body["tenant_id"])
-			_, _ = writer.Write([]byte(`{"id":"00000000-0000-0000-0000-000000000003","phone_normalized":"5511999999999","phone_masked":"551*****99"}`))
+			require.Equal(t, "Ana Silva", body["name"])
+			_, _ = writer.Write([]byte(`{"id":"00000000-0000-0000-0000-000000000003","name":"Ana Silva","phone_normalized":"5511999999999","phone_masked":"551*****99"}`))
 			return
 		}
 		require.Contains(t, request.URL.Path, customerID.String())
@@ -31,9 +32,10 @@ func TestDeliveryCustomerClientResolveAndListAddresses(t *testing.T) {
 	defer server.Close()
 
 	client := NewDeliveryCustomerClient(server.URL, "secret", zap.NewNop())
-	customer, err := client.Resolve(context.Background(), ResolveDeliveryCustomerInput{TenantID: tenantID, Phone: "+55 11 99999-9999"})
+	customer, err := client.Resolve(context.Background(), ResolveDeliveryCustomerInput{TenantID: tenantID, Phone: "+55 11 99999-9999", Name: "Ana Silva"})
 	require.NoError(t, err)
 	require.Equal(t, "5511999999999", customer.PhoneNormalized)
+	require.Equal(t, "Ana Silva", customer.Name)
 
 	addresses, err := client.ListAddresses(context.Background(), tenantID, customerID)
 	require.NoError(t, err)

@@ -367,6 +367,7 @@ func (uc *HandleWhatsAppMessageUseCase) Execute(ctx context.Context, input Handl
 func isDeliveryConversationState(state session.ConversationState) bool {
 	switch state {
 	case session.StateDeliveryMenu,
+		session.StateDeliveryCustomerName,
 		session.StateDeliveryAddressSelection,
 		session.StateDeliveryPostalCode,
 		session.StateDeliveryStreet,
@@ -414,6 +415,9 @@ func (uc *HandleWhatsAppMessageUseCase) sendDeliveryPrompt(
 ) error {
 	tenantObj, _ := uc.tenantRepo.FindByID(ctx, tenantID)
 	body := stripDeliveryBackInstructions(uc.resolveTenantMessage(message, tenantObj))
+	if customerName := uc.deliveryCustomerName(sess); customerName != "" && !strings.Contains(strings.ToLower(body), strings.ToLower(customerName)) {
+		body = customerName + ",\n\n" + body
+	}
 	body = whatsapp.WithRestaurantHeader(uc.resolveTenantName(ctx, tenantID), body)
 	ctx = whatsapp.WithTenantID(ctx, tenantID)
 	// Checkout review has an explicit cancellation action. Do not append the
@@ -444,7 +448,9 @@ func (uc *HandleWhatsAppMessageUseCase) deliveryPromptButtons(state session.Conv
 
 	switch state {
 	case session.StateDeliveryMenu:
-		return []whatsapp.InteractiveButton{button(deliveryStartActionID, "🛵 Fazer pedido")}
+		return []whatsapp.InteractiveButton{button(deliveryStartActionID, "🛵 Pedido para entregar")}
+	case session.StateDeliveryCustomerName:
+		return nil
 	case session.StateDeliveryAddressSelection:
 		buttons := make([]whatsapp.InteractiveButton, 0, 3)
 		for index := range uc.getContextStringSlice(sess, deliveryAddressIDsKey) {
@@ -581,6 +587,8 @@ func (uc *HandleWhatsAppMessageUseCase) processMessage(
 
 	case session.StateDeliveryAddressSelection:
 		return uc.handleDeliveryAddressSelection(ctx, sess, text)
+	case session.StateDeliveryCustomerName:
+		return uc.handleDeliveryCustomerName(ctx, sess, text)
 	case session.StateDeliveryPostalCode:
 		return uc.handleDeliveryPostalCode(ctx, sess, text)
 	case session.StateDeliveryStreet, session.StateDeliveryNeighborhood, session.StateDeliveryCity, session.StateDeliveryState, session.StateDeliveryAddressNumber, session.StateDeliveryAddressComplement, session.StateDeliveryAddressReference, session.StateDeliveryAddressLabel:
@@ -645,6 +653,8 @@ func (uc *HandleWhatsAppMessageUseCase) repeatCurrentPrompt(
 		return uc.startClosingTabFlow(ctx, sess)
 	case session.StateDeliveryAddressSelection:
 		return formatDeliveryAddressSelectionPrompt(), session.StateDeliveryAddressSelection, nil
+	case session.StateDeliveryCustomerName:
+		return "Antes de cadastrar o endereço, como podemos chamar você?", session.StateDeliveryCustomerName, nil
 	case session.StateDeliveryPostalCode:
 		return "Informe o CEP com 8 dígitos.\n\n" + deliveryPostalCodePrompt(), session.StateDeliveryPostalCode, nil
 	case session.StateDeliveryStreet:
@@ -923,7 +933,7 @@ func (uc *HandleWhatsAppMessageUseCase) deliveryWhatsAppOrderMode(tenantObj *ten
 
 func isDeliveryStartChoice(text string) bool {
 	switch strings.ToLower(strings.TrimSpace(text)) {
-	case deliveryStartActionID, "3", "entrega", "delivery", "pedir entrega", "quero entrega", "quero delivery":
+	case deliveryStartActionID, "3", "entrega", "delivery", "pedir entrega", "pedido para entregar", "quero entrega", "quero delivery":
 		return true
 	default:
 		return false
@@ -1256,10 +1266,10 @@ func (uc *HandleWhatsAppMessageUseCase) sendDefaultWelcomeMenu(
 }
 
 func (uc *HandleWhatsAppMessageUseCase) appendDeliveryWelcomeOption(body string, tenantObj *tenant.Tenant) string {
-	if uc.deliveryWhatsAppOrderMode(tenantObj) == "" || strings.Contains(body, "Fazer pedido para entrega") {
+	if uc.deliveryWhatsAppOrderMode(tenantObj) == "" || strings.Contains(body, "Pedido para entregar") || strings.Contains(body, "Fazer pedido para entrega") {
 		return body
 	}
-	option := "*3* - 🛵 Fazer pedido para entrega"
+	option := "*3* - 🛵 Pedido para entregar"
 	note := "_Você precisa de uma comanda aberta para fazer pedidos._"
 	if strings.Contains(body, note) {
 		separationNote := "_Pedidos para entrega não usam comanda. Para pedidos presenciais, você precisa de uma comanda aberta._"
@@ -1424,7 +1434,7 @@ func buildDefaultWelcomeButtons(includeDelivery bool) []whatsapp.InteractiveButt
 		buttons = append(buttons, whatsapp.InteractiveButton{Type: "reply", Reply: struct {
 			ID    string `json:"id"`
 			Title string `json:"title"`
-		}{ID: deliveryStartActionID, Title: "🛵 Pedir entrega"}})
+		}{ID: deliveryStartActionID, Title: "🛵 Pedido para entregar"}})
 	}
 	return buttons
 }

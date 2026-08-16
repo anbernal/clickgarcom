@@ -43,6 +43,7 @@ export class DeliveryNotificationService {
         if (!delivery.customerPhone) return;
         const body = await this.resolveBody(manager, delivery, DeliveryNotificationMilestone.InTransit, {
             '{codigo_pedido}': delivery.displayCode,
+            '{nome_cliente}': this.customerName(delivery),
         });
         await this.enqueue(manager, {
             tenantId: delivery.tenantId,
@@ -77,6 +78,7 @@ export class DeliveryNotificationService {
         const body = await this.resolveBody(manager, delivery, milestone, {
             '{codigo_pedido}': delivery.displayCode,
             '{previsao_minutos}': String(Math.max(1, Math.round(Number(delivery.etaSeconds || 0) / 60)) || 10),
+            '{nome_cliente}': this.customerName(delivery),
         });
         await this.enqueue(manager, {
             tenantId: delivery.tenantId,
@@ -104,7 +106,19 @@ export class DeliveryNotificationService {
             [DeliveryNotificationMilestone.CycleExhausted]: 'msg_delivery_cycle_exhausted',
         };
         const key = templateByMilestone[milestone];
-        return resolveMessageTemplate(templates[key], DEFAULT_MESSAGE_TEMPLATES[key], replacements);
+        const body = resolveMessageTemplate(templates[key], DEFAULT_MESSAGE_TEMPLATES[key], replacements);
+        const customerName = this.customerName(delivery);
+        // Tenant-specific legacy templates may not yet use {nome_cliente}.
+        // Prefix only Delivery messages so the customer's name is still present
+        // without changing the dine-in message templates.
+        return body.toLocaleLowerCase('pt-BR').includes(customerName.toLocaleLowerCase('pt-BR'))
+            ? body
+            : `${customerName},\n\n${body}`;
+    }
+
+    private customerName(delivery: Delivery): string {
+        const name = String(delivery.customerName || '').trim().replace(/\s+/g, ' ');
+        return name || 'Cliente';
     }
 
     async enqueue(manager: EntityManager, request: DeliveryNotificationRequest): Promise<void> {

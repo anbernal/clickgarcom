@@ -26,10 +26,12 @@ type DeliveryCustomerClient struct {
 type ResolveDeliveryCustomerInput struct {
 	TenantID uuid.UUID `json:"tenant_id"`
 	Phone    string    `json:"phone"`
+	Name     string    `json:"name,omitempty"`
 }
 
 type DeliveryCustomer struct {
 	ID              uuid.UUID `json:"id"`
+	Name            string    `json:"name"`
 	PhoneNormalized string    `json:"phone_normalized"`
 	PhoneMasked     string    `json:"phone_masked"`
 }

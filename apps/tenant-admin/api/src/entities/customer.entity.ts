@@ -10,6 +10,8 @@ export class Customer {
 
     @Column({ name: 'phone_normalized', type: 'varchar', length: 20 }) phoneNormalized: string;
 
+    @Column({ type: 'varchar', length: 120, nullable: true }) name: string | null;
+
     @Column({ type: 'boolean', default: true }) active: boolean;
 
     @CreateDateColumn({ name: 'created_at', type: 'timestamptz' }) createdAt: Date;

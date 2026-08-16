@@ -11,7 +11,7 @@ export class DeliveryCustomerInternalController {
     resolve(@Headers('x-internal-token') token: string, @Body() body: ResolveDeliveryCustomerDto & { tenant_id?: string }) {
         this.assertInternalToken(token);
         if (!body?.tenant_id) throw new UnauthorizedException('tenant_id is required');
-        return this.customerService.resolveCustomer(body.tenant_id, body.phone);
+        return this.customerService.resolveCustomer(body.tenant_id, body.phone, body.name);
     }
 
     @Get(':customerId/addresses')

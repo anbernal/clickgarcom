@@ -14,7 +14,7 @@ export class DeliveryCustomerController {
 
     @Post('resolve')
     resolve(@Request() request: any, @Body() body: ResolveDeliveryCustomerDto) {
-        return this.customerService.resolveCustomer(request.user.tenantId, body.phone);
+        return this.customerService.resolveCustomer(request.user.tenantId, body.phone, body.name);
     }
 
     @Get(':customerId')

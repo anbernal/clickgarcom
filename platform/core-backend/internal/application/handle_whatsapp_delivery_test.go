@@ -26,15 +26,26 @@ func (f *fakeDeliveryOrderBatchGateway) Reconcile(_ context.Context, input nodea
 }
 
 type fakeDeliveryCustomerGateway struct {
-	customer  nodeadmin.DeliveryCustomer
-	addresses []nodeadmin.DeliveryAddress
-	lookup    nodeadmin.PostalCodeLookupResult
-	created   nodeadmin.CreateDeliveryAddressInput
-	deleted   uuid.UUID
-	updated   uuid.UUID
+	customer     nodeadmin.DeliveryCustomer
+	requireName  bool
+	resolveInput nodeadmin.ResolveDeliveryCustomerInput
+	resolvedName string
+	addresses    []nodeadmin.DeliveryAddress
+	lookup       nodeadmin.PostalCodeLookupResult
+	created      nodeadmin.CreateDeliveryAddressInput
+	deleted      uuid.UUID
+	updated      uuid.UUID
 }
 
-func (f *fakeDeliveryCustomerGateway) Resolve(_ context.Context, _ nodeadmin.ResolveDeliveryCustomerInput) (nodeadmin.DeliveryCustomer, error) {
+func (f *fakeDeliveryCustomerGateway) Resolve(_ context.Context, input nodeadmin.ResolveDeliveryCustomerInput) (nodeadmin.DeliveryCustomer, error) {
+	f.resolveInput = input
+	if strings.TrimSpace(input.Name) != "" {
+		f.customer.Name = input.Name
+		f.resolvedName = input.Name
+	}
+	if !f.requireName && strings.TrimSpace(f.customer.Name) == "" {
+		f.customer.Name = "Cliente Teste"
+	}
 	return f.customer, nil
 }
 func (f *fakeDeliveryCustomerGateway) ListAddresses(_ context.Context, _, _ uuid.UUID) ([]nodeadmin.DeliveryAddress, error) {
@@ -95,6 +106,29 @@ func TestStartDeliveryAddressFlowListsSavedAddressesAndRejectsUnknownSelection(t
 	}
 	if fake.deleted != addressID {
 		t.Fatalf("expected selected address to be deleted, got %s", fake.deleted)
+	}
+}
+
+func TestDeliveryAddressFlowRequestsAndPersistsCustomerNameBeforePostalCode(t *testing.T) {
+	tenantID, customerID := uuid.New(), uuid.New()
+	fake := &fakeDeliveryCustomerGateway{
+		customer:    nodeadmin.DeliveryCustomer{ID: customerID},
+		requireName: true,
+		lookup:      nodeadmin.PostalCodeLookupResult{PostalCode: "01311000", Street: "Rua A", Neighborhood: "Centro", City: "São Paulo", State: "SP", Status: "FOUND"},
+	}
+	uc := &HandleWhatsAppMessageUseCase{deliveryCustomer: fake, logger: zap.NewNop()}
+	sess := session.NewSession("5511999999999", tenantID)
+
+	response, state, err := uc.StartDeliveryAddressFlow(context.Background(), sess)
+	if err != nil || state != session.StateDeliveryCustomerName || !strings.Contains(response, "como podemos chamar você") {
+		t.Fatalf("expected name prompt before CEP, state=%s response=%q err=%v", state, response, err)
+	}
+	response, state, err = uc.handleDeliveryCustomerName(context.Background(), sess, "  Ana   Silva ")
+	if err != nil || state != session.StateDeliveryPostalCode || !strings.Contains(response, "Informe seu CEP") {
+		t.Fatalf("expected CEP after name, state=%s response=%q err=%v", state, response, err)
+	}
+	if fake.resolvedName != "Ana Silva" || uc.deliveryCustomerName(sess) != "Ana Silva" {
+		t.Fatalf("expected normalized name persisted in delivery session, name=%q session=%q", fake.resolvedName, uc.deliveryCustomerName(sess))
 	}
 }
 

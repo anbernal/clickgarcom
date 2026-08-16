@@ -45,6 +45,7 @@ const (
 	StateDeliveryReady               ConversationState = "DELIVERY_READY"
 	StateDeliveryCheckoutReview      ConversationState = "DELIVERY_CHECKOUT_REVIEW"
 	StateDeliveryAddressDelete       ConversationState = "DELIVERY_ADDRESS_DELETE"
+	StateDeliveryCustomerName        ConversationState = "DELIVERY_CUSTOMER_NAME"
 	// The Delivery menu cannot expose comanda, table or waiter actions.
 	StateDeliveryMenu ConversationState = "DELIVERY_MENU"
 )

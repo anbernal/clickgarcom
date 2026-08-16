@@ -5,6 +5,11 @@ export class ResolveDeliveryCustomerDto {
     @IsString()
     @MaxLength(30)
     phone!: string;
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(120)
+    name?: string;
 }
 
 export class CreateCustomerAddressDto {

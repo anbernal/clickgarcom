@@ -23,6 +23,7 @@ import (
 
 const (
 	deliveryCustomerIDKey                 = "delivery_customer_id"
+	deliveryCustomerNameKey               = "delivery_customer_name"
 	deliveryAddressIDsKey                 = "delivery_address_ids"
 	deliverySelectedAddressKey            = "delivery_selected_address_id"
 	deliveryAddressDraftKey               = "delivery_address_draft"
@@ -94,11 +95,6 @@ func (uc *HandleWhatsAppMessageUseCase) StartDeliveryAddressFlow(ctx context.Con
 	if uc.deliveryCustomer == nil {
 		return uc.exitDeliveryFlow(ctx, sess, "❌ O cadastro de endereços está temporariamente indisponível. Tente novamente em instantes.")
 	}
-	if uc.getContextString(sess, deliveryAddressReadyKey) == "true" &&
-		uc.getContextString(sess, deliverySelectedAddressKey) != "" &&
-		uc.getContextString(sess, deliveryPreOrderAddressKey) != "true" {
-		return "✅ Endereço de entrega já confirmado. Vamos revisar o frete ao finalizar o pedido.", session.StateDeliveryReady, nil
-	}
 	uc.clearDeliveryCheckoutContext(sess)
 
 	customer, err := uc.deliveryCustomer.Resolve(ctx, nodeadmin.ResolveDeliveryCustomerInput{
@@ -110,6 +106,17 @@ func (uc *HandleWhatsAppMessageUseCase) StartDeliveryAddressFlow(ctx context.Con
 		return uc.exitDeliveryFlow(ctx, sess, "❌ Não consegui identificar seu cadastro agora. Tente novamente em instantes.")
 	}
 	sess.SetContext(deliveryCustomerIDKey, customer.ID.String())
+	if customerName := normalizeDeliveryCustomerName(customer.Name); customerName != "" {
+		sess.SetContext(deliveryCustomerNameKey, customerName)
+	} else {
+		sess.TransitionTo(session.StateDeliveryCustomerName)
+		return "Antes de cadastrar o endereço, como podemos chamar você?", session.StateDeliveryCustomerName, nil
+	}
+	if uc.getContextString(sess, deliveryAddressReadyKey) == "true" &&
+		uc.getContextString(sess, deliverySelectedAddressKey) != "" &&
+		uc.getContextString(sess, deliveryPreOrderAddressKey) != "true" {
+		return "✅ Endereço de entrega já confirmado. Vamos revisar o frete ao finalizar o pedido.", session.StateDeliveryReady, nil
+	}
 	sess.SetContext(deliveryAddressReadyKey, false)
 	delete(sess.Context, deliveryAddressDraftKey)
 	delete(sess.Context, deliverySelectedAddressKey)
@@ -140,6 +147,32 @@ func (uc *HandleWhatsAppMessageUseCase) StartDeliveryAddressFlow(ctx context.Con
 	sess.SetContext(deliveryAddressNewKey, false)
 	sess.TransitionTo(session.StateDeliveryAddressSelection)
 	return formatDeliveryAddressSelection(validAddresses), session.StateDeliveryAddressSelection, nil
+}
+
+func (uc *HandleWhatsAppMessageUseCase) handleDeliveryCustomerName(ctx context.Context, sess *session.Session, text string) (string, session.ConversationState, error) {
+	answer := strings.TrimSpace(text)
+	if answer == "0" || strings.EqualFold(answer, "cancelar") || strings.EqualFold(answer, "voltar") {
+		return uc.exitDeliveryFlow(ctx, sess, "Cadastro para entrega cancelado.")
+	}
+	name := normalizeDeliveryCustomerName(answer)
+	if name == "" {
+		return "Informe seu nome para continuarmos com o pedido para entrega.", session.StateDeliveryCustomerName, nil
+	}
+	if uc.deliveryCustomer == nil {
+		return uc.exitDeliveryFlow(ctx, sess, "❌ Não consegui atualizar seu cadastro agora. Tente novamente em instantes.")
+	}
+	customer, err := uc.deliveryCustomer.Resolve(ctx, nodeadmin.ResolveDeliveryCustomerInput{
+		TenantID: sess.TenantID,
+		Phone:    sess.UserPhone,
+		Name:     name,
+	})
+	if err != nil || customer.ID == uuid.Nil {
+		uc.logger.Warn("delivery customer name update failed in WhatsApp flow", zap.Error(err), zap.String("tenant_id", sess.TenantID.String()))
+		return "❌ Não consegui salvar seu nome agora. Tente novamente em instantes.", session.StateDeliveryCustomerName, nil
+	}
+	sess.SetContext(deliveryCustomerIDKey, customer.ID.String())
+	sess.SetContext(deliveryCustomerNameKey, name)
+	return uc.StartDeliveryAddressFlow(ctx, sess)
 }
 
 func (uc *HandleWhatsAppMessageUseCase) handleDeliveryAddressSelection(ctx context.Context, sess *session.Session, text string) (string, session.ConversationState, error) {
@@ -586,7 +619,7 @@ func (uc *HandleWhatsAppMessageUseCase) StartDeliveryCheckout(ctx context.Contex
 			Items:                       orderItems,
 			Notes:                       fmt.Sprintf("Pedido Delivery via WhatsApp - %s", sess.UserPhone),
 			ServiceType:                 orderbatch.ServiceTypeDelivery,
-			DeliveryAddressSnapshot:     deliveryBatchSnapshot(draft, latitude, longitude),
+			DeliveryAddressSnapshot:     deliveryBatchSnapshot(draft, latitude, longitude, uc.deliveryCustomerName(sess)),
 			DeferOperationalPublication: true,
 		})
 		if createErr != nil || createdOrder == nil || createdOrder.BatchID == nil {
@@ -729,6 +762,9 @@ func (uc *HandleWhatsAppMessageUseCase) sendDeliveryPaymentLink(ctx context.Cont
 	// avoiding truncation of long JWT query strings in mobile clients.
 	targetURL := buildDeliveryPublicCheckoutURL(uc.resolveCurrentPublicCheckoutBaseURL(), checkoutCapability)
 	body := "💳 *Pagamento da entrega*\n\nFrete e total estão reservados. Toque no botão abaixo para pagar e enviar o pedido para o restaurante.\n\nSe o link vencer ou não abrir, envie *pagamento* para gerar outro. Para desistir, envie *cancelar pedido*."
+	if customerName := uc.deliveryCustomerName(sess); customerName != "" {
+		body = customerName + ",\n\n" + body
+	}
 	if sender, ok := uc.sender.(WhatsAppURLButtonSender); ok {
 		_, sendErr := sender.SendInteractiveURLButton(whatsapp.WithTenantID(ctx, sess.TenantID), sess.UserPhone, whatsapp.WithRestaurantHeader(uc.resolveTenantName(ctx, sess.TenantID), body), "💳 Ir para pagamento", targetURL)
 		if sendErr == nil {
@@ -942,7 +978,7 @@ func deliverySessionFloat(sess *session.Session, key string) float64 {
 	return parsed
 }
 
-func deliveryBatchSnapshot(draft map[string]interface{}, latitude, longitude float64) map[string]interface{} {
+func deliveryBatchSnapshot(draft map[string]interface{}, latitude, longitude float64, customerName string) map[string]interface{} {
 	snapshot := make(map[string]interface{}, len(draft)+5)
 	for key, value := range draft {
 		snapshot[key] = value
@@ -950,7 +986,25 @@ func deliveryBatchSnapshot(draft map[string]interface{}, latitude, longitude flo
 	snapshot["destination_lat"] = latitude
 	snapshot["destination_lng"] = longitude
 	snapshot["address_confirmed"] = true
+	if customerName = normalizeDeliveryCustomerName(customerName); customerName != "" {
+		snapshot["customer_name"] = customerName
+	}
 	return snapshot
+}
+
+func (uc *HandleWhatsAppMessageUseCase) deliveryCustomerName(sess *session.Session) string {
+	if sess == nil {
+		return ""
+	}
+	return normalizeDeliveryCustomerName(uc.getContextString(sess, deliveryCustomerNameKey))
+}
+
+func normalizeDeliveryCustomerName(value string) string {
+	name := strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
+	if len([]rune(name)) < 2 || len([]rune(name)) > 120 {
+		return ""
+	}
+	return name
 }
 
 func (uc *HandleWhatsAppMessageUseCase) getDeliveryDraft(sess *session.Session) map[string]interface{} {
@@ -975,7 +1029,7 @@ func (uc *HandleWhatsAppMessageUseCase) clearDeliveryAddressContext(sess *sessio
 		return
 	}
 	uc.clearDeliveryCheckoutContext(sess)
-	for _, key := range []string{deliveryCustomerIDKey, deliveryAddressIDsKey, deliverySelectedAddressKey, deliveryAddressDraftKey, deliveryAddressReadyKey, deliveryAddressNewKey, deliveryAddressPostalKey, deliveryAddressConsentKey, deliveryAddressDeleteKey, deliveryAddressEditKey} {
+	for _, key := range []string{deliveryCustomerIDKey, deliveryCustomerNameKey, deliveryAddressIDsKey, deliverySelectedAddressKey, deliveryAddressDraftKey, deliveryAddressReadyKey, deliveryAddressNewKey, deliveryAddressPostalKey, deliveryAddressConsentKey, deliveryAddressDeleteKey, deliveryAddressEditKey} {
 		delete(sess.Context, key)
 	}
 }

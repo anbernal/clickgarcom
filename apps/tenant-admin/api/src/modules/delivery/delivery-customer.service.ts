@@ -23,7 +23,7 @@ export class DeliveryCustomerService {
         return phone;
     }
 
-    async resolveCustomer(tenantId: string, rawPhone: string) {
+    async resolveCustomer(tenantId: string, rawPhone: string, rawName?: string) {
         const phoneNormalized = this.normalizePhone(rawPhone);
         await this.customers.createQueryBuilder()
             .insert()
@@ -34,6 +34,11 @@ export class DeliveryCustomerService {
 
         const customer = await this.customers.findOne({ where: { tenantId, phoneNormalized, active: true } });
         if (!customer) throw new ConflictException('Não foi possível criar ou localizar o cliente.');
+        const name = this.normalizeName(rawName);
+        if (name && customer.name !== name) {
+            customer.name = name;
+            await this.customers.save(customer);
+        }
         return this.customerView(customer);
     }
 
@@ -229,6 +234,7 @@ export class DeliveryCustomerService {
     private customerView(customer: Customer) {
         return {
             id: customer.id,
+            name: customer.name || null,
             phone_normalized: customer.phoneNormalized,
             phone_masked: this.maskPhone(customer.phoneNormalized),
             created_at: customer.createdAt,
@@ -263,5 +269,10 @@ export class DeliveryCustomerService {
     private maskPhone(phone: string) {
         if (phone.length < 7) return '***';
         return `${phone.slice(0, 3)}*****${phone.slice(-2)}`;
+    }
+
+    private normalizeName(rawName?: string): string | undefined {
+        const name = String(rawName || '').trim().replace(/\s+/g, ' ');
+        return name || undefined;
     }
 }
