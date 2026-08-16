@@ -74,8 +74,9 @@ func WelcomeMenuOptionsMessage() string {
 
 const defaultRestaurantClosed = `🚪 *O restaurante ainda não está aberto.*
 
-Agradecemos o seu contato, mas nossas atividades estão encerradas no momento.
-Aguarde, em breve abriremos!`
+O atendimento por este canal também está pausado por enquanto, mas a gente volta em breve. 😊
+
+Quando abrirmos, é só chamar por aqui. Até já! 🍽️`
 
 const defaultWelcomeTable = `🍽️ Olá! Bem-vindo ao *{nome_restaurante}*!
 

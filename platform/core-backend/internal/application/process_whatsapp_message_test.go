@@ -329,6 +329,9 @@ func TestProcessWhatsAppMessageClosedTenantIgnoresReopenedPaidTab(t *testing.T) 
 	if strings.Contains(sender.textMessages[0], "Sua Comanda (aberta)") {
 		t.Fatalf("did not expect reopened paid tab to be exposed, got %q", sender.textMessages[0])
 	}
+	if strings.Contains(sender.textMessages[0], "Voltar ao menu principal") {
+		t.Fatalf("closed restaurant message must not expose a dead-end back option, got %q", sender.textMessages[0])
+	}
 }
 
 type testInboxRepo struct {

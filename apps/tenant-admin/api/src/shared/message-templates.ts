@@ -10,8 +10,9 @@ para que você viva uma experiência única. ✨🍽️
 Posso te ajudar a começar?`,
     msg_restaurant_closed: `🚪 *O restaurante ainda não está aberto.*
 
-Agradecemos o seu contato, mas nossas atividades estão encerradas no momento.
-Aguarde, em breve abriremos!`,
+O atendimento por este canal também está pausado por enquanto, mas a gente volta em breve. 😊
+
+Quando abrirmos, é só chamar por aqui. Até já! 🍽️`,
     msg_welcome_table: `🍽️ Olá! Bem-vindo ao *{nome_restaurante}*!
 
 Vimos que você está na *Mesa {numero_mesa}*.
