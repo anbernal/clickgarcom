@@ -400,6 +400,14 @@ export class DeliveryService {
                 await manager.getRepository(OrderBatch).save(currentBatch);
             }
             const saved = await manager.getRepository(Delivery).save(delivery);
+            // The tenant setting is snapshotted on the delivery and determines
+            // the per-order fulfillment from the moment the delivery exists.
+            // OWN does not need a provider quote, so its operational record is
+            // created here instead of waiting for a KDS action.
+            if (saved.defaultFulfillmentModeSnapshot === 'OWN') {
+                await this.ensureOwnFulfillment(manager, saved);
+                await manager.getRepository(Delivery).save(saved);
+            }
             await this.appendEvent(manager, saved, DeliveryEventType.Created, null, saved.status, { acceptance_mode: saved.acceptanceMode });
             if (decision.result === 'AUTO_ACCEPTED') {
                 await this.appendEvent(manager, saved, DeliveryEventType.Accepted, null, saved.status, { policy: decision });
