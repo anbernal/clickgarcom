@@ -496,7 +496,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleDeliveryReady(ctx context.Context,
 	// journey and show the restaurant's initial menu. Only the explicit
 	// Continue button may start another checkout.
 	uc.resetDeliveryConversation(sess)
-	return whatsapp.MainMenuMessage(), session.StateWelcome, nil
+	return "✅ Atendimento Delivery encerrado. Como posso ajudar?", session.StateWelcome, nil
 }
 
 // StartDeliveryCheckout creates the authoritative NestJS checkout from the
@@ -624,7 +624,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleDeliveryCheckoutReview(ctx context
 	// branch for a finalized checkout when the customer sends a new message.
 	if uc.deliveryCheckoutFinalized(ctx, sess) {
 		uc.resetDeliveryConversation(sess)
-		return whatsapp.MainMenuMessage(), session.StateWelcome, nil
+		return "✅ Atendimento Delivery encerrado. Como posso ajudar?", session.StateWelcome, nil
 	}
 	if deliveryCheckoutExpired(sess) {
 		// Expiration abandons the previous financial hold and order batch. A
