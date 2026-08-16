@@ -874,6 +874,10 @@ function deliveryActionButtons(delivery) {
   return '<span class="delivery-external-note">Atualização recebida do operador.</span>';
 }
 
+function deliveryModeLabel(mode) {
+  return String(mode || 'OWN').toUpperCase() === 'OWN' ? 'Entrega própria' : 'Entrega iFood';
+}
+
 function renderDeliveryPanel() {
   const deliveries = Object.values(allDeliveries);
   DELIVERY_COLUMNS.forEach((column) => {
@@ -887,7 +891,7 @@ function renderDeliveryPanel() {
       const deliveryFee = Number(delivery.customer_delivery_fee ?? delivery.delivery_fee ?? 0);
       const total = itemsTotal + deliveryFee;
       return `<article class="order-card delivery-card" data-id="${escapeHTML(String(delivery.id))}">
-        <div class="order-card-head"><strong>🛵 ${escapeHTML(delivery.display_code || String(delivery.id).slice(0, 8))}</strong><span>${escapeHTML(String(delivery.default_fulfillment_mode || 'OWN'))}</span></div>
+        <div class="order-card-head"><strong>🛵 ${escapeHTML(delivery.display_code || String(delivery.id).slice(0, 8))}</strong><span>${escapeHTML(deliveryModeLabel(delivery.default_fulfillment_mode))}</span></div>
         <div class="delivery-card-address"><strong>${escapeHTML(delivery.customer_name || 'Cliente')}</strong><br>${escapeHTML(deliveryAddress(delivery))}${delivery.customer_phone ? `<br>📞 ${escapeHTML(String(delivery.customer_phone))}` : ''}</div>
         <div class="delivery-card-items">${deliveryItemSummary(delivery)}</div>
         <div class="delivery-card-total">Itens ${formatCurrency(itemsTotal)} · Frete ${formatCurrency(deliveryFee)}<br><strong>Total ${formatCurrency(total)}</strong></div>
