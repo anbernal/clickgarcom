@@ -303,8 +303,8 @@ func TestPaidDeliveryCheckoutDoesNotShowExpiredQuoteOnNextMessage(t *testing.T) 
 	sess.SetContext(deliveryCheckoutExpiresKey, time.Now().Add(-time.Hour).UTC().Format(time.RFC3339))
 
 	message, state, err := uc.handleDeliveryCheckoutReview(context.Background(), sess, "ola")
-	if err != nil || state != session.StateDeliveryMenu {
-		t.Fatalf("expected finalized delivery to return to menu, state=%s err=%v message=%q", state, err, message)
+	if err != nil || state != session.StateWelcome {
+		t.Fatalf("expected finalized delivery to return to initial menu, state=%s err=%v message=%q", state, err, message)
 	}
 	if strings.Contains(strings.ToLower(message), "expirou") {
 		t.Fatalf("did not expect expired quote prompt after payment, got %q", message)
@@ -321,8 +321,8 @@ func TestDeliveryReadyFreeFormMessageReturnsToMenu(t *testing.T) {
 	sess.SetContext(deliveryAddressReadyKey, true)
 
 	message, state, err := uc.handleDeliveryReady(context.Background(), sess, "ola")
-	if err != nil || state != session.StateDeliveryMenu {
-		t.Fatalf("expected free-form greeting to return to delivery menu, state=%s err=%v message=%q", state, err, message)
+	if err != nil || state != session.StateWelcome {
+		t.Fatalf("expected free-form greeting to return to initial menu, state=%s err=%v message=%q", state, err, message)
 	}
 	if strings.Contains(strings.ToLower(message), "endereço está confirmado") {
 		t.Fatalf("did not expect stale address prompt, got %q", message)

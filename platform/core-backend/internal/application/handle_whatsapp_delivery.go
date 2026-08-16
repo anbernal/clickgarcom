@@ -492,9 +492,11 @@ func (uc *HandleWhatsAppMessageUseCase) handleDeliveryReady(ctx context.Context,
 	}
 	// This state can survive an abandoned/finished checkout because the saved
 	// address is intentionally reusable. A new free-form message is a new
-	// interaction, not consent to recalculate freight; only the explicit
+	// interaction, not consent to recalculate freight; reset the Delivery
+	// journey and show the restaurant's initial menu. Only the explicit
 	// Continue button may start another checkout.
-	return uc.deliveryMenuMessage(), session.StateDeliveryMenu, nil
+	uc.resetDeliveryConversation(sess)
+	return whatsapp.MainMenuMessage(), session.StateWelcome, nil
 }
 
 // StartDeliveryCheckout creates the authoritative NestJS checkout from the
@@ -621,11 +623,8 @@ func (uc *HandleWhatsAppMessageUseCase) handleDeliveryCheckoutReview(ctx context
 	// delivery has already been paid and completed. Never re-enter the expiry
 	// branch for a finalized checkout when the customer sends a new message.
 	if uc.deliveryCheckoutFinalized(ctx, sess) {
-		uc.clearDeliveryAddressContext(sess)
-		uc.clearOrderingContext(sess)
-		delete(sess.Context, deliveryTabIDKey)
-		delete(sess.Context, deliveryPreOrderAddressKey)
-		return uc.deliveryMenuMessage(), session.StateDeliveryMenu, nil
+		uc.resetDeliveryConversation(sess)
+		return whatsapp.MainMenuMessage(), session.StateWelcome, nil
 	}
 	if deliveryCheckoutExpired(sess) {
 		// Expiration abandons the previous financial hold and order batch. A
@@ -666,6 +665,20 @@ func (uc *HandleWhatsAppMessageUseCase) handleDeliveryCheckoutReview(ctx context
 		return uc.sendDeliveryPaymentLink(ctx, sess)
 	}
 	return uc.repeatDeliveryCheckoutReview(sess), session.StateDeliveryCheckoutReview, nil
+}
+
+// resetDeliveryConversation ends the current delivery journey completely.
+// Saved addresses remain persisted in Node Admin, but no transient address,
+// cart, checkout or delivery-channel binding may leak into the next greeting.
+func (uc *HandleWhatsAppMessageUseCase) resetDeliveryConversation(sess *session.Session) {
+	if sess == nil {
+		return
+	}
+	uc.clearDeliveryAddressContext(sess)
+	uc.clearOrderingContext(sess)
+	delete(sess.Context, deliveryTabIDKey)
+	delete(sess.Context, deliveryPreOrderAddressKey)
+	delete(sess.Context, deliveryChannelKey)
 }
 
 // deliveryCheckoutFinalized checks both the local session marker and the
