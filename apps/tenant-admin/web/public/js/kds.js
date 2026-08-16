@@ -643,6 +643,13 @@ async function loadDeliveries() {
     deliveries.forEach((delivery) => {
       if (delivery?.id) allDeliveries[delivery.id] = delivery;
     });
+    // A paid delivery is intentionally not broadcast as a generic
+    // order.created event (that would put it in the kitchen station). Refresh
+    // the paid order projection here so it is available exclusively to the
+    // Delivery panel and can be joined by batch_id.
+    const deliveryBatchIds = new Set(deliveries.map((delivery) => String(delivery?.batch_id || '')).filter(Boolean));
+    const hasMissingOrder = [...deliveryBatchIds].some((batchId) => !Object.values(allOrders).some((order) => String(order?.batch_id || order?.batchId || '') === batchId));
+    if (hasMissingOrder) await loadOrders();
     if (activePanel === 'delivery') renderAll();
     else updateNavBadges();
   } catch (error) {

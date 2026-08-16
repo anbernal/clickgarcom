@@ -336,16 +336,11 @@ func (uc *CreateOrderUseCase) PublishDeliveryBatch(ctx context.Context, tenantID
 			return fmt.Errorf("delivery batch not found")
 		}
 	}
-	orders, err := uc.orderRepo.FindByBatchID(ctx, batchID, tenantID)
-	if err != nil {
-		return fmt.Errorf("load delivery batch orders: %w", err)
-	}
-	for _, current := range orders {
-		if current == nil || current.Status == order.StatusCanceled {
-			continue
-		}
-		uc.publishOrderCreatedEvent(tenantID, current)
-	}
+	// Delivery batches are intentionally not published as generic
+	// order.created events. That event feeds the kitchen station and would
+	// make a paid delivery appear as a dine-in kitchen order. The KDS Delivery
+	// panel reconciles the paid order through its delivery snapshot and orders
+	// query instead.
 	return nil
 }
 

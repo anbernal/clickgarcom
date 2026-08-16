@@ -223,6 +223,7 @@ func main() {
 		logger.Log,
 	)
 	reconcilePaymentWebhookUC.SetDeliveryPaymentCoordinator(deliveryPaymentCoordinator)
+	reconcilePaymentWebhookUC.SetDeliveryPaymentNotification(orderBatchRepo, whatsappSender)
 	portalOrderStatusUC := application.NewHandlePortalOrderStatusUseCase(
 		portalAccessVerifier,
 		portalConversationOutputStore,

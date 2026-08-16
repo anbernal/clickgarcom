@@ -7,8 +7,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anbernal/clickgarcom/internal/domain/orderbatch"
 	"github.com/anbernal/clickgarcom/internal/domain/payment"
 	"github.com/anbernal/clickgarcom/internal/domain/tenant"
+	whatsappDomain "github.com/anbernal/clickgarcom/internal/domain/whatsapp"
 	nodeadmin "github.com/anbernal/clickgarcom/internal/infrastructure/nodeadmin"
 	infraMP "github.com/anbernal/clickgarcom/internal/infrastructure/payment"
 	"github.com/google/uuid"
@@ -22,11 +24,22 @@ type ReconcilePaymentWebhookUseCase struct {
 	mpClient           *infraMP.MercadoPagoClient
 	settlementClient   *nodeadmin.SettlementClient
 	deliveryPayment    *DeliveryPaymentCoordinator
+	orderBatchRepo     orderbatch.Repository
+	whatsappSender     WhatsAppSender
 	logger             *zap.Logger
 }
 
 func (uc *ReconcilePaymentWebhookUseCase) SetDeliveryPaymentCoordinator(coordinator *DeliveryPaymentCoordinator) {
 	uc.deliveryPayment = coordinator
+}
+
+// SetDeliveryPaymentNotification wires the customer notification boundary
+// without coupling the payment webhook constructor to WhatsApp infrastructure.
+// Delivery confirmations are sent from the persisted order batch, so they do
+// not depend on an active WhatsApp session.
+func (uc *ReconcilePaymentWebhookUseCase) SetDeliveryPaymentNotification(batchRepo orderbatch.Repository, sender WhatsAppSender) {
+	uc.orderBatchRepo = batchRepo
+	uc.whatsappSender = sender
 }
 
 type paymentWebhookPayload struct {
@@ -148,6 +161,7 @@ func (uc *ReconcilePaymentWebhookUseCase) Execute(ctx context.Context, body []by
 		return fmt.Errorf("failed to update payment after reconciliation: %w", err)
 	}
 
+	deliveryPaymentConfirmed := false
 	if localPayment.Status == payment.StatusConfirmed {
 		if checkoutKey, batchID, present, metadataErr := deliveryPaymentMetadata(localPayment.Metadata); present {
 			if metadataErr != nil {
@@ -163,7 +177,17 @@ func (uc *ReconcilePaymentWebhookUseCase) Execute(ctx context.Context, body []by
 			}); err != nil {
 				return fmt.Errorf("failed to confirm delivery checkout after payment: %w", err)
 			}
+			deliveryPaymentConfirmed = true
+			if err := uc.notifyDeliveryPayment(ctx, localPayment, batchID, providerPaymentID); err != nil {
+				return fmt.Errorf("failed to notify delivery payment: %w", err)
+			}
 		}
+	}
+	// Delivery has its own customer-facing lifecycle. Do not pass it through
+	// the dine-in settlement path, which would emit a second generic payment
+	// message and can project it into the kitchen station.
+	if deliveryPaymentConfirmed {
+		return nil
 	}
 
 	if localPayment.Status != payment.StatusConfirmed || localPayment.TabID == nil {
@@ -194,6 +218,34 @@ func (uc *ReconcilePaymentWebhookUseCase) Execute(ctx context.Context, body []by
 	}
 
 	return nil
+}
+
+func (uc *ReconcilePaymentWebhookUseCase) notifyDeliveryPayment(ctx context.Context, localPayment *payment.Payment, batchID uuid.UUID, providerPaymentID string) error {
+	if uc == nil || localPayment == nil || uc.orderBatchRepo == nil || uc.whatsappSender == nil {
+		return nil
+	}
+	if strings.EqualFold(strings.TrimSpace(fmt.Sprint(localPayment.Metadata["delivery_confirmation_sent"])), "true") {
+		return nil
+	}
+	batch, err := uc.orderBatchRepo.FindByID(ctx, batchID, localPayment.TenantID)
+	if err != nil {
+		return err
+	}
+	if batch == nil || strings.TrimSpace(batch.CustomerPhone) == "" {
+		if uc.logger != nil {
+			uc.logger.Warn("delivery payment confirmed without customer phone", zap.String("batch_id", batchID.String()))
+		}
+		return nil
+	}
+	body := fmt.Sprintf("✅ *Pagamento aprovado!*\n\nSeu pedido para entrega foi enviado ao restaurante.\nValor pago: *R$ %.2f*\nCódigo da transação: *%s*\n\nVocê receberá as próximas atualizações por aqui. 🛵", localPayment.Amount, strings.TrimSpace(providerPaymentID))
+	if err := uc.whatsappSender.SendText(whatsappDomain.WithTenantID(ctx, localPayment.TenantID), strings.TrimSpace(batch.CustomerPhone), body); err != nil {
+		return err
+	}
+	if localPayment.Metadata == nil {
+		localPayment.Metadata = payment.JSONMap{}
+	}
+	localPayment.Metadata["delivery_confirmation_sent"] = true
+	return uc.paymentRepo.Update(ctx, localPayment)
 }
 
 func deliveryPaymentMetadata(metadata payment.JSONMap) (string, uuid.UUID, bool, error) {
