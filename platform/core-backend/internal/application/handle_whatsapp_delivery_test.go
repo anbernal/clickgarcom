@@ -314,6 +314,21 @@ func TestPaidDeliveryCheckoutDoesNotShowExpiredQuoteOnNextMessage(t *testing.T) 
 	}
 }
 
+func TestDeliveryReadyFreeFormMessageReturnsToMenu(t *testing.T) {
+	tenantID := uuid.New()
+	uc := &HandleWhatsAppMessageUseCase{}
+	sess := session.NewSession("5511999999999", tenantID)
+	sess.SetContext(deliveryAddressReadyKey, true)
+
+	message, state, err := uc.handleDeliveryReady(context.Background(), sess, "ola")
+	if err != nil || state != session.StateDeliveryMenu {
+		t.Fatalf("expected free-form greeting to return to delivery menu, state=%s err=%v message=%q", state, err, message)
+	}
+	if strings.Contains(strings.ToLower(message), "endereço está confirmado") {
+		t.Fatalf("did not expect stale address prompt, got %q", message)
+	}
+}
+
 func TestDeliveryCheckoutReviewRequiresConfirmationBeforeCancellation(t *testing.T) {
 	tenantID := uuid.New()
 	uc := &HandleWhatsAppMessageUseCase{logger: zap.NewNop()}

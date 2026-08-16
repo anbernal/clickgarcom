@@ -490,7 +490,11 @@ func (uc *HandleWhatsAppMessageUseCase) handleDeliveryReady(ctx context.Context,
 	if text == "1" || text == "continuar" || text == "sim" || text == "ok" {
 		return uc.StartDeliveryCheckout(ctx, sess)
 	}
-	return "✅ O endereço está confirmado. Responda *continuar* para consultar o frete e o total final, ou *0* para cancelar.", session.StateDeliveryReady, nil
+	// This state can survive an abandoned/finished checkout because the saved
+	// address is intentionally reusable. A new free-form message is a new
+	// interaction, not consent to recalculate freight; only the explicit
+	// Continue button may start another checkout.
+	return uc.deliveryMenuMessage(), session.StateDeliveryMenu, nil
 }
 
 // StartDeliveryCheckout creates the authoritative NestJS checkout from the
