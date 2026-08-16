@@ -590,7 +590,11 @@ func (uc *HandleWhatsAppMessageUseCase) sendOrderingOptionGroupMenu(
 		return fmt.Errorf("interactive option menu unavailable for %d options", len(group.Options))
 	}
 
-	rows := make([]whatsapp.InteractiveListRow, 0, len(group.Options))
+	// A WhatsApp list accepts at most ten rows, including the navigation row.
+	// Reserve one more row for an explicit action whenever possible. This keeps
+	// optional groups button-driven and avoids repeated taps on the same add-on.
+	includeContinueAction := len(group.Options) <= 8
+	rows := make([]whatsapp.InteractiveListRow, 0, len(group.Options)+1)
 	for index, option := range group.Options {
 		description := strings.TrimSpace(option.Description)
 		if description == "" {
@@ -604,6 +608,19 @@ func (uc *HandleWhatsAppMessageUseCase) sendOrderingOptionGroupMenu(
 			Title:       truncateInteractiveTitle(option.Name),
 			Description: truncateInteractiveDescription(description),
 		})
+	}
+	if includeContinueAction && len(currentSelections) >= group.MinSelect {
+		action := whatsapp.InteractiveListRow{
+			ID:          orderingOptionContinueID,
+			Title:       "Concluir opções",
+			Description: "Seguir para o próximo grupo",
+		}
+		if group.MinSelect == 0 && len(currentSelections) == 0 {
+			action.ID = orderingOptionSkipID
+			action.Title = "Pular grupo"
+			action.Description = "Seguir sem adicionar opção"
+		}
+		rows = append(rows, action)
 	}
 
 	body := whatsapp.WithRestaurantHeader(

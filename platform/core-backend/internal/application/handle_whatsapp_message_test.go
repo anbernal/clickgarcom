@@ -72,6 +72,41 @@ func TestDeliveryLegacyMainMenuStateIsRecoveredToDeliveryMenu(t *testing.T) {
 	}
 }
 
+func TestOrderingOptionMenuProvidesExplicitContinueAction(t *testing.T) {
+	ctx := context.Background()
+	tenantID := uuid.New()
+	sender := &testWhatsAppSender{}
+	uc := &HandleWhatsAppMessageUseCase{
+		sender:     sender,
+		tenantRepo: &testTenantRepo{tenant: testTenant(tenantID)},
+	}
+
+	err := uc.sendOrderingOptionGroupMenu(ctx, "5511999999999", tenantID, &menu.Item{Name: "Bacon Duplo"}, menu.OptionGroup{
+		Name:      "Adicionais",
+		MinSelect: 0,
+		MaxSelect: 2,
+		Options: []menu.Option{
+			{Name: "Bacon extra", PriceDelta: 5},
+		},
+	}, []orderingSelectedOption{{GroupName: "Adicionais", OptionName: "Bacon extra"}}, "")
+	if err != nil {
+		t.Fatalf("sendOrderingOptionGroupMenu() error = %v", err)
+	}
+	if len(sender.listMessages) != 1 {
+		t.Fatalf("expected one interactive option list, got %d", len(sender.listMessages))
+	}
+
+	foundContinue := false
+	for _, row := range sender.listMessages[0].Sections[0].Rows {
+		if row.ID == orderingOptionContinueID && row.Title == "Concluir opções" {
+			foundContinue = true
+		}
+	}
+	if !foundContinue {
+		t.Fatalf("expected explicit continue action, got %+v", sender.listMessages[0].Sections[0].Rows)
+	}
+}
+
 func TestRepeatCurrentPromptKeepsServiceRequestState(t *testing.T) {
 	ctx := context.Background()
 	tenantID := uuid.New()

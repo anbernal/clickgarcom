@@ -466,6 +466,10 @@ func (uc *HandleWhatsAppMessageUseCase) deliveryPromptButtons(state session.Conv
 	}
 
 	switch state {
+	case session.StateSelectingOptions:
+		// Used only if the interactive option list fails. Keep the Delivery
+		// fallback button-driven instead of asking the customer to type "ok".
+		return []whatsapp.InteractiveButton{button(orderingOptionContinueID, "Concluir opções")}
 	case session.StateDeliveryMenu:
 		return []whatsapp.InteractiveButton{button(deliveryStartActionID, deliveryActionButtonTitle)}
 	case session.StateDeliveryCustomerName:
@@ -1822,7 +1826,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleOptionSelection(
 	}
 
 	if len(groupSelections) >= group.MinSelect {
-		selectionNotice += " Digite *ok* para continuar ou escolha mais."
+		selectionNotice += " Toque em *Concluir opções* para continuar ou escolha mais."
 	}
 
 	return uc.presentOrderingOptionGroup(ctx, sess, selectedItem, group, allSelections, selectionNotice)
