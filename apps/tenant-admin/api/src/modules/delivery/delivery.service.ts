@@ -566,6 +566,13 @@ export class DeliveryService {
                     .setLock('pessimistic_write')
                     .getOne();
                 if (!delivery) throw new NotFoundException('Entrega não encontrada.');
+                const currentFulfillment = await manager.getRepository(DeliveryFulfillment).createQueryBuilder('fulfillment')
+                    .where('fulfillment.delivery_id = :id AND fulfillment.tenant_id = :tenantId AND fulfillment.is_current = TRUE', { id, tenantId })
+                    .setLock('pessimistic_write')
+                    .getOne();
+                if (!currentFulfillment && delivery.defaultFulfillmentModeSnapshot === 'OWN') {
+                    await this.ensureOwnFulfillment(manager, delivery);
+                }
                 if (![DeliveryStatus.PendingRestaurantAcceptance, DeliveryStatus.Accepted].includes(delivery.status as DeliveryStatus)) {
                     throw new UnprocessableEntityException('A previsão só pode ser definida antes do início do preparo.');
                 }
@@ -675,10 +682,13 @@ export class DeliveryService {
                         .setLock('pessimistic_write')
                         .getOne();
                     if (!delivery) throw new NotFoundException('Entrega não encontrada.');
-                    const fulfillment = await fulfillmentRepository.createQueryBuilder('fulfillment')
+                    let fulfillment = await fulfillmentRepository.createQueryBuilder('fulfillment')
                         .where('fulfillment.delivery_id = :id AND fulfillment.tenant_id = :tenantId AND fulfillment.is_current = TRUE', { id, tenantId })
                         .setLock('pessimistic_write')
                         .getOne();
+                    if (!fulfillment && delivery.defaultFulfillmentModeSnapshot === 'OWN') {
+                        fulfillment = await this.ensureOwnFulfillment(manager, delivery);
+                    }
                     if (!fulfillment || fulfillment.mode !== 'OWN') throw new UnprocessableEntityException('A entrega não está configurada para operação própria.');
                     if (delivery.status === DeliveryStatus.ReadyForDispatch && fulfillment.status === 'WAITING_DISPATCH') return this.toSnapshot(delivery);
                     if (delivery.version !== command.expected_version) throw new ConflictException('A entrega foi alterada. Atualize e tente novamente.');
@@ -1233,6 +1243,36 @@ export class DeliveryService {
         };
         const milestone = milestones[status];
         if (milestone) await this.notificationService.enqueueMilestone(manager, delivery, milestone);
+    }
+
+    private async ensureOwnFulfillment(manager: any, delivery: Delivery): Promise<DeliveryFulfillment> {
+        const repository = manager.getRepository(DeliveryFulfillment);
+        const own = repository.create({
+            tenantId: delivery.tenantId,
+            deliveryId: delivery.id,
+            mode: 'OWN',
+            provider: null,
+            status: 'WAITING_PREPARATION',
+            quoteId: null,
+            externalDeliveryId: null,
+            trackingUrl: null,
+            quotedCost: null,
+            actualCost: '0.00',
+            currency: delivery.currency || 'BRL',
+            cycleNumber: 0,
+            isCurrent: true,
+            startedAt: null,
+            assignedAt: null,
+            pickedUpAt: null,
+            deliveredAt: null,
+            failedAt: null,
+            canceledAt: null,
+            createdBy: null,
+            overrideReason: 'OWN_FULFILLMENT_INITIALIZED_ON_PREPARATION',
+        });
+        const saved = await repository.save(own);
+        delivery.currentFulfillmentId = saved.id;
+        return saved;
     }
 
     private async publishTrackingStatus(snapshot: DeliverySnapshot) {
