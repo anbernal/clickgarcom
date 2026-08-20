@@ -1484,11 +1484,14 @@ export class DeliveryService {
                     .setLock('pessimistic_write')
                     .getOne();
                 if (!lockedProfile) throw new UnprocessableEntityException('Entregador não encontrado ou inativo.');
-                const activeForDriver = await manager.getRepository(DeliveryDriverAssignment)
+                // Lock the active assignment rows before checking capacity. PostgreSQL
+                // does not allow FOR UPDATE on an aggregate COUNT query.
+                const activeAssignments = await manager.getRepository(DeliveryDriverAssignment)
                     .createQueryBuilder('assignment')
                     .where('assignment.tenant_id = :tenantId AND assignment.driver_profile_id = :driverId AND assignment.status = :status', { tenantId, driverId: lockedProfile.id, status: 'ACTIVE' })
                     .setLock('pessimistic_write')
-                    .getCount();
+                    .getMany();
+                const activeForDriver = activeAssignments.length;
                 const sameAssignment = current.assignedDriverProfileId === lockedProfile.id;
                 if (activeForDriver >= lockedProfile.deliveryLimit && !sameAssignment) throw new ConflictException('O motoboy atingiu o limite de entregas ativas.');
             }
