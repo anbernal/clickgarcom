@@ -137,6 +137,7 @@ let deliveryReloadQueued = false;
 let deliverySnapshotSignature = '';
 const announcedAutoAcceptedDeliveries = new Set();
 let activePanel = 'kitchen';
+let kdsFleetAssignSubmitting = false;
 let modalState = { orderId: null, tab: 'accept' };
 let ws = null;
 let wsReconnectDelay = 1000;
@@ -668,12 +669,13 @@ async function apiPatch(path, body) {
   return r.json();
 }
 
-async function apiPost(path, body) {
+async function apiPost(path, body, options = {}) {
   const r = await fetch(`${CONFIG.API_URL}${path}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': authSession ? `Bearer ${authSession.token}` : ''
+      'Authorization': authSession ? `Bearer ${authSession.token}` : '',
+      ...(options.idempotencyKey ? { 'Idempotency-Key': options.idempotencyKey } : {}),
     },
     body: JSON.stringify(body || {}),
   });
@@ -3054,7 +3056,7 @@ function openKdsFleetAssign(deliveryId) {
   const overlay = document.createElement('div');
   overlay.id = 'kdsFleetAssignModal';
   overlay.className = 'modal-overlay open';
-  overlay.innerHTML = `<div class="modal" style="width:min(480px,94vw)"><div class="modal-header"><div><div class="modal-title">${reassigning ? 'Reatribuir motoboy' : 'Atribuir motoboy'}</div><div style="font-size:12px;color:var(--muted);margin-top:4px">Pedido ${escapeHTML(delivery.display_code || delivery.id)}</div></div><button class="modal-close" onclick="closeKdsFleetAssign()" aria-label="Fechar">✕</button></div><div class="modal-body"><label class="modal-label" for="kds-fleet-driver">Motoboys elegíveis</label><select class="input" id="kds-fleet-driver"><option value="">Selecione</option>${drivers.map((driver) => { const load=Number(driver.active_deliveries||0); const limit=Math.max(1,Number(driver.delivery_limit||1)); const full=load>=limit; return `<option value="${escapeHTML(driver.id)}" ${String(driver.id)===String(delivery.assigned_driver_id)?'selected':''} ${full&&String(driver.id)!==String(delivery.assigned_driver_id)?'disabled':''}>${escapeHTML(driver.name)} · ${load}/${limit}${full?' · lotado':''}</option>`; }).join('')}</select><div class="kds-fleet-capacity-note">A capacidade será validada novamente ao confirmar.</div>${reassigning?'<label class="modal-label" for="kds-fleet-reason" style="margin-top:14px">Motivo da reatribuição</label><textarea class="input" id="kds-fleet-reason" maxlength="400" placeholder="Informe o contexto operacional"></textarea>':''}<div id="kds-fleet-error" class="error-msg-inline" style="margin-top:8px"></div></div><div class="modal-actions"><button class="btn btn-ghost" onclick="closeKdsFleetAssign()">Cancelar</button><button class="btn btn-green" onclick="submitKdsFleetAssign('${escapeHTML(deliveryId)}',${Number(delivery.version||1)},${reassigning})">Confirmar atribuição</button></div></div>`;
+  overlay.innerHTML = `<div class="modal" style="width:min(480px,94vw)"><div class="modal-header"><div><div class="modal-title">${reassigning ? 'Reatribuir motoboy' : 'Atribuir motoboy'}</div><div style="font-size:12px;color:var(--muted);margin-top:4px">Pedido ${escapeHTML(delivery.display_code || delivery.id)}</div></div><button class="modal-close" onclick="closeKdsFleetAssign()" aria-label="Fechar">✕</button></div><div class="modal-body"><label class="modal-label" for="kds-fleet-driver">Motoboys elegíveis</label><select class="input" id="kds-fleet-driver"><option value="">Selecione</option>${drivers.map((driver) => { const load=Number(driver.active_deliveries||0); const limit=Math.max(1,Number(driver.delivery_limit||1)); const full=load>=limit; return `<option value="${escapeHTML(driver.id)}" ${String(driver.id)===String(delivery.assigned_driver_id)?'selected':''} ${full&&String(driver.id)!==String(delivery.assigned_driver_id)?'disabled':''}>${escapeHTML(driver.name)} · ${load}/${limit}${full?' · lotado':''}</option>`; }).join('')}</select><div class="kds-fleet-capacity-note">A capacidade será validada novamente ao confirmar.</div>${reassigning?'<label class="modal-label" for="kds-fleet-reason" style="margin-top:14px">Motivo da reatribuição</label><textarea class="input" id="kds-fleet-reason" maxlength="400" placeholder="Informe o contexto operacional"></textarea>':''}<div id="kds-fleet-error" class="error-msg-inline" style="margin-top:8px"></div></div><div class="modal-actions"><button class="btn btn-ghost" onclick="closeKdsFleetAssign()">Cancelar</button><button id="kds-fleet-confirm" class="btn btn-green" onclick="submitKdsFleetAssign('${escapeHTML(deliveryId)}',${Number(delivery.version||1)},${reassigning})">Confirmar atribuição</button></div></div>`;
   overlay.addEventListener('click', (event) => { if (event.target === overlay) closeKdsFleetAssign(); });
   document.body.appendChild(overlay);
 }
@@ -3062,15 +3064,21 @@ function openKdsFleetAssign(deliveryId) {
 function closeKdsFleetAssign() { document.getElementById('kdsFleetAssignModal')?.remove(); }
 
 async function submitKdsFleetAssign(deliveryId, version, reassigning) {
+  if (kdsFleetAssignSubmitting) return;
   const driverId = document.getElementById('kds-fleet-driver')?.value;
   const reason = document.getElementById('kds-fleet-reason')?.value.trim();
   const errorNode = document.getElementById('kds-fleet-error');
   if (!driverId) { if (errorNode) errorNode.textContent = 'Escolha um motoboy.'; return; }
   if (reassigning && !reason) { if (errorNode) errorNode.textContent = 'Informe o motivo da reatribuição.'; return; }
+  kdsFleetAssignSubmitting = true;
+  const confirmButton = document.getElementById('kds-fleet-confirm');
+  if (confirmButton) { confirmButton.disabled = true; confirmButton.textContent = 'Atribuindo…'; }
+  const idempotencyKey = window.crypto?.randomUUID?.() || `fleet-assign-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   try {
     if (KDS_FLEET_API_ENABLED) {
-      const response = await apiPost(`/deliveries/${encodeURIComponent(deliveryId)}/assign`, { driver_id: driverId, expected_version: version, ...(reason ? { reason } : {}) });
+      const response = await apiPost(`/deliveries/${encodeURIComponent(deliveryId)}/assign`, { driver_id: driverId, expected_version: version, ...(reason ? { reason } : {}) }, { idempotencyKey });
       applyDeliveryMutation(deliveryId, response, 'ASSIGNED');
+      await loadKdsFleet();
     } else {
       const delivery = allDeliveries[deliveryId];
       allDeliveries[deliveryId] = { ...delivery, assigned_driver_id: driverId, status: 'ASSIGNED', version: Number(version) + 1 };
@@ -3085,6 +3093,10 @@ async function submitKdsFleetAssign(deliveryId, version, reassigning) {
   } catch (error) {
     if (errorNode) errorNode.textContent = /conflito|alterada/i.test(error.message || '') ? 'A entrega foi alterada por outro operador. Atualize e tente novamente.' : (error.message || 'Não foi possível atribuir.');
     loadDeliveries({ silent: true });
+  } finally {
+    kdsFleetAssignSubmitting = false;
+    const button = document.getElementById('kds-fleet-confirm');
+    if (button) { button.disabled = false; button.textContent = 'Confirmar atribuição'; }
   }
 }
 
