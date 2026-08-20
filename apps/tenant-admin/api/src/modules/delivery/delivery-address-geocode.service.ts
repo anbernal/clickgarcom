@@ -10,16 +10,23 @@ export class DeliveryAddressGeocodeService {
         const postalCode = dto.postal_code.replace(/\D/g, '');
         if (!/^\d{8}$/.test(postalCode)) throw new BadRequestException('CEP inválido.');
         const state = dto.state.toUpperCase();
-        const result = await this.mapsProvider.geocode({
-            formatted_address: [dto.street, dto.address_number, dto.address_complement, dto.neighborhood, dto.city, state, postalCode]
-                .filter(Boolean).join(', '),
-            postal_code: postalCode,
-            street: dto.street,
-            address_number: dto.address_number,
-            neighborhood: dto.neighborhood,
-            city: dto.city,
-            state,
-        });
+        let result;
+        try {
+            result = await this.mapsProvider.geocode({
+                formatted_address: [dto.street, dto.address_number, dto.address_complement, dto.neighborhood, dto.city, state, postalCode]
+                    .filter(Boolean).join(', '),
+                postal_code: postalCode,
+                street: dto.street,
+                address_number: dto.address_number,
+                neighborhood: dto.neighborhood,
+                city: dto.city,
+                state,
+            });
+        } catch (_error) {
+            // A map provider outage or an address absent from the map must be
+            // reported as a correctable address error, never as HTTP 500.
+            throw new BadRequestException('Não foi possível localizar este endereço. Confira o CEP, a cidade e o estado e tente novamente.');
+        }
         if (!Number.isFinite(result.lat) || result.lat < -90 || result.lat > 90 || !Number.isFinite(result.lng) || result.lng < -180 || result.lng > 180) {
             throw new BadRequestException('O provedor de mapas retornou coordenadas inválidas.');
         }
@@ -37,7 +44,12 @@ export class DeliveryAddressGeocodeService {
         if (!Number.isFinite(dto.latitude) || !Number.isFinite(dto.longitude)) {
             throw new BadRequestException('Informe coordenadas válidas para localizar o restaurante.');
         }
-        const result = await this.mapsProvider.reverseGeocode({ lat: dto.latitude, lng: dto.longitude });
+        let result;
+        try {
+            result = await this.mapsProvider.reverseGeocode({ lat: dto.latitude, lng: dto.longitude });
+        } catch (_error) {
+            throw new BadRequestException('Não foi possível localizar este endereço pelas coordenadas. Confira a localização e tente novamente.');
+        }
         if (!Number.isFinite(result.lat) || result.lat < -90 || result.lat > 90 || !Number.isFinite(result.lng) || result.lng < -180 || result.lng > 180) {
             throw new BadRequestException('O provedor de mapas retornou coordenadas inválidas.');
         }
