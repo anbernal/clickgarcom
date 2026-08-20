@@ -28,7 +28,7 @@ export class DeliveryLocationService {
         private readonly etaService: DeliveryEtaService,
     ) { }
 
-    async record(tenantId: string, deliveryId: string, driverId: string, input: DeliveryLocationsDto) {
+    async record(tenantId: string, deliveryId: string, driverId: string, input: DeliveryLocationsDto, profileMode = false) {
         const points = input?.points || [];
         if (points.length === 0) throw new UnprocessableEntityException('Informe ao menos um ponto de localização.');
         const accepted: Array<Record<string, unknown>> = [];
@@ -39,7 +39,8 @@ export class DeliveryLocationService {
                 .setLock('pessimistic_write')
                 .where('delivery.id = :deliveryId AND delivery.tenant_id = :tenantId', { deliveryId, tenantId })
                 .getOne();
-            if (!delivery || delivery.assignedDriverId !== driverId) throw new NotFoundException('Entrega não encontrada.');
+            const assigned = profileMode ? delivery?.assignedDriverProfileId : delivery?.assignedDriverId;
+            if (!delivery || assigned !== driverId) throw new NotFoundException('Entrega não encontrada.');
             if (!LOCATION_ACCEPTED_STATUSES.includes(delivery.status as DeliveryStatus)) {
                 throw new ConflictException('A entrega não está aceitando localização.');
             }

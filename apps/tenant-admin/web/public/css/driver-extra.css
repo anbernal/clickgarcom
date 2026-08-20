@@ -36,3 +36,15 @@
 .driver-history p { margin: 0; color: var(--ink); font-size: 11px; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .driver-map-options { display: grid; gap: 8px; margin-top: 16px; }
 .driver-map-options .driver-btn { width: 100%; }
+.driver-location-banner,
+.driver-sync-banner {
+  margin: 8px 16px 0;
+  padding: 9px 12px;
+  border: 1px solid #cfe8df;
+  border-radius: 11px;
+  color: #176450;
+  background: #effaf6;
+  font-size: 11px;
+  font-weight: 700;
+}
+.driver-sync-banner { color: #805d08; border-color: #f1ddb0; background: #fff8e8; }

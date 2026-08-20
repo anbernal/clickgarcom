@@ -13,7 +13,8 @@ import { DeliveryDriverAccessLink } from '../../entities/delivery-driver-access-
 import { DeliveryDriverSession } from '../../entities/delivery-driver-session.entity';
 import { DeliveryDriverIncident } from '../../entities/delivery-driver-incident.entity';
 import { DeliveryService } from './delivery.service';
-import { DeliveryConfirmPinDto, DeliveryExceptionDto } from './dto/delivery-commands.dto';
+import { DeliveryLocationService } from './delivery-location.service';
+import { DeliveryConfirmPinDto, DeliveryExceptionDto, DeliveryLocationsDto } from './dto/delivery-commands.dto';
 import { DeliveryExceptionReason } from './contracts';
 
 type PortalRequest = { headers?: Record<string, any>; cookies?: Record<string, string>; ip?: string; socket?: { remoteAddress?: string } };
@@ -44,6 +45,7 @@ export class FleetDriverPortalService {
         @InjectRepository(DeliveryDriverSession) private readonly sessionRepository: Repository<DeliveryDriverSession>,
         @InjectRepository(DeliveryDriverIncident) private readonly incidentRepository: Repository<DeliveryDriverIncident>,
         private readonly deliveryService: DeliveryService,
+        private readonly locationService: DeliveryLocationService,
         private readonly dataSource: DataSource,
         private readonly config: ConfigService,
     ) {}
@@ -147,6 +149,12 @@ export class FleetDriverPortalService {
                 duration_minutes: Math.max(0, Math.round(((completedAt?.getTime() || Date.now()) - (row.pickedUpAt?.getTime() || row.createdAt?.getTime() || Date.now())) / 60000)),
             };
         });
+    }
+
+    async recordLocation(deliveryId: string, body: DeliveryLocationsDto, request: PortalRequest) {
+        const current = await this.session(request);
+        await this.assertAssigned(current, deliveryId);
+        return this.locationService.record(current.tenant_id, deliveryId, current.driver.profile_id, body, true);
     }
 
     async command(deliveryId: string, command: string, body: any, request: PortalRequest) {

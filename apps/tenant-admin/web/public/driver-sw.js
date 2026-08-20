@@ -1,5 +1,5 @@
-const DRIVER_SHELL_CACHE = 'clickgarcom-driver-shell-v4';
-const DRIVER_SHELL_ASSETS = ['/driver.html', '/css/driver.css?v=20260820-history1', '/css/driver-extra.css?v=20260820-history1', '/js/driver.js?v=20260820-history1', '/assets/driver-icon.svg'];
+const DRIVER_SHELL_CACHE = 'clickgarcom-driver-shell-v5';
+const DRIVER_SHELL_ASSETS = ['/driver.html', '/css/driver.css?v=20260820-driver-ops1', '/css/driver-extra.css?v=20260820-driver-ops1', '/js/driver.js?v=20260820-driver-ops1', '/assets/driver-icon.svg'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(DRIVER_SHELL_CACHE).then((cache) => cache.addAll(DRIVER_SHELL_ASSETS)));
