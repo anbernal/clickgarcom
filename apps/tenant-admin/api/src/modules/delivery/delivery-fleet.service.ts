@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
 import { DataSource, In, Repository } from 'typeorm';
 import { createCipheriv, createHash, createHmac, randomBytes } from 'crypto';
+import QRCode from 'qrcode';
 
 import { Tenant } from '../../entities/tenant.entity';
 import { Delivery } from '../../entities/delivery.entity';
@@ -110,11 +111,21 @@ export class DeliveryFleetService {
         await this.accessLinkRepository.update({ tenantId, driverProfileId: id, usedAt: null, revokedAt: null }, { revokedAt: new Date() });
         const token = randomBytes(32).toString('hex');
         const expires = new Date(Date.now() + 30 * 60 * 1000);
-        await this.accessLinkRepository.save(this.accessLinkRepository.create({ tenantId, driverProfileId: id, tokenHash: this.hash(token), expiresAt: expires, createdBy: actor?.id || null }));
+        // The portal exchanges links using the application-secret HMAC. Keep
+        // the same derivation here; a plain SHA-256 would make every freshly
+        // generated link look expired/used during exchange.
+        await this.accessLinkRepository.save(this.accessLinkRepository.create({ tenantId, driverProfileId: id, tokenHash: this.hashToken(token), expiresAt: expires, createdBy: actor?.id || null }));
         await this.recordEvent(tenantId, id, 'ACCESS_LINK_CREATED', { expires_at: expires.toISOString() }, actor?.id);
         const tenant = await this.requireTenant(tenantId);
         const slug = tenant.slug || tenantId;
-        return { activation_url: `${this.publicOrigin()}/entregador/${encodeURIComponent(slug)}#activate=${token}`, expires_at: expires.toISOString(), driver_id: id };
+        const activationUrl = `${this.publicOrigin()}/entregador/${encodeURIComponent(slug)}#activate=${token}`;
+        const qrCodeDataUrl = await QRCode.toDataURL(activationUrl, {
+            errorCorrectionLevel: 'M',
+            margin: 2,
+            width: 320,
+            color: { dark: '#123f35', light: '#ffffff' },
+        });
+        return { activation_url: activationUrl, qr_code_data_url: qrCodeDataUrl, expires_at: expires.toISOString(), driver_id: id };
     }
 
     async revokeSessions(tenantId: string, id: string) {
@@ -176,7 +187,7 @@ export class DeliveryFleetService {
     private validCpf(value: string) { const digit = (length: number) => { let sum = 0; for (let i = 0; i < length; i += 1) sum += Number(value[i]) * (length + 1 - i); const result = (sum * 10) % 11; return result === 10 ? 0 : result; }; return digit(9) === Number(value[9]) && digit(10) === Number(value[10]); }
     private normalizePlate(plate: string) { const value = String(plate || '').replace(/[^a-z0-9]/gi, '').toUpperCase(); if (!/^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$/.test(value)) throw new BadRequestException('Placa inválida.'); return value; }
     private normalizePhone(phone?: string) { const value = String(phone || '').replace(/\D/g, ''); return value || null; }
-    private hash(value: string) { return createHash('sha256').update(value).digest('hex'); }
+    private hashToken(value: string) { return createHmac('sha256', this.secret()).update(value).digest('hex'); }
     private hmac(value: string) { return createHmac('sha256', `${this.secret()}:cpf`).update(value).digest('hex'); }
     private secret() { return String(this.config.get('FLEET_DRIVER_SECRET') || this.config.get('JWT_SECRET') || 'clickgarcom-fleet-development-secret'); }
     private encrypt(value: string) { const key = createHash('sha256').update(this.secret()).digest(); const nonce = randomBytes(12); const cipher = createCipheriv('aes-256-gcm', key, nonce); const ciphertext = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]); return { cpfCiphertext: ciphertext, cpfNonce: nonce, cpfAuthTag: cipher.getAuthTag() }; }
