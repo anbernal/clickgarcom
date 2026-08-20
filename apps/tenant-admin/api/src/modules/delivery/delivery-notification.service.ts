@@ -5,11 +5,13 @@ import { v5 as uuidv5 } from 'uuid';
 import { Delivery } from '../../entities/delivery.entity';
 import { Customer } from '../../entities/customer.entity';
 import { Tenant } from '../../entities/tenant.entity';
+import { DeliveryDriverProfile } from '../../entities/delivery-driver-profile.entity';
 import { DEFAULT_MESSAGE_TEMPLATES, resolveMessageTemplate } from '../../shared/message-templates';
 
 export enum DeliveryNotificationMilestone {
     Preparing = 'PREPARING',
     InTransit = 'IN_TRANSIT',
+    Exception = 'EXCEPTION',
     Delivered = 'DELIVERED',
     Rejected = 'REJECTED',
     CycleExhausted = 'CYCLE_EXHAUSTED',
@@ -98,6 +100,22 @@ export class DeliveryNotificationService {
         });
     }
 
+    async enqueueException(manager: EntityManager, delivery: Delivery, reason: string): Promise<void> {
+        if (!delivery.customerPhone) return;
+        const body = await this.resolveBody(manager, delivery, DeliveryNotificationMilestone.Exception, {
+            '{codigo_pedido}': delivery.displayCode,
+            '{motivo}': String(reason || 'A equipe está verificando o endereço e a melhor forma de concluir a entrega.').trim().slice(0, 400),
+        });
+        await this.enqueue(manager, {
+            tenantId: delivery.tenantId,
+            deliveryId: delivery.id,
+            recipient: delivery.customerPhone,
+            milestone: DeliveryNotificationMilestone.Exception,
+            body,
+            templateId: 'delivery_exception_v1',
+        });
+    }
+
     private async resolveBody(
         manager: EntityManager,
         delivery: Delivery,
@@ -107,14 +125,17 @@ export class DeliveryNotificationService {
         const tenant = await manager.getRepository(Tenant).findOne({ where: { id: delivery.tenantId } });
         const templates = tenant?.settings?.messages || {};
         const customerName = await this.customerName(manager, delivery);
+        const driverName = await this.driverName(manager, delivery);
         const templateReplacements = {
             ...replacements,
             '{nome_cliente}': customerName,
+            '{nome_motoboy}': driverName,
             '{nome_restaurante}': String(tenant?.name || 'Restaurante').trim() || 'Restaurante',
         };
         const templateByMilestone: Record<DeliveryNotificationMilestone, keyof typeof DEFAULT_MESSAGE_TEMPLATES> = {
             [DeliveryNotificationMilestone.Preparing]: 'msg_delivery_preparing',
             [DeliveryNotificationMilestone.InTransit]: 'msg_delivery_in_transit',
+            [DeliveryNotificationMilestone.Exception]: 'msg_delivery_exception',
             [DeliveryNotificationMilestone.Delivered]: 'msg_delivery_delivered',
             [DeliveryNotificationMilestone.Rejected]: 'msg_delivery_rejected',
             [DeliveryNotificationMilestone.CycleExhausted]: 'msg_delivery_cycle_exhausted',
@@ -140,6 +161,16 @@ export class DeliveryNotificationService {
                 ? await repository.findOne({ where: { tenantId: delivery.tenantId, phoneNormalized: String(delivery.customerPhone).replace(/\D/g, '') } })
                 : null;
         return this.normalizeCustomerName(customer?.name) || 'Cliente';
+    }
+
+    private async driverName(manager: EntityManager, delivery: Delivery): Promise<string> {
+        if (!delivery.assignedDriverProfileId) return 'nossa equipe';
+        const driver = await manager.getRepository(DeliveryDriverProfile).findOne({
+            where: { id: delivery.assignedDriverProfileId, tenantId: delivery.tenantId },
+            select: ['name'],
+        });
+        const name = String(driver?.name || '').trim().replace(/\s+/g, ' ');
+        return name ? name.slice(0, 120) : 'nossa equipe';
     }
 
     private normalizeCustomerName(value: unknown): string {

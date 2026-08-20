@@ -5,7 +5,7 @@
 | Produto | ClickGarçom Delivery |
 | Evolução | Frota própria com cadastro, atribuição e portal web do motoboy |
 | Data | 20/08/2026 |
-| Status | Implementação entregue; migration e rollout controlado pendentes |
+| Status | Implementação entregue; migration 000050 aplicada e validada em produção; rollout controlado pendente |
 | Compatibilidade | Preserva o modo V2 de capacidade numérica por feature flag |
 
 ## 1. Decisão recomendada

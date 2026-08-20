@@ -1325,6 +1325,7 @@ export class DeliveryService {
                     reason_code: command.reason_code,
                     notes: command.notes || null,
                 }, 'DRIVER_EXCEPTION');
+                await this.notificationService.enqueueException(manager, saved, command.notes || 'A equipe está verificando o endereço e a melhor forma de concluir a entrega.');
                     return this.toSnapshot(saved);
                 });
                 await this.publishTrackingStatus(snapshot);

@@ -83,7 +83,8 @@ Valor: R$ {total}
 Obrigado pela preferência! 
 Esperamos te receber novamente em breve! 😊`,
     msg_delivery_preparing: '🍳 {nome_cliente}, seu pedido *{codigo_pedido}* foi aceito e está sendo preparado. A previsão é de *{previsao_minutos} minutos*.',
-    msg_delivery_in_transit: '🛵 {nome_cliente}, seu pedido *{codigo_pedido}* está indo até você.',
+    msg_delivery_in_transit: '🛵 {nome_cliente}, seu pedido *{codigo_pedido}* está indo até você.\nEntregador: *{nome_motoboy}*.',
+    msg_delivery_exception: '⚠️ {nome_cliente}, tivemos um problema durante a entrega do pedido *{codigo_pedido}*.\n\n{motivo}\n\nNossa equipe já foi avisada e entrará em contato para resolver.',
     msg_delivery_delivered: `🍽️ {nome_restaurante}
 _________
 
@@ -111,6 +112,7 @@ export const MESSAGE_TEMPLATE_KEYS: Array<keyof MessageTemplates> = [
     'msg_payment_confirmed',
     'msg_delivery_preparing',
     'msg_delivery_in_transit',
+    'msg_delivery_exception',
     'msg_delivery_delivered',
     'msg_delivery_rejected',
     'msg_delivery_cycle_exhausted',

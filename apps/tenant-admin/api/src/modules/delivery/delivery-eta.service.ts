@@ -41,7 +41,7 @@ export class DeliveryEtaService implements OnModuleDestroy {
 
     async recalculate(tenantId: string, deliveryId: string, reason = 'MANUAL'): Promise<{ updated: boolean; eta_seconds: number | null }> {
         const delivery = await this.deliveryRepository.findOne({ where: { tenantId, id: deliveryId } });
-        if (!delivery || !delivery.assignedDriverId || ![
+        if (!delivery || !(delivery.assignedDriverId || delivery.assignedDriverProfileId) || ![
             DeliveryStatus.Assigned,
             DeliveryStatus.PickedUp,
             DeliveryStatus.InTransit,

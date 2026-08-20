@@ -6,7 +6,7 @@ podem ser iniciadas após aprovar o Marco 0 do plano. O modo legado
 
 ## DEL-FLEET-BE-001 — Rebaseline de domínio, flag e contratos
 
-- Status: [x] Implementado — aguarda migration/rollout controlado
+- Status: [x] Implementado — migration 000050 aplicada; aguarda rollout controlado
 - Prioridade: P0
 - Dependências: nenhuma
 
@@ -29,7 +29,7 @@ Critérios de aceite:
 
 ## DEL-FLEET-BE-002 — Persistir perfil de motoboy com proteção de CPF
 
-- Status: [x] Implementado — aguarda migration/rollout controlado
+- Status: [x] Implementado — migration 000050 aplicada; aguarda rollout controlado
 - Prioridade: P0
 - Dependências: DEL-FLEET-BE-001
 
@@ -56,7 +56,7 @@ Critérios de aceite:
 
 ## DEL-FLEET-BE-003 — CRUD administrativo e RBAC de frota
 
-- Status: [x] Implementado — aguarda migration/rollout controlado
+- Status: [x] Implementado — migration 000050 aplicada; aguarda rollout controlado
 - Prioridade: P0
 - Dependências: DEL-FLEET-BE-002
 
@@ -77,7 +77,7 @@ Critérios de aceite:
 
 ## DEL-FLEET-BE-004 — Criar acesso seguro ao portal do motoboy
 
-- Status: [x] Implementado — aguarda migration/rollout controlado
+- Status: [x] Implementado — migration 000050 aplicada; aguarda rollout controlado
 - Prioridade: P0
 - Dependências: DEL-FLEET-BE-002
 
@@ -101,7 +101,7 @@ Critérios de aceite:
 
 ## DEL-FLEET-BE-005 — Histórico de atribuição e fila concorrente
 
-- Status: [x] Implementado — aguarda migration/rollout controlado
+- Status: [x] Implementado — migration 000050 aplicada; aguarda rollout controlado
 - Prioridade: P0
 - Dependências: DEL-FLEET-BE-001, DEL-FLEET-BE-003
 
@@ -123,7 +123,7 @@ Critérios de aceite:
 
 ## DEL-FLEET-BE-006 — Ações do motoboy e conclusão por código
 
-- Status: [x] Implementado — aguarda migration/rollout controlado
+- Status: [x] Implementado — migration 000050 aplicada; aguarda rollout controlado
 - Prioridade: P0
 - Dependências: DEL-FLEET-BE-004, DEL-FLEET-BE-005
 

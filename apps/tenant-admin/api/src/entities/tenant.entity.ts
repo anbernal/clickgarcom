@@ -17,6 +17,7 @@ export interface MessageTemplates {
     msg_payment_confirmed?: string;
     msg_delivery_preparing?: string;
     msg_delivery_in_transit?: string;
+    msg_delivery_exception?: string;
     msg_delivery_delivered?: string;
     msg_delivery_rejected?: string;
     msg_delivery_cycle_exhausted?: string;
