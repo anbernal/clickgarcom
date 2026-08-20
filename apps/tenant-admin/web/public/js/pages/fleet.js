@@ -355,25 +355,40 @@ function fleetCpfValid(value) {
 function fleetPlateValid(value) { return /^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$/.test(String(value || '').replace(/[^A-Z0-9]/gi, '').toUpperCase()); }
 function fleetPlateMask(value) { const plate = String(value || '').replace(/[^A-Z0-9]/gi, '').toUpperCase(); return plate.length === 7 ? `${plate.slice(0, 3)}-${plate.slice(3)}` : plate || 'Sem placa'; }
 function fleetCpfInput(input) { const digits = fleetDigits(input.value).slice(0, 11); input.value = digits.replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d{1,2})$/, '$1-$2'); }
-function fleetPhoneInput(input) { const digits = fleetDigits(input.value).slice(0, 13); input.value = digits.replace(/^(55)(\d{2})(\d{5})(\d{0,4})$/, '+$1 ($2) $3-$4'); }
+function fleetPhoneNationalDigits(value) {
+    let digits = fleetDigits(value);
+    if (digits.startsWith('55')) digits = digits.slice(2);
+    return digits.slice(0, 11);
+}
+function fleetPhoneMask(value) {
+    const digits = fleetPhoneNationalDigits(value);
+    if (!digits) return '+55 ';
+    const ddd = digits.slice(0, 2);
+    const number = digits.slice(2);
+    if (digits.length <= 2) return `+55 (${ddd}`;
+    if (number.length <= 5) return `+55 (${ddd}) ${number}`;
+    return `+55 (${ddd}) ${number.slice(0, 5)}-${number.slice(5, 9)}`;
+}
+function fleetPhoneInput(input) { input.value = fleetPhoneMask(input.value); }
 
 function openFleetDriverForm(id = '') {
     const driver = fleetState.drivers.find((item) => item.id === id) || {};
-    openModal(`<div class="modal-header"><div><h3>${id ? 'Editar motoboy' : 'Cadastrar motoboy'}</h3><div class="modal-header-subtitle">Dados operacionais protegidos por tenant.</div></div><button class="modal-close" onclick="closeModal()" aria-label="Fechar">✕</button></div><div class="modal-body delivery-form"><div class="fleet-form-note"><span>🔒</span><p>O CPF será criptografado pelo backend. Depois do cadastro, somente os últimos dígitos ficam visíveis.</p></div><div class="delivery-form-grid"><div class="form-group"><label for="fleet-driver-name">Nome completo *</label><input id="fleet-driver-name" maxlength="120" autocomplete="name" value="${escapeHTML(driver.name || '')}"></div><div class="form-group"><label for="fleet-driver-cpf">CPF *</label><input id="fleet-driver-cpf" inputmode="numeric" autocomplete="off" ${id ? 'disabled' : ''} placeholder="000.000.000-00" value="${id ? escapeHTML(driver.cpf_masked || '') : ''}" oninput="fleetCpfInput(this)"><small class="delivery-helper">${id ? 'Para alterar o CPF, será necessária uma ação protegida do backend.' : 'Usado apenas para identificação interna.'}</small></div><div class="form-group"><label for="fleet-driver-plate">Placa da moto *</label><input id="fleet-driver-plate" maxlength="8" autocapitalize="characters" value="${escapeHTML(fleetPlateMask(driver.plate || ''))}" oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9-]/g,'')" placeholder="ABC-1D23"></div><div class="form-group"><label for="fleet-driver-phone">Telefone</label><input id="fleet-driver-phone" inputmode="tel" autocomplete="tel" value="${escapeHTML(driver.phone || '')}" oninput="fleetPhoneInput(this)" placeholder="+55 (11) 99999-9999"></div><div class="form-group"><label for="fleet-driver-limit">Limite simultâneo *</label><input id="fleet-driver-limit" type="number" min="1" max="10" value="${Number(driver.delivery_limit || 1)}"><small class="delivery-helper">Quantas entregas podem compor a fila do motoboy.</small></div></div><div id="fleet-driver-error" class="fleet-form-error" aria-live="polite"></div></div><div class="modal-footer">${id && canPerformAction('manageFleet') ? `<button class="delivery-btn ${driver.active ? 'delivery-btn--danger' : 'delivery-btn--neutral'}" onclick="${driver.active ? `openFleetDeactivation('${escapeHTML(id)}')` : `toggleFleetDriver('${escapeHTML(id)}',true)`}">${driver.active ? 'Inativar' : 'Reativar'}</button>` : ''}<span class="fleet-modal-spacer"></span><button class="delivery-btn delivery-btn--neutral" onclick="closeModal()">Cancelar</button><button class="delivery-btn delivery-btn--primary" onclick="saveFleetDriver('${escapeHTML(id)}')">Salvar motoboy</button></div>`, { size: 'lg' });
+    openModal(`<div class="modal-header"><div><h3>${id ? 'Editar motoboy' : 'Cadastrar motoboy'}</h3><div class="modal-header-subtitle">Dados operacionais protegidos por tenant.</div></div><button class="modal-close" onclick="closeModal()" aria-label="Fechar">✕</button></div><div class="modal-body delivery-form"><div class="fleet-form-note"><span>🔒</span><p>O CPF será criptografado pelo backend. Depois do cadastro, somente os últimos dígitos ficam visíveis.</p></div><div class="delivery-form-grid"><div class="form-group"><label for="fleet-driver-name">Nome completo *</label><input id="fleet-driver-name" maxlength="120" autocomplete="name" value="${escapeHTML(driver.name || '')}"></div><div class="form-group"><label for="fleet-driver-cpf">CPF *</label><input id="fleet-driver-cpf" inputmode="numeric" autocomplete="off" ${id ? 'disabled' : ''} placeholder="000.000.000-00" value="${id ? escapeHTML(driver.cpf_masked || '') : ''}" oninput="fleetCpfInput(this)"><small class="delivery-helper">${id ? 'Para alterar o CPF, será necessária uma ação protegida do backend.' : 'Usado apenas para identificação interna.'}</small></div><div class="form-group"><label for="fleet-driver-plate">Placa da moto *</label><input id="fleet-driver-plate" maxlength="8" autocapitalize="characters" value="${escapeHTML(fleetPlateMask(driver.plate || ''))}" oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9-]/g,'')" placeholder="ABC-1D23"></div><div class="form-group"><label for="fleet-driver-phone">Telefone</label><input id="fleet-driver-phone" inputmode="tel" autocomplete="tel" value="${escapeHTML(fleetPhoneMask(driver.phone || ''))}" oninput="fleetPhoneInput(this)" placeholder="+55 (11) 99999-9999"><small class="delivery-helper">O código do país +55 é fixo.</small></div><div class="form-group"><label for="fleet-driver-limit">Limite simultâneo *</label><input id="fleet-driver-limit" type="number" min="1" max="10" value="${Number(driver.delivery_limit || 1)}"><small class="delivery-helper">Quantas entregas podem compor a fila do motoboy.</small></div></div><div id="fleet-driver-error" class="fleet-form-error" aria-live="polite"></div></div><div class="modal-footer">${id && canPerformAction('manageFleet') ? `<button class="delivery-btn ${driver.active ? 'delivery-btn--danger' : 'delivery-btn--neutral'}" onclick="${driver.active ? `openFleetDeactivation('${escapeHTML(id)}')` : `toggleFleetDriver('${escapeHTML(id)}',true)`}">${driver.active ? 'Inativar' : 'Reativar'}</button>` : ''}<span class="fleet-modal-spacer"></span><button class="delivery-btn delivery-btn--neutral" onclick="closeModal()">Cancelar</button><button class="delivery-btn delivery-btn--primary" onclick="saveFleetDriver('${escapeHTML(id)}')">Salvar motoboy</button></div>`, { size: 'lg' });
 }
 
 async function saveFleetDriver(id) {
     const name = document.getElementById('fleet-driver-name')?.value.trim();
     const cpf = document.getElementById('fleet-driver-cpf')?.value;
     const plate = document.getElementById('fleet-driver-plate')?.value.replace(/[^A-Z0-9]/gi, '').toUpperCase();
-    const phone = fleetDigits(document.getElementById('fleet-driver-phone')?.value);
+    const phoneNational = fleetPhoneNationalDigits(document.getElementById('fleet-driver-phone')?.value);
+    const phone = phoneNational ? `55${phoneNational}` : '';
     const deliveryLimit = Number(document.getElementById('fleet-driver-limit')?.value || 0);
     const error = document.getElementById('fleet-driver-error');
     const fail = (message) => { if (error) error.textContent = message; };
     if (!name || name.length < 3) return fail('Informe o nome completo.');
     if (!id && !fleetCpfValid(cpf)) return fail('Informe um CPF válido.');
     if (!fleetPlateValid(plate)) return fail('Informe uma placa válida, antiga ou Mercosul.');
-    if (phone && (phone.length < 12 || phone.length > 13)) return fail('Informe o telefone com DDD.');
+    if (phoneNational && ![10, 11].includes(phoneNational.length)) return fail('Informe o telefone com DDD.');
     if (!Number.isInteger(deliveryLimit) || deliveryLimit < 1 || deliveryLimit > 10) return fail('O limite deve ficar entre 1 e 10 entregas.');
     try {
         await fleetGateway.saveDriver(id, { name, ...(!id ? { cpf: fleetDigits(cpf) } : {}), plate, ...(phone ? { phone } : {}), delivery_limit: deliveryLimit, ...(id ? { expected_version: Number(fleetState.drivers.find((driver) => driver.id === id)?.version || 1) } : {}) });
@@ -416,7 +431,8 @@ async function generateFleetAccess(id) {
     if (result) result.innerHTML = '<div class="fleet-report-loading">Gerando link de uso único…</div>';
     try {
         const access = await fleetGateway.createAccess(id);
-        const link = String(access.activation_url || '');
+        const rawLink = String(access.activation_url || '');
+        const link = rawLink ? new URL(rawLink, window.location.origin).toString() : '';
         const qrMarkup = access.qr_code_data_url
             ? `<img class="fleet-qr-image" src="${escapeHTML(access.qr_code_data_url)}" alt="QR Code de ativação">`
             : '<div class="fleet-qr-placeholder" aria-label="Espaço reservado ao QR Code do backend"><span>QR</span><small>gerado na integração</small></div>';

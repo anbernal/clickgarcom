@@ -180,6 +180,20 @@ export class DeliveryFleetService {
     private hmac(value: string) { return createHmac('sha256', `${this.secret()}:cpf`).update(value).digest('hex'); }
     private secret() { return String(this.config.get('FLEET_DRIVER_SECRET') || this.config.get('JWT_SECRET') || 'clickgarcom-fleet-development-secret'); }
     private encrypt(value: string) { const key = createHash('sha256').update(this.secret()).digest(); const nonce = randomBytes(12); const cipher = createCipheriv('aes-256-gcm', key, nonce); const ciphertext = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]); return { cpfCiphertext: ciphertext, cpfNonce: nonce, cpfAuthTag: cipher.getAuthTag() }; }
-    private publicOrigin() { return String(this.config.get('PUBLIC_APP_URL') || this.config.get('APP_PUBLIC_URL') || ''); }
+    /**
+     * Access links are shared outside the authenticated admin session, so they
+     * must always be absolute URLs.  Older deployments only configured the
+     * public web/admin base variables (and not PUBLIC_APP_URL), which produced
+     * a relative `/entregador/...` value in the dialog.
+     */
+    private publicOrigin() {
+        return String(
+            this.config.get('PUBLIC_APP_URL')
+            || this.config.get('APP_PUBLIC_URL')
+            || this.config.get('PUBLIC_WEB_BASE_URL')
+            || this.config.get('PUBLIC_ADMIN_BASE_URL')
+            || '',
+        ).replace(/\/+$/, '');
+    }
     private normalizeMode(value: unknown) { return value === DeliveryFleetMode.IdentifiedDrivers ? DeliveryFleetMode.IdentifiedDrivers : DeliveryFleetMode.CapacityOnly; }
 }
