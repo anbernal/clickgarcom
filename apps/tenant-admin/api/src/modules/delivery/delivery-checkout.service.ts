@@ -57,22 +57,39 @@ export class DeliveryCheckoutService {
         if (!['OWN', 'EXTERNAL'].includes(mode)) throw new ConflictException('Modalidade de entrega inválida.');
         if (dto.fulfillment_mode && dto.fulfillment_mode !== mode) throw new ConflictException('Modalidade de checkout inválida.');
 
+        // Addresses may be saved for later use even when they are distant.
+        // The checkout is the last step before payment, so enforce the
+        // restaurant service radius here and never open an unfulfillable order.
+        const origin = settings.origin || {};
+        const originLat = Number(origin.lat);
+        const originLng = Number(origin.lng);
+        const destinationLat = Number(dto.destination_lat);
+        const destinationLng = Number(dto.destination_lng);
+        if (![originLat, originLng, destinationLat, destinationLng].every(Number.isFinite)) {
+            throw new ConflictException('Não foi possível validar a área de entrega. Confira o endereço do restaurante e do cliente.');
+        }
+        const radiusKm = Number(settings.service_area?.radius_km ?? 8);
+        if (!Number.isFinite(radiusKm) || radiusKm <= 0) {
+            throw new ConflictException('A área de entrega do restaurante não está configurada.');
+        }
+
         let fee = 0;
         let quoteId: string | null = null;
         let holdKey: string | null = null;
         if (mode === 'OWN') {
-            const origin = settings.origin || {};
             let distanceMeters: number | null = null;
-            if ([origin.lat, origin.lng].every((value: unknown) => Number.isFinite(Number(value)))) {
-                try {
-                    const route = await this.mapsProvider.route({
-                        origin: { lat: Number(origin.lat), lng: Number(origin.lng) },
-                        destination: { lat: dto.destination_lat, lng: dto.destination_lng },
-                    });
-                    distanceMeters = route.distance_meters;
-                } catch {
-                    distanceMeters = null;
-                }
+            try {
+                const route = await this.mapsProvider.route({
+                    origin: { lat: originLat, lng: originLng },
+                    destination: { lat: destinationLat, lng: destinationLng },
+                });
+                distanceMeters = route.distance_meters;
+            } catch {
+                distanceMeters = null;
+            }
+            const areaDistanceMeters = distanceMeters ?? this.distanceMeters(originLat, originLng, destinationLat, destinationLng);
+            if (!Number.isFinite(areaDistanceMeters) || areaDistanceMeters > radiusKm * 1000) {
+                throw new ConflictException(`Este endereço está fora da área de entrega. O restaurante atende em um raio de até ${this.formatKilometers(radiusKm)} km.`);
             }
             const pricing = settings.fees || settings.own_delivery?.pricing || {};
             const quote = this.feeService.quote(distanceMeters, pricing);
@@ -83,6 +100,10 @@ export class DeliveryCheckoutService {
             holdKey = checkoutKey;
             await this.capacityService.hold(tenantId, holdKey);
         } else {
+            const areaDistanceMeters = this.distanceMeters(originLat, originLng, destinationLat, destinationLng);
+            if (areaDistanceMeters > radiusKm * 1000) {
+                throw new ConflictException(`Este endereço está fora da área de entrega. O restaurante atende em um raio de até ${this.formatKilometers(radiusKm)} km.`);
+            }
             if (!dto.quote_id) throw new ConflictException('Quote externa é obrigatória para este checkout.');
             const quote = await this.quotes.findOne({
                 where: { id: dto.quote_id, tenantId, customerId: dto.customer_id, customerAddressId: dto.customer_address_id, status: 'VALID' },
@@ -286,5 +307,21 @@ export class DeliveryCheckoutService {
     private money(value: number) {
         if (!Number.isFinite(Number(value)) || Number(value) < 0) throw new ConflictException('Valor financeiro inválido.');
         return Math.round(Number(value) * 100) / 100;
+    }
+
+    private formatKilometers(value: number) {
+        return Number.isInteger(value) ? String(value) : value.toFixed(1).replace('.', ',');
+    }
+
+    private distanceMeters(originLat: number, originLng: number, destinationLat: number, destinationLng: number) {
+        const earthRadiusMeters = 6371000;
+        const toRadians = (value: number) => value * Math.PI / 180;
+        const deltaLat = toRadians(destinationLat - originLat);
+        const deltaLng = toRadians(destinationLng - originLng);
+        const originLatitude = toRadians(originLat);
+        const destinationLatitude = toRadians(destinationLat);
+        const a = Math.sin(deltaLat / 2) ** 2
+            + Math.cos(originLatitude) * Math.cos(destinationLatitude) * Math.sin(deltaLng / 2) ** 2;
+        return Math.round(2 * earthRadiusMeters * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
     }
 }
