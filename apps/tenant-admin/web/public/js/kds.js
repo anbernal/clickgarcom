@@ -3078,7 +3078,6 @@ async function submitKdsFleetAssign(deliveryId, version, reassigning) {
     if (KDS_FLEET_API_ENABLED) {
       const response = await apiPost(`/deliveries/${encodeURIComponent(deliveryId)}/assign`, { driver_id: driverId, expected_version: version, ...(reason ? { reason } : {}) }, { idempotencyKey });
       applyDeliveryMutation(deliveryId, response, 'ASSIGNED');
-      await loadKdsFleet();
     } else {
       const delivery = allDeliveries[deliveryId];
       allDeliveries[deliveryId] = { ...delivery, assigned_driver_id: driverId, status: 'ASSIGNED', version: Number(version) + 1 };
@@ -3089,6 +3088,9 @@ async function submitKdsFleetAssign(deliveryId, version, reassigning) {
       await loadKdsFleet(); renderAll();
     }
     closeKdsFleetAssign();
+    if (KDS_FLEET_API_ENABLED) {
+      loadKdsFleet().then(() => renderAll()).catch((refreshError) => console.warn('Failed to refresh fleet after assignment:', refreshError));
+    }
     toast('t-success', '🛵 Motoboy atribuído', 'A entrega já apareceu na fila pessoal do motoboy.');
   } catch (error) {
     if (errorNode) errorNode.textContent = /conflito|alterada/i.test(error.message || '') ? 'A entrega foi alterada por outro operador. Atualize e tente novamente.' : (error.message || 'Não foi possível atribuir.');
