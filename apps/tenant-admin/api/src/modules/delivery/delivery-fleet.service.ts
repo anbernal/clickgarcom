@@ -136,7 +136,7 @@ export class DeliveryFleetService {
                 color: { dark: '#123f35', light: '#ffffff' },
             });
         } catch {
-            // A QR rendering issue must not invalidate the one-time link. The
+            // A QR rendering issue must not invalidate the activation link. The
             // admin can still copy the absolute URL and retry the QR later.
         }
         return { activation_url: activationUrl, qr_code_data_url: qrCodeDataUrl, expires_at: expires.toISOString(), driver_id: id };

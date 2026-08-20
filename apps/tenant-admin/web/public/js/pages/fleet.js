@@ -429,7 +429,7 @@ async function openFleetAccess(id) {
 
 async function generateFleetAccess(id) {
     const result = document.getElementById('fleet-access-result');
-    if (result) result.innerHTML = '<div class="fleet-report-loading">Gerando link de uso único…</div>';
+    if (result) result.innerHTML = '<div class="fleet-report-loading">Gerando link de acesso…</div>';
     try {
         const access = await fleetGateway.createAccess(id);
         const rawLink = String(access.activation_url || '');
