@@ -50,11 +50,21 @@ export class FleetDriverPortalService {
 
     async exchangeAccessToken(rawToken: string, _request: PortalRequest, response: PortalResponse) {
         const tokenHash = this.hashToken(String(rawToken || '').trim());
-        const link = await this.accessLinkRepository.findOne({ where: { tokenHash, usedAt: null, revokedAt: null } });
-        if (!link || link.expiresAt <= new Date()) throw new UnauthorizedException('Este link expirou ou já foi utilizado.');
+        const link = await this.accessLinkRepository.findOne({ where: { tokenHash, revokedAt: null } });
+        // An unused link expires normally. Once the PIN has been created, the
+        // same link may be opened again as a safe shortcut to the CPF/PIN
+        // login, even after its activation window has elapsed.
+        if (!link || (!link.usedAt && link.expiresAt <= new Date())) throw new UnauthorizedException('Este link expirou ou já foi utilizado.');
         const profile = await this.profileRepository.findOne({ where: { id: link.driverProfileId, tenantId: link.tenantId } });
         if (!profile?.active) throw new UnauthorizedException('Este link expirou ou já foi utilizado.');
         const tenant = await this.requireTenant(link.tenantId);
+        if (link.usedAt) {
+            if (!profile.pinHash) throw new UnauthorizedException('Abra novamente o link de ativação enviado pelo restaurante.');
+            response.clearCookie(this.activationCookie, { path: '/' });
+            response.setHeader('Cache-Control', 'no-store');
+            response.setHeader('Referrer-Policy', 'no-referrer');
+            return { activation_required: false, login_required: true, driver: this.driverSnapshot(profile), tenant: this.tenantSnapshot(tenant) };
+        }
         response.cookie(this.activationCookie, tokenHash, this.cookieOptions(this.activationTtlMs));
         response.setHeader('Cache-Control', 'no-store');
         response.setHeader('Referrer-Policy', 'no-referrer');

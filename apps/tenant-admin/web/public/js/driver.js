@@ -89,7 +89,13 @@ const driverGateway = {
 async function bootDriverPortal() {
     const activationToken = new URLSearchParams(location.hash.replace(/^#/,'')).get('activate');
     if (activationToken) {
-        try { driverState.session = await driverGateway.exchange(activationToken); history.replaceState({},'',location.pathname); renderDriverActivation(); }
+        try {
+            const access = await driverGateway.exchange(activationToken);
+            history.replaceState({},'',location.pathname);
+            driverState.session = access.activation_required ? access : null;
+            if (access.activation_required) renderDriverActivation();
+            else renderDriverLogin(access);
+        }
         catch (error) { renderDriverAccessError(error.message); }
         return;
     }
@@ -99,8 +105,9 @@ async function bootDriverPortal() {
     bindDriverConnectivity();
 }
 
-function renderDriverLogin() {
-    document.getElementById('driver-app').innerHTML = `<main class="driver-login"><section class="driver-login-card"><div class="driver-login-icon">🛵</div><h1>Acesse sua rota</h1><p>Use seu CPF e PIN pessoal. Por segurança, a mensagem de erro nunca informa se um cadastro existe.</p><div class="driver-field"><label for="driver-login-cpf">CPF</label><input id="driver-login-cpf" inputmode="numeric" autocomplete="username" maxlength="14" placeholder="000.000.000-00" oninput="this.value=driverCpfMask(this.value)"></div><div class="driver-field"><label for="driver-login-pin">PIN de 6 números</label><input class="driver-pin" id="driver-login-pin" type="password" inputmode="numeric" maxlength="6" autocomplete="current-password" oninput="this.value=this.value.replace(/\D/g,'').slice(0,6)" onkeydown="if(event.key==='Enter')submitDriverLogin()"></div><div id="driver-login-error" class="driver-error"></div><button class="driver-btn driver-btn--primary" onclick="submitDriverLogin()">Entrar com segurança</button>${!DRIVER_API_ENABLED ? '<div class="driver-preview">Prévia do frontend: você também pode simular uma sessão sem dados reais.</div><button class="driver-btn driver-btn--secondary" onclick="enterDriverPreview()">Entrar na prévia</button>' : '<div class="driver-helper">Primeiro acesso? Abra o link recebido do restaurante.</div>'}</section></main>`;
+function renderDriverLogin(access = null) {
+    const reusedLink = access?.login_required === true;
+    document.getElementById('driver-app').innerHTML = `<main class="driver-login"><section class="driver-login-card"><div class="driver-login-icon">🛵</div><h1>Acesse sua rota</h1>${reusedLink ? '<div class="driver-helper">Este acesso já foi ativado. Entre com seu CPF e PIN.</div>' : '<p>Use seu CPF e PIN pessoal. Por segurança, a mensagem de erro nunca informa se um cadastro existe.</p>'}<div class="driver-field"><label for="driver-login-cpf">CPF</label><input id="driver-login-cpf" inputmode="numeric" autocomplete="username" maxlength="14" placeholder="000.000.000-00" oninput="this.value=driverCpfMask(this.value)"></div><div class="driver-field"><label for="driver-login-pin">PIN de 6 números</label><input class="driver-pin" id="driver-login-pin" type="password" inputmode="numeric" maxlength="6" autocomplete="current-password" oninput="this.value=this.value.replace(/\D/g,'').slice(0,6)" onkeydown="if(event.key==='Enter')submitDriverLogin()"></div><div id="driver-login-error" class="driver-error"></div><button class="driver-btn driver-btn--primary" onclick="submitDriverLogin()">Entrar com segurança</button>${!DRIVER_API_ENABLED ? '<div class="driver-preview">Prévia do frontend: você também pode simular uma sessão sem dados reais.</div><button class="driver-btn driver-btn--secondary" onclick="enterDriverPreview()">Entrar na prévia</button>' : '<div class="driver-helper">Perdeu o acesso? Solicite um novo link ao restaurante para cadastrar outro PIN.</div>'}</section></main>`;
 }
 function renderDriverAccessError(message) { document.getElementById('driver-app').innerHTML = `<main class="driver-login"><section class="driver-login-card"><div class="driver-login-icon">!</div><h1>Acesso indisponível</h1><p>${driverEscape(message)}</p><button class="driver-btn driver-btn--primary" onclick="location.reload()">Tentar novamente</button></section></main>`; }
 function enterDriverPreview() { sessionStorage.setItem('clickgarcom_driver_preview','1'); driverState.session=driverDemoSession(); loadDriverQueue(); bindDriverConnectivity(); }

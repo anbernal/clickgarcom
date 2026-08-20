@@ -108,7 +108,15 @@ export class DeliveryFleetService {
     async createAccessLink(tenantId: string, id: string, actor: any) {
         const driver = await this.requireDriver(tenantId, id);
         if (!driver.active) throw new BadRequestException('Ative o motoboy antes de gerar um acesso.');
-        await this.accessLinkRepository.update({ tenantId, driverProfileId: id, usedAt: null, revokedAt: null }, { revokedAt: new Date() });
+        const now = new Date();
+        // A newly generated link is a deliberate credential reset: invalidate
+        // previous links/sessions and require a fresh PIN on activation.
+        driver.pinHash = null;
+        driver.updatedBy = actor?.id || null;
+        driver.version += 1;
+        await this.driverRepository.save(driver);
+        await this.accessLinkRepository.update({ tenantId, driverProfileId: id, revokedAt: null }, { revokedAt: now });
+        await this.sessionRepository.createQueryBuilder().update().set({ revokedAt: now, shiftOpen: false }).where('tenant_id = :tenantId AND driver_profile_id = :id AND revoked_at IS NULL', { tenantId, id }).execute();
         const token = randomBytes(32).toString('hex');
         const expires = new Date(Date.now() + 30 * 60 * 1000);
         // The portal exchanges links using the application-secret HMAC. Keep
@@ -184,7 +192,7 @@ export class DeliveryFleetService {
         const activeDeliveries = await this.assignmentRepository.count({ where: { tenantId, driverProfileId: driver.id, status: 'ACTIVE' } });
         const session = await this.sessionRepository.findOne({ where: { tenantId, driverProfileId: driver.id, revokedAt: null }, order: { createdAt: 'DESC' } });
         const availability = !driver.active ? 'OFFLINE' : activeDeliveries > 0 ? 'ON_ROUTE' : (session?.shiftOpen ? 'AVAILABLE' : 'OFFLINE');
-        return { id: driver.id, name: driver.name, cpf_masked: `***.***.***-${driver.cpfLast4}`, plate: driver.plate, phone: driver.phone || '', active: driver.active, availability, active_deliveries: activeDeliveries, delivery_limit: driver.deliveryLimit, access_status: session && session.expiresAt > new Date() ? 'ACTIVE' : 'NOT_ACTIVATED', last_access_at: driver.lastAccessAt?.toISOString() || null, created_at: driver.createdAt?.toISOString() || null, version: driver.version, deactivation_reason: driver.deactivationReason };
+        return { id: driver.id, name: driver.name, cpf_masked: `***.***.***-${driver.cpfLast4}`, plate: driver.plate, phone: driver.phone || '', active: driver.active, availability, active_deliveries: activeDeliveries, delivery_limit: driver.deliveryLimit, access_status: driver.pinHash ? 'ACTIVE' : 'NOT_ACTIVATED', last_access_at: driver.lastAccessAt?.toISOString() || null, created_at: driver.createdAt?.toISOString() || null, version: driver.version, deactivation_reason: driver.deactivationReason };
     }
     private async requireDriver(tenantId: string, id: string) { const driver = await this.driverRepository.findOne({ where: { tenantId, id } }); if (!driver) throw new NotFoundException('Motoboy não encontrado.'); return driver; }
     private async recordEvent(tenantId: string, driverProfileId: string, eventType: string, metadata: Record<string, unknown>, actorUserId?: string) { await this.eventRepository.save(this.eventRepository.create({ tenantId, driverProfileId, eventType, metadata, actorUserId: actorUserId || null, deliveryId: null })); }
