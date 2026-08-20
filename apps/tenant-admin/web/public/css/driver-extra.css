@@ -28,9 +28,11 @@
 .driver-history article div {
   display: grid;
   gap: 4px;
+  min-width: 0;
 }
 
-.driver-history strong { font-size: 10px; }
-.driver-history small { color: var(--muted); font-size: 8px; }
+.driver-history strong { font-size: 13px; }
+.driver-history small { color: var(--muted); font-size: 10px; }
+.driver-history p { margin: 0; color: var(--ink); font-size: 11px; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .driver-map-options { display: grid; gap: 8px; margin-top: 16px; }
 .driver-map-options .driver-btn { width: 100%; }

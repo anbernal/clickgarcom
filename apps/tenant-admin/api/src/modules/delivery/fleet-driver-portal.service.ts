@@ -119,7 +119,35 @@ export class FleetDriverPortalService {
         return rows.map(row => this.assignmentSnapshot(row));
     }
 
-    async history(period: string | undefined, request: PortalRequest) { const current = await this.session(request); const since = new Date(Date.now() - (String(period || 'today').toLowerCase() === 'week' ? 7 : 1) * 86400000); const rows = await this.deliveryRepository.createQueryBuilder('delivery').where("delivery.tenant_id = :tenantId AND delivery.assigned_driver_profile_id = :driverId AND delivery.status = 'DELIVERED' AND delivery.delivered_at >= :since", { tenantId: current.tenant_id, driverId: current.driver.profile_id, since }).orderBy('delivery.delivered_at', 'DESC').take(100).getMany(); return rows.map(row => ({ id: row.id, delivery_id: row.id, delivery_code: row.displayCode, neighborhood: row.neighborhood || 'Destino', completed_at: row.deliveredAt || row.updatedAt, duration_minutes: Math.max(0, Math.round(((row.deliveredAt?.getTime() || row.updatedAt?.getTime() || Date.now()) - (row.pickedUpAt?.getTime() || row.createdAt?.getTime() || Date.now())) / 60000)) })); }
+    async history(period: string | undefined, request: PortalRequest) {
+        const current = await this.session(request);
+        const since = new Date(Date.now() - (String(period || 'today').toLowerCase() === 'week' ? 7 : 1) * 86400000);
+        const rows = await this.deliveryRepository.createQueryBuilder('delivery')
+            .where("delivery.tenant_id = :tenantId AND delivery.assigned_driver_profile_id = :driverId AND delivery.status = 'DELIVERED' AND delivery.delivered_at >= :since", { tenantId: current.tenant_id, driverId: current.driver.profile_id, since })
+            .orderBy('delivery.delivered_at', 'DESC')
+            .take(100)
+            .getMany();
+        return rows.map(row => {
+            const completedAt = row.deliveredAt || row.updatedAt;
+            const address = row.formattedAddress || [
+                row.street,
+                row.addressNumber ? `nº ${row.addressNumber}` : null,
+                row.addressComplement,
+                row.neighborhood,
+                row.city,
+                row.state,
+            ].filter(Boolean).join(', ') || row.neighborhood || 'Destino';
+            return {
+                id: row.id,
+                delivery_id: row.id,
+                delivery_code: row.displayCode,
+                address,
+                neighborhood: row.neighborhood || 'Destino',
+                completed_at: completedAt,
+                duration_minutes: Math.max(0, Math.round(((completedAt?.getTime() || Date.now()) - (row.pickedUpAt?.getTime() || row.createdAt?.getTime() || Date.now())) / 60000)),
+            };
+        });
+    }
 
     async command(deliveryId: string, command: string, body: any, request: PortalRequest) {
         const current = await this.session(request); await this.assertAssigned(current, deliveryId); const key = this.readHeader(request, 'idempotency-key'); const expected = body?.expected_version === undefined ? undefined : Number(body.expected_version);
