@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
 import { DataSource, In, Repository } from 'typeorm';
 import { createCipheriv, createHash, createHmac, randomBytes } from 'crypto';
-import QRCode from 'qrcode';
+import * as QRCode from 'qrcode';
 
 import { Tenant } from '../../entities/tenant.entity';
 import { Delivery } from '../../entities/delivery.entity';
@@ -119,12 +119,18 @@ export class DeliveryFleetService {
         const tenant = await this.requireTenant(tenantId);
         const slug = tenant.slug || tenantId;
         const activationUrl = `${this.publicOrigin()}/entregador/${encodeURIComponent(slug)}#activate=${token}`;
-        const qrCodeDataUrl = await QRCode.toDataURL(activationUrl, {
-            errorCorrectionLevel: 'M',
-            margin: 2,
-            width: 320,
-            color: { dark: '#123f35', light: '#ffffff' },
-        });
+        let qrCodeDataUrl: string | null = null;
+        try {
+            qrCodeDataUrl = await QRCode.toDataURL(activationUrl, {
+                errorCorrectionLevel: 'M',
+                margin: 2,
+                width: 320,
+                color: { dark: '#123f35', light: '#ffffff' },
+            });
+        } catch {
+            // A QR rendering issue must not invalidate the one-time link. The
+            // admin can still copy the absolute URL and retry the QR later.
+        }
         return { activation_url: activationUrl, qr_code_data_url: qrCodeDataUrl, expires_at: expires.toISOString(), driver_id: id };
     }
 
