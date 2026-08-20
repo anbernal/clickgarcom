@@ -10,6 +10,10 @@ export class FleetDriverPublicController {
     @Post('access/exchange') exchange(@Body() body: FleetDriverAccessTokenDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) { return this.portal.exchangeAccessToken(body.token, req, res); }
     @Post('access/activate') activate(@Body() body: FleetDriverPinDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) { return this.portal.activate(body.pin, req, res); }
     @Post('login') login(@Body() body: FleetDriverLoginDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) { return this.portal.login(body.cpf, body.pin, body.tenant_slug, req, res); }
+    // Keep public portal commands outside the legacy JWT driver route. Both
+    // controllers previously matched /admin/api/driver/deliveries/:id/pickup,
+    // so Nest selected the guarded route and returned Unauthorized.
+    @Post('deliveries/:id/:command') command(@Param('id') id: string, @Param('command') command: string, @Body() body: any, @Req() req: Request) { return this.portal.command(id, command, body, req); }
 }
 
 @Controller('admin/api/driver')
@@ -21,5 +25,4 @@ export class FleetDriverPortalController {
     @Put('shift') shift(@Body() body: FleetDriverShiftDto, @Req() req: Request) { return this.portal.shift(body.open, req); }
     @Get('deliveries') queue(@Req() req: Request) { return this.portal.queue(req); }
     @Get('deliveries/history') history(@Query('period') period: string, @Req() req: Request) { return this.portal.history(period, req); }
-    @Post('deliveries/:id/:command') command(@Param('id') id: string, @Param('command') command: string, @Body() body: any, @Req() req: Request) { return this.portal.command(id, command, body, req); }
 }

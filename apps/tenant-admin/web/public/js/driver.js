@@ -64,7 +64,7 @@ const driverGateway = {
     },
     async command(deliveryId, command, body = {}) {
         if (DRIVER_API_ENABLED) {
-            const response = await fetch(`/admin/api/driver/deliveries/${encodeURIComponent(deliveryId)}/${command}`, { method:'POST', headers:{'Content-Type':'application/json','Idempotency-Key':crypto.randomUUID()}, credentials:'include', body:JSON.stringify(body) });
+            const response = await fetch(`/admin/api/public/delivery/drivers/deliveries/${encodeURIComponent(deliveryId)}/${command}`, { method:'POST', headers:{'Content-Type':'application/json','Idempotency-Key':crypto.randomUUID()}, credentials:'include', body:JSON.stringify(body) });
             if (!response.ok) { const error = await response.json().catch(()=>({})); throw new Error(error.message || 'Não foi possível avançar a entrega.'); }
             return response.json();
         }
