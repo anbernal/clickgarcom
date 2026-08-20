@@ -142,6 +142,11 @@ export class Delivery {
     @Column({ name: 'assigned_driver_id', type: 'uuid', nullable: true })
     assignedDriverId: string | null;
 
+    /** Profile id used by the identified own-fleet mode. The legacy
+     * assigned_driver_id remains untouched for capacity/DRIVER users. */
+    @Column({ name: 'assigned_driver_profile_id', type: 'uuid', nullable: true })
+    assignedDriverProfileId: string | null;
+
     @Column({ name: 'eta_seconds', type: 'integer', nullable: true })
     etaSeconds: number | null;
 

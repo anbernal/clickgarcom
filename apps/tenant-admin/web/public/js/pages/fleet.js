@@ -376,7 +376,7 @@ async function saveFleetDriver(id) {
     if (phone && (phone.length < 12 || phone.length > 13)) return fail('Informe o telefone com DDD.');
     if (!Number.isInteger(deliveryLimit) || deliveryLimit < 1 || deliveryLimit > 10) return fail('O limite deve ficar entre 1 e 10 entregas.');
     try {
-        await fleetGateway.saveDriver(id, { name, ...(!id ? { cpf: fleetDigits(cpf) } : {}), plate, ...(phone ? { phone } : {}), delivery_limit: deliveryLimit });
+        await fleetGateway.saveDriver(id, { name, ...(!id ? { cpf: fleetDigits(cpf) } : {}), plate, ...(phone ? { phone } : {}), delivery_limit: deliveryLimit, ...(id ? { expected_version: Number(fleetState.drivers.find((driver) => driver.id === id)?.version || 1) } : {}) });
         closeModal(); await refreshFleetData({ silent: true }); showToast(id ? 'Cadastro atualizado.' : 'Motoboy cadastrado.', 'success');
     } catch (requestError) { fail(requestError.message || 'Não foi possível salvar. Os dados preenchidos foram preservados.'); }
 }

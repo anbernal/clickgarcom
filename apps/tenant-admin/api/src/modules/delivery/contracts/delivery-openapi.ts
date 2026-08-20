@@ -15,6 +15,10 @@ import {
 type OpenApiSchema = Record<string, unknown>;
 type OpenApiPath = Record<string, unknown>;
 
+function uuidPathParam(name: string, description: string) {
+    return { name, in: 'path', required: true, description, schema: { type: 'string', format: 'uuid' } };
+}
+
 function errorResponse(description: string, code: DeliveryErrorCode): OpenApiSchema {
     return {
         description,
@@ -182,6 +186,35 @@ export function buildDeliveryOpenApiSchemas(): Record<string, OpenApiSchema> {
                 reason_code: { type: 'string' },
                 notes: { type: 'string', maxLength: 500 },
             },
+        },
+        DeliveryFleetConfig: {
+            type: 'object',
+            required: ['mode', 'version'],
+            properties: {
+                mode: { type: 'string', enum: ['CAPACITY_ONLY', 'IDENTIFIED_DRIVERS'] },
+                version: { type: 'integer', minimum: 1 },
+                updated_at: { type: 'string', format: 'date-time', nullable: true },
+                updated_by: { type: 'string', nullable: true },
+            },
+        },
+        DeliveryFleetDriver: {
+            type: 'object',
+            required: ['id', 'name', 'cpf_masked', 'plate', 'active', 'availability', 'delivery_limit', 'version'],
+            properties: {
+                id: { type: 'string', format: 'uuid' }, name: { type: 'string' }, cpf_masked: { type: 'string' },
+                plate: { type: 'string' }, phone: { type: 'string', nullable: true }, active: { type: 'boolean' },
+                availability: { type: 'string' }, active_deliveries: { type: 'integer' }, delivery_limit: { type: 'integer' },
+                access_status: { type: 'string' }, last_access_at: { type: 'string', format: 'date-time', nullable: true }, version: { type: 'integer' },
+            },
+        },
+        DeliveryFleetAssignment: {
+            type: 'object',
+            required: ['id', 'delivery_id', 'driver_id', 'position', 'status', 'version'],
+            properties: { id: { type: 'string', format: 'uuid' }, delivery_id: { type: 'string', format: 'uuid' }, driver_id: { type: 'string', format: 'uuid' }, delivery_code: { type: 'string' }, customer_name: { type: 'string' }, position: { type: 'integer' }, status: { type: 'string' }, version: { type: 'integer' }, eta_minutes: { type: 'integer', nullable: true } },
+        },
+        DeliveryFleetDriverWriteRequest: {
+            type: 'object', required: ['name', 'cpf', 'plate'], additionalProperties: false,
+            properties: { name: { type: 'string', minLength: 3 }, cpf: { type: 'string', pattern: '^[0-9]{11}$' }, plate: { type: 'string', pattern: '^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$' }, phone: { type: 'string' }, delivery_limit: { type: 'integer', minimum: 1, maximum: 10 } },
         },
         DeliveryOverrideRequest: {
             type: 'object',
@@ -541,6 +574,27 @@ export function buildDeliveryOpenApiPaths(): Record<string, OpenApiPath> {
             responses: authorizedResponses('Ocorrência registrada.', { $ref: '#/components/schemas/DeliverySummary' }),
         },
     };
+
+    routes[`${adminBase}/delivery/fleet/config`] = {
+        get: { tags: ['Delivery Fleet'], summary: 'Lê o modo da frota própria', security: bearer, responses: authorizedResponses('Configuração da frota.', { $ref: '#/components/schemas/DeliveryFleetConfig' }) },
+        put: { tags: ['Delivery Fleet'], summary: 'Alterna capacidade simples e motoboys identificados', security: bearer, requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['mode', 'expected_version'], properties: { mode: { type: 'string', enum: ['CAPACITY_ONLY', 'IDENTIFIED_DRIVERS'] }, expected_version: { type: 'integer' } } } } } }, responses: authorizedResponses('Configuração atualizada.', { $ref: '#/components/schemas/DeliveryFleetConfig' }) },
+    };
+    routes[`${adminBase}/delivery/drivers`] = {
+        get: { tags: ['Delivery Fleet'], summary: 'Lista motoboys cadastrados sem CPF completo', security: bearer, responses: authorizedResponses('Motoboys do tenant.', { type: 'object', properties: { drivers: { type: 'array', items: { $ref: '#/components/schemas/DeliveryFleetDriver' } } } }) },
+        post: { tags: ['Delivery Fleet'], summary: 'Cadastra motoboy', security: bearer, requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/DeliveryFleetDriverWriteRequest' } } } }, responses: authorizedResponses('Motoboy cadastrado.', { $ref: '#/components/schemas/DeliveryFleetDriver' }) },
+    };
+    for (const action of ['activate', 'deactivate', 'access-links']) routes[`${adminBase}/delivery/drivers/{id}/${action}`] = { post: { tags: ['Delivery Fleet'], summary: `Ação ${action} do motoboy`, security: bearer, parameters: [uuidPathParam('id', 'Perfil do motoboy')], responses: authorizedResponses('Ação aplicada.', { type: 'object' }) } };
+    routes[`${adminBase}/delivery/drivers/{id}`] = { patch: { tags: ['Delivery Fleet'], summary: 'Atualiza cadastro do motoboy', security: bearer, parameters: [uuidPathParam('id', 'Perfil do motoboy')], requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/DeliveryFleetDriverWriteRequest' } } } }, responses: authorizedResponses('Cadastro atualizado.', { $ref: '#/components/schemas/DeliveryFleetDriver' }) } };
+    routes[`${adminBase}/delivery/fleet/assignments`] = { get: { tags: ['Delivery Fleet'], summary: 'Lista filas ativas por motoboy', security: bearer, responses: authorizedResponses('Filas ativas.', { type: 'object', properties: { assignments: { type: 'array', items: { $ref: '#/components/schemas/DeliveryFleetAssignment' } } } }) } };
+    routes[`${adminBase}/deliveries/reports/drivers`] = { get: { tags: ['Delivery Fleet'], summary: 'Relatório operacional por motoboy', security: bearer, responses: authorizedResponses('Indicadores da frota.', { type: 'object', additionalProperties: true }) } };
+
+    const publicBase = '/admin/api/public/v1';
+    routes[`${publicBase}/delivery/drivers/access/exchange`] = { post: { tags: ['Delivery Driver Portal'], summary: 'Troca link de ativação por contexto temporário', requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['token'], properties: { token: { type: 'string' } } } } } }, responses: { '200': { description: 'Ativação disponível.' }, '401': errorResponse('Link inválido ou expirado.', DeliveryErrorCode.TrackingAccessInvalid) } } };
+    routes[`${publicBase}/delivery/drivers/access/activate`] = { post: { tags: ['Delivery Driver Portal'], summary: 'Define PIN e abre sessão do motoboy', requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['pin'], properties: { pin: { type: 'string', pattern: '^\\d{6}$' } } } } } }, responses: { '200': { description: 'Sessão criada.' } } } };
+    routes[`${publicBase}/delivery/drivers/login`] = { post: { tags: ['Delivery Driver Portal'], summary: 'Login fallback do motoboy por CPF e PIN', requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['cpf', 'pin'], properties: { cpf: { type: 'string' }, pin: { type: 'string' }, tenant_slug: { type: 'string' } } } } } }, responses: { '200': { description: 'Sessão criada.' }, '401': errorResponse('Credenciais inválidas.', DeliveryErrorCode.TrackingAccessInvalid) } } };
+    for (const [path, method, summary] of [
+        [`${adminBase}/driver/session`, 'get', 'Consulta sessão do portal'], [`${adminBase}/driver/deliveries`, 'get', 'Lista fila do motoboy'], [`${adminBase}/driver/deliveries/history`, 'get', 'Lista histórico do motoboy'],
+    ] as Array<[string, string, string]>) routes[path] = { [method]: { tags: ['Delivery Driver Portal'], summary, responses: { '200': { description: 'Consulta realizada.' }, '401': errorResponse('Sessão expirada.', DeliveryErrorCode.TrackingAccessInvalid) } } };
 
     return routes;
 }

@@ -26,6 +26,8 @@ type DeliveryV2Settings = {
     default_fulfillment_mode: 'OWN' | 'EXTERNAL';
     own_capacity: { available_couriers: number };
     external: { provider_order: string[]; max_attempts: number; attempt_window_minutes: number };
+    /** Frota própria: capacidade agregada or motoboys identificados. */
+    own_fleet_mode: 'CAPACITY_ONLY' | 'IDENTIFIED_DRIVERS';
 };
 
 type DeliveryOriginAddress = {
@@ -80,6 +82,7 @@ const DEFAULT_DELIVERY_SETTINGS: DeliveryPolicySettings & {
     whatsapp_order_mode: 'HYBRID',
     own_capacity: { available_couriers: 0 },
     external: { provider_order: ['IFOOD'], max_attempts: 5, attempt_window_minutes: 15 },
+    own_fleet_mode: 'CAPACITY_ONLY',
 };
 
 @Injectable()
@@ -153,6 +156,7 @@ export class DeliverySettingsService {
                     ...(payload.external_max_attempts === undefined ? {} : { max_attempts: payload.external_max_attempts }),
                     ...(payload.external_attempt_window_minutes === undefined ? {} : { attempt_window_minutes: payload.external_attempt_window_minutes }),
                 },
+                own_fleet_mode: previous.own_fleet_mode,
             },
         };
         let next: typeof DEFAULT_DELIVERY_SETTINGS;
@@ -261,6 +265,7 @@ export class DeliverySettingsService {
             default_fulfillment_mode: mode as 'OWN' | 'EXTERNAL',
             own_capacity: { available_couriers: capacity },
             external: { provider_order: Array.from(new Set(providerOrder)), max_attempts: maxAttempts, attempt_window_minutes: attemptWindowMinutes },
+            own_fleet_mode: delivery.own_fleet_mode === 'IDENTIFIED_DRIVERS' || delivery.fleet_mode === 'IDENTIFIED_DRIVERS' ? 'IDENTIFIED_DRIVERS' : 'CAPACITY_ONLY',
         };
     }
 

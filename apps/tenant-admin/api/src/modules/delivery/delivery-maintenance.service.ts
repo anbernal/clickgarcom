@@ -17,6 +17,7 @@ import { DomainOutboxEvent } from '../../entities/domain-outbox-event.entity';
 import { DeliveryFulfillment } from '../../entities/delivery-fulfillment.entity';
 import { DeliveryProviderWebhookInbox } from '../../entities/delivery-provider-webhook-inbox.entity';
 import { DeliveryOwnCapacityReservation } from '../../entities/delivery-own-capacity-reservation.entity';
+import { DeliveryFleetService } from './delivery-fleet.service';
 import { DeliveryStatus, DELIVERY_TERMINAL_STATUSES } from './contracts';
 
 export const DELIVERY_REDIS_MAINTENANCE = Symbol('DELIVERY_REDIS_MAINTENANCE');
@@ -60,6 +61,7 @@ export class DeliveryMaintenanceService {
         private readonly checkoutService: DeliveryCheckoutService,
         private readonly fulfillmentService: DeliveryFulfillmentService,
         private readonly webhookService: DeliveryWebhookService,
+        private readonly fleetService: DeliveryFleetService,
         @Optional()
         @InjectRedisMaintenance()
         private readonly redisMaintenance?: DeliveryRedisMaintenance,
@@ -82,6 +84,7 @@ export class DeliveryMaintenanceService {
         const webhooks = dryRun ? { candidates: 0, processed: 0, failed: 0, dry_run: true } : await this.webhookService.processPending({ tenantId, now, limit });
         const externalReconciliation = dryRun ? { candidates: 0, reconciled: 0, failed: 0, dry_run: true } : await this.webhookService.reconcileStale({ tenantId, now, limit });
         const domainOutbox = await this.cleanupDomainOutbox({ tenantId, now, limit, dryRun });
+        const fleet = dryRun ? { expired_sessions: 0, expired_links: 0, dry_run: true } : await this.fleetService.cleanupExpiredAccess(tenantId);
         const redis = await this.cleanupTerminalRedis(tenantId, dryRun);
 
         const result = {
@@ -99,6 +102,7 @@ export class DeliveryMaintenanceService {
             webhooks,
             external_reconciliation: externalReconciliation,
             domain_outbox: domainOutbox,
+            fleet,
             redis,
         };
         this.logger.log(`delivery maintenance completed dry_run=${dryRun} tenant_scope=${tenantId ? 'scoped' : 'all'} outbox_removed=${domainOutbox.removed}`);

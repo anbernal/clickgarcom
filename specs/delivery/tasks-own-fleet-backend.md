@@ -6,7 +6,7 @@ podem ser iniciadas após aprovar o Marco 0 do plano. O modo legado
 
 ## DEL-FLEET-BE-001 — Rebaseline de domínio, flag e contratos
 
-- Status: [ ] Pendente
+- Status: [x] Implementado — aguarda migration/rollout controlado
 - Prioridade: P0
 - Dependências: nenhuma
 
@@ -29,20 +29,22 @@ Critérios de aceite:
 
 ## DEL-FLEET-BE-002 — Persistir perfil de motoboy com proteção de CPF
 
-- Status: [ ] Pendente
+- Status: [x] Implementado — aguarda migration/rollout controlado
 - Prioridade: P0
 - Dependências: DEL-FLEET-BE-001
 
 Implementação:
 
 - criar migration/entidade `delivery_driver_profiles` e índices tenant-scoped;
-- relacionar perfil a usuário operacional `DRIVER`;
+- criar perfil operacional independente (sem exigir e-mail/usuário de login),
+  mantendo `created_by`/`updated_by` para auditoria administrativa;
 - implementar CPF normalizado, validação dos dígitos, cifragem, HMAC e últimos
   quatro dígitos;
 - normalizar placa antiga/Mercosul e validar formato de sete caracteres;
 - suportar ativo/inativo, disponibilidade e limite por motoboy;
 - criar exclusão lógica e auditoria;
-- garantir uma transação para usuário `DRIVER` + perfil.
+- garantir transação para perfil, credenciais e auditoria quando o PIN for
+  criado ou alterado.
 
 Critérios de aceite:
 
@@ -54,7 +56,7 @@ Critérios de aceite:
 
 ## DEL-FLEET-BE-003 — CRUD administrativo e RBAC de frota
 
-- Status: [ ] Pendente
+- Status: [x] Implementado — aguarda migration/rollout controlado
 - Prioridade: P0
 - Dependências: DEL-FLEET-BE-002
 
@@ -75,7 +77,7 @@ Critérios de aceite:
 
 ## DEL-FLEET-BE-004 — Criar acesso seguro ao portal do motoboy
 
-- Status: [ ] Pendente
+- Status: [x] Implementado — aguarda migration/rollout controlado
 - Prioridade: P0
 - Dependências: DEL-FLEET-BE-002
 
@@ -99,7 +101,7 @@ Critérios de aceite:
 
 ## DEL-FLEET-BE-005 — Histórico de atribuição e fila concorrente
 
-- Status: [ ] Pendente
+- Status: [x] Implementado — aguarda migration/rollout controlado
 - Prioridade: P0
 - Dependências: DEL-FLEET-BE-001, DEL-FLEET-BE-003
 
@@ -121,7 +123,7 @@ Critérios de aceite:
 
 ## DEL-FLEET-BE-006 — Ações do motoboy e conclusão por código
 
-- Status: [ ] Pendente
+- Status: [x] Implementado — aguarda migration/rollout controlado
 - Prioridade: P0
 - Dependências: DEL-FLEET-BE-004, DEL-FLEET-BE-005
 
@@ -144,7 +146,7 @@ Critérios de aceite:
 
 ## DEL-FLEET-BE-007 — Eventos, realtime, relatório e manutenção
 
-- Status: [ ] Pendente
+- Status: Em validação — relatórios/manutenção prontos; websocket específico usa reconciliação periódica
 - Prioridade: P1
 - Dependências: DEL-FLEET-BE-005, DEL-FLEET-BE-006
 
@@ -162,4 +164,3 @@ Critérios de aceite:
 - dashboard, KDS e portal convergem sem refresh;
 - métricas não usam CPF, endereço ou código como label;
 - manutenção é idempotente e possui dry-run.
-

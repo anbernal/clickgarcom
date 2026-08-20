@@ -35,6 +35,12 @@ import { DeliveryProviderAttempt } from './entities/delivery-provider-attempt.en
 import { DeliveryOwnCapacityReservation } from './entities/delivery-own-capacity-reservation.entity';
 import { DeliveryProviderWebhookInbox } from './entities/delivery-provider-webhook-inbox.entity';
 import { DeliveryCheckout } from './entities/delivery-checkout.entity';
+import { DeliveryDriverProfile } from './entities/delivery-driver-profile.entity';
+import { DeliveryDriverAssignment } from './entities/delivery-driver-assignment.entity';
+import { DeliveryDriverAccessLink } from './entities/delivery-driver-access-link.entity';
+import { DeliveryDriverSession } from './entities/delivery-driver-session.entity';
+import { DeliveryDriverIncident } from './entities/delivery-driver-incident.entity';
+import { DeliveryDriverEvent } from './entities/delivery-driver-event.entity';
 
 import { MenuModule } from './modules/menu/menu.module';
 import { CategoriesModule } from './modules/categories/categories.module';
@@ -60,7 +66,7 @@ import { AppController } from './app.controller';
             username: process.env.DATABASE_USER || 'postgres',
             password: process.env.DATABASE_PASSWORD || 'postgres123',
             database: process.env.DATABASE_NAME || 'clickgarcom_db',
-            entities: [MenuCategory, MenuItem, Order, OrderItem, OrderBatch, Table, Tab, TableRequest, User, Tenant, MessageLog, BotFlowDefinition, UserAccessAuditLog, WalletBillingCycle, PurchaseEntry, Delivery, DeliveryEvent, DeliveryTrackingCredential, DeliveryLocationSample, DeliveryPinChallenge, DeliveryCommandIdempotency, DomainOutboxEvent, Customer, CustomerAddress, DeliveryProviderConfig, DeliveryProviderCredential, DeliveryQuote, DeliveryFulfillment, DeliveryProviderAttempt, DeliveryOwnCapacityReservation, DeliveryProviderWebhookInbox, DeliveryCheckout],
+            entities: [MenuCategory, MenuItem, Order, OrderItem, OrderBatch, Table, Tab, TableRequest, User, Tenant, MessageLog, BotFlowDefinition, UserAccessAuditLog, WalletBillingCycle, PurchaseEntry, Delivery, DeliveryEvent, DeliveryTrackingCredential, DeliveryLocationSample, DeliveryPinChallenge, DeliveryCommandIdempotency, DomainOutboxEvent, Customer, CustomerAddress, DeliveryProviderConfig, DeliveryProviderCredential, DeliveryQuote, DeliveryFulfillment, DeliveryProviderAttempt, DeliveryOwnCapacityReservation, DeliveryProviderWebhookInbox, DeliveryCheckout, DeliveryDriverProfile, DeliveryDriverAssignment, DeliveryDriverAccessLink, DeliveryDriverSession, DeliveryDriverIncident, DeliveryDriverEvent],
             synchronize: false,
         }),
         AmqpModule,

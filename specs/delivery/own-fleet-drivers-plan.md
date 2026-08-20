@@ -5,7 +5,7 @@
 | Produto | ClickGarçom Delivery |
 | Evolução | Frota própria com cadastro, atribuição e portal web do motoboy |
 | Data | 20/08/2026 |
-| Status | Estudo de viabilidade e plano para aprovação |
+| Status | Implementação entregue; migration e rollout controlado pendentes |
 | Compatibilidade | Preserva o modo V2 de capacidade numérica por feature flag |
 
 ## 1. Decisão recomendada
@@ -177,7 +177,7 @@ conclusão ou retorno, sempre com justificativa auditada.
 
 | Recurso existente | Reutilização |
 |---|---|
-| `users.role = DRIVER` | identidade operacional e RBAC do entregador |
+| `users.role = DRIVER` | RBAC legado preservado; o novo perfil operacional não exige usuário de login |
 | `deliveries.assigned_driver_id` | vínculo atual entre entrega e motoboy |
 | `DeliveryDriverController` | base das APIs de fila, retirada, chegada, código e ocorrência |
 | `DeliveryPinService` | código hexadecimal, HMAC, expiração e bloqueio |
@@ -198,7 +198,7 @@ histórico.
 
 - `id` UUID;
 - `tenant_id` UUID;
-- `user_id` UUID, vínculo 1:1 com usuário `DRIVER`;
+- `created_by`/`updated_by` UUID para auditoria administrativa; o perfil não exige usuário de login;
 - `cpf_ciphertext`;
 - `cpf_hmac`;
 - `cpf_last4`;

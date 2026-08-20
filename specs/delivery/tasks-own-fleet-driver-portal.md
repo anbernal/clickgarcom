@@ -10,7 +10,7 @@ autenticação: cada motoboy só acessa a própria fila.
 
 ## DEL-FLEET-DRV-001 — Shell PWA e identidade do tenant
 
-- Status: [x] Frontend concluído — integração de API pendente
+- Status: [x] Frontend concluído — endpoints reais implementados; ativação controlada por `ADMIN_FLEET_API_ENABLED`
 - Prioridade: P0
 - Dependências: DEL-FLEET-BE-004
 
@@ -32,7 +32,7 @@ Critérios de aceite:
 
 ## DEL-FLEET-DRV-002 — Ativação, login e turno
 
-- Status: [x] Frontend concluído — autenticação backend pendente
+- Status: [x] Frontend concluído — ativação, sessão HttpOnly e login fallback implementados
 - Prioridade: P0
 - Dependências: DEL-FLEET-BE-004, DEL-FLEET-DRV-001
 
@@ -52,7 +52,7 @@ Critérios de aceite:
 
 ## DEL-FLEET-DRV-003 — Fila, detalhe e navegação
 
-- Status: [x] Frontend concluído — fila backend pendente
+- Status: [x] Frontend concluído — fila/histórico reais implementados
 - Prioridade: P0
 - Dependências: DEL-FLEET-BE-006, DEL-FLEET-DRV-002
 
@@ -72,7 +72,7 @@ Critérios de aceite:
 
 ## DEL-FLEET-DRV-004 — Retirada, rota, código e ocorrências
 
-- Status: [x] Frontend concluído — comandos backend pendentes
+- Status: [x] Frontend concluído — comandos idempotentes reais implementados
 - Prioridade: P0
 - Dependências: DEL-FLEET-BE-006, DEL-FLEET-DRV-003
 
@@ -94,7 +94,7 @@ Critérios de aceite:
 
 ## DEL-FLEET-DRV-005 — Realtime, conexão e acessibilidade
 
-- Status: [x] Frontend concluído — realtime backend pendente
+- Status: [x] Frontend concluído — reconciliação periódica real; websocket dedicado fica para próxima iteração
 - Prioridade: P1
 - Dependências: DEL-FLEET-BE-007, DEL-FLEET-DRV-004
 

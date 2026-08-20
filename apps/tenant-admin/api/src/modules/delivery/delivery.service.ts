@@ -15,6 +15,8 @@ import { DomainOutboxEvent } from '../../entities/domain-outbox-event.entity';
 import { DeliveryCommandIdempotency } from '../../entities/delivery-command-idempotency.entity';
 import { DeliveryPinChallenge } from '../../entities/delivery-pin-challenge.entity';
 import { DeliveryCheckout } from '../../entities/delivery-checkout.entity';
+import { DeliveryDriverProfile } from '../../entities/delivery-driver-profile.entity';
+import { DeliveryDriverAssignment } from '../../entities/delivery-driver-assignment.entity';
 import { DeliveryPolicyService } from './delivery-policy.service';
 import { DeliveryPinFailure, DeliveryPinService } from './delivery-pin.service';
 import { DeliveryNotificationService, DeliveryNotificationMilestone } from './delivery-notification.service';
@@ -156,6 +158,10 @@ export class DeliveryService {
         private readonly userRepository: Repository<User>,
         @InjectRepository(DeliveryCheckout)
         private readonly checkoutRepository: Repository<DeliveryCheckout>,
+        @InjectRepository(DeliveryDriverProfile)
+        private readonly driverProfileRepository: Repository<DeliveryDriverProfile>,
+        @InjectRepository(DeliveryDriverAssignment)
+        private readonly driverAssignmentRepository: Repository<DeliveryDriverAssignment>,
         private readonly dataSource: DataSource,
         private readonly policyService: DeliveryPolicyService,
         private readonly pinService: DeliveryPinService,
@@ -259,6 +265,39 @@ export class DeliveryService {
      * signal is introduced.
      */
     async listEligibleDrivers(tenantId: string) {
+        const tenant = await this.tenantRepository.findOne({ where: { id: tenantId } });
+        const deliverySettings = ((tenant?.settings || {}) as any).delivery || {};
+        const identifiedFleet = (deliverySettings.own_fleet_mode || deliverySettings.fleet_mode) === 'IDENTIFIED_DRIVERS';
+        if (identifiedFleet) {
+            const profiles = await this.driverProfileRepository.find({
+                where: { tenantId, active: true },
+                order: { name: 'ASC' },
+            });
+            const activeAssignments = profiles.length
+                ? await this.driverAssignmentRepository.createQueryBuilder('assignment')
+                    .select('assignment.driver_profile_id', 'driver_id')
+                    .addSelect('COUNT(*)', 'active_count')
+                    .where('assignment.tenant_id = :tenantId', { tenantId })
+                    .andWhere('assignment.driver_profile_id IN (:...driverIds)', { driverIds: profiles.map((profile) => profile.id) })
+                    .andWhere("assignment.status = 'ACTIVE'")
+                    .groupBy('assignment.driver_profile_id')
+                    .getRawMany<{ driver_id: string; active_count: string }>()
+                : [];
+            const activeByDriver = new Map(activeAssignments.map((item) => [item.driver_id, Number(item.active_count)]));
+            return {
+                drivers: profiles.map((profile) => {
+                    const activeDeliveries = activeByDriver.get(profile.id) || 0;
+                    return {
+                        id: profile.id,
+                        name: profile.name,
+                        availability: activeDeliveries >= profile.deliveryLimit ? DeliveryDriverAvailability.Busy : (profile.availability === 'OFFLINE' ? DeliveryDriverAvailability.Offline : DeliveryDriverAvailability.Available),
+                        active_deliveries: activeDeliveries,
+                        delivery_limit: profile.deliveryLimit,
+                        last_activity_at: profile.lastAccessAt,
+                    };
+                }),
+            };
+        }
         const drivers = await this.userRepository.find({
             where: { tenantId, active: true, role: 'DRIVER' as any },
             order: { name: 'ASC' },
@@ -1041,6 +1080,46 @@ export class DeliveryService {
         return delivery ? this.toSnapshot(delivery) : null;
     }
 
+    /** Own-fleet portal commands use the profile projection, never a tenant
+     * user id. They reuse the same state machine, PIN, outbox and tracking
+     * paths as the legacy DRIVER endpoints. */
+    async pickupForFleetDriver(tenantId: string, deliveryId: string, profileId: string, idempotencyKey?: string) {
+        return this.runIdempotent(tenantId, deliveryId, 'fleet-pickup', idempotencyKey, { type: DeliveryActorType.Driver }, {}, async () => {
+            const snapshot = await this.pickupInternal(tenantId, deliveryId, profileId, true);
+            await this.publishTrackingStatus(snapshot);
+            return snapshot;
+        });
+    }
+
+    async startForFleetDriver(tenantId: string, deliveryId: string, profileId: string, expectedVersion?: number, idempotencyKey?: string) {
+        if (!Number.isInteger(expectedVersion)) throw new BadRequestException('A versão da entrega é obrigatória.');
+        const delivery = await this.deliveryRepository.findOne({ where: { id: deliveryId, tenantId, assignedDriverProfileId: profileId } });
+        if (!delivery) throw new NotFoundException('Entrega não encontrada.');
+        return this.runIdempotent(tenantId, deliveryId, 'fleet-start', idempotencyKey, { type: DeliveryActorType.Driver }, { expected_version: expectedVersion }, () => this.transition(tenantId, deliveryId, DeliveryStatus.InTransit, { type: DeliveryActorType.Driver }, 'DRIVER_STARTED', undefined, 'DRIVER_PORTAL', {}, expectedVersion));
+    }
+
+    async arriveForFleetDriver(tenantId: string, deliveryId: string, profileId: string) {
+        const delivery = await this.deliveryRepository.findOne({ where: { id: deliveryId, tenantId, assignedDriverProfileId: profileId } });
+        if (!delivery) throw new NotFoundException('Entrega não encontrada.');
+        if (![DeliveryStatus.InTransit, DeliveryStatus.Arrived].includes(delivery.status as DeliveryStatus)) throw new UnprocessableEntityException('A entrega ainda não está em rota.');
+        if (delivery.status === DeliveryStatus.Arrived) return this.toSnapshot(delivery);
+        return this.transition(tenantId, deliveryId, DeliveryStatus.Arrived, { type: DeliveryActorType.Driver }, 'DRIVER_ARRIVED', undefined, 'DRIVER_PORTAL');
+    }
+
+    async confirmPinForFleetDriver(tenantId: string, deliveryId: string, profileId: string, command: DeliveryConfirmPinDto, idempotencyKey?: string) {
+        const snapshot = await this.runIdempotent(tenantId, deliveryId, 'fleet-confirm-pin', idempotencyKey, { type: DeliveryActorType.Driver }, { pin_fingerprint: this.pinService.fingerprint(command.pin) }, () => this.confirmPinInternal(tenantId, deliveryId, profileId, command.pin, true));
+        if (snapshot.status === DeliveryStatus.Delivered) {
+            await this.driverAssignmentRepository.update({ tenantId, deliveryId, driverProfileId: profileId, status: 'ACTIVE' }, { status: 'COMPLETED', unassignedAt: new Date(), version: () => 'version + 1' });
+        }
+        return snapshot;
+    }
+
+    async openExceptionForFleetDriver(tenantId: string, deliveryId: string, profileId: string, command: DeliveryExceptionDto, idempotencyKey?: string) {
+        const delivery = await this.deliveryRepository.findOne({ where: { id: deliveryId, tenantId, assignedDriverProfileId: profileId } });
+        if (!delivery) throw new NotFoundException('Entrega não encontrada.');
+        return this.openExceptionForDriver(tenantId, deliveryId, profileId, command, idempotencyKey, true);
+    }
+
     async pickupForDriver(tenantId: string, deliveryId: string, driverId: string, idempotencyKey?: string): Promise<DeliverySnapshot> {
         return this.runIdempotent(
             tenantId,
@@ -1057,7 +1136,7 @@ export class DeliveryService {
         );
     }
 
-    private async pickupInternal(tenantId: string, deliveryId: string, driverId: string): Promise<DeliverySnapshot> {
+    private async pickupInternal(tenantId: string, deliveryId: string, driverId: string, profileMode = false): Promise<DeliverySnapshot> {
         return this.dataSource.transaction(async (manager) => {
             const delivery = await manager.getRepository(Delivery)
                 .createQueryBuilder('delivery')
@@ -1065,7 +1144,7 @@ export class DeliveryService {
                 .andWhere('delivery.tenant_id = :tenantId', { tenantId })
                 .setLock('pessimistic_write')
                 .getOne();
-            if (!delivery || delivery.assignedDriverId !== driverId) throw new NotFoundException('Entrega não encontrada.');
+            if (!delivery || (profileMode ? delivery.assignedDriverProfileId !== driverId : delivery.assignedDriverId !== driverId)) throw new NotFoundException('Entrega não encontrada.');
             if (delivery.status === DeliveryStatus.PickedUp) return this.toSnapshot(delivery);
             if (delivery.status !== DeliveryStatus.Assigned) throw new UnprocessableEntityException('A entrega não está aguardando retirada.');
 
@@ -1079,10 +1158,10 @@ export class DeliveryService {
             // notification adapter may consume it in-process; it never enters
             // the HTTP response, domain event or outbox payload.
             const issued = await this.pinService.issueChallenge(manager, tenantId, deliveryId);
-            const tracking = await this.trackingService.issueLinkInTransaction(manager, tenantId, deliveryId, driverId);
+            const tracking = await this.trackingService.issueLinkInTransaction(manager, tenantId, deliveryId, profileMode ? undefined : driverId);
             await this.notificationService.enqueuePickup(manager, saved, tracking.tracking_url, issued.pin);
             await this.appendEvent(manager, saved, DeliveryEventType.PickedUp, {
-                id: driverId,
+                id: profileMode ? undefined : driverId,
                 type: DeliveryActorType.Driver,
             }, saved.status, {
                 previous_status: previousStatus,
@@ -1120,7 +1199,7 @@ export class DeliveryService {
         );
     }
 
-    private async confirmPinInternal(tenantId: string, deliveryId: string, driverId: string, pin: string): Promise<DeliverySnapshot> {
+    private async confirmPinInternal(tenantId: string, deliveryId: string, driverId: string, pin: string, profileMode = false): Promise<DeliverySnapshot> {
         const result = await this.dataSource.transaction(async (manager) => {
             const delivery = await manager.getRepository(Delivery)
                 .createQueryBuilder('delivery')
@@ -1128,7 +1207,7 @@ export class DeliveryService {
                 .andWhere('delivery.tenant_id = :tenantId', { tenantId })
                 .setLock('pessimistic_write')
                 .getOne();
-            if (!delivery || delivery.assignedDriverId !== driverId) throw new NotFoundException('Entrega não encontrada.');
+            if (!delivery || (profileMode ? delivery.assignedDriverProfileId !== driverId : delivery.assignedDriverId !== driverId)) throw new NotFoundException('Entrega não encontrada.');
             if (delivery.status === DeliveryStatus.Delivered) return { snapshot: this.toSnapshot(delivery) };
             if (![DeliveryStatus.InTransit, DeliveryStatus.Arrived].includes(delivery.status as DeliveryStatus)) {
                 throw new UnprocessableEntityException('A entrega não está aguardando confirmação.');
@@ -1144,7 +1223,7 @@ export class DeliveryService {
             const saved = await manager.getRepository(Delivery).save(delivery);
             await this.markCurrentFulfillmentDelivered(manager, saved);
             await this.appendEvent(manager, saved, DeliveryEventType.Completed, {
-                id: driverId,
+                id: profileMode ? undefined : driverId,
                 type: DeliveryActorType.Driver,
             }, saved.status, {
                 previous_status: previousStatus,
@@ -1212,6 +1291,7 @@ export class DeliveryService {
         driverId: string,
         command: DeliveryExceptionDto,
         idempotencyKey?: string,
+        profileMode = false,
     ): Promise<DeliverySnapshot> {
         return this.runIdempotent(
             tenantId,
@@ -1227,7 +1307,7 @@ export class DeliveryService {
                     .setLock('pessimistic_write')
                     .where('delivery.id = :deliveryId AND delivery.tenant_id = :tenantId', { deliveryId, tenantId })
                     .getOne();
-                if (!delivery || delivery.assignedDriverId !== driverId) throw new NotFoundException('Entrega não encontrada.');
+                if (!delivery || (profileMode ? delivery.assignedDriverProfileId !== driverId : delivery.assignedDriverId !== driverId)) throw new NotFoundException('Entrega não encontrada.');
                 if (delivery.status === DeliveryStatus.DeliveryFailed) return this.toSnapshot(delivery);
                 if (![DeliveryStatus.PickedUp, DeliveryStatus.InTransit, DeliveryStatus.Arrived].includes(delivery.status as DeliveryStatus)) {
                     throw new UnprocessableEntityException('A entrega não aceita ocorrência neste estado.');
@@ -1238,7 +1318,7 @@ export class DeliveryService {
                 this.applyTimestamp(delivery, DeliveryStatus.DeliveryFailed);
                 const saved = await repository.save(delivery);
                 await this.appendEvent(manager, saved, DeliveryEventType.ExceptionOpened, {
-                    id: driverId,
+                    id: profileMode ? undefined : driverId,
                     type: DeliveryActorType.Driver,
                 }, saved.status, {
                     previous_status: previous,
@@ -1375,22 +1455,65 @@ export class DeliveryService {
             throw new UnprocessableEntityException('A entrega não está disponível para atribuição.');
         }
 
-        const driver = await this.userRepository.findOne({ where: { id: command.driver_id, tenantId, active: true } });
-        if (!driver || driver.role !== 'DRIVER') throw new UnprocessableEntityException('Entregador não encontrado ou inativo.');
-        const busy = await this.deliveryRepository.count({ where: { tenantId, assignedDriverId: command.driver_id, status: In(ACTIVE_STATUSES) } });
-        if (busy > 0 && delivery.assignedDriverId !== command.driver_id) throw new ConflictException('Entregador já possui uma entrega ativa.');
+        const profile = await this.driverProfileRepository.findOne({ where: { id: command.driver_id, tenantId, active: true } });
+        if (profile) {
+            const tenant = await this.tenantRepository.findOne({ where: { id: tenantId } });
+            const mode = (tenant?.settings as any)?.delivery?.own_fleet_mode || (tenant?.settings as any)?.delivery?.fleet_mode || 'CAPACITY_ONLY';
+            if (mode !== 'IDENTIFIED_DRIVERS') throw new UnprocessableEntityException('Ative o modo de motoboys cadastrados antes de atribuir uma entrega.');
+        }
+        const driver = profile ? null : await this.userRepository.findOne({ where: { id: command.driver_id, tenantId, active: true } });
+        if (!profile && (!driver || driver.role !== 'DRIVER')) throw new UnprocessableEntityException('Entregador não encontrado ou inativo.');
+        const busy = profile
+            ? await this.driverAssignmentRepository.count({ where: { tenantId, driverProfileId: command.driver_id, status: 'ACTIVE' } })
+            : await this.deliveryRepository.count({ where: { tenantId, assignedDriverId: command.driver_id, status: In(ACTIVE_STATUSES) } });
+        const alreadyAssigned = profile ? delivery.assignedDriverProfileId === command.driver_id : delivery.assignedDriverId === command.driver_id;
+        const limit = profile?.deliveryLimit || 1;
+        if (busy >= limit && !alreadyAssigned) throw new ConflictException('O motoboy atingiu o limite de entregas ativas.');
 
         const snapshot = await this.dataSource.transaction(async (manager) => {
             const repository = manager.getRepository(Delivery);
             const current = await repository.findOne({ where: { id, tenantId } });
             if (!current || current.version !== command.expected_version) throw new ConflictException('A entrega foi alterada. Atualize e tente novamente.');
             const previousDriver = current.assignedDriverId;
-            current.assignedDriverId = command.driver_id;
+            const previousProfile = current.assignedDriverProfileId;
+            let lockedProfile: DeliveryDriverProfile | null = null;
+            if (profile) {
+                lockedProfile = await manager.getRepository(DeliveryDriverProfile)
+                    .createQueryBuilder('driver')
+                    .where('driver.id = :driverId AND driver.tenant_id = :tenantId AND driver.active = TRUE', { driverId: profile.id, tenantId })
+                    .setLock('pessimistic_write')
+                    .getOne();
+                if (!lockedProfile) throw new UnprocessableEntityException('Entregador não encontrado ou inativo.');
+                const activeForDriver = await manager.getRepository(DeliveryDriverAssignment)
+                    .createQueryBuilder('assignment')
+                    .where('assignment.tenant_id = :tenantId AND assignment.driver_profile_id = :driverId AND assignment.status = :status', { tenantId, driverId: lockedProfile.id, status: 'ACTIVE' })
+                    .setLock('pessimistic_write')
+                    .getCount();
+                const sameAssignment = current.assignedDriverProfileId === lockedProfile.id;
+                if (activeForDriver >= lockedProfile.deliveryLimit && !sameAssignment) throw new ConflictException('O motoboy atingiu o limite de entregas ativas.');
+            }
+            current.assignedDriverId = profile ? null : command.driver_id;
+            current.assignedDriverProfileId = profile ? command.driver_id : null;
             current.assignedAt = new Date();
             current.status = DeliveryStatus.Assigned;
             current.version += 1;
             const saved = await repository.save(current);
-            await this.appendEvent(manager, saved, DeliveryEventType.Assigned, actor, saved.status, { driver_id: command.driver_id, previous_driver_id: previousDriver, reason: command.reason });
+            if (profile) {
+                const assignmentRepo = manager.getRepository(DeliveryDriverAssignment);
+                const activePrevious = await assignmentRepo.findOne({ where: { tenantId, deliveryId: id, status: 'ACTIVE' } });
+                if (activePrevious && activePrevious.driverProfileId !== profile.id) {
+                    activePrevious.status = 'RELEASED'; activePrevious.unassignedAt = new Date(); activePrevious.version += 1; await assignmentRepo.save(activePrevious);
+                }
+                if (!activePrevious || activePrevious.driverProfileId !== profile.id) {
+                    const activeForDriver = await assignmentRepo.count({ where: { tenantId, driverProfileId: profile.id, status: 'ACTIVE' } });
+                    await assignmentRepo.save(assignmentRepo.create({ tenantId, deliveryId: id, driverProfileId: profile.id, position: activeForDriver + 1, status: 'ACTIVE', assignedBy: actor.id || null, reason: command.reason || null }));
+                }
+            } else if (previousProfile) {
+                const assignmentRepo = manager.getRepository(DeliveryDriverAssignment);
+                const activePrevious = await assignmentRepo.findOne({ where: { tenantId, deliveryId: id, status: 'ACTIVE' } });
+                if (activePrevious) { activePrevious.status = 'RELEASED'; activePrevious.unassignedAt = new Date(); activePrevious.version += 1; await assignmentRepo.save(activePrevious); }
+            }
+            await this.appendEvent(manager, saved, DeliveryEventType.Assigned, actor, saved.status, { driver_id: command.driver_id, previous_driver_id: previousDriver, previous_driver_profile_id: previousProfile, reason: command.reason });
             return this.toSnapshot(saved);
         });
         await this.publishTrackingStatus(snapshot);
@@ -1740,7 +1863,7 @@ export class DeliveryService {
             delivery_fee: Number(delivery.deliveryFee || 0),
             customer_delivery_fee: Number(delivery.customerDeliveryFee ?? delivery.deliveryFee ?? 0),
             default_fulfillment_mode: delivery.defaultFulfillmentModeSnapshot,
-            assigned_driver_id: delivery.assignedDriverId,
+            assigned_driver_id: delivery.assignedDriverProfileId || delivery.assignedDriverId,
             eta_seconds: delivery.etaSeconds,
             accepted_at: delivery.acceptedAt,
             preparing_at: delivery.preparingAt,

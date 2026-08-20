@@ -39,3 +39,15 @@ test('máquina de estados não permite regressão de entrega concluída', () => 
   assert.deepEqual(DELIVERY_STATUS_TRANSITIONS[DeliveryStatus.Delivered], []);
   assert.equal(DELIVERY_STATUS_TRANSITIONS[DeliveryStatus.Preparing].includes(DeliveryStatus.Delivered), false);
 });
+
+test('OpenAPI publica contratos do modo frota própria e do portal', () => {
+  const paths = buildTenantAdminOpenApiDocument().paths;
+  for (const path of [
+    '/admin/api/v1/delivery/fleet/config',
+    '/admin/api/v1/delivery/drivers',
+    '/admin/api/v1/delivery/fleet/assignments',
+    '/admin/api/v1/deliveries/reports/drivers',
+    '/admin/api/public/v1/delivery/drivers/access/exchange',
+    '/admin/api/v1/driver/session',
+  ]) assert.ok(paths[path], `missing ${path}`);
+});

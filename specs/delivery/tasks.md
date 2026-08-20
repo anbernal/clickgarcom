@@ -16,9 +16,9 @@ No escopo Delivery V2:
 - clientes são identificados por telefone e podem manter até cinco endereços;
 - CEP, geocodificação, preço, endereço e configuração são confirmados/snapshotados.
 
-> Evolução em estudo: o plano [Frota própria com motoboys identificados](./own-fleet-drivers-plan.md)
-> propõe um modo opcional por feature flag. Até sua aprovação e rebaseline, as
-> restrições de capacidade numérica deste V2 continuam sendo a fonte de verdade.
+> O modo opcional de [frota própria com motoboys identificados](./own-fleet-drivers-plan.md)
+> foi implementado atrás de `own_fleet_mode`. O modo legado `CAPACITY_ONLY`
+> continua sendo o padrão até a migration e o rollout controlado.
 
 Documentos anteriores em `specs/delivery/requirements.md` e `specs/delivery/design.md` contêm decisões do fluxo antigo. A implementação local do MVP fake está concluída; os gates que dependem de serviços/contas externas permanecem separados na seção de dependências.
 
@@ -30,10 +30,10 @@ Documentos anteriores em `specs/delivery/requirements.md` e `specs/delivery/desi
 - [KDS Mobile e compatibilidade](./tasks-kds-mobile.md)
 - [Qualidade, segurança, operação e piloto](./tasks-qa-ops.md)
 
-### Evolução futura — frota própria identificada
+### Frota própria identificada — implementação disponível
 
-Estas tarefas só entram em execução após a aprovação e o rebaseline descritos
-no [plano de frota própria](./own-fleet-drivers-plan.md):
+As tarefas abaixo foram implementadas e aguardam apenas execução da migration,
+validação integrada e habilitação explícita por tenant:
 
 - [Backend e persistência](./tasks-own-fleet-backend.md)
 - [Admin e KDS](./tasks-own-fleet-frontend.md)

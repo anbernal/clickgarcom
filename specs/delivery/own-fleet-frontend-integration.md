@@ -3,10 +3,11 @@
 ## Estado entregue
 
 O frontend administrativo, o encaixe do KDS e o portal responsivo do motoboy
-estão funcionais com um adapter local explicitamente identificado como prévia.
-Nenhuma tela precisa ser redesenhada quando o backend estiver pronto.
+estão funcionais com adapter real e fallback local explicitamente identificado
+como prévia. Nenhuma tela precisa ser redesenhada para o rollout.
 
-Para ativar os contratos reais, publicar no runtime config:
+Para ativar os contratos reais após aplicar a migration 000050, publicar no
+runtime config:
 
 ```js
 window.CLICKGARCOM_RUNTIME_CONFIG = {
@@ -82,6 +83,6 @@ correspondente:
 - CPF criptografado/HMAC e mascaramento verificados;
 - sessão e revogação validadas em navegador real;
 - concorrência de atribuição/reordenação coberta;
-- eventos realtime homologados;
+- eventos realtime homologados (até lá o cliente reconcilia a cada 15 segundos);
 - `fleetApiEnabled: true` habilitado primeiro em um tenant piloto;
 - dados locais de prévia ignorados e posteriormente removidos.

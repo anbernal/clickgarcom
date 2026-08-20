@@ -73,6 +73,16 @@ import { DeliveryWebhookService } from './delivery-webhook.service';
 import { DeliveryWebhookController } from './delivery-webhook.controller';
 import { DeliveryCheckout } from '../../entities/delivery-checkout.entity';
 import { DeliveryOutboxRelayService } from './delivery-outbox-relay.service';
+import { DeliveryFleetController, DeliveryFleetReportController } from './delivery-fleet.controller';
+import { DeliveryFleetService } from './delivery-fleet.service';
+import { DeliveryDriverProfile } from '../../entities/delivery-driver-profile.entity';
+import { DeliveryDriverAssignment } from '../../entities/delivery-driver-assignment.entity';
+import { DeliveryDriverAccessLink } from '../../entities/delivery-driver-access-link.entity';
+import { DeliveryDriverSession } from '../../entities/delivery-driver-session.entity';
+import { DeliveryDriverIncident } from '../../entities/delivery-driver-incident.entity';
+import { DeliveryDriverEvent } from '../../entities/delivery-driver-event.entity';
+import { FleetDriverPublicController, FleetDriverPortalController } from './fleet-driver-portal.controller';
+import { FleetDriverPortalService } from './fleet-driver-portal.service';
 
 @Module({
     imports: [AmqpModule, TypeOrmModule.forFeature([
@@ -98,8 +108,14 @@ import { DeliveryOutboxRelayService } from './delivery-outbox-relay.service';
         DeliveryOwnCapacityReservation,
         DeliveryProviderWebhookInbox,
         DeliveryCheckout,
+        DeliveryDriverProfile,
+        DeliveryDriverAssignment,
+        DeliveryDriverAccessLink,
+        DeliveryDriverSession,
+        DeliveryDriverIncident,
+        DeliveryDriverEvent,
     ])],
-    controllers: [DeliverySettingsController, DeliveryController, DeliveryInternalController, DeliveryCustomerController, DeliveryCustomerInternalController, DeliveryPostalCodeController, DeliveryPostalCodeInternalController, DeliveryProviderConfigController, DeliveryCapacityController, DeliveryCapacityInternalController, DeliveryQuoteController, DeliveryQuoteInternalController, DeliveryFulfillmentController, DeliveryFulfillmentInternalController, DeliveryCheckoutController, DeliveryCheckoutInternalController, DeliveryWebhookController, DeliveryDriverController, DeliveryTrackingAdminController, DeliveryTrackingPublicController, DeliveryReportsController],
+    controllers: [DeliverySettingsController, DeliveryController, DeliveryInternalController, DeliveryCustomerController, DeliveryCustomerInternalController, DeliveryPostalCodeController, DeliveryPostalCodeInternalController, DeliveryProviderConfigController, DeliveryCapacityController, DeliveryCapacityInternalController, DeliveryQuoteController, DeliveryQuoteInternalController, DeliveryFulfillmentController, DeliveryFulfillmentInternalController, DeliveryCheckoutController, DeliveryCheckoutInternalController, DeliveryWebhookController, DeliveryDriverController, DeliveryTrackingAdminController, DeliveryTrackingPublicController, DeliveryReportsController, DeliveryFleetController, DeliveryFleetReportController, FleetDriverPublicController, FleetDriverPortalController],
     providers: [
         DeliveryPolicyService,
         DeliverySettingsService,
@@ -123,6 +139,8 @@ import { DeliveryOutboxRelayService } from './delivery-outbox-relay.service';
         DeliveryCheckoutService,
         DeliveryWebhookService,
         DeliveryOutboxRelayService,
+        DeliveryFleetService,
+        FleetDriverPortalService,
         FakeDeliveryProvider,
         {
             provide: DELIVERY_PROVIDER,

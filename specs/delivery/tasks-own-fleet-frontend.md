@@ -10,7 +10,7 @@ sessão segura.
 
 ## DEL-FLEET-FE-001 — Configurar o modo de frota identificada
 
-- Status: [x] Frontend concluído — integração de API pendente
+- Status: [x] Frontend concluído — adapter real implementado; ativação controlada por `ADMIN_FLEET_API_ENABLED`
 - Prioridade: P0
 - Dependências: DEL-FLEET-BE-001
 
@@ -31,7 +31,7 @@ Critérios de aceite:
 
 ## DEL-FLEET-FE-002 — Criar central de motoboys
 
-- Status: [x] Frontend concluído — integração de API pendente
+- Status: [x] Frontend concluído — adapter real implementado; ativação controlada por `ADMIN_FLEET_API_ENABLED`
 - Prioridade: P0
 - Dependências: DEL-FLEET-BE-003
 
@@ -53,7 +53,7 @@ Critérios de aceite:
 
 ## DEL-FLEET-FE-003 — Gerar e gerenciar acesso do motoboy
 
-- Status: [x] Frontend concluído — integração de API pendente
+- Status: [x] Frontend concluído — adapter real implementado; ativação controlada por `ADMIN_FLEET_API_ENABLED`
 - Prioridade: P0
 - Dependências: DEL-FLEET-BE-004
 
@@ -72,7 +72,7 @@ Critérios de aceite:
 
 ## DEL-FLEET-FE-004 — Atribuição e fila no painel Delivery
 
-- Status: [x] Frontend concluído — integração de API pendente
+- Status: [x] Frontend concluído — adapter real implementado; ativação controlada por `ADMIN_FLEET_API_ENABLED`
 - Prioridade: P0
 - Dependências: DEL-FLEET-BE-005
 
@@ -93,7 +93,7 @@ Critérios de aceite:
 
 ## DEL-FLEET-FE-005 — Integrar KDS/Expedição e relatórios
 
-- Status: [x] Frontend concluído — integração de API/realtime pendente
+- Status: [x] Frontend concluído — adapter real implementado; atualização por reconciliação periódica até websocket dedicado
 - Prioridade: P1
 - Dependências: DEL-FLEET-BE-007, DEL-FLEET-FE-004
 

@@ -354,6 +354,7 @@ services:
       ADMIN_API_PROXY_TARGET: http://clickgarcom-node-admin:3002
       ADMIN_API_BASE_URL: https://clickgarcom.servicoswebia.com.br/admin/api
       ADMIN_PUBLIC_API_BASE_URL: https://clickgarcom.servicoswebia.com.br/admin/api/public/tables
+      ADMIN_FLEET_API_ENABLED: "false"
       KDS_WS_URL: wss://clickgarcom.servicoswebia.com.br/ws/kds
       PORTAL_WS_URL: wss://clickgarcom.servicoswebia.com.br/ws/portal
       ADMIN_WEB_DISABLE_TEXT_ASSET_CACHE: "true"
