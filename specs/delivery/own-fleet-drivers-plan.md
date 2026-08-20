@@ -445,6 +445,14 @@ Fonte oficial: [Lei nº 12.009/2009 consolidada](https://www.planalto.gov.br/cci
 
 ## 10. Backlog inicial por frente
 
+As tarefas executáveis, com critérios de aceite e dependências, estão em:
+
+- [Backend e persistência](./tasks-own-fleet-backend.md)
+- [Admin e KDS](./tasks-own-fleet-frontend.md)
+- [Portal público autenticado do motoboy](./tasks-own-fleet-driver-portal.md)
+- [Core e WhatsApp](./tasks-own-fleet-core-whatsapp.md)
+- [QA, segurança e operação](./tasks-own-fleet-qa-ops.md)
+
 ### Backend
 
 - `DEL-FLEET-BE-001`: feature flag e compatibilidade V2;

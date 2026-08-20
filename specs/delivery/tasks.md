@@ -30,6 +30,17 @@ Documentos anteriores em `specs/delivery/requirements.md` e `specs/delivery/desi
 - [KDS Mobile e compatibilidade](./tasks-kds-mobile.md)
 - [Qualidade, segurança, operação e piloto](./tasks-qa-ops.md)
 
+### Evolução futura — frota própria identificada
+
+Estas tarefas só entram em execução após a aprovação e o rebaseline descritos
+no [plano de frota própria](./own-fleet-drivers-plan.md):
+
+- [Backend e persistência](./tasks-own-fleet-backend.md)
+- [Admin e KDS](./tasks-own-fleet-frontend.md)
+- [Portal público autenticado do motoboy](./tasks-own-fleet-driver-portal.md)
+- [Core e WhatsApp](./tasks-own-fleet-core-whatsapp.md)
+- [QA, segurança e operação](./tasks-own-fleet-qa-ops.md)
+
 ### Progresso atual
 
 - **Pronto para teste manual sem serviços externos:** domínio/persistência V2, clientes e endereços, CEP/geocode fake, snapshots, tarifa própria, capacidade/hold, checkout próprio e externo fake, scheduler de cinco tentativas, webhook/reconciliação fake, fallback manual, operação própria, RBAC `DISPATCHER`, eventos/outbox/relay, Core/WhatsApp, painel Admin, relatórios/CSV e regressão KDS.
