@@ -366,8 +366,9 @@ function fleetPhoneMask(value) {
     const ddd = digits.slice(0, 2);
     const number = digits.slice(2);
     if (digits.length <= 2) return `+55 (${ddd}`;
-    if (number.length <= 5) return `+55 (${ddd}) ${number}`;
-    return `+55 (${ddd}) ${number.slice(0, 5)}-${number.slice(5, 9)}`;
+    if (number.length <= 4) return `+55 (${ddd}) ${number}`;
+    const prefixLength = number.length >= 9 ? 5 : 4;
+    return `+55 (${ddd}) ${number.slice(0, prefixLength)}-${number.slice(prefixLength, 9)}`;
 }
 function fleetPhoneInput(input) { input.value = fleetPhoneMask(input.value); }
 
