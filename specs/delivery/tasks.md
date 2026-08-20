@@ -16,6 +16,10 @@ No escopo Delivery V2:
 - clientes são identificados por telefone e podem manter até cinco endereços;
 - CEP, geocodificação, preço, endereço e configuração são confirmados/snapshotados.
 
+> Evolução em estudo: o plano [Frota própria com motoboys identificados](./own-fleet-drivers-plan.md)
+> propõe um modo opcional por feature flag. Até sua aprovação e rebaseline, as
+> restrições de capacidade numérica deste V2 continuam sendo a fonte de verdade.
+
 Documentos anteriores em `specs/delivery/requirements.md` e `specs/delivery/design.md` contêm decisões do fluxo antigo. A implementação local do MVP fake está concluída; os gates que dependem de serviços/contas externas permanecem separados na seção de dependências.
 
 ## 2. Backlogs detalhados
