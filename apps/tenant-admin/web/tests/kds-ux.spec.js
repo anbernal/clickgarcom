@@ -13,7 +13,7 @@ async function prepareKds(page, options = {}) {
   await page.addInitScript(({ payloadValue, roleValue }) => {
     localStorage.setItem('clickgarcom_auth', JSON.stringify({
       token: `x.${payloadValue}.x`,
-      user: { role: roleValue, tenant_name: 'Restaurante UX' },
+      user: { role: roleValue, tenant_name: 'Restaurante UX', delivery_enabled: true },
     }));
     localStorage.removeItem('clickgarcom_kds_density');
   }, { payloadValue: payload, roleValue: role });
@@ -21,7 +21,8 @@ async function prepareKds(page, options = {}) {
   await page.route('**/admin/api/**', async (route) => {
     const path = new URL(route.request().url()).pathname;
     let response = [];
-    if (path.endsWith('/orders/operations/summary')) response = options.operationsSummary || { stations: [], stationSla: {} };
+    if (path.endsWith('/auth/me')) response = { role, tenant_name: 'Restaurante UX', delivery_enabled: true };
+    else if (path.endsWith('/orders/operations/summary')) response = options.operationsSummary || { stations: [], stationSla: {} };
     else if (path.endsWith('/deliveries')) response = { data: deliveries, page: 1, limit: 100, total: deliveries.length, has_more: false };
     else if (path.endsWith('/orders')) response = orders;
     else if (path.endsWith('/tables/requests/pending')) response = options.pendingRequests || [];
@@ -44,9 +45,14 @@ test('Delivery recarrega pelo websocket e usa os itens da própria projeção', 
     id: '485971f1-e914-4de3-9d34-c4d69ca42470', batch_id: '1a876ad4-9f6b-4d11-8ea4-04fd2c4cda31',
     display_code: '482193', status: 'PENDING_RESTAURANT_ACCEPTANCE', version: 1,
     customer_name: 'Mariana', customer_phone: '5511999999999', formatted_address: 'Rua das Flores, 120, São Paulo/SP',
-    customer_delivery_fee: 8.5, default_fulfillment_mode: 'OWN', orders: [{
+    customer_delivery_fee: 8.5, default_fulfillment_mode: 'OWN', created_at: minutesAgo(4), orders: [{
       id: '2f6f4d95-1869-4377-9183-9813697c4f7d', batch_id: '1a876ad4-9f6b-4d11-8ea4-04fd2c4cda31', status: 'PENDING',
-      items: [{ id: 'e8a6f4bf-1d7d-4f47-a0c2-3bf579aac468', quantity: 2, unit_price: 29.9, item_name_snapshot: 'Smash Clássico', menu_item_id: 'menu-1' }],
+      notes: 'Separar os molhos em potes',
+      items: [{
+        id: 'e8a6f4bf-1d7d-4f47-a0c2-3bf579aac468', quantity: 2, unit_price: 29.9,
+        item_name_snapshot: 'Smash Clássico', menu_item_id: 'menu-1', observations: 'Sem cebola',
+        selected_options: [{ groupName: 'Adicionais', optionName: 'Bacon extra', priceDelta: 5 }],
+      }],
     }],
   };
   await prepareKds(page, { role: 'DISPATCHER', deliveries: [delivery] });
@@ -59,11 +65,64 @@ test('Delivery recarrega pelo websocket e usa os itens da própria projeção', 
 
   delivery.status = 'PREPARING';
   delivery.version = 2;
+  delivery.preparing_at = minutesAgo(2);
+  delivery.eta_seconds = 900;
   await page.evaluate(() => handleWSEvent({
     type: 'delivery.updated', timestamp: new Date().toISOString(), tenant_id: 'tenant-ux-test',
     data: { id: '485971f1-e914-4de3-9d34-c4d69ca42470', status: 'PREPARING', version: 2 },
   }));
+  const preparingCard = page.locator('#col-d-preparing .delivery-card');
+  await expect(preparingCard).toHaveCount(1);
+  await expect(preparingCard).toContainText('Bacon extra');
+  await expect(preparingCard).toContainText('Sem cebola');
+  await expect(preparingCard).toContainText('Separar os molhos em potes');
+  await expect(preparingCard).toContainText('Preparar estes itens');
+  await expect(preparingCard).not.toContainText('Rua das Flores');
+  await expect(preparingCard).not.toContainText('5511999999999');
+});
+
+test('Delivery reconcilia mudanças mesmo com websocket conectado', async ({ page }) => {
+  const delivery = {
+    id: 'delivery-reconcile', batch_id: 'batch-reconcile', display_code: '900101',
+    status: 'PENDING_RESTAURANT_ACCEPTANCE', version: 1, created_at: minutesAgo(1),
+    customer_name: 'Carlos', formatted_address: 'Rua Um, 10', default_fulfillment_mode: 'OWN',
+    orders: [{ id: 'order-reconcile', batch_id: 'batch-reconcile', status: 'PENDING', items: [] }],
+  };
+  await prepareKds(page, { role: 'DISPATCHER', deliveries: [delivery] });
+  await page.goto('/kds.html?panel=delivery');
+  await expect(page.locator('#col-d-waiting .delivery-card')).toHaveCount(1);
+
+  delivery.status = 'PREPARING';
+  delivery.version = 2;
+  delivery.updated_at = new Date().toISOString();
+  delivery.preparing_at = new Date().toISOString();
+  await expect(page.locator('#col-d-preparing .delivery-card')).toHaveCount(1, { timeout: 6500 });
+});
+
+test('Delivery aceito automaticamente entra em preparo e alerta apenas uma vez', async ({ page }) => {
+  const delivery = {
+    id: 'delivery-auto-accepted', batch_id: 'batch-auto', display_code: '900202',
+    status: 'PREPARING', acceptance_mode: 'AUTO', version: 2,
+    created_at: minutesAgo(1), accepted_at: minutesAgo(1), preparing_at: minutesAgo(1), eta_seconds: 1800,
+    customer_name: 'Bianca', formatted_address: 'Rua Dois, 20', default_fulfillment_mode: 'OWN',
+    orders: [{ id: 'order-auto', batch_id: 'batch-auto', status: 'PENDING', items: [{
+      id: 'item-auto', quantity: 1, unit_price: 24.9, item_name_snapshot: 'Pizza da casa', menu_item_id: 'menu-auto',
+    }] }],
+  };
+  await prepareKds(page, { role: 'DISPATCHER', deliveries: [delivery] });
+  await page.goto('/kds.html?panel=delivery');
+
+  const card = page.locator('#col-d-preparing .delivery-card');
+  await expect(card).toHaveCount(1);
+  await expect(card).toHaveClass(/delivery-card--auto-accepted/);
+  await expect(card).toContainText('Preparo iniciado automaticamente');
+  await expect(page.locator('.toast-title')).toContainText('Pedido aceito automaticamente');
+  const columnColors = await page.locator('#panel-delivery .delivery-grid .order-column').evaluateAll((columns) => columns.map((column) => getComputedStyle(column).backgroundColor));
+  expect(columnColors[0]).not.toBe(columnColors[1]);
+
+  await page.reload();
   await expect(page.locator('#col-d-preparing .delivery-card')).toHaveCount(1);
+  await expect(page.locator('.toast-title')).toHaveCount(0);
 });
 
 test('modo estação respeita perfil, métricas e hierarquia touch', async ({ page }) => {

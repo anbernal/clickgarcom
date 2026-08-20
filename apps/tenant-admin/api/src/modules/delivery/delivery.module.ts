@@ -158,6 +158,19 @@ import { DeliveryOutboxRelayService } from './delivery-outbox-relay.service';
             },
         },
     ],
-    exports: [DeliveryPolicyService, DeliverySettingsService, DeliveryService, DeliveryTrackingService, DeliveryPinService, DeliveryNotificationService, DeliveryReportsService, DeliveryCustomerService],
+    exports: [
+        DeliveryPolicyService,
+        DeliverySettingsService,
+        DeliveryService,
+        DeliveryTrackingService,
+        DeliveryPinService,
+        DeliveryNotificationService,
+        DeliveryReportsService,
+        DeliveryCustomerService,
+        DeliveryPostalCodeService,
+        DeliveryAddressGeocodeService,
+        DeliveryCheckoutService,
+        DeliveryQuoteService,
+    ],
 })
 export class DeliveryModule { }

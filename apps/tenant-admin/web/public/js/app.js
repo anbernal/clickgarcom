@@ -53,6 +53,38 @@ function applyNavigationPermissions() {
 
     configureKdsNavigation();
     collapseEmptyNavigationSections();
+    refreshModuleStatusIndicators();
+}
+
+function getModuleStatusModel() {
+    const user = getCurrentUser() || {};
+    return {
+        tenantName: String(user.tenant_name || 'esta conta').trim(),
+        attendanceEnabled: user.attendance_enabled !== false,
+        deliveryEnabled: user.delivery_enabled === true,
+    };
+}
+
+function renderModuleStatusSidebar() {
+    const status = getModuleStatusModel();
+    const module = (icon, label, enabled) => `<div class="module-status-item ${enabled ? 'module-status-item--on' : 'module-status-item--off'}"><span><i aria-hidden="true">${icon}</i>${label}</span><strong>${enabled ? 'Ativo' : 'Desativado'}</strong></div>`;
+    return `<div class="module-status-panel"><div class="module-status-panel__title">Módulos da conta</div>${module('⚡', 'Atendimento', status.attendanceEnabled)}${module('🚚', 'Delivery', status.deliveryEnabled)}</div>`;
+}
+
+function renderModuleStatusDashboard() {
+    const status = getModuleStatusModel();
+    const disabled = [];
+    if (!status.attendanceEnabled) disabled.push('Atendimento presencial');
+    if (!status.deliveryEnabled) disabled.push('Delivery');
+    if (!disabled.length) return '';
+    return `<section class="module-status-dashboard" aria-live="polite"><div class="module-status-dashboard__icon">!</div><div><strong>Módulos desabilitados</strong><p>${escapeHTML(disabled.join(' e '))} não está disponível para esta conta. A ativação é feita pelo Super Admin.</p></div></section>`;
+}
+
+function refreshModuleStatusIndicators() {
+    const sidebar = document.getElementById('sidebar-module-status');
+    if (sidebar) sidebar.innerHTML = renderModuleStatusSidebar();
+    const dashboard = document.getElementById('dashboard-module-status');
+    if (dashboard) dashboard.innerHTML = renderModuleStatusDashboard();
 }
 
 function collapseEmptyNavigationSections() {
@@ -147,6 +179,22 @@ function navigate(pageId, options = {}) {
     // Update topbar
     document.getElementById('page-title').textContent = page.title;
     document.getElementById('page-sub').textContent = page.sub;
+    const attendancePages = ['comandas', 'mesas'];
+    if (attendancePages.includes(authorizedPageId) && getCurrentUser()?.attendance_enabled === false) {
+        const tenantName = String(getCurrentUser()?.tenant_name || 'esta conta').trim();
+        const subject = encodeURIComponent(`Ativar Atendimento - ${tenantName}`);
+        if (el) {
+            el.innerHTML = `<section class="module-unavailable-page module-unavailable-page--attendance">
+                <div class="module-unavailable-page__icon">⚡</div>
+                <span class="module-unavailable-page__eyebrow">OPERAÇÃO PRESENCIAL</span>
+                <h2>Atendimento não está disponível para esta conta.</h2>
+                <p>Ative o módulo para usar mesas, comandas, chamados de garçom e o KDS Salão em uma experiência mais ágil.</p>
+                <div class="module-unavailable-page__features"><span>🪑 Mesas</span><span>🔖 Comandas</span><span>⚡ KDS Salão</span></div>
+                <a href="mailto:suporte@clickgarcom.com.br?subject=${subject}">Fale com a gente para ativar</a>
+            </section>`;
+        }
+        return;
+    }
     page.loader();
 
     if (consultationRequested) {
@@ -794,6 +842,7 @@ document.addEventListener('DOMContentLoaded', () => {
             setAuthSessionUser(user);
             setExpedienteButtonState(!!user.isOpen, user.opened_at, user.opened_by);
             applyNavigationPermissions();
+            refreshModuleStatusIndicators();
         }).catch(err => console.error(err));
     }
 

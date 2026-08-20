@@ -425,3 +425,33 @@ func TestFindDeliveryOpenTabDoesNotReuseAnotherDeliveryJourney(t *testing.T) {
 		t.Fatalf("current journey delivery tab should remain available, got %+v", got)
 	}
 }
+
+func TestEndDeliveredDeliverySessionClearsOnlyDeliveryContext(t *testing.T) {
+	tenantID := uuid.New()
+	phone := "5511999999999"
+	tableID, tabID := uuid.New(), uuid.New()
+	repo := &testSessionRepo{sessions: make(map[string]*session.Session)}
+	sess := session.NewSession(phone, tenantID)
+	sess.TableID = &tableID
+	sess.TabID = &tabID
+	sess.SetContext(deliveryChannelKey, deliveryChannelValue)
+	sess.SetContext(deliveryCheckoutKeyKey, "checkout-1")
+	if err := repo.Save(context.Background(), sess); err != nil {
+		t.Fatal(err)
+	}
+
+	uc := &HandleWhatsAppMessageUseCase{sessionRepo: repo}
+	if err := uc.EndDeliveredDeliverySession(context.Background(), phone, tenantID); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := repo.Find(context.Background(), phone, tenantID.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.State != session.StateWelcome || len(updated.Context) != 0 {
+		t.Fatalf("expected delivery context to be closed, got state=%s context=%+v", updated.State, updated.Context)
+	}
+	if updated.TableID == nil || *updated.TableID != tableID || updated.TabID == nil || *updated.TabID != tabID {
+		t.Fatalf("expected dine-in bindings to remain, got table=%v tab=%v", updated.TableID, updated.TabID)
+	}
+}

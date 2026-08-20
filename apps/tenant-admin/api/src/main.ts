@@ -47,7 +47,7 @@ async function bootstrap() {
 
     configureAdminWebShell(app);
 
-    app.use('/admin/api/public/tables', (req: Request, res: Response, next: NextFunction) => {
+    app.use(['/admin/api/public/tables', '/admin/api/public/menu'], (req: Request, res: Response, next: NextFunction) => {
         const now = Date.now();
         const clientIp = resolveClientIp(req);
         const current = publicCheckoutRateLimit.get(clientIp);
@@ -63,12 +63,14 @@ async function bootstrap() {
         }
 
         const rateState = publicCheckoutRateLimit.get(clientIp)!;
+        const isMenuLoginRequest = /\/public\/menu\/[^/]+\/session\/request\/?$/i.test(req.originalUrl || req.url);
+        const requestLimit = isMenuLoginRequest ? 12 : publicCheckoutMaxRequests;
         const retryAfterSeconds = Math.max(1, Math.ceil((rateState.resetAt - now) / 1000));
-        res.setHeader('X-RateLimit-Limit', String(publicCheckoutMaxRequests));
-        res.setHeader('X-RateLimit-Remaining', String(Math.max(publicCheckoutMaxRequests - rateState.count, 0)));
+        res.setHeader('X-RateLimit-Limit', String(requestLimit));
+        res.setHeader('X-RateLimit-Remaining', String(Math.max(requestLimit - rateState.count, 0)));
         res.setHeader('X-RateLimit-Reset', String(Math.ceil(rateState.resetAt / 1000)));
 
-        if (rateState.count > publicCheckoutMaxRequests) {
+        if (rateState.count > requestLimit) {
             res.setHeader('Retry-After', String(retryAfterSeconds));
             return res.status(429).json({
                 message: 'Muitas tentativas. Tente novamente em instantes.',

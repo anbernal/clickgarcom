@@ -19,6 +19,10 @@ type DeliveryOrderBatchReconcileInput struct {
 	BatchID  uuid.UUID
 	OrderID  uuid.UUID
 	EventID  uuid.UUID
+	// PaymentConfirmed is sent only after the payment provider has approved
+	// the delivery checkout. Keeping it explicit prevents an unpaid projection
+	// from being auto-accepted by mistake.
+	PaymentConfirmed bool
 }
 
 type DeliveryOrderBatchReconcileResponse struct {
@@ -61,6 +65,9 @@ func (c *DeliveryOrderBatchClient) Reconcile(ctx context.Context, input Delivery
 	}
 	if input.EventID != uuid.Nil {
 		payload["event_id"] = input.EventID
+	}
+	if input.PaymentConfirmed {
+		payload["payment_confirmed"] = true
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {

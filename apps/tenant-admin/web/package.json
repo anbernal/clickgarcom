@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "test:kds-ux": "playwright test tests/kds-ux.spec.js",
-    "test:delivery-ux": "playwright test tests/delivery-ux.spec.js"
+    "test:delivery-ux": "playwright test tests/delivery-ux.spec.js",
+    "test:menu-ux": "playwright test tests/menu-public.spec.js"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0"

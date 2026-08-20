@@ -144,6 +144,7 @@ export function buildDeliveryOpenApiSchemas(): Record<string, OpenApiSchema> {
                 id: { type: 'string', format: 'uuid' },
                 display_code: { type: 'string', maxLength: 20 },
                 status: { $ref: '#/components/schemas/DeliveryStatus' },
+                acceptance_mode: { $ref: '#/components/schemas/DeliveryAcceptanceMode', nullable: true },
                 version: { type: 'integer', minimum: 0 },
                 assigned_driver_id: { type: 'string', format: 'uuid', nullable: true },
                 eta_seconds: { type: 'integer', minimum: 0, nullable: true },
@@ -171,7 +172,7 @@ export function buildDeliveryOpenApiSchemas(): Record<string, OpenApiSchema> {
             type: 'object',
             additionalProperties: false,
             required: ['pin'],
-            properties: { pin: { type: 'string', pattern: '^[0-9]{6}$' } },
+            properties: { pin: { type: 'string', pattern: '^(?:[0-9A-Fa-f]{4}|[0-9]{6})$' } },
         },
         DeliveryExceptionRequest: {
             type: 'object',
@@ -198,6 +199,16 @@ export function buildDeliveryOpenApiSchemas(): Record<string, OpenApiSchema> {
             required: ['expected_version'],
             properties: {
                 expected_version: { type: 'integer', minimum: 1 },
+                notes: { type: 'string', maxLength: 500 },
+            },
+        },
+        DeliveryOwnCompletionRequest: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['expected_version', 'pin'],
+            properties: {
+                expected_version: { type: 'integer', minimum: 1 },
+                pin: { type: 'string', pattern: '^(?:[0-9A-Fa-f]{4}|[0-9]{6})$' },
                 notes: { type: 'string', maxLength: 500 },
             },
         },
@@ -437,6 +448,15 @@ export function buildDeliveryOpenApiPaths(): Record<string, OpenApiPath> {
         },
     };
 
+    routes['/admin/api/public/deliveries/track/confirm'] = {
+        post: {
+            tags: ['Delivery'],
+            summary: 'Confirma o recebimento usando a sessão autenticada e o código do cliente',
+            requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/DeliveryPinRequest' } } } },
+            responses: authorizedResponses('Entrega concluída.', { $ref: '#/components/schemas/DeliverySummary' }),
+        },
+    };
+
     const mutationRoutes: Array<[string, string]> = [
         ['accept', 'Aceita uma entrega pendente'],
         ['reject', 'Rejeita uma entrega pendente'],
@@ -477,7 +497,7 @@ export function buildDeliveryOpenApiPaths(): Record<string, OpenApiPath> {
                     { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },
                     { name: 'Idempotency-Key', in: 'header', required: true, schema: { type: 'string', minLength: 16, maxLength: 255 } },
                 ],
-                requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/DeliveryOwnOperationRequest' } } } },
+                requestBody: { required: true, content: { 'application/json': { schema: { $ref: action === 'own/complete' ? '#/components/schemas/DeliveryOwnCompletionRequest' : '#/components/schemas/DeliveryOwnOperationRequest' } } } },
                 responses: authorizedResponses('Operação própria aplicada.', { $ref: '#/components/schemas/DeliverySummary' }),
             },
         };

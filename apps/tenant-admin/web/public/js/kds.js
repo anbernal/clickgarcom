@@ -8,6 +8,7 @@ const CONFIG = {
   TENANT_ID: '550e8400-e29b-41d4-a716-446655440000',
   TENANT_NAME: 'ClickGarcom',
   POLL_INTERVAL: 15000,
+  DELIVERY_RECONCILE_INTERVAL: 4000,
   URGENT_MINUTES: 10,
   WARNING_MINUTES: 5,
 };
@@ -123,8 +124,16 @@ let tenantPrintProfile = {
     ''
   ).trim(),
 };
+let notificationSoundLastStartedAt = 0;
+const NOTIFICATION_SOUND_DEBOUNCE_MS = 1500;
+const NOTIFICATION_SOUND_ENTITY_WINDOW_MS = 30000;
+const NEW_ORDER_CHIME_DELAY_MS = 520;
+const notificationSoundEntityTimes = new Map();
 let ordersLoadPromise = null;
 let deliveriesLoadPromise = null;
+let deliveryReloadQueued = false;
+let deliverySnapshotSignature = '';
+const announcedAutoAcceptedDeliveries = new Set();
 let activePanel = 'kitchen';
 let modalState = { orderId: null, tab: 'accept' };
 let ws = null;
@@ -134,6 +143,7 @@ let pollTimer = null;
 let timerInterval = null;
 let recentWSEventKeys = new Map();
 let deliveryRefreshTimer = null;
+let deliveryReconcileTimer = null;
 let menuItemNameById = new Map();
 let menuItemMetaById = new Map();
 let pendingRequests = [];
@@ -268,13 +278,18 @@ function buildKdsAccess() {
   const requestedMode = String(searchParams.get('mode') || '').trim().toLowerCase();
   const rolePanels = getPanelsAllowedForRole(role);
   const hasFullKdsAccess = ['ADMIN', 'MANAGER'].includes(role);
+  const deliveryEnabled = authSession?.user?.delivery_enabled === true;
+  const attendanceEnabled = authSession?.user?.attendance_enabled !== false;
+  // Keep Delivery discoverable for eligible stations. When it is not active,
+  // the panel renders an activation experience and never loads the queue.
+  const entitledPanels = rolePanels;
   const availablePanels = hasFullKdsAccess
-    ? rolePanels
-    : (requestedPanel && rolePanels.includes(requestedPanel)
+    ? entitledPanels
+    : (requestedPanel && entitledPanels.includes(requestedPanel)
       ? [requestedPanel]
-      : rolePanels);
-  const roleDefaultPanel = role === 'WAITER' && rolePanels.includes('salao') ? 'salao' : (availablePanels[0] || 'kitchen');
-  const defaultPanel = requestedPanel && rolePanels.includes(requestedPanel)
+      : entitledPanels);
+  const roleDefaultPanel = role === 'WAITER' && entitledPanels.includes('salao') ? 'salao' : (availablePanels[0] || 'kitchen');
+  const defaultPanel = requestedPanel && entitledPanels.includes(requestedPanel)
     ? requestedPanel
     : roleDefaultPanel;
   const isDedicatedStationRole = role === 'KITCHEN' || role === 'BAR' || role === 'DISPATCHER';
@@ -289,8 +304,12 @@ function buildKdsAccess() {
     defaultPanel,
     stationMode,
     canExitStationMode: stationMode && hasFullKdsAccess,
-    canViewSalao: rolePanels.includes('salao'),
-    canViewDelivery: rolePanels.includes('delivery'),
+    canOpenSalao: rolePanels.includes('salao'),
+    attendanceEnabled,
+    canViewSalao: attendanceEnabled && rolePanels.includes('salao'),
+    deliveryEnabled,
+    canOpenDelivery: rolePanels.includes('delivery'),
+    canViewDelivery: deliveryEnabled && rolePanels.includes('delivery'),
     canLoadTables: ['ADMIN', 'MANAGER', 'WAITER'].includes(role),
   };
 }
@@ -308,6 +327,15 @@ function applyKdsPanelAccess() {
   document.querySelectorAll('[data-panel]').forEach((element) => {
     element.style.display = allowedPanels.has(element.dataset.panel) ? '' : 'none';
   });
+
+  const attendanceDisabled = !KDS_ACCESS.attendanceEnabled;
+  const status = document.getElementById('kds-module-status');
+  if (status) {
+    status.className = `kds-module-status${attendanceDisabled ? ' kds-module-status--disabled' : ''}`;
+    status.innerHTML = attendanceDisabled
+      ? '<strong>Atendimento</strong><span>Desativado para esta conta</span>'
+      : '<strong>Atendimento</strong><span>Ativo</span>';
+  }
 
   document.querySelectorAll('.screen-panel').forEach((panel) => {
     const panelName = String(panel.id || '').replace('panel-', '');
@@ -429,7 +457,7 @@ function handleKdsSyncEvent(event) {
 }
 
 function refreshKdsRealtimeState() {
-  if (activePanel !== 'delivery') loadOrders();
+  if (activePanel !== 'delivery' && (activePanel !== 'salao' || KDS_ACCESS.attendanceEnabled)) loadOrders();
   if (KDS_ACCESS.canViewDelivery) loadDeliveries();
   if (KDS_ACCESS.canViewSalao) {
     loadPendingRequests();
@@ -458,6 +486,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Connect immediately. Delivery updates use their own KDS invalidation
   // event and must not wait for the broader orders query to finish.
   connectWebSocket();
+  startDeliveryReconciliation();
   startTimerUpdates();
   // Orders and deliveries are independent critical paths. A Delivery card
   // already contains its compact order-items projection, so a slow kitchen
@@ -473,6 +502,10 @@ document.addEventListener('DOMContentLoaded', () => {
     startupTasks.push(loadTableState());
   }
   Promise.all(startupTasks);
+
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && KDS_ACCESS.canViewDelivery) loadDeliveries({ silent: true });
+  });
 
   if (KDS_ACCESS.canViewSalao || KDS_ACCESS.canLoadTables) {
     setInterval(() => {
@@ -521,6 +554,23 @@ function applySidebarTenantName() {
 async function loadTenantPrintProfile() {
   try {
     const profile = await apiGet('/auth/me');
+    const rolePanels = getPanelsAllowedForRole(KDS_ACCESS.role);
+    const deliveryEnabled = profile?.delivery_enabled === true;
+    const attendanceEnabled = profile?.attendance_enabled !== false;
+    KDS_ACCESS.deliveryEnabled = deliveryEnabled;
+    KDS_ACCESS.attendanceEnabled = attendanceEnabled;
+    KDS_ACCESS.canOpenSalao = rolePanels.includes('salao');
+    KDS_ACCESS.canViewSalao = attendanceEnabled && KDS_ACCESS.canOpenSalao;
+    KDS_ACCESS.canOpenDelivery = rolePanels.includes('delivery');
+    KDS_ACCESS.canViewDelivery = deliveryEnabled && KDS_ACCESS.canOpenDelivery;
+    if (KDS_ACCESS.canViewDelivery) startDeliveryReconciliation();
+    else if (deliveryReconcileTimer) {
+      clearInterval(deliveryReconcileTimer);
+      deliveryReconcileTimer = null;
+    }
+    applyKdsPanelAccess();
+    if (activePanel === 'delivery') switchPanel('delivery');
+    else if (activePanel === 'salao') renderSalao();
     tenantPrintProfile = {
       name: String(profile?.tenant_name || tenantPrintProfile.name || 'Restaurante').trim() || 'Restaurante',
       contact: String(profile?.tenant_whatsapp_number || tenantPrintProfile.contact || '').trim(),
@@ -675,28 +725,54 @@ async function loadOrders() {
   }
 }
 
-async function loadDeliveries() {
-  if (deliveriesLoadPromise) return deliveriesLoadPromise;
+async function loadDeliveries(options = {}) {
+  if (deliveriesLoadPromise) {
+    deliveryReloadQueued = true;
+    return deliveriesLoadPromise;
+  }
   deliveriesLoadPromise = (async () => {
     try {
       const response = await apiGet('/deliveries?status=PENDING_RESTAURANT_ACCEPTANCE,ACCEPTED,PREPARING,READY_FOR_DISPATCH,IN_TRANSIT,ASSIGNED,PICKED_UP,ARRIVED&limit=100');
       const deliveries = Array.isArray(response) ? response : (response?.data || []);
+      const nextSignature = JSON.stringify(deliveries.map((delivery) => [
+        delivery?.id,
+        delivery?.version,
+        delivery?.status,
+        delivery?.acceptance_mode || delivery?.acceptanceMode,
+        delivery?.updated_at || delivery?.updatedAt,
+        delivery?.orders,
+      ]));
       allDeliveries = {};
       deliveries.forEach((delivery) => {
         if (delivery?.id) allDeliveries[delivery.id] = delivery;
       });
-      if (activePanel === 'delivery') renderAll();
+      announceAutomaticDeliveryAcceptances(deliveries);
+      const changed = deliverySnapshotSignature !== nextSignature;
+      deliverySnapshotSignature = nextSignature;
+      if (activePanel === 'delivery' && changed) renderAll();
       else updateNavBadges();
     } catch (error) {
       console.error('Failed to load deliveries:', error);
-      if (activePanel === 'delivery') toast('t-error', '❌ Erro', 'Falha ao carregar a fila de entregas');
+      if (activePanel === 'delivery' && !options.silent) toast('t-error', '❌ Erro', 'Falha ao carregar a fila de entregas');
     }
   })();
   try {
     return await deliveriesLoadPromise;
   } finally {
     deliveriesLoadPromise = null;
+    if (deliveryReloadQueued) {
+      deliveryReloadQueued = false;
+      window.setTimeout(() => loadDeliveries({ silent: true }), 0);
+    }
   }
+}
+
+function startDeliveryReconciliation() {
+  if (!KDS_ACCESS.canViewDelivery || deliveryReconcileTimer) return;
+  deliveryReconcileTimer = window.setInterval(() => {
+    if (document.hidden) return;
+    loadDeliveries({ silent: true });
+  }, CONFIG.DELIVERY_RECONCILE_INTERVAL);
 }
 
 async function refreshOperationsSummary(shouldRender = true) {
@@ -815,8 +891,10 @@ function handleWSEvent(event) {
     allOrders[order.id] = order;
     renderAll();
     refreshOperationsSummary();
-    playNotificationSound();
     toast('t-info', '🆕 Novo Pedido', `#${getOrderDisplayCode(order)} · ${order.destination}`);
+    // Give the visual alert a short head start so the notification is readable
+    // before the new-order audio begins.
+    window.setTimeout(() => playNotificationSound(order.id), 400);
   }
 
   if (event.type === 'order.status_changed') {
@@ -842,7 +920,7 @@ function scheduleDeliveryRefresh() {
   if (!KDS_ACCESS.canViewDelivery) return;
   clearTimeout(deliveryRefreshTimer);
   deliveryRefreshTimer = setTimeout(() => {
-    loadDeliveries();
+    loadDeliveries({ silent: true });
   }, 80);
 }
 
@@ -903,16 +981,64 @@ function deliveryAddress(delivery) {
     .join(' · ') || 'Endereço não informado';
 }
 
-function deliveryItemSummary(delivery) {
-  const items = deliveryOrders(delivery)
-    .flatMap((order) => Array.isArray(order.items) ? order.items : [])
-    .map((item) => {
-      const quantity = Math.max(1, Number(item.quantity || 1));
-      const name = String(item.name || item.menu_item_name || item.menuItemName || item.item_name_snapshot || item.itemNameSnapshot || 'Item');
-      const unitPrice = Number(item.unit_price ?? item.unitPrice ?? item.price ?? 0);
-      return `<div class="delivery-card-item-row"><span><b>${quantity}x</b> ${escapeHTML(name)}</span><strong>${formatCurrency(quantity * unitPrice)}</strong></div>`;
-    });
-  return items.length ? items.join('') : '<div class="delivery-card-loading">Carregando itens do pedido…</div>';
+function deliveryItems(delivery) {
+  return deliveryOrders(delivery).flatMap((order) => Array.isArray(order.items) ? order.items : []);
+}
+
+function deliveryItemName(item) {
+  return String(item.name || item.menu_item_name || item.menuItemName || item.item_name_snapshot || item.itemNameSnapshot || 'Item');
+}
+
+function deliveryItemSummary(delivery, options = {}) {
+  const detailed = Boolean(options.detailed);
+  const checklist = Boolean(options.checklist);
+  const items = deliveryItems(delivery).map((item) => {
+    const quantity = Math.max(1, Number(item.quantity || 1));
+    const unitPrice = Number(item.unit_price ?? item.unitPrice ?? item.price ?? 0);
+    const selectedOptions = formatSelectedOptionsSummary(item.selected_options || item.selectedOptions);
+    const observation = normalizeOptionalDisplayText(item.observations);
+    if (!detailed && !checklist) {
+      return `<div class="delivery-card-item-row"><span><b>${quantity}x</b> ${escapeHTML(deliveryItemName(item))}</span><strong>${formatCurrency(quantity * unitPrice)}</strong></div>`;
+    }
+    return `<div class="delivery-production-item${checklist ? ' delivery-production-item--checklist' : ''}">
+      <div class="delivery-production-item-title">${checklist ? '<span class="delivery-check" aria-hidden="true">□</span>' : ''}<b>${quantity}x</b><strong>${escapeHTML(deliveryItemName(item))}</strong></div>
+      ${selectedOptions ? `<div class="delivery-item-options">${escapeHTML(selectedOptions)}</div>` : ''}
+      ${observation ? `<div class="delivery-item-observation"><b>Observação:</b> ${escapeHTML(observation)}</div>` : ''}
+    </div>`;
+  });
+  return items.length ? items.join('') : '<div class="delivery-card-loading">Itens ainda não disponíveis.</div>';
+}
+
+function deliveryMeaningfulNotes(delivery) {
+  const ignored = [
+    'pedido delivery pelo cardápio digital',
+    'pedido delivery pelo cardapio digital',
+    'pedido delivery pelo whatsapp',
+  ];
+  return deliveryOrders(delivery)
+    .map((order) => normalizeOptionalDisplayText(order.notes))
+    .filter((note) => note && !ignored.some((prefix) => note.toLocaleLowerCase('pt-BR').startsWith(prefix)));
+}
+
+function deliveryElapsedLabel(value) {
+  const timestamp = new Date(value || '').getTime();
+  if (!Number.isFinite(timestamp)) return '';
+  const minutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60000));
+  if (minutes < 1) return 'agora';
+  if (minutes < 60) return `há ${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return `há ${hours}h${remainder ? ` ${remainder}min` : ''}`;
+}
+
+function deliveryPreparationTiming(delivery) {
+  const startedAt = delivery.preparing_at || delivery.preparingAt || delivery.accepted_at || delivery.acceptedAt;
+  const startedTimestamp = new Date(startedAt || '').getTime();
+  const etaSeconds = Math.max(0, Number(delivery.eta_seconds || delivery.etaSeconds || 0));
+  if (!Number.isFinite(startedTimestamp)) return '';
+  const deadline = etaSeconds ? new Date(startedTimestamp + etaSeconds * 1000) : null;
+  const late = deadline && Date.now() > deadline.getTime();
+  return `<div class="delivery-stage-timing${late ? ' is-late' : ''}"><span>⏱ Em preparo ${escapeHTML(deliveryElapsedLabel(startedAt))}</span>${deadline ? `<strong>${late ? 'Previsão vencida' : 'Previsão'} ${deadline.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</strong>` : ''}</div>`;
 }
 
 function deliveryActionButtons(delivery) {
@@ -929,7 +1055,10 @@ function deliveryActionButtons(delivery) {
     return `<button class="action-btn secondary" onclick="printDeliveryDispatch('${id}')">🖨️ Imprimir expedição</button>${dispatch}`;
   }
   if (status === 'PREPARING' && own) {
-    return `<button class="action-btn accept" onclick="markOwnDeliveryReady('${id}')">✅ Marcar pronto para saída</button>`;
+    const autoPrint = String(delivery.acceptance_mode || delivery.acceptanceMode || '').toUpperCase() === 'AUTO'
+      ? `<button class="action-btn secondary" onclick="printDeliveryDispatch('${id}')">🖨️ Ver expedição</button>`
+      : '';
+    return `${autoPrint}<button class="action-btn accept" onclick="markOwnDeliveryReady('${id}')">✅ Marcar pronto para saída</button>`;
   }
   if (status === 'IN_TRANSIT' && own) {
     return `<button class="action-btn accept" onclick="completeOwnDelivery('${id}')">✅ Confirmar entrega</button>`;
@@ -941,31 +1070,133 @@ function deliveryModeLabel(mode) {
   return String(mode || 'OWN').toUpperCase() === 'OWN' ? 'Entrega própria' : 'Entrega iFood';
 }
 
+function deliveryCardHeader(delivery, contextLabel) {
+  const mode = String(delivery.default_fulfillment_mode || 'OWN').toUpperCase();
+  return `<div class="delivery-card-head"><div><span class="delivery-card-eyebrow">${escapeHTML(contextLabel)}</span><strong>🛵 #${escapeHTML(delivery.display_code || String(delivery.id).slice(0, 8))}</strong></div><span class="delivery-mode-badge delivery-mode-badge--${mode === 'OWN' ? 'own' : 'external'}">${escapeHTML(deliveryModeLabel(mode))}</span></div>`;
+}
+
+function deliveryCustomerBlock(delivery, showPhone = true) {
+  const customerName = String(delivery.customer_name || 'Cliente do WhatsApp');
+  const phone = String(delivery.customer_phone || '').trim();
+  return `<div class="delivery-card-customer"><span class="delivery-card-avatar" aria-hidden="true">👤</span><div><span class="delivery-card-eyebrow">Cliente</span><strong>${escapeHTML(customerName)}</strong>${showPhone && phone ? `<a href="tel:${escapeHTML(phone)}">📞 ${escapeHTML(formatBrazilianPhoneMask(phone))}</a>` : ''}</div></div>`;
+}
+
+function deliveryAddressBlock(delivery, label = 'Entregar em') {
+  return `<div class="delivery-card-section delivery-card-address"><span class="delivery-card-eyebrow">${escapeHTML(label)}</span><strong>📍 ${escapeHTML(deliveryAddress(delivery))}</strong>${delivery.address_reference ? `<small>Referência: ${escapeHTML(String(delivery.address_reference))}</small>` : ''}</div>`;
+}
+
+function deliveryCompactTotal(delivery) {
+  const itemsTotal = deliveryItemsTotal(delivery);
+  const deliveryFee = Number(delivery.customer_delivery_fee ?? delivery.delivery_fee ?? 0);
+  return `<div class="delivery-compact-total"><span>${deliveryItems(delivery).reduce((sum, item) => sum + Math.max(0, Number(item.quantity || 0)), 0)} itens · frete ${formatCurrency(deliveryFee)}</span><strong>${formatCurrency(itemsTotal + deliveryFee)}</strong></div>`;
+}
+
+function renderWaitingDeliveryCard(delivery) {
+  return `${deliveryCardHeader(delivery, 'Novo pedido')}
+    <div class="delivery-stage-callout delivery-stage-callout--waiting"><strong>Conferir e aceitar</strong><span>Recebido ${escapeHTML(deliveryElapsedLabel(delivery.created_at || delivery.createdAt))}</span></div>
+    ${deliveryCustomerBlock(delivery, false)}
+    <div class="delivery-card-section"><span class="delivery-card-eyebrow">Resumo do pedido</span>${deliveryItemSummary(delivery)}</div>
+    ${deliveryAddressBlock(delivery, 'Destino')}
+    ${deliveryCompactTotal(delivery)}
+    <div class="order-actions">${deliveryActionButtons(delivery)}</div>`;
+}
+
+function renderPreparingDeliveryCard(delivery) {
+  const notes = deliveryMeaningfulNotes(delivery);
+  const automatic = String(delivery.acceptance_mode || delivery.acceptanceMode || '').toUpperCase() === 'AUTO';
+  return `${deliveryCardHeader(delivery, automatic ? 'Aceito automaticamente' : 'Produção')}
+    ${automatic ? '<div class="delivery-auto-accepted"><span aria-hidden="true">⚡</span><div><strong>Preparo iniciado automaticamente</strong><small>As regras de aceite foram atendidas.</small></div></div>' : ''}
+    ${deliveryPreparationTiming(delivery)}
+    <div class="delivery-card-section delivery-card-items delivery-card-items--production"><span class="delivery-card-eyebrow">Preparar estes itens</span>${deliveryItemSummary(delivery, { detailed: true })}</div>
+    ${notes.length ? `<div class="delivery-order-note"><b>Observação geral</b>${notes.map((note) => `<span>${escapeHTML(note)}</span>`).join('')}</div>` : ''}
+    <div class="order-actions">${deliveryActionButtons(delivery)}</div>`;
+}
+
+function renderReadyDeliveryCard(delivery) {
+  return `${deliveryCardHeader(delivery, 'Conferência e expedição')}
+    <div class="delivery-stage-callout delivery-stage-callout--ready"><strong>Pedido pronto</strong><span>Confira a embalagem antes da saída</span></div>
+    <div class="delivery-card-section delivery-card-items"><span class="delivery-card-eyebrow">Checklist da sacola</span>${deliveryItemSummary(delivery, { checklist: true })}</div>
+    ${deliveryAddressBlock(delivery)}
+    ${deliveryCustomerBlock(delivery, true)}
+    <div class="order-actions">${deliveryActionButtons(delivery)}</div>`;
+}
+
+function renderRouteDeliveryCard(delivery) {
+  const statusLabels = { ASSIGNED: 'Entregador definido', PICKED_UP: 'Pedido coletado', IN_TRANSIT: 'A caminho', ARRIVED: 'Entregador chegou' };
+  const status = String(delivery.status || 'IN_TRANSIT');
+  const stageStartedAt = delivery.in_transit_at || delivery.inTransitAt || delivery.picked_up_at || delivery.pickedUpAt || delivery.updated_at || delivery.updatedAt;
+  return `${deliveryCardHeader(delivery, 'Entrega em andamento')}
+    <div class="delivery-route-status"><span class="delivery-route-pulse"></span><div><strong>${escapeHTML(statusLabels[status] || 'Em rota')}</strong><small>Atualizado ${escapeHTML(deliveryElapsedLabel(stageStartedAt))}</small></div></div>
+    ${deliveryAddressBlock(delivery, 'Próxima parada')}
+    ${deliveryCustomerBlock(delivery, true)}
+    ${deliveryCompactTotal(delivery)}
+    <div class="order-actions">${deliveryActionButtons(delivery)}</div>`;
+}
+
+function renderDeliveryCard(delivery, columnId) {
+  const contents = columnId === 'preparing'
+    ? renderPreparingDeliveryCard(delivery)
+    : columnId === 'ready'
+      ? renderReadyDeliveryCard(delivery)
+      : columnId === 'route'
+        ? renderRouteDeliveryCard(delivery)
+        : renderWaitingDeliveryCard(delivery);
+  const automatic = columnId === 'preparing' && String(delivery.acceptance_mode || delivery.acceptanceMode || '').toUpperCase() === 'AUTO';
+  return `<article class="order-card delivery-card delivery-card--${escapeHTML(columnId)}${automatic ? ' delivery-card--auto-accepted' : ''}" data-id="${escapeHTML(String(delivery.id))}">${contents}</article>`;
+}
+
 function renderDeliveryPanel() {
+  const panel = document.getElementById('panel-delivery');
+  if (!KDS_ACCESS.deliveryEnabled) {
+    if (panel) panel.innerHTML = renderKdsDeliveryUnavailable();
+    return;
+  }
   const deliveries = Object.values(allDeliveries);
   DELIVERY_COLUMNS.forEach((column) => {
-    const columnDeliveries = deliveries.filter((delivery) => column.statuses.includes(String(delivery.status || '')));
+    const columnDeliveries = deliveries
+      .filter((delivery) => column.statuses.includes(String(delivery.status || '')))
+      .sort((a, b) => new Date(a.created_at || a.createdAt || 0) - new Date(b.created_at || b.createdAt || 0));
     const count = document.getElementById(`cc-d-${column.id}`);
     const body = document.getElementById(`col-d-${column.id}`);
     if (count) count.textContent = String(columnDeliveries.length);
     if (!body) return;
-    body.innerHTML = columnDeliveries.length ? columnDeliveries.map((delivery) => {
-      const itemsTotal = deliveryItemsTotal(delivery);
-      const deliveryFee = Number(delivery.customer_delivery_fee ?? delivery.delivery_fee ?? 0);
-      const total = itemsTotal + deliveryFee;
-      const mode = String(delivery.default_fulfillment_mode || 'OWN').toUpperCase();
-      const customerName = String(delivery.customer_name || 'Cliente do WhatsApp');
-      const phone = String(delivery.customer_phone || '').trim();
-      return `<article class="order-card delivery-card" data-id="${escapeHTML(String(delivery.id))}">
-        <div class="delivery-card-head"><div><span class="delivery-card-eyebrow">Pedido</span><strong>🛵 #${escapeHTML(delivery.display_code || String(delivery.id).slice(0, 8))}</strong></div><span class="delivery-mode-badge delivery-mode-badge--${mode === 'OWN' ? 'own' : 'external'}">${escapeHTML(deliveryModeLabel(mode))}</span></div>
-        <div class="delivery-card-customer"><span class="delivery-card-avatar" aria-hidden="true">👤</span><div><span class="delivery-card-eyebrow">Cliente</span><strong>${escapeHTML(customerName)}</strong>${phone ? `<a href="tel:${escapeHTML(phone)}">📞 ${escapeHTML(formatBrazilianPhoneMask(phone))}</a>` : ''}</div></div>
-        <div class="delivery-card-section delivery-card-address"><span class="delivery-card-eyebrow">Entregar em</span><strong>📍 ${escapeHTML(deliveryAddress(delivery))}</strong>${delivery.address_reference ? `<small>Referência: ${escapeHTML(String(delivery.address_reference))}</small>` : ''}</div>
-        <div class="delivery-card-section delivery-card-items"><span class="delivery-card-eyebrow">Itens do pedido</span>${deliveryItemSummary(delivery)}</div>
-        <div class="delivery-card-totals"><div><span>Itens</span><strong>${formatCurrency(itemsTotal)}</strong></div><div><span>Frete</span><strong>${formatCurrency(deliveryFee)}</strong></div><div class="delivery-card-grand-total"><span>Total</span><strong>${formatCurrency(total)}</strong></div></div>
-        <div class="order-actions">${deliveryActionButtons(delivery)}</div>
-      </article>`;
-    }).join('') : '<div class="empty-column">Nenhuma entrega nesta etapa.</div>';
+    body.innerHTML = columnDeliveries.length
+      ? columnDeliveries.map((delivery) => renderDeliveryCard(delivery, column.id)).join('')
+      : '<div class="empty-column">Nenhuma entrega nesta etapa.</div>';
   });
+}
+
+function renderKdsDeliveryUnavailable() {
+  const tenantName = String(authSession?.user?.tenant_name || CONFIG.TENANT_NAME || 'seu restaurante').trim();
+  const subject = encodeURIComponent(`Ativar Delivery - ${tenantName}`);
+  return `<section class="kds-delivery-unavailable" aria-labelledby="kds-delivery-unavailable-title">
+    <div class="kds-delivery-unavailable-glow kds-delivery-unavailable-glow--one" aria-hidden="true"></div>
+    <div class="kds-delivery-unavailable-glow kds-delivery-unavailable-glow--two" aria-hidden="true"></div>
+    <div class="kds-delivery-unavailable-icon" aria-hidden="true">⚡</div>
+    <span class="kds-delivery-unavailable-eyebrow">AGILIDADE OPERACIONAL</span>
+    <h2 id="kds-delivery-unavailable-title">Mais velocidade para cada entrega.</h2>
+    <p>O Delivery organiza preparo, expedição e rota em uma única fila para sua equipe ganhar tempo e o cliente acompanhar tudo.</p>
+    <div class="kds-delivery-unavailable-features">
+      <span>⚡ Fluxo sem espera</span><span>📍 Rota acompanhada</span><span>✓ Confirmação segura</span>
+    </div>
+    <div class="kds-delivery-unavailable-cta">
+      <div><strong>Delivery não está disponível para esta conta</strong><small>Fale com a equipe ClickGarçom para ativar o módulo.</small></div>
+      <a href="mailto:suporte@clickgarcom.com.br?subject=${subject}">Fale com a gente</a>
+    </div>
+  </section>`;
+}
+
+function renderKdsAttendanceUnavailable() {
+  const tenantName = String(authSession?.user?.tenant_name || CONFIG.TENANT_NAME || 'seu restaurante').trim();
+  const subject = encodeURIComponent(`Ativar Atendimento - ${tenantName}`);
+  return `<section class="kds-attendance-unavailable" aria-labelledby="kds-attendance-unavailable-title">
+    <div class="kds-attendance-unavailable-icon" aria-hidden="true">⚡</div>
+    <span class="kds-attendance-unavailable-eyebrow">OPERAÇÃO PRESENCIAL</span>
+    <h2 id="kds-attendance-unavailable-title">Atendimento mais ágil, quando você precisar.</h2>
+    <p>Mesas, comandas e chamados de garçom ficam organizados em um único painel para sua equipe atender sem perder tempo.</p>
+    <div class="kds-attendance-unavailable-features"><span>🪑 Mesas</span><span>🔖 Comandas</span><span>⚡ KDS Salão</span></div>
+    <div class="kds-attendance-unavailable-cta"><div><strong>Atendimento não está disponível para esta conta</strong><small>Fale com a equipe ClickGarçom para ativar o módulo.</small></div><a href="mailto:suporte@clickgarcom.com.br?subject=${subject}">Fale com a gente</a></div>
+  </section>`;
 }
 
 function renderPanel(panel, destination) {
@@ -1445,6 +1676,11 @@ function getVisibleStationStatsCardKeys() {
 }
 
 function renderSalao() {
+  if (!KDS_ACCESS.attendanceEnabled) {
+    const panel = document.getElementById('panel-salao');
+    if (panel) panel.innerHTML = renderKdsAttendanceUnavailable();
+    return;
+  }
   applySalaoViewState();
   updateSalaoNavigationCounters();
   renderSalaoNow();
@@ -2658,7 +2894,9 @@ function updateNavBadges() {
   document.getElementById('nb-salao').textContent = pendingRequests.length + readyOrders + waiterChats.length + closeBillRequests.length;
   const deliveryBadge = document.getElementById('nb-delivery');
   if (deliveryBadge) {
-    deliveryBadge.textContent = String(Object.values(allDeliveries).filter((delivery) => !['DELIVERED', 'CANCELED', 'REJECTED'].includes(String(delivery.status || ''))).length);
+    const activeDeliveries = Object.values(allDeliveries).filter((delivery) => !['DELIVERED', 'CANCELED', 'REJECTED'].includes(String(delivery.status || ''))).length;
+    deliveryBadge.textContent = KDS_ACCESS.canViewDelivery && activeDeliveries ? String(activeDeliveries) : '';
+    deliveryBadge.style.display = KDS_ACCESS.canViewDelivery && activeDeliveries ? '' : 'none';
   }
 }
 
@@ -2696,16 +2934,33 @@ async function submitDeliveryPreparation(deliveryId) {
   await startDeliveryPreparation(deliveryId, estimateMinutes);
 }
 
+function applyDeliveryMutation(deliveryId, response, fallbackStatus) {
+  const current = allDeliveries[deliveryId];
+  if (!current) return;
+  const candidate = response?.snapshot || response?.delivery || response?.data || response;
+  const snapshot = candidate && typeof candidate === 'object' && !Array.isArray(candidate) ? candidate : {};
+  allDeliveries[deliveryId] = {
+    ...current,
+    ...snapshot,
+    id: current.id,
+    status: snapshot.status || fallbackStatus || current.status,
+    orders: Array.isArray(snapshot.orders) && snapshot.orders.length ? snapshot.orders : current.orders,
+  };
+  deliverySnapshotSignature = '';
+  renderAll();
+}
+
 async function startDeliveryPreparation(deliveryId, estimateMinutes) {
   const delivery = allDeliveries[deliveryId];
   if (!delivery) return;
   try {
-    await apiPost(`/deliveries/${encodeURIComponent(deliveryId)}/accept`, { estimated_minutes: estimateMinutes });
+    const response = await apiPost(`/deliveries/${encodeURIComponent(deliveryId)}/accept`, { estimated_minutes: estimateMinutes });
+    applyDeliveryMutation(deliveryId, response, 'PREPARING');
     const orders = deliveryOrders(delivery).filter((order) => String(order.status) === 'PENDING');
-    await Promise.all(orders.map((order) => apiPatch(`/orders/${encodeURIComponent(order.id)}/status?tenant_id=${CONFIG.TENANT_ID}`, { status: 'ACCEPTED' })));
     closeDeliveryPreparationModal();
     toast('t-success', '🍳 Preparo iniciado', `Previsão de ${estimateMinutes} minutos enviada ao cliente.`);
-    await loadDeliveries();
+    Promise.allSettled(orders.map((order) => apiPatch(`/orders/${encodeURIComponent(order.id)}/status?tenant_id=${CONFIG.TENANT_ID}`, { status: 'ACCEPTED' })))
+      .finally(() => loadDeliveries({ silent: true }));
   } catch (error) {
     console.error('Failed to start delivery preparation:', error);
     toast('t-error', '❌ Não foi possível iniciar', error.message || 'Atualize a fila e tente novamente.');
@@ -2716,11 +2971,12 @@ async function startOwnDelivery(deliveryId) {
   const delivery = allDeliveries[deliveryId];
   if (!delivery) return;
   try {
-    await apiPost(`/deliveries/${encodeURIComponent(deliveryId)}/own/start`, {
+    const response = await apiPost(`/deliveries/${encodeURIComponent(deliveryId)}/own/start`, {
       expected_version: Number(delivery.version),
     });
+    applyDeliveryMutation(deliveryId, response, 'IN_TRANSIT');
     toast('t-success', '🛵 Saída registrada', 'O cliente foi avisado que o pedido está a caminho.');
-    await loadDeliveries();
+    loadDeliveries({ silent: true });
   } catch (error) {
     console.error('Failed to start own delivery:', error);
     toast('t-error', '❌ Não foi possível registrar a saída', error.message || 'Atualize a fila e tente novamente.');
@@ -2731,35 +2987,65 @@ async function markOwnDeliveryReady(deliveryId) {
   const delivery = allDeliveries[deliveryId];
   if (!delivery) return;
   try {
-    await apiPost(`/deliveries/${encodeURIComponent(deliveryId)}/own/ready`, {
+    const response = await apiPost(`/deliveries/${encodeURIComponent(deliveryId)}/own/ready`, {
       expected_version: Number(delivery.version),
     });
+    applyDeliveryMutation(deliveryId, response, 'READY_FOR_DISPATCH');
     toast('t-success', '✅ Pedido pronto', 'A expedição já pode ser impressa e a saída registrada.');
-    await loadDeliveries();
+    loadDeliveries({ silent: true });
   } catch (error) {
     console.error('Failed to mark own delivery ready:', error);
     toast('t-error', '❌ Não foi possível avançar', error.message || 'Atualize a fila e tente novamente.');
   }
 }
 
-async function completeOwnDelivery(deliveryId) {
+function completeOwnDelivery(deliveryId) {
+  const delivery = allDeliveries[deliveryId];
+  if (!delivery || document.getElementById('deliveryCompletionModal')) return;
+  const overlay = document.createElement('div');
+  overlay.id = 'deliveryCompletionModal';
+  overlay.className = 'modal-overlay open';
+  overlay.innerHTML = `<div class="modal" style="width:min(440px,94vw)">
+    <div class="modal-header"><div><div class="modal-title">Finalizar entrega</div><div style="font-size:12px;color:var(--muted);margin-top:4px">Pedido ${escapeHTML(delivery.display_code || delivery.id)}</div></div><button class="modal-close" type="button" onclick="closeDeliveryCompletionModal()" aria-label="Fechar">✕</button></div>
+    <div class="modal-body"><p style="margin:0 0 14px;color:var(--text-2);font-size:13px;line-height:1.45">Peça ao cliente o código enviado no WhatsApp e confirme somente depois da entrega.</p><label class="modal-label" for="kds-delivery-completion-pin">Código de entrega <span style="color:var(--red)">*</span></label><input class="input" id="kds-delivery-completion-pin" maxlength="6" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" placeholder="A3F9" style="height:62px;text-align:center;text-transform:uppercase;letter-spacing:.28em;font-size:23px;font-weight:800" oninput="this.value=this.value.toUpperCase().replace(/[^0-9A-F]/g,'').slice(0,6)" onkeydown="if(event.key==='Enter'){event.preventDefault();submitOwnDeliveryCompletion('${escapeHTML(deliveryId)}')}"><div style="margin-top:7px;color:var(--muted);font-size:11px">Novos códigos têm 4 caracteres. Entregas anteriores podem usar 6 números.</div><div id="kds-delivery-completion-error" class="error-msg-inline" style="margin-top:8px"></div></div>
+    <div class="modal-actions"><button class="btn btn-ghost" type="button" onclick="closeDeliveryCompletionModal()">Cancelar</button><button class="btn btn-green" type="button" onclick="submitOwnDeliveryCompletion('${escapeHTML(deliveryId)}')">Confirmar entrega</button></div>
+  </div>`;
+  overlay.addEventListener('click', (event) => { if (event.target === overlay) closeDeliveryCompletionModal(); });
+  document.body.appendChild(overlay);
+  window.setTimeout(() => document.getElementById('kds-delivery-completion-pin')?.focus(), 0);
+}
+
+function closeDeliveryCompletionModal() {
+  document.getElementById('deliveryCompletionModal')?.remove();
+}
+
+async function submitOwnDeliveryCompletion(deliveryId) {
   const delivery = allDeliveries[deliveryId];
   if (!delivery) return;
+  const pin = String(document.getElementById('kds-delivery-completion-pin')?.value || '').trim().toUpperCase();
+  const errorNode = document.getElementById('kds-delivery-completion-error');
+  if (!/^(?:[0-9A-F]{4}|\d{6})$/.test(pin)) {
+    if (errorNode) errorNode.textContent = 'Informe o código de 4 caracteres enviado ao cliente.';
+    return;
+  }
   try {
-    await apiPost(`/deliveries/${encodeURIComponent(deliveryId)}/own/complete`, {
+    const response = await apiPost(`/deliveries/${encodeURIComponent(deliveryId)}/own/complete`, {
       expected_version: Number(delivery.version),
+      pin,
     });
+    applyDeliveryMutation(deliveryId, response, 'DELIVERED');
+    closeDeliveryCompletionModal();
     toast('t-success', '✅ Entrega confirmada', 'Capacidade liberada e cliente avisado.');
-    await loadDeliveries();
+    loadDeliveries({ silent: true });
   } catch (error) {
     console.error('Failed to complete own delivery:', error);
     toast('t-error', '❌ Não foi possível confirmar a entrega', error.message || 'Atualize a fila e tente novamente.');
   }
 }
 
-function printDeliveryDispatch(deliveryId) {
+function printDeliveryDispatch(deliveryId, suppressBlockedToast = false) {
   const delivery = allDeliveries[deliveryId];
-  if (!delivery) return;
+  if (!delivery) return false;
   const items = deliveryOrders(delivery).flatMap((order) => Array.isArray(order.items) ? order.items : []);
   const itemRows = items.length
     ? items.map((item) => {
@@ -2768,7 +3054,7 @@ function printDeliveryDispatch(deliveryId) {
       const unitPrice = Number(item.unit_price ?? item.unitPrice ?? item.price ?? 0);
       return `<tr><td class="item-quantity">${escapeHTML(`${quantity}x`)}</td><td>${escapeHTML(name)}</td><td class="money">${escapeHTML(formatCurrency(quantity * unitPrice))}</td></tr>`;
     }).join('')
-    : '<tr><td colspan="3" class="empty-items">Itens indisponíveis no painel; consulte o pedido da cozinha.</td></tr>';
+    : '<tr><td colspan="3" class="empty-items">Itens indisponíveis no painel; consulte os detalhes da entrega.</td></tr>';
   const itemsTotal = deliveryItemsTotal(delivery);
   const fee = Number(delivery.customer_delivery_fee ?? delivery.delivery_fee ?? 0);
   const total = itemsTotal + fee;
@@ -2783,8 +3069,10 @@ function printDeliveryDispatch(deliveryId) {
   const printedAt = new Date().toLocaleString('pt-BR');
   const printWindow = window.open('', '_blank', 'width=420,height=640');
   if (!printWindow) {
-    toast('t-error', '⚠️ Impressão bloqueada', 'Permita pop-ups para imprimir a expedição.');
-    return;
+    if (!suppressBlockedToast) {
+      toast('t-error', '⚠️ Impressão bloqueada', 'Permita pop-ups para imprimir a expedição.');
+    }
+    return false;
   }
   printWindow.document.write(`<!doctype html>
 <html lang="pt-BR">
@@ -2854,6 +3142,7 @@ function printDeliveryDispatch(deliveryId) {
   printWindow.document.close();
   printWindow.focus();
   printWindow.setTimeout(() => printWindow.print(), 150);
+  return true;
 }
 
 async function updateStatus(orderId, newStatus, cancelReason, prepMinutes, cancelReasonCode, cancelCategory) {
@@ -3251,10 +3540,15 @@ function switchPanel(name) {
   document.getElementById('panel-' + nextPanel).classList.add('active');
   document.querySelectorAll('.screen-tab[data-panel]').forEach((tab) => tab.classList.toggle('active', tab.dataset.panel === nextPanel));
   document.querySelectorAll('.sidebar-nav .nav-item[data-panel]').forEach((navItem) => navItem.classList.toggle('active', navItem.dataset.panel === nextPanel));
-  document.getElementById('topbar-title').textContent = TITLES[nextPanel]?.[0] || 'ClickGarçom';
-  document.getElementById('topbar-sub').textContent = TITLES[nextPanel]?.[1] || '';
-  if (nextPanel === 'delivery') loadDeliveries();
-  else loadOrders();
+  const deliveryUnavailable = nextPanel === 'delivery' && !KDS_ACCESS.deliveryEnabled;
+  const attendanceUnavailable = nextPanel === 'salao' && !KDS_ACCESS.attendanceEnabled;
+  document.getElementById('topbar-title').textContent = deliveryUnavailable ? 'Agilidade nas entregas' : attendanceUnavailable ? 'Agilidade no atendimento' : (TITLES[nextPanel]?.[0] || 'ClickGarçom');
+  document.getElementById('topbar-sub').textContent = deliveryUnavailable || attendanceUnavailable ? '— um fluxo mais rápido para sua operação' : (TITLES[nextPanel]?.[1] || '');
+  if (nextPanel === 'delivery') {
+    if (KDS_ACCESS.canViewDelivery) loadDeliveries();
+  } else if (nextPanel !== 'salao' || KDS_ACCESS.attendanceEnabled) {
+    loadOrders();
+  }
   renderCurrentPanel();
   updateNavBadges();
 }
@@ -3270,20 +3564,174 @@ function toast(type, title, sub) {
 }
 
 // ─── SOUND ─────────────────────────────────────────────────────
-function playNotificationSound() {
+function playNewOrderChime() {
+  // A short two-note chime makes the alert recognizable before the supplied
+  // female "novo pedido" announcement. It contains no spoken voice.
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.frequency.value = 880;
-    osc.type = 'sine';
-    gain.gain.value = 0.3;
-    osc.start();
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
-    osc.stop(ctx.currentTime + 0.5);
-  } catch (e) { /* Audio not available */ }
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return;
+    const context = window.__clickgarcomAlertChimeContext || new AudioContextClass();
+    window.__clickgarcomAlertChimeContext = context;
+    const scheduleChime = () => {
+      const startAt = context.currentTime + 0.02;
+      [[740, 0, 0.15], [988, 0.18, 0.22]].forEach(([frequency, offset, duration]) => {
+        const oscillator = context.createOscillator();
+        const gain = context.createGain();
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(frequency, startAt + offset);
+        gain.gain.setValueAtTime(0.0001, startAt + offset);
+        gain.gain.exponentialRampToValueAtTime(0.23, startAt + offset + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, startAt + offset + duration);
+        oscillator.connect(gain).connect(context.destination);
+        oscillator.start(startAt + offset);
+        oscillator.stop(startAt + offset + duration + 0.03);
+      });
+    };
+    if (context.state === 'suspended') context.resume().then(scheduleChime).catch(() => undefined);
+    else scheduleChime();
+  } catch (_error) {
+    // The supplied announcement remains available when Web Audio is blocked.
+  }
+}
+
+function playNotificationSound(entityKeys = []) {
+  // The alert is a chime followed by the supplied female "novo pedido"
+  // announcement. There is intentionally no browser-generated speech.
+  const now = Date.now();
+  if (now - notificationSoundLastStartedAt < NOTIFICATION_SOUND_DEBOUNCE_MS) {
+    return window.__clickgarcomNewOrderAudio || null;
+  }
+  const keys = (Array.isArray(entityKeys) ? entityKeys : [entityKeys])
+    .map((key) => String(key || '').trim())
+    .filter(Boolean);
+  for (const [key, startedAt] of notificationSoundEntityTimes.entries()) {
+    if (now - startedAt >= NOTIFICATION_SOUND_ENTITY_WINDOW_MS) notificationSoundEntityTimes.delete(key);
+  }
+  if (keys.some((key) => now - Number(notificationSoundEntityTimes.get(key) || 0) < NOTIFICATION_SOUND_ENTITY_WINDOW_MS)) {
+    return window.__clickgarcomNewOrderAudio || null;
+  }
+  try {
+    // Use the exact file supplied for the operation. The .mpeg extension is
+    // intentional: it avoids silently substituting another alert sound while
+    // keeping the browser's audio/mpeg handling.
+    const audio = window.__clickgarcomNewOrderAudio || new Audio('/audio/audio-novo-pedido.mpeg');
+    window.__clickgarcomNewOrderAudio = audio;
+    // A delivery can arrive through websocket and polling at nearly the same
+    // time. Do not rewind an alert that is already playing.
+    if (!audio.paused && !audio.ended) return audio;
+    notificationSoundLastStartedAt = now;
+    keys.forEach((key) => notificationSoundEntityTimes.set(key, now));
+    playNewOrderChime();
+    window.setTimeout(() => {
+      // Do not restart a newer alert if another event reaches this callback.
+      if (!audio.paused && !audio.ended) return;
+      audio.currentTime = 0;
+      audio.volume = 0.9;
+      const playback = audio.play();
+      if (playback && typeof playback.catch === 'function') playback.catch(() => undefined);
+    }, NEW_ORDER_CHIME_DELAY_MS);
+    return audio;
+  } catch (_error) {
+    // O operador ainda pode ouvir o arquivo após interagir com o KDS.
+    return null;
+  }
+}
+
+function automaticAcceptanceStorageKey() {
+  return `clickgarcom:kds:auto-accepted:${CONFIG.TENANT_ID || 'tenant'}`;
+}
+
+function claimAutomaticAcceptanceAlert(delivery) {
+  const id = String(delivery?.id || '').trim();
+  if (!id || announcedAutoAcceptedDeliveries.has(id)) return false;
+  announcedAutoAcceptedDeliveries.add(id);
+
+  try {
+    const key = automaticAcceptanceStorageKey();
+    const now = Date.now();
+    const stored = JSON.parse(window.localStorage.getItem(key) || '{}');
+    if (stored && typeof stored === 'object' && stored[id]) return false;
+    const recent = Object.entries(stored && typeof stored === 'object' ? stored : {})
+      .filter(([, timestamp]) => now - Number(timestamp || 0) < 7 * 24 * 60 * 60 * 1000)
+      .sort((a, b) => Number(b[1]) - Number(a[1]))
+      .slice(0, 199);
+    const next = Object.fromEntries(recent);
+    next[id] = now;
+    window.localStorage.setItem(key, JSON.stringify(next));
+  } catch (_error) {
+    // The in-memory set still prevents duplicate announcements when private
+    // browsing or a restrictive browser blocks localStorage.
+  }
+  return true;
+}
+
+function playAutomaticAcceptanceSound(delivery) {
+  // Automatic acceptance uses the same supplied “novo pedido” audio as the
+  // regular KDS alert, rather than a generated tone.
+  const keys = [
+    delivery?.id,
+    delivery?.order_id,
+    delivery?.orderId,
+    delivery?.batch_id,
+    delivery?.batchId,
+    ...deliveryOrders(delivery).map((order) => order?.id),
+  ];
+  return playNotificationSound(keys);
+}
+
+function announceAutomaticDeliveryAcceptances(deliveries) {
+  const now = Date.now();
+  (Array.isArray(deliveries) ? deliveries : []).forEach((delivery) => {
+    const status = String(delivery?.status || '').toUpperCase();
+    const acceptanceMode = String(delivery?.acceptance_mode || delivery?.acceptanceMode || '').toUpperCase();
+    const createdAt = new Date(delivery?.created_at || delivery?.createdAt || 0).getTime();
+    const recent = Number.isFinite(createdAt) && now - createdAt <= 15 * 60 * 1000;
+    if (status !== 'PREPARING' || acceptanceMode !== 'AUTO' || !recent || !claimAutomaticAcceptanceAlert(delivery)) return;
+
+    playAutomaticAcceptanceSound(delivery);
+    const code = String(delivery?.display_code || delivery?.id || '').trim();
+    toast('t-success', '⚡ Pedido aceito automaticamente', `${code ? `#${code} · ` : ''}Movido para Em preparo`);
+    scheduleAutomaticDeliveryDispatchPrint(delivery);
+  });
+}
+
+function automaticDispatchStorageKey() {
+  return `clickgarcom:kds:auto-dispatch-printed:${CONFIG.TENANT_ID || 'tenant'}`;
+}
+
+function claimAutomaticDispatchPrint(delivery) {
+  const id = String(delivery?.id || '').trim();
+  if (!id) return false;
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(automaticDispatchStorageKey()) || '{}');
+    if (stored && stored[id]) return false;
+    const now = Date.now();
+    const recent = Object.entries(stored && typeof stored === 'object' ? stored : {})
+      .filter(([, timestamp]) => now - Number(timestamp || 0) < 7 * 24 * 60 * 60 * 1000)
+      .slice(-199);
+    window.localStorage.setItem(automaticDispatchStorageKey(), JSON.stringify({ ...Object.fromEntries(recent), [id]: now }));
+  } catch (_error) {
+    window.__clickgarcomAutoDispatchPrinted = window.__clickgarcomAutoDispatchPrinted || new Set();
+    if (window.__clickgarcomAutoDispatchPrinted.has(id)) return false;
+    window.__clickgarcomAutoDispatchPrinted.add(id);
+  }
+  return true;
+}
+
+function scheduleAutomaticDeliveryDispatchPrint(delivery) {
+  const mode = String(delivery?.default_fulfillment_mode || delivery?.defaultFulfillmentMode || 'OWN').toUpperCase();
+  if (mode !== 'OWN') return;
+  window.setTimeout(() => {
+    const printed = printDeliveryDispatch(delivery.id, true);
+    if (printed) {
+      claimAutomaticDispatchPrint(delivery);
+    } else {
+      // Browsers only allow a print window after an explicit user gesture.
+      // Keep the alert visible and tell the operator exactly how to continue;
+      // the delivery card always keeps the “Ver expedição” action available.
+      toast('t-error', '🖨️ Impressão automática bloqueada', 'Permita pop-ups para este site e use “Ver expedição” no pedido.');
+    }
+  }, 250);
 }
 
 // ─── SIDEBAR TOGGLE ────────────────────────────────────────────

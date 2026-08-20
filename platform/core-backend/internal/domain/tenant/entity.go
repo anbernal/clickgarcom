@@ -63,15 +63,40 @@ type TenantSettings struct {
 	MPPublicKey       string                 `json:"mp_public_key"`   // FASE 12
 	PaymentGateway    PaymentGatewaySettings `json:"payment_gateway"`
 	Delivery          DeliverySettings       `json:"delivery"`
+	Attendance        AttendanceSettings     `json:"attendance"`
 	Messages          MessageTemplates       `json:"messages"` // FASE 16
+}
+
+// AttendanceSettings controls the presencial/restaurant experience. A pointer
+// is used so old tenants without this key remain enabled by default.
+type AttendanceSettings struct {
+	Enabled *bool `json:"enabled,omitempty"`
+}
+
+func (s TenantSettings) AttendanceEnabled() bool {
+	return s.Attendance.Enabled == nil || *s.Attendance.Enabled
 }
 
 // DeliverySettings contains only the WhatsApp entry rules needed by Core. The
 // complete Delivery configuration remains owned and validated by Tenant Admin.
 type DeliverySettings struct {
-	Enabled              bool   `json:"enabled"`
-	WhatsAppOrderEnabled bool   `json:"whatsapp_order_enabled"`
-	WhatsAppOrderMode    string `json:"whatsapp_order_mode"`
+	Enabled              bool       `json:"enabled"`
+	WhatsAppOrderEnabled bool       `json:"whatsapp_order_enabled"`
+	WhatsAppOrderMode    string     `json:"whatsapp_order_mode"`
+	EnabledAt            *time.Time `json:"enabled_at,omitempty"`
+	ExpiresAt            *time.Time `json:"expires_at,omitempty"`
+	Permanent            bool       `json:"permanent,omitempty"`
+	DisabledAt           *time.Time `json:"disabled_at,omitempty"`
+}
+
+func (s DeliverySettings) IsActive(now time.Time) bool {
+	if !s.Enabled {
+		return false
+	}
+	if s.Permanent || s.ExpiresAt == nil {
+		return true
+	}
+	return s.ExpiresAt.After(now)
 }
 
 // PaymentGatewaySettings keeps the provider selection tenant-scoped. The encrypted

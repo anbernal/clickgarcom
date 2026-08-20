@@ -238,6 +238,10 @@ export class DeliveryOrderEventDto {
     order_id?: string;
 
     @IsOptional()
+    @IsBoolean()
+    payment_confirmed?: boolean;
+
+    @IsOptional()
     @ValidateNested()
     @Type(() => DeliveryCreateInternalDto)
     delivery?: DeliveryCreateInternalDto;
@@ -376,6 +380,12 @@ export class DeliveryOwnOperationDto {
     notes?: string;
 }
 
+export class DeliveryCompleteOwnDto extends DeliveryOwnOperationDto {
+    @IsString()
+    @Matches(/^(?:[0-9A-Fa-f]{4}|\d{6})$/)
+    pin!: string;
+}
+
 export class DeliveryReportQueryDto {
     @IsOptional()
     @IsString()
@@ -407,6 +417,6 @@ export class DeliveryReportQueryDto {
 
 export class DeliveryConfirmPinDto {
     @IsString()
-    @Matches(/^\d{6}$/)
+    @Matches(/^(?:[0-9A-Fa-f]{4}|\d{6})$/)
     pin!: string;
 }

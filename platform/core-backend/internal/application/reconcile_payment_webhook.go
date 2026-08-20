@@ -181,6 +181,11 @@ func (uc *ReconcilePaymentWebhookUseCase) Execute(ctx context.Context, body []by
 			if err := uc.notifyDeliveryPayment(ctx, localPayment, batchID, providerPaymentID); err != nil {
 				return fmt.Errorf("failed to notify delivery payment: %w", err)
 			}
+			if err := uc.deliveryPayment.ReconcilePaid(ctx, DeliveryPaidPaymentInput{
+				TenantID: localPayment.TenantID, OrderBatchID: batchID, EventID: eventID,
+			}); err != nil {
+				return fmt.Errorf("failed to start delivery preparation after payment notification: %w", err)
+			}
 		}
 	}
 	// Delivery has its own customer-facing lifecycle. Do not pass it through
@@ -266,7 +271,10 @@ func deliveryCustomerNameFromSnapshot(snapshot json.RawMessage) string {
 	if err := json.Unmarshal(snapshot, &values); err != nil {
 		return ""
 	}
-	name := strings.Join(strings.Fields(strings.TrimSpace(fmt.Sprint(values["customer_name"]))), " ")
+	// A missing JSON value becomes "<nil>" through fmt.Sprint. Normalize it
+	// before composing the customer greeting so optional profile data can never
+	// leak an implementation value into WhatsApp.
+	name := strings.Join(strings.Fields(optionalTextFromAny(values["customer_name"])), " ")
 	if len([]rune(name)) < 2 || len([]rune(name)) > 120 {
 		return ""
 	}

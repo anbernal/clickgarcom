@@ -10,6 +10,7 @@ describe('DeliveryPolicyService', () => {
             enabled: true,
             require_confirmed_payment: true,
             max_active_deliveries: 8,
+            preparation_minutes: 30,
             windows: [{ days: ['THU' as const], start: '18:00', end: '23:00' }],
         },
     };

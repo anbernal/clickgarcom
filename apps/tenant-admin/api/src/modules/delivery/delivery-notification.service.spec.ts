@@ -27,6 +27,30 @@ describe('DeliveryNotificationService', () => {
         expect(query.mock.calls[0][0]).toContain('ON CONFLICT (id) DO NOTHING');
     });
 
+    it('enqueues the preparation notification when the restaurant accepts the delivery', async () => {
+        const query = jest.fn().mockResolvedValue({ rowCount: 1 });
+        const manager = {
+            query,
+            getRepository: () => ({ findOne: jest.fn().mockResolvedValue({ settings: { messages: {} } }) }),
+        } as any;
+        const service = new DeliveryNotificationService();
+        const delivery = Object.assign(new Delivery(), {
+            id: '3a5f77f3-a7c1-47a5-91f0-1d2a7b97809c',
+            tenantId: '842c4a5a-29b3-4930-a7d4-2f8ce433b90e',
+            customerPhone: '5511999999999',
+            customerName: 'Mariana',
+            displayCode: '123456',
+            etaSeconds: 900,
+        });
+
+        await service.enqueueMilestone(manager, delivery, DeliveryNotificationMilestone.Preparing);
+
+        expect(query).toHaveBeenCalledTimes(1);
+        expect(query.mock.calls[0][1][4]).toBe('delivery_preparing_v1');
+        expect(query.mock.calls[0][1][3]).toContain('seu pedido *123456* foi aceito');
+        expect(query.mock.calls[0][1][3]).toContain('15 minutos');
+    });
+
     it('does not enqueue a message without a customer phone', async () => {
         const query = jest.fn();
         const service = new DeliveryNotificationService();

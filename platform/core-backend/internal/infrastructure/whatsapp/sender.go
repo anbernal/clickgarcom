@@ -38,6 +38,7 @@ type OutboxMessage struct {
 }
 
 var sixDigitSecretPattern = regexp.MustCompile(`\b\d{6}\b`)
+var deliveryHexSecretPattern = regexp.MustCompile(`(?i)(c[oó]digo[^:\n]{0,80}:\s*\*?)[0-9a-f]{4}(\*?)`)
 
 func (OutboxMessage) TableName() string {
 	return "outbox_messages"
@@ -289,9 +290,10 @@ func sanitizeMessagePreview(value string) string {
 	if normalized == "" {
 		return ""
 	}
-	// Delivery PINs are six-digit values. Persisted message previews must not
-	// retain the secret even though the WhatsApp outbox needs it for delivery.
+	// Persisted message previews must not retain delivery confirmation secrets,
+	// even though the WhatsApp outbox needs the plaintext for customer delivery.
 	normalized = sixDigitSecretPattern.ReplaceAllString(normalized, "[REDACTED]")
+	normalized = deliveryHexSecretPattern.ReplaceAllString(normalized, `${1}[REDACTED]${2}`)
 
 	runes := []rune(normalized)
 	if len(runes) > 255 {

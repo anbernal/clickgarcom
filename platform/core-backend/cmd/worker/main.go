@@ -152,6 +152,11 @@ func main() {
 		resolveInternalServiceToken(),
 		logger.Log,
 	)
+	digitalMenuAccessClient := adminclient.NewDigitalMenuAccessClient(
+		resolveNodeAdminInternalBaseURL(),
+		resolveInternalServiceToken(),
+		logger.Log,
+	)
 	deliveryPaymentCoordinator := application.NewDeliveryPaymentCoordinator(deliveryCheckoutCoordinator, deliveryOrderBatchClient)
 
 	// 7. Use Cases
@@ -185,6 +190,8 @@ func main() {
 	handleWhatsAppMsg.SetDeliveryCustomerGateway(deliveryCustomerClient)
 	handleWhatsAppMsg.SetDeliveryQuoteGateway(deliveryQuoteClient)
 	handleWhatsAppMsg.SetDeliveryOrderBatchGateway(deliveryOrderBatchClient)
+	handleWhatsAppMsg.SetDigitalMenuAccessGateway(digitalMenuAccessGatewayAdapter{client: digitalMenuAccessClient})
+	deliveryNotificationAdapter.SetDeliverySessionFinalizer(handleWhatsAppMsg)
 	processWhatsAppMsg := application.NewProcessWhatsAppMessageUseCase(
 		inboxRepo,
 		tenantRepo,
@@ -293,6 +300,7 @@ func main() {
 		portalHandleUC.SetDeliveryCustomerGateway(deliveryCustomerClient)
 		portalHandleUC.SetDeliveryQuoteGateway(deliveryQuoteClient)
 		portalHandleUC.SetDeliveryOrderBatchGateway(deliveryOrderBatchClient)
+		portalHandleUC.SetDigitalMenuAccessGateway(digitalMenuAccessGatewayAdapter{client: digitalMenuAccessClient})
 
 		if err := portalHandleUC.ExecutePortal(ctx, input, portalConversationInputStore); err != nil {
 			return err
@@ -363,6 +371,18 @@ func main() {
 	<-quit
 	logger.Info("Shutting down worker...")
 	metrics.ShutdownServer(metricsServer, logger.Log, "go-worker")
+}
+
+type digitalMenuAccessGatewayAdapter struct {
+	client *adminclient.DigitalMenuAccessClient
+}
+
+func (a digitalMenuAccessGatewayAdapter) Create(ctx context.Context, tenantID uuid.UUID, phone string) (string, string, error) {
+	access, err := a.client.Create(ctx, tenantID, phone)
+	if err != nil {
+		return "", "", err
+	}
+	return access.Slug, access.Capability, nil
 }
 
 func resolvePublicCheckoutBaseURL() string {

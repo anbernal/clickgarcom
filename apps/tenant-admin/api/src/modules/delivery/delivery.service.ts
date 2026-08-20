@@ -14,6 +14,7 @@ import { DeliveryEvent } from '../../entities/delivery-event.entity';
 import { DomainOutboxEvent } from '../../entities/domain-outbox-event.entity';
 import { DeliveryCommandIdempotency } from '../../entities/delivery-command-idempotency.entity';
 import { DeliveryPinChallenge } from '../../entities/delivery-pin-challenge.entity';
+import { DeliveryCheckout } from '../../entities/delivery-checkout.entity';
 import { DeliveryPolicyService } from './delivery-policy.service';
 import { DeliveryPinFailure, DeliveryPinService } from './delivery-pin.service';
 import { DeliveryNotificationService, DeliveryNotificationMilestone } from './delivery-notification.service';
@@ -37,6 +38,7 @@ import {
     DeliveryAssignDto,
     DeliveryAcceptDto,
     DeliveryCancelDto,
+    DeliveryCompleteOwnDto,
     DeliveryCompleteReturnDto,
     DeliveryConfirmPinDto,
     DeliveryCreateInternalDto,
@@ -64,6 +66,7 @@ type DeliverySnapshot = {
     tab_id: string;
     display_code: string;
     status: string;
+    acceptance_mode: string | null;
     version: number;
     service_type: string;
     customer_name: string | null;
@@ -87,6 +90,7 @@ type DeliverySnapshot = {
     assigned_driver_id: string | null;
     eta_seconds: number | null;
     accepted_at: Date | null;
+    preparing_at: Date | null;
     ready_for_dispatch_at: Date | null;
     picked_up_at: Date | null;
     in_transit_at: Date | null;
@@ -101,12 +105,18 @@ type DeliverySnapshot = {
         id: string;
         batch_id: string | null;
         status: string;
+        notes: string | null;
+        created_at: Date;
+        accepted_at: Date | null;
+        ready_at: Date | null;
         items: Array<{
             id: string;
             quantity: number;
             unit_price: number;
             item_name_snapshot: string | null;
             menu_item_id: string;
+            observations: string | null;
+            selected_options: Array<{ groupName: string; optionName: string; priceDelta: number }>;
         }>;
     }>;
 };
@@ -144,6 +154,8 @@ export class DeliveryService {
         private readonly tenantRepository: Repository<Tenant>,
         @InjectRepository(User)
         private readonly userRepository: Repository<User>,
+        @InjectRepository(DeliveryCheckout)
+        private readonly checkoutRepository: Repository<DeliveryCheckout>,
         private readonly dataSource: DataSource,
         private readonly policyService: DeliveryPolicyService,
         private readonly pinService: DeliveryPinService,
@@ -330,6 +342,16 @@ export class DeliveryService {
 
         const rawSettings = ((tenant.settings || {}) as any).delivery || {};
         const settings = this.policyService.normalizeSettings(rawSettings);
+        // The checkout record is the source of truth for payment. The order
+        // batch event can race with the payment callback, so do not rely only
+        // on the event's payment_confirmed flag when a checkout already
+        // exists.
+        const checkout = await this.checkoutRepository.findOne({
+            where: { tenantId: input.tenant_id, orderBatchId: input.batch_id },
+        });
+        const paymentConfirmed = checkout
+            ? checkout.status === 'PAID'
+            : input.payment_confirmed === true;
         const origin = rawSettings.origin || {};
         let routeResult: DeliveryRouteResult | null = null;
         if ([origin.lat, origin.lng, input.destination_lat, input.destination_lng].every((value) => Number.isFinite(Number(value)))) {
@@ -363,20 +385,22 @@ export class DeliveryService {
             addressConfirmed,
             insideServiceArea,
             itemsAvailable: input.items_available !== false,
-            paymentConfirmed: input.payment_confirmed === true,
+            paymentConfirmed,
             activeDeliveries,
             manuallyBlocked: false,
         });
         const feeQuote = this.feeService.quote(distanceMeters, pricingSettings);
         const addressSnapshot = this.addressSnapshotService.build(input);
 
+        const autoAccepted = decision.result === 'AUTO_ACCEPTED';
+        const acceptedAt = autoAccepted ? new Date() : null;
         const delivery = this.deliveryRepository.create({
             tenantId: input.tenant_id,
             tabId: input.tab_id,
             batchId: input.batch_id,
             displayCode: await this.generateDisplayCode(input.tenant_id),
             serviceType: 'DELIVERY',
-            status: decision.result === 'AUTO_ACCEPTED' ? DeliveryStatus.Accepted : DeliveryStatus.PendingRestaurantAcceptance,
+            status: autoAccepted ? DeliveryStatus.Accepted : DeliveryStatus.PendingRestaurantAcceptance,
             version: 1,
             customerName: input.customer_name || null,
             customerPhone: input.customer_phone || batch.customerPhone || null,
@@ -416,8 +440,8 @@ export class DeliveryService {
                 service_area_prevalidation_distance_meters: Number.isFinite(areaDistanceMeters) ? areaDistanceMeters : null,
             },
             policySnapshot: decision,
-            acceptanceMode: decision.result === 'AUTO_ACCEPTED' ? DeliveryAcceptanceMode.Auto : DeliveryAcceptanceMode.Manual,
-            acceptedAt: decision.result === 'AUTO_ACCEPTED' ? new Date() : null,
+            acceptanceMode: autoAccepted ? DeliveryAcceptanceMode.Auto : DeliveryAcceptanceMode.Manual,
+            acceptedAt,
         });
 
         const snapshot = await this.dataSource.transaction(async (manager) => {
@@ -438,8 +462,34 @@ export class DeliveryService {
                 await manager.getRepository(Delivery).save(saved);
             }
             await this.appendEvent(manager, saved, DeliveryEventType.Created, null, saved.status, { acceptance_mode: saved.acceptanceMode });
-            if (decision.result === 'AUTO_ACCEPTED') {
-                await this.appendEvent(manager, saved, DeliveryEventType.Accepted, null, saved.status, { policy: decision });
+            if (autoAccepted) {
+                await this.appendEvent(manager, saved, DeliveryEventType.Accepted, null, DeliveryStatus.Accepted, { policy: decision });
+
+                // Automatic acceptance is an operational decision, so it must
+                // not leave the card waiting for a second manual click in KDS.
+                // Preserve ACCEPTED in the event trail, then advance the same
+                // delivery to PREPARING atomically and notify the customer.
+                const preparationMinutes = settings.auto_accept.preparation_minutes;
+                saved.status = DeliveryStatus.Preparing;
+                saved.preparingAt = acceptedAt || new Date();
+                saved.etaSeconds = preparationMinutes * 60;
+                saved.etaUpdatedAt = saved.preparingAt;
+                saved.version += 1;
+                await manager.getRepository(Delivery).save(saved);
+                await this.appendEvent(
+                    manager,
+                    saved,
+                    DeliveryEventType.StatusChanged,
+                    null,
+                    DeliveryStatus.Preparing,
+                    {
+                        previous_status: DeliveryStatus.Accepted,
+                        reason_code: 'AUTO_ACCEPTED_PREPARATION_STARTED',
+                        estimated_minutes: preparationMinutes,
+                    },
+                    'AUTO_ACCEPT_POLICY',
+                );
+                await this.enqueueMilestoneForStatus(manager, saved, DeliveryStatus.Preparing);
             } else {
                 await this.appendEvent(manager, saved, DeliveryEventType.ManualAcceptanceRequired, null, saved.status, { policy: decision });
             }
@@ -482,6 +532,7 @@ export class DeliveryService {
                 tab_id: batch.tabId,
                 batch_id: batchId,
                 customer_phone: deliveryInput.customer_phone || batch.customerPhone || undefined,
+                payment_confirmed: input.payment_confirmed === true,
             } as DeliveryCreateInternalDto;
             try {
                 await this.createFromBatch(createInput);
@@ -502,6 +553,22 @@ export class DeliveryService {
                 ignored: true,
                 reason: 'DELIVERY_NOT_CREATED',
             };
+        }
+
+        // A delivery projection is normally created before the PIX/card
+        // provider callback. Once the checkout is actually PAID, re-evaluate
+        // the policy so eligible pending deliveries do not remain stuck in
+        // "Novos pedidos" waiting for a manual click. Reading the checkout
+        // here also closes the race where payment was confirmed before the
+        // first delivery projection was created.
+        const checkout = await this.checkoutRepository.findOne({
+            where: { tenantId, orderBatchId: batchId },
+        });
+        const paymentConfirmed = checkout
+            ? checkout.status === 'PAID'
+            : input.payment_confirmed === true;
+        if (paymentConfirmed && delivery.status === DeliveryStatus.PendingRestaurantAcceptance) {
+            delivery = await this.promotePendingAfterPayment(delivery, tenantId);
         }
 
         const orders = await this.orderRepository.find({
@@ -571,8 +638,12 @@ export class DeliveryService {
 
     private deliveryInputFromBatch(batch: OrderBatch): DeliveryCreateInternalDto | undefined {
         const snapshot = (batch.deliveryAddressSnapshot || {}) as Record<string, unknown>;
-        const destinationLat = Number(snapshot.destination_lat ?? snapshot.lat);
-        const destinationLng = Number(snapshot.destination_lng ?? snapshot.lng);
+        // The WhatsApp flow stores destination_lat/destination_lng, while the
+        // digital menu persists the same coordinates as latitude/longitude.
+        // Both are a frozen address snapshot for the batch and must produce
+        // the identical delivery projection after payment approval.
+        const destinationLat = Number(snapshot.destination_lat ?? snapshot.lat ?? snapshot.latitude);
+        const destinationLng = Number(snapshot.destination_lng ?? snapshot.lng ?? snapshot.longitude);
         if (!Number.isFinite(destinationLat) || !Number.isFinite(destinationLng)) return undefined;
 
         return {
@@ -581,6 +652,8 @@ export class DeliveryService {
             batch_id: batch.id,
             customer_name: typeof snapshot.customer_name === 'string' ? snapshot.customer_name : undefined,
             customer_phone: batch.customerPhone || undefined,
+            customer_id: typeof snapshot.customer_id === 'string' ? snapshot.customer_id : undefined,
+            customer_address_id: typeof snapshot.customer_address_id === 'string' ? snapshot.customer_address_id : undefined,
             postal_code: typeof snapshot.postal_code === 'string' ? snapshot.postal_code : undefined,
             street: typeof snapshot.street === 'string' ? snapshot.street : undefined,
             address_number: typeof snapshot.address_number === 'string' ? snapshot.address_number : undefined,
@@ -599,6 +672,67 @@ export class DeliveryService {
         };
     }
 
+    private async promotePendingAfterPayment(delivery: Delivery, tenantId: string): Promise<Delivery> {
+        const tenant = await this.tenantRepository.findOne({ where: { id: tenantId } });
+        if (!tenant) return delivery;
+        const rawSettings = ((tenant.settings || {}) as any).delivery || {};
+        const settings = this.policyService.normalizeSettings(rawSettings);
+        const areaDistance = Number((delivery.feeRuleSnapshot as any)?.service_area_prevalidation_distance_meters ?? delivery.distanceMeters);
+        const radiusKm = Number(rawSettings.service_area?.radius_km || 8);
+        const decision = this.policyService.decide(settings, {
+            now: new Date(),
+            tenantIsActive: tenant.active,
+            tenantIsOpen: tenant.isOpen,
+            addressConfirmed: Boolean(delivery.geocodeQuality || delivery.formattedAddress),
+            insideServiceArea: Number.isFinite(areaDistance) && areaDistance <= radiusKm * 1000,
+            itemsAvailable: true,
+            paymentConfirmed: true,
+            activeDeliveries: await this.deliveryRepository.count({
+                where: { tenantId, status: In(ACTIVE_STATUSES) },
+            }),
+            manuallyBlocked: false,
+        });
+        if (decision.result !== 'AUTO_ACCEPTED') return delivery;
+
+        const snapshot = await this.dataSource.transaction(async (manager) => {
+            const repository = manager.getRepository(Delivery);
+            const current = await repository.createQueryBuilder('delivery')
+                .where('delivery.id = :id AND delivery.tenant_id = :tenantId', { id: delivery.id, tenantId })
+                .setLock('pessimistic_write')
+                .getOne();
+            if (!current || current.status !== DeliveryStatus.PendingRestaurantAcceptance) return current ? this.toSnapshot(current) : this.toSnapshot(delivery);
+            const now = new Date();
+            const previousStatus = current.status;
+            current.acceptanceMode = DeliveryAcceptanceMode.Auto;
+            current.acceptedAt = now;
+            current.status = DeliveryStatus.Accepted;
+            this.applyTimestamp(current, DeliveryStatus.Accepted);
+            current.policySnapshot = decision;
+            await this.appendEvent(manager, current, DeliveryEventType.Accepted, null, DeliveryStatus.Accepted, { policy: decision, reason_code: 'PAYMENT_CONFIRMED_AUTO_ACCEPT' }, 'AUTO_ACCEPT_POLICY');
+            current.status = DeliveryStatus.Preparing;
+            current.preparingAt = now;
+            current.etaSeconds = settings.auto_accept.preparation_minutes * 60;
+            current.etaUpdatedAt = now;
+            current.version += 1;
+            if (current.defaultFulfillmentModeSnapshot === 'OWN') {
+                const currentFulfillment = await manager.getRepository(DeliveryFulfillment).findOne({
+                    where: { deliveryId: current.id, tenantId, isCurrent: true },
+                });
+                if (!currentFulfillment) await this.ensureOwnFulfillment(manager, current);
+            }
+            const saved = await repository.save(current);
+            await this.appendEvent(manager, saved, DeliveryEventType.StatusChanged, null, DeliveryStatus.Preparing, {
+                previous_status: previousStatus,
+                reason_code: 'AUTO_ACCEPTED_PREPARATION_STARTED',
+                estimated_minutes: settings.auto_accept.preparation_minutes,
+            }, 'AUTO_ACCEPT_POLICY');
+            await this.enqueueMilestoneForStatus(manager, saved, DeliveryStatus.Preparing);
+            return this.toSnapshot(saved);
+        });
+        await this.publishTrackingStatus(snapshot as any);
+        return (await this.deliveryRepository.findOne({ where: { id: delivery.id, tenantId } })) || delivery;
+    }
+
     async accept(tenantId: string, id: string, command: DeliveryAcceptDto, actor: Actor, idempotencyKey?: string) {
         return this.runIdempotent(tenantId, id, 'accept', idempotencyKey, actor, command as unknown as Record<string, unknown>, async () => {
             const snapshot = await this.dataSource.transaction(async (manager) => {
@@ -608,6 +742,17 @@ export class DeliveryService {
                     .setLock('pessimistic_write')
                     .getOne();
                 if (!delivery) throw new NotFoundException('Entrega não encontrada.');
+                const tenant = await manager.getRepository(Tenant).findOne({ where: { id: tenantId } });
+                const deliverySettings = ((tenant?.settings || {}) as any).delivery || {};
+                const paymentRequired = deliverySettings.auto_accept?.require_confirmed_payment !== false;
+                if (paymentRequired && delivery.acceptanceMode !== DeliveryAcceptanceMode.Auto) {
+                    const checkout = await manager.getRepository(DeliveryCheckout).findOne({
+                        where: { tenantId, orderBatchId: delivery.batchId },
+                    });
+                    if (!checkout || checkout.status !== 'PAID') {
+                        throw new ConflictException('O pagamento ainda não foi confirmado. O pedido não pode iniciar o preparo.');
+                    }
+                }
                 const currentFulfillment = await manager.getRepository(DeliveryFulfillment).createQueryBuilder('fulfillment')
                     .where('fulfillment.delivery_id = :id AND fulfillment.tenant_id = :tenantId AND fulfillment.is_current = TRUE', { id, tenantId })
                     .setLock('pessimistic_write')
@@ -760,10 +905,9 @@ export class DeliveryService {
     }
 
     /**
-     * Starts a restaurant-owned delivery. There is deliberately no driver
-     * assignment, pickup, PIN or tracking side effect in this path: the
-     * aggregate moves directly from READY_FOR_DISPATCH to IN_TRANSIT and the
-     * own fulfillment mirrors that state.
+     * Starts a restaurant-owned delivery without assigning an individual
+     * driver. The customer receives a status-tracking link and a one-time
+     * confirmation code while the own fulfillment moves to IN_TRANSIT.
      */
     async startOwn(
         tenantId: string,
@@ -813,7 +957,9 @@ export class DeliveryService {
                         fulfillment_mode: 'OWN',
                         reason: command.notes || null,
                     }, 'OWN_OPERATION');
-                    await this.enqueueMilestoneForStatus(manager, saved, DeliveryStatus.InTransit);
+                    const issued = await this.pinService.issueChallenge(manager, tenantId, id);
+                    const tracking = await this.trackingService.issueLinkInTransaction(manager, tenantId, id, actor.id);
+                    await this.notificationService.enqueuePickup(manager, saved, tracking.tracking_url, issued.pin);
                     return this.toSnapshot(saved);
                 });
                 await this.publishTrackingStatus(snapshot);
@@ -827,7 +973,7 @@ export class DeliveryService {
         tenantId: string,
         id: string,
         actor: Actor,
-        command: DeliveryOwnOperationDto,
+        command: DeliveryCompleteOwnDto,
         idempotencyKey?: string,
     ) {
         return this.runIdempotent(
@@ -836,9 +982,13 @@ export class DeliveryService {
             'own-complete',
             idempotencyKey,
             actor,
-            command as unknown as Record<string, unknown>,
+            {
+                expected_version: command.expected_version,
+                notes: command.notes || null,
+                pin_fingerprint: this.pinService.fingerprint(command.pin),
+            },
             async () => {
-                const snapshot = await this.dataSource.transaction(async (manager) => {
+                const result = await this.dataSource.transaction(async (manager) => {
                     const deliveryRepository = manager.getRepository(Delivery);
                     const fulfillmentRepository = manager.getRepository(DeliveryFulfillment);
                     const delivery = await deliveryRepository.createQueryBuilder('delivery')
@@ -851,11 +1001,13 @@ export class DeliveryService {
                         .setLock('pessimistic_write')
                         .getOne();
                     if (!fulfillment || fulfillment.mode !== 'OWN') throw new UnprocessableEntityException('A entrega não está configurada para operação própria.');
-                    if (delivery.status === DeliveryStatus.Delivered && fulfillment.status === 'DELIVERED') return this.toSnapshot(delivery);
+                    if (delivery.status === DeliveryStatus.Delivered && fulfillment.status === 'DELIVERED') return { snapshot: this.toSnapshot(delivery) };
                     if (delivery.version !== command.expected_version) throw new ConflictException('A entrega foi alterada. Atualize e tente novamente.');
                     if (delivery.status !== DeliveryStatus.InTransit || fulfillment.status !== 'IN_TRANSIT') {
                         throw new UnprocessableEntityException('A entrega própria ainda não saiu para entrega.');
                     }
+                    const verification = await this.pinService.verifyChallenge(manager, tenantId, id, command.pin);
+                    if (verification.valid === false) return { failure: verification.failure };
                     const previousStatus = delivery.status;
                     delivery.status = DeliveryStatus.Delivered;
                     delivery.version += 1;
@@ -867,14 +1019,16 @@ export class DeliveryService {
                     await this.appendEvent(manager, saved, DeliveryEventType.Completed, actor, saved.status, {
                         previous_status: previousStatus,
                         fulfillment_mode: 'OWN',
+                        confirmation_method: 'PIN_OPERATOR',
                         reason: command.notes || null,
                     }, 'OWN_OPERATION');
                     await this.enqueueMilestoneForStatus(manager, saved, DeliveryStatus.Delivered);
-                    return this.toSnapshot(saved);
+                    return { snapshot: this.toSnapshot(saved) };
                 });
+                if (!('snapshot' in result)) throw this.pinFailureException(result.failure);
                 await this.capacityService.releaseForDelivery(tenantId, id, 'DELIVERY_COMPLETED');
-                await this.publishTrackingStatus(snapshot);
-                return snapshot;
+                await this.publishTrackingStatus(result.snapshot);
+                return result.snapshot;
             },
         );
     }
@@ -988,6 +1142,7 @@ export class DeliveryService {
             delivery.version += 1;
             this.applyTimestamp(delivery, DeliveryStatus.Delivered);
             const saved = await manager.getRepository(Delivery).save(delivery);
+            await this.markCurrentFulfillmentDelivered(manager, saved);
             await this.appendEvent(manager, saved, DeliveryEventType.Completed, {
                 id: driverId,
                 type: DeliveryActorType.Driver,
@@ -1004,6 +1159,51 @@ export class DeliveryService {
             return result.snapshot;
         }
         throw this.pinFailureException(result.failure);
+    }
+
+    async confirmPinForCustomer(
+        tenantId: string,
+        deliveryId: string,
+        trackingCredentialId: string,
+        command: DeliveryConfirmPinDto,
+    ): Promise<DeliverySnapshot> {
+        const result = await this.dataSource.transaction(async (manager) => {
+            const repository = manager.getRepository(Delivery);
+            const delivery = await repository.createQueryBuilder('delivery')
+                .where('delivery.id = :deliveryId AND delivery.tenant_id = :tenantId', { deliveryId, tenantId })
+                .setLock('pessimistic_write')
+                .getOne();
+            if (!delivery) throw new NotFoundException('Entrega não encontrada.');
+            if (delivery.status === DeliveryStatus.Delivered) return { snapshot: this.toSnapshot(delivery) };
+            if (![DeliveryStatus.InTransit, DeliveryStatus.Arrived].includes(delivery.status as DeliveryStatus)) {
+                throw new UnprocessableEntityException('A entrega ainda não pode ser confirmada.');
+            }
+
+            const verification = await this.pinService.verifyChallenge(manager, tenantId, deliveryId, command.pin);
+            if (verification.valid === false) return { failure: verification.failure };
+
+            const previousStatus = delivery.status;
+            delivery.status = DeliveryStatus.Delivered;
+            delivery.version += 1;
+            this.applyTimestamp(delivery, DeliveryStatus.Delivered);
+            const saved = await repository.save(delivery);
+            await this.markCurrentFulfillmentDelivered(manager, saved);
+            await this.appendEvent(manager, saved, DeliveryEventType.Completed, {
+                type: DeliveryActorType.Customer,
+                name: 'Cliente',
+            }, saved.status, {
+                previous_status: previousStatus,
+                confirmation_method: 'PIN_CUSTOMER',
+                tracking_credential_id: trackingCredentialId,
+            }, 'CUSTOMER_TRACKING');
+            await this.enqueueMilestoneForStatus(manager, saved, DeliveryStatus.Delivered);
+            return { snapshot: this.toSnapshot(saved) };
+        });
+
+        if (!('snapshot' in result)) throw this.pinFailureException(result.failure);
+        await this.capacityService.releaseForDelivery(tenantId, deliveryId, 'DELIVERY_COMPLETED_BY_CUSTOMER');
+        await this.publishTrackingStatus(result.snapshot);
+        return result.snapshot;
     }
 
     async openExceptionForDriver(
@@ -1101,10 +1301,10 @@ export class DeliveryService {
     }
 
     private pinFailureException(failure: DeliveryPinFailure): Error {
-        if (failure === 'LOCKED') return new HttpException('PIN bloqueado por excesso de tentativas.', HttpStatus.TOO_MANY_REQUESTS);
-        if (failure === 'EXPIRED') return new UnprocessableEntityException('PIN expirado.');
-        if (failure === 'MISSING') return new UnprocessableEntityException('Nenhum PIN ativo para esta entrega.');
-        return new UnprocessableEntityException('PIN inválido.');
+        if (failure === 'LOCKED') return new HttpException('Código bloqueado por excesso de tentativas.', HttpStatus.TOO_MANY_REQUESTS);
+        if (failure === 'EXPIRED') return new UnprocessableEntityException('Código de entrega expirado.');
+        if (failure === 'MISSING') return new UnprocessableEntityException('Nenhum código ativo para esta entrega.');
+        return new UnprocessableEntityException('Código de entrega inválido.');
     }
 
     async assign(tenantId: string, id: string, command: DeliveryAssignDto, actor: Actor, idempotencyKey?: string) {
@@ -1321,6 +1521,21 @@ export class DeliveryService {
         return saved;
     }
 
+    private async markCurrentFulfillmentDelivered(manager: any, delivery: Delivery): Promise<void> {
+        const repository = manager.getRepository(DeliveryFulfillment);
+        const fulfillment = await repository.createQueryBuilder('fulfillment')
+            .where('fulfillment.delivery_id = :deliveryId AND fulfillment.tenant_id = :tenantId AND fulfillment.is_current = TRUE', {
+                deliveryId: delivery.id,
+                tenantId: delivery.tenantId,
+            })
+            .setLock('pessimistic_write')
+            .getOne();
+        if (!fulfillment || fulfillment.status === 'DELIVERED') return;
+        fulfillment.status = 'DELIVERED';
+        fulfillment.deliveredAt = fulfillment.deliveredAt || new Date();
+        await repository.save(fulfillment);
+    }
+
     private async publishTrackingStatus(snapshot: DeliverySnapshot) {
         const eventType = snapshot.status === DeliveryStatus.Delivered
             ? 'delivery.completed.v1'
@@ -1495,6 +1710,7 @@ export class DeliveryService {
         return Math.round(2 * earthRadius * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
     }
 
+
     private toSnapshot(delivery: Delivery, orders: Order[] = []): DeliverySnapshot {
         return {
             id: delivery.id,
@@ -1503,6 +1719,7 @@ export class DeliveryService {
             tab_id: delivery.tabId,
             display_code: delivery.displayCode,
             status: delivery.status,
+            acceptance_mode: delivery.acceptanceMode,
             version: delivery.version,
             service_type: delivery.serviceType,
             customer_name: delivery.customerName,
@@ -1526,6 +1743,7 @@ export class DeliveryService {
             assigned_driver_id: delivery.assignedDriverId,
             eta_seconds: delivery.etaSeconds,
             accepted_at: delivery.acceptedAt,
+            preparing_at: delivery.preparingAt,
             ready_for_dispatch_at: delivery.readyForDispatchAt,
             picked_up_at: delivery.pickedUpAt,
             in_transit_at: delivery.inTransitAt,
@@ -1537,13 +1755,19 @@ export class DeliveryService {
                 id: order.id,
                 batch_id: order.batchId,
                 status: order.status,
+                notes: order.notes,
+                created_at: order.createdAt,
+                accepted_at: order.acceptedAt,
+                ready_at: order.readyAt,
                 items: (order.items || []).map((item) => ({
                     id: item.id,
-                    quantity: Number(item.quantity || 0),
+                    quantity: Math.max(0, Number(item.quantity || 0) - Number(item.voidedQuantity || 0)),
                     unit_price: Number(item.unitPrice || 0),
                     item_name_snapshot: item.itemNameSnapshot || null,
                     menu_item_id: item.menuItemId,
-                })),
+                    observations: item.observations || null,
+                    selected_options: Array.isArray(item.selectedOptions) ? item.selectedOptions : [],
+                })).filter((item) => item.quantity > 0),
             })),
         };
     }

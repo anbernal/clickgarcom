@@ -19,13 +19,13 @@ async function prepareAdmin(page, deliveries = [deliveryFixture()], role = 'ADMI
   const payload = Buffer.from(JSON.stringify({ tenant_id: 'tenant-delivery-test', role })).toString('base64url');
   await page.addInitScript(({ payloadValue, roleValue }) => {
     localStorage.setItem('clickgarcom_auth', JSON.stringify({
-      token: `x.${payloadValue}.x`, user: { id: 'admin-1', name: 'Ana Admin', role: roleValue, tenant_name: 'Restaurante UX' },
+      token: `x.${payloadValue}.x`, user: { id: 'admin-1', name: 'Ana Admin', role: roleValue, tenant_name: 'Restaurante UX', delivery_enabled: true },
     }));
   }, { payloadValue: payload, roleValue: role });
   await page.route('**/admin/api/**', async (route) => {
     const request = route.request(); const url = new URL(request.url()); const path = url.pathname;
     let body = {};
-    if (path.endsWith('/auth/me')) body = { id: 'admin-1', name: 'Ana Admin', role, tenant_name: 'Restaurante UX', isOpen: true };
+    if (path.endsWith('/auth/me')) body = { id: 'admin-1', name: 'Ana Admin', role, tenant_name: 'Restaurante UX', isOpen: true, delivery_enabled: true };
     else if (path.endsWith('/auth/users')) body = { users: [{ id: 'e822ee57-2261-44d8-866d-280e695080de', name: 'Rafael Entregador', role: 'DRIVER', active: true }] };
     else if (path.endsWith('/deliveries/drivers/eligible')) body = { drivers: [{ id: 'e822ee57-2261-44d8-866d-280e695080de', name: 'Rafael Entregador', availability: 'AVAILABLE', active_deliveries: 0 }] };
     else if (path.endsWith('/delivery/settings') && request.method() === 'GET') body = { settings: { enabled: true, timezone: 'America/Sao_Paulo', origin: { lat: -23.55, lng: -46.63 }, origin_address: { postal_code: '01311-000', street: 'Rua Augusta', address_number: '120', neighborhood: 'Consolação', city: 'São Paulo', state: 'SP', confirmed: true, geocode_provider: 'FAKE', geocode_quality: 'ROOFTOP' }, service_area: { mode: 'RADIUS', radius_km: 8 }, auto_accept: { enabled: true, require_confirmed_payment: true, max_active_deliveries: 8, windows: [{ days: ['MON','TUE'], start: '18:00', end: '23:30' }] }, fees: { mode: 'FIXED', fixed_fee: 8.5, bands: [] } } };
@@ -42,6 +42,7 @@ async function prepareAdmin(page, deliveries = [deliveryFixture()], role = 'ADMI
     else if (path.endsWith('/deliveries/reports/summary.csv')) body = 'metric,value\ntotal,1\n';
     else if (path.endsWith('/deliveries/reports/summary')) body = { kpis: { total: 1, delivered: 1, failed_or_returned: 0, canceled: 0, override: 0, without_eta: 0 }, financial: { customer_delivery_fee: 8.5, quoted_cost: 7, actual_cost: 7.5, restaurant_adjustment: 0, provider_variance: 0.5 }, by_status: [{ status: 'DELIVERED', count: 1 }] };
     else if (/\/deliveries\/[0-9a-f-]+\/(accept|reject|cancel|assign|start-return|complete-return|override-delivery|tracking-link)$/.test(path)) body = path.endsWith('/tracking-link') ? { tracking_url: '/tracking.html#token=test', expires_at: new Date(Date.now() + 86400000).toISOString() } : deliveryFixture({ status: 'ACCEPTED', version: 2 });
+    else if (/\/deliveries\/[0-9a-f-]+\/own\/(start|ready|complete)$/.test(path)) body = deliveryFixture({ status: path.endsWith('/complete') ? 'DELIVERED' : 'IN_TRANSIT', version: 8 });
     else if (/\/deliveries\/[0-9a-f-]+\/timeline$/.test(path)) body = { delivery: deliveries.find((item) => path.includes(item.id)) || deliveries[0], events: [], fulfillment: { mode: 'EXTERNAL', provider: 'IFOOD', status: 'COURIER_ASSIGNED', quoted_cost: 9.25, actual_cost: null, tracking_url: 'https://tracking.invalid/demo', cycle_number: 1 }, attempts: [{ attempt_number: 1, status: 'SUCCEEDED', scheduled_at: new Date().toISOString(), finished_at: new Date().toISOString(), error_code: null }] };
     else if (/\/deliveries\/[0-9a-f-]+$/.test(path)) body = deliveries.find((item) => path.endsWith(item.id)) || deliveries[0];
     else if (path.endsWith('/deliveries')) body = { data: deliveries, page: 1, limit: 60, total: deliveries.length, has_more: false };
@@ -109,35 +110,26 @@ test('configuração deixa o estado explícito, marca campos obrigatórios e pre
   await expect(page.locator('#delivery-origin-address-confirmed')).not.toBeChecked();
 });
 
-test('ativação e desativação exigem confirmação explícita', async ({ page }) => {
+test('tenant Admin não exibe o controle de ativação do módulo', async ({ page }) => {
   await prepareAdmin(page);
-  let settingsRequest = 0;
-  page.on('request', (request) => { if (request.url().endsWith('/delivery/settings') && request.method() === 'PUT') settingsRequest += 1; });
   await page.goto('/');
   await page.getByRole('button', { name: /Entregas/ }).click();
   await page.getByRole('button', { name: /Configurar operação/ }).click();
-  await page.locator('#delivery-setting-enabled').uncheck();
-  await page.locator('#delivery-save-settings').click();
-
-  const dialog = page.locator('#app-dialog-content');
-  await expect(dialog).toBeVisible();
-  await expect(dialog).toHaveAttribute('role', 'alertdialog');
-  await expect(dialog).toContainText('Desativar módulo Delivery?');
-  await expect(page.locator('#delivery-setting-enabled')).toBeVisible();
-  await dialog.getByRole('button', { name: 'Cancelar' }).click();
-  await expect(dialog).toBeHidden();
-  expect(settingsRequest).toBe(0);
-
-  await page.locator('#delivery-save-settings').click();
-  await dialog.getByRole('button', { name: 'Desativar Delivery' }).click();
-  await expect.poll(() => settingsRequest).toBe(1);
+  await expect(page.locator('#delivery-setting-enabled')).toHaveCount(0);
+  await expect(page.locator('.delivery-form-section').first()).toContainText('Módulo e capacidade');
 });
 
-test('tracking troca o fragmento, mostra jornada e não revela código de recebimento', async ({ page }) => {
-  const snapshot = { display_code: '482193', status: 'IN_TRANSIT', version: 4, destination: { city: 'São Paulo', state: 'SP', lat: -23.5565, lng: -46.692 }, tracking_active: true, eta_seconds: 840, eta_updated_at: new Date().toISOString(), driver_location: { lat: -23.55, lng: -46.68, accuracy_m: 12, recorded_at: new Date().toISOString() }, updated_at: new Date().toISOString() };
+test('tracking troca o fragmento, permite confirmação autenticada e não revela o código', async ({ page }) => {
+  const snapshot = { display_code: '482193', status: 'IN_TRANSIT', version: 4, destination: { city: 'São Paulo', state: 'SP', lat: -23.5565, lng: -46.692 }, tracking_active: true, receipt_confirmation_available: true, eta_seconds: 840, eta_updated_at: new Date().toISOString(), driver_location: { lat: -23.55, lng: -46.68, accuracy_m: 12, recorded_at: new Date().toISOString() }, updated_at: new Date().toISOString() };
   let exchangedToken = '';
+  let confirmationPayload = null;
   await page.route('https://unpkg.com/**', (route) => route.abort());
   await page.route('**/admin/api/public/deliveries/track**', async (route) => {
+    if (route.request().url().endsWith('/track/confirm')) {
+      confirmationPayload = route.request().postDataJSON();
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...snapshot, status: 'DELIVERED', version: 5, tracking_active: false, receipt_confirmation_available: false }) });
+      return;
+    }
     if (route.request().method() === 'POST') exchangedToken = route.request().postDataJSON().token;
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(snapshot) });
   });
@@ -147,7 +139,33 @@ test('tracking troca o fragmento, mostra jornada e não revela código de recebi
   await expect(page.getByRole('heading', { name: /a caminho/i })).toBeVisible();
   await expect(page.locator('.tracking-steps')).toBeVisible();
   await expect(page.locator('body')).not.toContainText(/\b\d{4}\b.*código/i);
+  await page.getByRole('button', { name: 'Finalizar entrega' }).click();
+  await page.locator('#tracking-confirm-pin').fill('a3f9');
+  await expect(page.locator('#tracking-confirm-pin')).toHaveValue('A3F9');
+  await page.getByRole('button', { name: 'Confirmar entrega' }).click();
+  await expect.poll(() => confirmationPayload).toEqual({ pin: 'A3F9' });
+  await expect(page.getByRole('heading', { name: 'Entrega concluída' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
+});
+
+test('admin exige o código do cliente para finalizar entrega própria', async ({ page }) => {
+  const inTransit = deliveryFixture({ status: 'IN_TRANSIT', version: 7, default_fulfillment_mode: 'OWN' });
+  await prepareAdmin(page, [inTransit]);
+  let completionRequest = null;
+  page.on('request', (request) => {
+    if (request.url().endsWith('/own/complete')) completionRequest = request;
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: /Entregas/ }).click();
+  await page.getByRole('button', { name: /Abrir entrega 482193/ }).click();
+  await page.locator('#modal-content').getByRole('button', { name: 'Finalizar entrega' }).click();
+  await expect(page.locator('#delivery-completion-pin')).toBeFocused();
+  await page.getByRole('button', { name: 'Confirmar entrega' }).click();
+  expect(completionRequest).toBeNull();
+  await page.locator('#delivery-completion-pin').fill('b70e');
+  await page.getByRole('button', { name: 'Confirmar entrega' }).click();
+  await expect.poll(() => completionRequest?.postDataJSON()).toEqual({ tenant_id: 'tenant-delivery-test', expected_version: 7, pin: 'B70E' });
+  expect(completionRequest.headers()['idempotency-key']).toBeTruthy();
 });
 
 test('painel mantém operação usável em tablet', async ({ page }) => {

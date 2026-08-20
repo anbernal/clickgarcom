@@ -183,7 +183,12 @@ export class OrdersService {
             order: { createdAt: 'DESC' },
         });
         const serviceTypeByBatch = await this.resolveServiceTypesByBatch(tenantId, orders);
-        return orders.map((order) => this.projectOperationalOrder(order, serviceTypeByBatch.get(String(order.batchId || '')) || null));
+        // Delivery has a dedicated operational queue (the Delivery KDS). It
+        // must remain persisted for tracking/history, but it cannot be mixed
+        // into the generic kitchen/attendance queue returned by this route.
+        return orders
+            .filter((order) => String(serviceTypeByBatch.get(String(order.batchId || '')) || '').toUpperCase() !== 'DELIVERY')
+            .map((order) => this.projectOperationalOrder(order, serviceTypeByBatch.get(String(order.batchId || '')) || null));
     }
 
     async findOne(id: string, tenantId: string) {
@@ -467,33 +472,40 @@ export class OrdersService {
             }),
             this.dataSource.query(
                 `SELECT
-                    destination,
-                    status,
-                    created_at,
-                    accepted_at,
-                    ready_at,
-                    delivered_at,
-                    canceled_at,
-                    cancel_reason,
-                    cancel_reason_code,
-                    cancel_category,
-                    canceled_by_user_name
-                 FROM orders
-                 WHERE tenant_id = $1
-                   AND created_at >= NOW() - INTERVAL '7 days'`,
+                    o.destination,
+                    o.status,
+                    o.created_at,
+                    o.accepted_at,
+                    o.ready_at,
+                    o.delivered_at,
+                    o.canceled_at,
+                    o.cancel_reason,
+                    o.cancel_reason_code,
+                    o.cancel_category,
+                    o.canceled_by_user_name
+                 FROM orders o
+                 LEFT JOIN order_batches ob ON ob.id = o.batch_id AND ob.tenant_id = o.tenant_id
+                 WHERE o.tenant_id = $1
+                   AND COALESCE(ob.service_type, '') <> 'DELIVERY'
+                   AND o.created_at >= NOW() - INTERVAL '7 days'`,
                 [tenantId],
             ),
         ]);
 
+        const activeServiceTypes = await this.resolveServiceTypesByBatch(tenantId, activeOrders);
+        const operationalActiveOrders = activeOrders.filter((order) =>
+            String(activeServiceTypes.get(String(order.batchId || '')) || '').toUpperCase() !== 'DELIVERY',
+        );
+
         const stations = ['KITCHEN', 'BAR'].map((destination) =>
-            this.buildStationOperationsSummary(destination, activeOrders, recentRows || []),
+            this.buildStationOperationsSummary(destination, operationalActiveOrders, recentRows || []),
         );
 
         return {
             generatedAt: new Date().toISOString(),
             sla: this.buildOrderSlaPayload(),
             stationSla: this.buildStationSlaPayload(),
-            overall: this.buildOverallOperationsSummary(stations, activeOrders, recentRows || []),
+            overall: this.buildOverallOperationsSummary(stations, operationalActiveOrders, recentRows || []),
             stations,
         };
     }

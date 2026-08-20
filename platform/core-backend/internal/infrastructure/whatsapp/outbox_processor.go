@@ -2,7 +2,9 @@ package whatsapp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -16,8 +18,16 @@ import (
 
 const (
 	outboxTemplateInteractiveMainMenu = "interactive_main_menu"
+	outboxTemplateDeliveryConfirm     = "delivery_in_transit_confirm_v1"
 	outboxMainMenuButtonText          = "Abrir menu"
 )
+
+type outboxURLButtonPayload struct {
+	Type       string `json:"type"`
+	Body       string `json:"body"`
+	ButtonText string `json:"button_text"`
+	URL        string `json:"url"`
+}
 
 type OutboxProcessor struct {
 	db         *gorm.DB
@@ -188,6 +198,32 @@ func (p *OutboxProcessor) sendMessage(
 	}
 
 	preview := msg.Payload
+	if msg.TemplateID == outboxTemplateDeliveryConfirm {
+		payload, err := parseOutboxURLButtonPayload(msg.Payload)
+		if err != nil {
+			return "", "", err
+		}
+		body := decorateInteractiveBody(payload.Body, tenantObj)
+		preview = body
+		if messageID, sendErr := p.apiClient.SendInteractiveURLButton(
+			ctx,
+			msg.Recipient,
+			body,
+			payload.ButtonText,
+			payload.URL,
+		); sendErr == nil {
+			return messageID, preview, nil
+		} else {
+			p.logger.Warn("failed to send delivery confirmation button, falling back to text",
+				zap.String("id", msg.ID.String()),
+				zap.String("recipient", msg.Recipient),
+				zap.Error(sendErr),
+			)
+		}
+		fallback := strings.TrimSpace(body + "\n\n" + payload.ButtonText + ": " + payload.URL)
+		messageID, sendErr := p.apiClient.SendTextMessage(ctx, msg.Recipient, fallback)
+		return messageID, preview, sendErr
+	}
 	if msg.TemplateID == outboxTemplateInteractiveMainMenu {
 		body := p.composeInteractiveMainMenuBody(msg.Payload, tenantObj)
 		if body != "" {
@@ -211,6 +247,25 @@ func (p *OutboxProcessor) sendMessage(
 
 	messageID, err := p.apiClient.SendTextMessage(ctx, msg.Recipient, msg.Payload)
 	return messageID, preview, err
+}
+
+func parseOutboxURLButtonPayload(raw string) (outboxURLButtonPayload, error) {
+	var payload outboxURLButtonPayload
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		return payload, fmt.Errorf("invalid URL button outbox payload: %w", err)
+	}
+	payload.Type = strings.TrimSpace(payload.Type)
+	payload.Body = strings.TrimSpace(payload.Body)
+	payload.ButtonText = strings.TrimSpace(payload.ButtonText)
+	payload.URL = strings.TrimSpace(payload.URL)
+	parsedURL, err := url.Parse(payload.URL)
+	if err != nil || (parsedURL.Scheme != "https" && parsedURL.Scheme != "http") || parsedURL.Host == "" {
+		return payload, fmt.Errorf("invalid URL button target")
+	}
+	if payload.Type != "url_button" || payload.Body == "" || payload.ButtonText == "" {
+		return payload, fmt.Errorf("incomplete URL button outbox payload")
+	}
+	return payload, nil
 }
 
 func (p *OutboxProcessor) composeInteractiveMainMenuBody(

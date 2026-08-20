@@ -340,9 +340,8 @@ func (h *PaymentHandler) CreateCardPayment(c *fiber.Ctx) error {
 
 		h.logger.Error("card payment failed", zap.Error(err))
 		return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{
-			"error":            "failed to process card via mercadopago",
+			"error":            "failed to process card payment",
 			"message":          userFacingMercadoPagoCardError(err),
-			"provider_message": providerMercadoPagoErrorMessage(err),
 		})
 	}
 
@@ -362,9 +361,9 @@ func userFacingMercadoPagoCardError(err error) string {
 	providerMessage := strings.ToLower(strings.TrimSpace(providerMercadoPagoErrorMessage(err)))
 	switch {
 	case strings.Contains(providerMessage, "invalid users involved"):
-		return "Nao foi possivel validar o cartao no Mercado Pago. Revise se a Public Key e o Access Token sao de teste e da mesma aplicacao, e use uma conta compradora de teste diferente da conta vendedora."
+		return "Não conseguimos validar o cartão agora. Confira os dados e tente novamente."
 	default:
-		return "Nao foi possivel processar o cartao no Mercado Pago agora. Revise os dados e tente novamente."
+		return "Não foi possível concluir o pagamento com cartão agora. Confira os dados e tente novamente. Se preferir, escolha outra forma de pagamento."
 	}
 }
 

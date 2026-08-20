@@ -208,6 +208,17 @@ export class DeliveryCheckoutService {
         return this.view(checkout, null);
     }
 
+    async rotatePublicCapability(tenantId: string, checkoutKey: string) {
+        const checkout = await this.checkouts.findOne({ where: { tenantId, checkoutKey } });
+        if (!checkout || checkout.status !== 'PENDING_PAYMENT' || checkout.expiresAt <= new Date()) {
+            throw new ConflictException('Checkout expirado ou indisponível.');
+        }
+        const token = randomUUID();
+        checkout.confirmationTokenHash = this.hash(token);
+        const saved = await this.checkouts.save(checkout);
+        return this.view(saved, token);
+    }
+
     async cancel(tenantId: string, checkoutKey: string, reason = 'CHECKOUT_ABANDONED') {
         const result = await this.dataSource.transaction(async (manager) => {
             const repository = manager.getRepository(DeliveryCheckout);

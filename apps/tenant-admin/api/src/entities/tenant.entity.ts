@@ -23,7 +23,24 @@ export interface MessageTemplates {
 }
 
 export interface TenantSettings {
-    delivery?: Record<string, unknown>;
+    digital_menu?: {
+        logo_url?: string;
+        cover_url?: string;
+        description?: string;
+        primary_color?: string;
+        accent_color?: string;
+    };
+    delivery?: {
+        enabled?: boolean;
+        enabled_at?: string | null;
+        expires_at?: string | null;
+        permanent?: boolean;
+        [key: string]: unknown;
+    };
+    /** Commercial module flags. Missing attendance keeps legacy tenants active. */
+    attendance?: {
+        enabled?: boolean;
+    };
     service_mode?: 'COM_MESA' | 'SEM_MESA';
     service_fee_percent?: number;
     split_enabled?: boolean;

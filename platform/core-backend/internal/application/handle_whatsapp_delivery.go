@@ -712,6 +712,26 @@ func (uc *HandleWhatsAppMessageUseCase) resetDeliveryConversation(sess *session.
 	delete(sess.Context, deliveryTabIDKey)
 	delete(sess.Context, deliveryPreOrderAddressKey)
 	delete(sess.Context, deliveryChannelKey)
+	delete(sess.Context, welcomeChannelChoiceKey)
+}
+
+// EndDeliveredDeliverySession closes only the transient WhatsApp delivery
+// journey after the authoritative fulfillment event. Customer history,
+// saved addresses and any dine-in table/tab binding remain available.
+func (uc *HandleWhatsAppMessageUseCase) EndDeliveredDeliverySession(ctx context.Context, phone string, tenantID uuid.UUID) error {
+	if uc == nil || uc.sessionRepo == nil || strings.TrimSpace(phone) == "" || tenantID == uuid.Nil {
+		return nil
+	}
+	sess, err := uc.sessionRepo.Find(ctx, strings.TrimSpace(phone), tenantID.String())
+	if err != nil || sess == nil {
+		return err
+	}
+	if !uc.hasDeliverySessionContext(sess) {
+		return nil
+	}
+	uc.resetDeliveryConversation(sess)
+	sess.TransitionTo(session.StateWelcome)
+	return uc.sessionRepo.Save(ctx, sess)
 }
 
 // deliveryCheckoutFinalized checks both the local session marker and the
@@ -829,6 +849,13 @@ func (uc *HandleWhatsAppMessageUseCase) ConfirmDeliveryPayment(ctx context.Conte
 	if _, err := uc.deliveryCheckout.Confirm(ctx, sess.TenantID, key, token, paymentReference, deliveryID); err != nil {
 		return err
 	}
+	// Re-evaluate the acceptance policy with the now-confirmed payment. This
+	// also promotes a projection that was created while the checkout was open.
+	if _, err := uc.deliveryOrderBatch.Reconcile(ctx, nodeadmin.DeliveryOrderBatchReconcileInput{
+		TenantID: sess.TenantID, BatchID: batchID, EventID: eventID, PaymentConfirmed: true,
+	}); err != nil {
+		return err
+	}
 	sess.SetContext(deliveryCheckoutPaidKey, true)
 	return nil
 }
@@ -892,14 +919,14 @@ func (uc *HandleWhatsAppMessageUseCase) exitDeliveryFlow(
 	// flow context is cleared.
 	_ = uc.findDeliveryOpenTab(ctx, sess)
 	uc.cancelPendingDeliveryOrder(ctx, sess)
-	uc.clearDeliveryAddressContext(sess)
-	uc.clearDeliveryCheckoutContext(sess)
-	uc.clearOrderingContext(sess)
-	// A new delivery journey must create a new technical item container. The
-	// previous tab can still be retained for audit, but never reused for a new
-	// checkout or mixed with a dine-in comanda from the same phone.
-	delete(sess.Context, deliveryTabIDKey)
-	delete(sess.Context, deliveryPreOrderAddressKey)
+	// Clear every transient value (including stale menu/channel choices), then
+	// keep only the Delivery channel so the response cannot fall back to dine-in.
+	uc.resetDeliveryConversation(sess)
+	sess.SetContext(deliveryChannelKey, deliveryChannelValue)
+	// Keep the customer's selected channel across a cancelled address attempt.
+	// If the cardápio capability was the entry point, the next old Delivery
+	// button can then renew that link instead of reopening the legacy flow.
+	sess.SetContext(welcomeChannelChoiceKey, "delivery")
 
 	message := strings.TrimSpace(prefix)
 	if message == "" {
@@ -943,11 +970,26 @@ func (uc *HandleWhatsAppMessageUseCase) handleDeliveryMenu(
 	sess *session.Session,
 	text string,
 ) (string, session.ConversationState, error) {
-	switch strings.ToLower(strings.TrimSpace(text)) {
-	case "1", deliveryStartActionID, "entrega", "delivery", "pedir entrega", "novo pedido", "fazer pedido":
+	normalized := strings.ToLower(strings.TrimSpace(text))
+	if isDeliveryStartChoice(normalized) && strings.EqualFold(uc.getContextString(sess, welcomeChannelChoiceKey), "delivery") && uc.tenantRepo != nil {
+		// The customer may tap an older WhatsApp button after the authenticated
+		// cardápio cookie/capability expired. Reissue the current short-lived
+		// cardápio link instead of entering the legacy name/CEP flow.
+		tenantObj, tenantErr := uc.tenantRepo.FindByID(ctx, sess.TenantID)
+		if tenantErr != nil {
+			return "", session.StateDeliveryMenu, tenantErr
+		}
+		if uc.shouldSendDigitalMenuLink(tenantObj) {
+			if handled, sendErr := uc.sendDigitalMenuLink(ctx, sess.UserPhone, tenantObj); handled {
+				return "", session.StateDeliveryMenu, sendErr
+			}
+		}
+	}
+	switch {
+	case normalized == "1", isDeliveryStartChoice(normalized), normalized == "novo pedido", normalized == "fazer pedido":
 		return uc.startDeliveryOrdering(ctx, sess)
-	case "0", "sair", "encerrar", "cancelar":
-		delete(sess.Context, deliveryChannelKey)
+	case normalized == "0", normalized == "sair", normalized == "encerrar", normalized == "cancelar":
+		uc.resetDeliveryConversation(sess)
 		return "Atendimento Delivery encerrado. Envie uma mensagem para escolher como deseja continuar.", session.StateWelcome, nil
 	default:
 		return uc.deliveryMenuMessage(), session.StateDeliveryMenu, nil

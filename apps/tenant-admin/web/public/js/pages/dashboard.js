@@ -53,6 +53,8 @@ async function loadDashboard() {
           </div>
       </div>
 
+      <div id="dashboard-module-status">${typeof renderModuleStatusDashboard === 'function' ? renderModuleStatusDashboard() : ''}</div>
+
       <!-- STAT CARDS -->
       <div class="stats-grid">
         ${isOperationalDashboardView ? `

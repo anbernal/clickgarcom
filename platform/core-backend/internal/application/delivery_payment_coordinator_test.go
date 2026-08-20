@@ -48,8 +48,14 @@ func TestDeliveryPaymentCoordinatorProjectsBatchAndConfirmsPaidAmount(t *testing
 	}); err != nil {
 		t.Fatalf("expected paid confirmation, got %v", err)
 	}
-	if batch.input.EventID != eventID || checkout.paidInput.DeliveryID == nil || *checkout.paidInput.DeliveryID != deliveryID || checkout.paidInput.PaidAmount != 42.5 {
+	if batch.input.EventID != eventID || batch.input.PaymentConfirmed || checkout.paidInput.DeliveryID == nil || *checkout.paidInput.DeliveryID != deliveryID || checkout.paidInput.PaidAmount != 42.5 {
 		t.Fatalf("expected reconciled delivery and amount, batch=%+v checkout=%+v", batch.input, checkout.paidInput)
+	}
+	if err := coordinator.ReconcilePaid(context.Background(), DeliveryPaidPaymentInput{TenantID: tenantID, OrderBatchID: batchID, EventID: eventID}); err != nil {
+		t.Fatalf("expected paid reconciliation, got %v", err)
+	}
+	if !batch.input.PaymentConfirmed {
+		t.Fatalf("expected paid reconciliation flag, batch=%+v", batch.input)
 	}
 	if activation.calls != 1 || activation.tenantID != tenantID || activation.batchID != batchID {
 		t.Fatalf("expected paid delivery batch activation, got %+v", activation)

@@ -70,6 +70,16 @@ async function loadDeliveryPage() {
         container.innerHTML = deliveryStateView('🔒', 'Acesso restrito', 'Seu perfil não possui acesso à operação de entregas.');
         return;
     }
+    if (getCurrentUser()?.delivery_enabled !== true) {
+        destroyDeliveryPage();
+        const badge = document.getElementById('badge-delivery');
+        if (badge) {
+            badge.textContent = '';
+            badge.style.display = 'none';
+        }
+        container.innerHTML = renderDeliveryUnavailablePage();
+        return;
+    }
     destroyDeliveryPage();
     deliveryReadFiltersFromUrl();
     renderDeliveryLoading();
@@ -96,6 +106,31 @@ async function loadDeliveryPage() {
     deliveryState.offline = false;
     renderDeliveryPage();
     startDeliveryPolling();
+}
+
+function renderDeliveryUnavailablePage() {
+    const tenantName = String(getCurrentUser()?.tenant_name || 'seu restaurante').trim();
+    const subject = encodeURIComponent(`Ativar Delivery - ${tenantName}`);
+    return `<div class="delivery-shell delivery-unavailable-shell">
+        <section class="delivery-unavailable" aria-labelledby="delivery-unavailable-title">
+            <div class="delivery-unavailable-orbit delivery-unavailable-orbit--one" aria-hidden="true"></div>
+            <div class="delivery-unavailable-orbit delivery-unavailable-orbit--two" aria-hidden="true"></div>
+            <div class="delivery-unavailable-icon" aria-hidden="true">🛵</div>
+            <div class="delivery-eyebrow"><span class="delivery-live-dot"></span> Módulo adicional</div>
+            <h2 id="delivery-unavailable-title">Delivery não está disponível para esta conta</h2>
+            <p>Leve seus pedidos até a porta do cliente com checkout, acompanhamento em tempo real e operação centralizada. Ative o módulo para começar a configurar.</p>
+            <div class="delivery-unavailable-actions">
+                <a class="delivery-btn delivery-btn--light" href="mailto:suporte@clickgarcom.com.br?subject=${subject}">Fale com a gente</a>
+                <button class="delivery-btn delivery-btn--ghost" type="button" onclick="navigate('dashboard')">Voltar ao dashboard</button>
+            </div>
+            <div class="delivery-unavailable-foot">Nossa equipe ajuda a ativar o módulo e orientar os primeiros passos para ${escapeHTML(tenantName)}.</div>
+        </section>
+        <section class="delivery-unavailable-benefits" aria-label="Recursos do Delivery">
+            <div><span aria-hidden="true">🔗</span><div><strong>Pedidos em um só lugar</strong><p>Receba e acompanhe a operação sem alternar de tela.</p></div></div>
+            <div><span aria-hidden="true">📍</span><div><strong>Rastreamento para o cliente</strong><p>Compartilhe uma experiência de acompanhamento segura.</p></div></div>
+            <div><span aria-hidden="true">✓</span><div><strong>Controle até a entrega</strong><p>Organize preparo, saída e confirmação com código.</p></div></div>
+        </section>
+    </div>`;
 }
 
 async function deliveryFetchList(page = deliveryState.page) {
@@ -419,7 +454,7 @@ function renderDeliveryActions(item, canDispatch, canOverride) {
         actions.push(`<button class="delivery-btn delivery-btn--primary" onclick="openDeliveryAssign('${item.id}')">${assignLabel}</button>`);
     }
     if (own && item.status === 'READY_FOR_DISPATCH') actions.push(`<button class="delivery-btn delivery-btn--primary" onclick="runDeliveryOwnOperation('${item.id}','start',${Number(item.version || 1)})">↗ Marcar como saiu</button>`);
-    if (own && ['IN_TRANSIT','ARRIVED'].includes(item.status)) actions.push(`<button class="delivery-btn delivery-btn--primary" onclick="runDeliveryOwnOperation('${item.id}','complete',${Number(item.version || 1)})">✓ Marcar entregue</button>`);
+    if (own && ['IN_TRANSIT','ARRIVED'].includes(item.status)) actions.push(`<button class="delivery-btn delivery-btn--primary" onclick="openDeliveryPinCompletion('${item.id}',${Number(item.version || 1)})">✓ Finalizar entrega</button>`);
     if (['IN_TRANSIT','ARRIVED','DELIVERY_FAILED'].includes(item.status)) actions.push(`<button class="delivery-btn delivery-btn--neutral" onclick="openDeliveryReturn('${item.id}',false)">↩ Iniciar retorno</button>`);
     if (item.status === 'RETURNING') actions.push(`<button class="delivery-btn delivery-btn--primary" onclick="openDeliveryReturn('${item.id}',true)">✓ Confirmar devolução</button>`);
     if (canOverride && item.status === 'DELIVERY_FAILED' && !own) {
@@ -437,8 +472,24 @@ function renderDeliveryActions(item, canDispatch, canOverride) {
 }
 
 async function runDeliveryOwnOperation(id, operation, version) {
-    const label = operation === 'start' ? 'saída' : 'conclusão';
+    const label = operation === 'start' ? 'saída' : 'atualização';
     await runDeliveryCommand(id, `own/${operation}`, { expected_version: version }, `Entrega própria marcada como ${label}.`);
+}
+
+function openDeliveryPinCompletion(id, version) {
+    const item = deliveryState.deliveries.find((row) => row.id === id);
+    openModal(`<div class="modal-header"><div><h3>Finalizar entrega</h3><div class="modal-header-subtitle">Entrega #${escapeHTML(item?.display_code || id)} · confirmação protegida</div></div><button class="modal-close" onclick="closeModal()" aria-label="Fechar">✕</button></div><div class="modal-body delivery-form"><div class="delivery-alert" style="margin:0 0 16px"><span>🔐</span><div><strong>Peça o código ao cliente</strong><span>Finalize somente depois que o pedido estiver nas mãos do cliente.</span></div></div><div class="form-group"><label for="delivery-completion-pin">Código de entrega</label><input class="delivery-pin-input" id="delivery-completion-pin" maxlength="6" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" placeholder="A3F9" oninput="this.value=this.value.toUpperCase().replace(/[^0-9A-F]/g,'').slice(0,6)" onkeydown="if(event.key==='Enter'){event.preventDefault();submitDeliveryPinCompletion('${id}',${Number(version)})}"><small class="delivery-helper">Use os 4 caracteres enviados ao cliente. Entregas antigas podem usar 6 números.</small></div><div id="delivery-completion-error" class="delivery-form-error" hidden></div></div><div class="modal-footer"><button class="delivery-btn delivery-btn--neutral" onclick="closeModal()">Cancelar</button><button class="delivery-btn delivery-btn--primary" onclick="submitDeliveryPinCompletion('${id}',${Number(version)})">Confirmar entrega</button></div>`);
+    window.setTimeout(() => document.getElementById('delivery-completion-pin')?.focus(), 0);
+}
+
+async function submitDeliveryPinCompletion(id, version) {
+    const pin = String(document.getElementById('delivery-completion-pin')?.value || '').trim().toUpperCase();
+    const error = document.getElementById('delivery-completion-error');
+    if (!/^(?:[0-9A-F]{4}|\d{6})$/.test(pin)) {
+        if (error) { error.hidden = false; error.textContent = 'Informe o código de 4 caracteres enviado ao cliente.'; }
+        return;
+    }
+    await runDeliveryCommand(id, 'own/complete', { expected_version: Number(version), pin }, 'Entrega finalizada com o código do cliente.');
 }
 
 function openDeliveryFallback(id, operation) {
@@ -569,6 +620,13 @@ function openDeliverySettings() {
     const settings = deliveryState.settings?.settings;
     if (!settings) return showToast('Configurações ainda não disponíveis.', 'error');
     openModal(renderDeliverySettingsModal(settings, deliveryState.capacity), { size: 'lg' });
+    // A habilitação do módulo é uma decisão comercial do Super Admin. O tenant
+    // Admin continua podendo ajustar a operação, mas nunca liga/desliga o módulo.
+    document.getElementById('delivery-setting-enabled')?.closest('.delivery-switch')?.remove();
+    const capacityInput = document.getElementById('delivery-setting-capacity');
+    if (capacityInput && !document.getElementById('delivery-setting-preparation-minutes')) {
+        capacityInput.closest('.form-group')?.insertAdjacentHTML('afterend', `<div class="form-group"><label for="delivery-setting-preparation-minutes">Previsão automática de preparo (minutos) <span class="delivery-required" aria-hidden="true">*</span></label><input id="delivery-setting-preparation-minutes" type="number" min="5" max="240" value="${Number(settings.auto_accept?.preparation_minutes || 30)}" required aria-required="true"><small class="delivery-helper">Usada quando o aceite automático mover o pedido para “Em preparo”.</small></div>`);
+    }
     window.requestAnimationFrame(toggleDeliveryFeeFields);
 }
 
@@ -738,14 +796,15 @@ function collectDeliveryBands() {
 function validateDeliverySettings(payload) {
     if (!Number.isFinite(payload.origin_lat) || !Number.isFinite(payload.origin_lng)) return 'Informe e confirme latitude e longitude do restaurante.';
     const originAddress = payload.origin_address || {};
-    if (payload.enabled && ![originAddress.postal_code, originAddress.street, originAddress.address_number, originAddress.neighborhood, originAddress.city, originAddress.state].every((value) => String(value || '').trim())) return 'Informe o endereço completo do restaurante, incluindo o número.';
-    if (payload.enabled && originAddress.confirmed !== true) return 'Revise e confirme o endereço e o número do restaurante.';
+    if (![originAddress.postal_code, originAddress.street, originAddress.address_number, originAddress.neighborhood, originAddress.city, originAddress.state].every((value) => String(value || '').trim())) return 'Informe o endereço completo do restaurante, incluindo o número.';
+    if (originAddress.confirmed !== true) return 'Revise e confirme o endereço e o número do restaurante.';
     if (!Number.isFinite(payload.service_radius_km) || payload.service_radius_km <= 0) return 'Informe um raio de atendimento válido.';
     if (!['OWN', 'EXTERNAL'].includes(payload.default_fulfillment_mode)) return 'Selecione a modalidade padrão do Delivery.';
     if (!Number.isInteger(payload.own_available_couriers) || payload.own_available_couriers < 0 || payload.own_available_couriers > 500) return 'Informe uma quantidade válida de entregadores próprios.';
     if (!payload.external_provider_order.length || payload.external_provider_order.some((provider) => provider !== 'IFOOD')) return 'O operador externo disponível nesta fase é IFOOD.';
     if (!Number.isInteger(payload.external_max_attempts) || payload.external_max_attempts < 1 || payload.external_max_attempts > 5) return 'As tentativas do operador devem ficar entre 1 e 5.';
     if (!Number.isInteger(payload.external_attempt_window_minutes) || payload.external_attempt_window_minutes < 1 || payload.external_attempt_window_minutes > 60) return 'A janela do operador deve ficar entre 1 e 60 minutos.';
+    if (!Number.isInteger(payload.auto_accept.preparation_minutes) || payload.auto_accept.preparation_minutes < 5 || payload.auto_accept.preparation_minutes > 240) return 'A previsão automática de preparo deve ficar entre 5 e 240 minutos.';
     for (const windowItem of payload.auto_accept.windows) {
         if (!windowItem.days.length || !windowItem.start || !windowItem.end || windowItem.start === windowItem.end) return 'Cada janela precisa ter ao menos um dia e horários diferentes.';
     }
@@ -766,7 +825,7 @@ async function saveDeliverySettings() {
         'delivery-setting-max-attempts', 'delivery-setting-attempt-window',
         'delivery-setting-lat', 'delivery-setting-lng', 'delivery-setting-radius',
     ];
-    const requiresOriginAddress = document.getElementById('delivery-setting-enabled')?.checked !== false;
+    const requiresOriginAddress = true;
     if (requiresOriginAddress) requiredFieldIds.push(
         'delivery-setting-origin-postal', 'delivery-setting-origin-street', 'delivery-setting-origin-number',
         'delivery-setting-origin-neighborhood', 'delivery-setting-origin-city', 'delivery-setting-origin-state',
@@ -787,7 +846,6 @@ async function saveDeliverySettings() {
     };
     const mode = document.getElementById('delivery-setting-fee-mode')?.value || 'NONE';
     const payload = {
-        enabled: !!document.getElementById('delivery-setting-enabled')?.checked,
         whatsapp_order_enabled: !!document.getElementById('delivery-setting-whatsapp-order-enabled')?.checked,
         whatsapp_order_mode: document.getElementById('delivery-setting-whatsapp-order-mode')?.value || 'HYBRID',
         timezone: document.getElementById('delivery-setting-timezone')?.value || 'America/Sao_Paulo',
@@ -796,28 +854,12 @@ async function saveDeliverySettings() {
         external_provider_order: String(document.getElementById('delivery-setting-provider-order')?.value || 'IFOOD').split(',').map((value) => value.trim().toUpperCase()).filter(Boolean),
         external_max_attempts: Number(document.getElementById('delivery-setting-max-attempts')?.value || 5),
         external_attempt_window_minutes: Number(document.getElementById('delivery-setting-attempt-window')?.value || 15),
-        auto_accept: { enabled: !!document.getElementById('delivery-setting-auto')?.checked, require_confirmed_payment: !!document.getElementById('delivery-setting-payment')?.checked, max_active_deliveries: Number(document.getElementById('delivery-setting-capacity')?.value), windows: collectDeliveryWindows() },
+        auto_accept: { enabled: !!document.getElementById('delivery-setting-auto')?.checked, require_confirmed_payment: !!document.getElementById('delivery-setting-payment')?.checked, max_active_deliveries: Number(document.getElementById('delivery-setting-capacity')?.value), preparation_minutes: Number(document.getElementById('delivery-setting-preparation-minutes')?.value || 30), windows: collectDeliveryWindows() },
         origin_lat: latRaw === '' ? undefined : Number(latRaw), origin_lng: lngRaw === '' ? undefined : Number(lngRaw),
         origin_address: originAddress,
         service_radius_km: Number(document.getElementById('delivery-setting-radius')?.value),
         fees: { mode, fixed_fee: Number(document.getElementById('delivery-setting-fixed-fee')?.value || 0), bands: ['DISTANCE_BANDS', 'HYBRID'].includes(mode) ? collectDeliveryBands() : [], included_km: Number(document.getElementById('delivery-setting-included-km')?.value || 0), price_per_km: Number(document.getElementById('delivery-setting-price-per-km')?.value || 0), minimum_fee: Number(document.getElementById('delivery-setting-minimum-fee')?.value || 0), rounding_mode: document.getElementById('delivery-setting-rounding')?.value || 'NONE' },
     };
-    if (!payload.enabled) {
-        // A desativação deve continuar disponível para tenants antigos que ainda
-        // não confirmaram a nova origem por endereço.
-        ['origin_address'].forEach((key) => { delete payload[key]; });
-    }
-    const currentEnabled = deliveryState.settings?.settings?.enabled === true;
-    if (payload.enabled !== currentEnabled) {
-        const confirmed = await showConfirmDialog({
-            title: payload.enabled ? 'Ativar módulo Delivery?' : 'Desativar módulo Delivery?',
-            message: payload.enabled ? 'O restaurante poderá receber novos pedidos para entrega.' : 'O restaurante deixará de receber novos pedidos para entrega.',
-            detail: 'Entregas que já estão ativas continuarão visíveis até o encerramento.',
-            confirmLabel: payload.enabled ? 'Ativar Delivery' : 'Desativar Delivery',
-            variant: payload.enabled ? 'info' : 'warning',
-        });
-        if (!confirmed) return;
-    }
     const reserved = Number((deliveryState.capacity?.data || deliveryState.capacity || {}).reserved || 0);
     if (payload.own_available_couriers < reserved) {
         const confirmed = await showConfirmDialog({

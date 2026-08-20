@@ -95,12 +95,14 @@
                             <th>Nome da Franquia</th>
                             <th>Acesso Admin</th>
                             <th>Métricas</th>
+                            <th>Módulo Atendimento</th>
+                            <th>Módulo Delivery</th>
                             <th>Ações</th>
                         </tr>
                     </thead>
                     <tbody>
                         <tr>
-                            <td colspan="6" style="text-align:center">Carregando restaurantes...</td>
+                            <td colspan="7" style="text-align:center">Carregando restaurantes...</td>
                         </tr>
                     </tbody>
                 </table>
@@ -490,6 +492,30 @@
                     onclick="closeTenantModal()">Cancelar</button>
                 <button type="submit" form="tenant-form" class="btn">Salvar</button>
             </div>
+        </div>
+    </div>
+
+    <!-- MODAL: Módulo Delivery -->
+    <div class="modal-overlay" id="delivery-module-modal">
+        <div class="modal-content" style="max-width:720px">
+            <div class="modal-header">
+                <h3 id="dm-title">Módulo Delivery</h3>
+                <button onclick="closeDeliveryModuleModal()" style="background:transparent;border:none;color:var(--text-muted);cursor:pointer;font-size:20px">✕</button>
+            </div>
+            <div class="modal-body" id="dm-body"></div>
+            <div class="modal-footer" id="dm-footer"></div>
+        </div>
+    </div>
+
+    <!-- MODAL: Módulo Atendimento -->
+    <div class="modal-overlay" id="attendance-module-modal">
+        <div class="modal-content" style="max-width:720px">
+            <div class="modal-header">
+                <h3 id="am-title">Módulo Atendimento</h3>
+                <button onclick="closeAttendanceModuleModal()" style="background:transparent;border:none;color:var(--text-muted);cursor:pointer;font-size:20px">✕</button>
+            </div>
+            <div class="modal-body" id="am-body"></div>
+            <div class="modal-footer" id="am-footer"></div>
         </div>
     </div>
 

@@ -15,6 +15,12 @@ export type DeliveryActor = {
 };
 
 type DeliveryV2Settings = {
+    // Lifecycle is controlled by the Super Admin, but must survive regular
+    // restaurant configuration updates.
+    enabled_at: string | null;
+    expires_at: string | null;
+    permanent: boolean;
+    disabled_at: string | null;
     whatsapp_order_enabled: boolean;
     whatsapp_order_mode: 'HYBRID' | 'DELIVERY_ONLY';
     default_fulfillment_mode: 'OWN' | 'EXTERNAL';
@@ -44,11 +50,16 @@ const DEFAULT_DELIVERY_SETTINGS: DeliveryPolicySettings & {
     fees: DeliveryFeeSettings;
 } & DeliveryV2Settings = {
     enabled: false,
+    enabled_at: null,
+    expires_at: null,
+    permanent: false,
+    disabled_at: null,
     timezone: 'America/Sao_Paulo',
     auto_accept: {
         enabled: false,
         require_confirmed_payment: true,
         max_active_deliveries: 8,
+        preparation_minutes: 30,
         windows: [],
     },
     origin: { lat: null, lng: null },
@@ -96,6 +107,9 @@ export class DeliverySettingsService {
 
     async update(tenantId: string, payload: UpdateDeliverySettingsDto, actor: DeliveryActor = {}) {
         const tenant = await this.requireTenant(tenantId);
+        if (payload.enabled !== undefined) {
+            throw new HttpException('A ativação do módulo Delivery é gerenciada exclusivamente pelo Super Admin.', HttpStatus.FORBIDDEN);
+        }
         const currentRaw = (tenant.settings || {}) as Record<string, any>;
         const previous = this.resolveSettings(currentRaw);
         // resolveSettings recebe o objeto completo do tenant e lê sempre a chave
@@ -105,7 +119,7 @@ export class DeliverySettingsService {
             ...currentRaw,
             delivery: {
                 ...previous,
-                ...(payload.enabled === undefined ? {} : { enabled: payload.enabled }),
+                enabled: previous.enabled,
                 ...(payload.whatsapp_order_enabled === undefined ? {} : { whatsapp_order_enabled: payload.whatsapp_order_enabled }),
                 ...(payload.whatsapp_order_mode === undefined ? {} : { whatsapp_order_mode: payload.whatsapp_order_mode }),
                 ...(payload.timezone === undefined ? {} : { timezone: payload.timezone }),
@@ -234,6 +248,10 @@ export class DeliverySettingsService {
 
         return {
             ...policy,
+            enabled_at: delivery.enabled_at || null,
+            expires_at: delivery.expires_at || null,
+            permanent: delivery.permanent === true,
+            disabled_at: delivery.disabled_at || null,
             origin: { lat, lng },
             origin_address: originAddress,
             service_area: { mode: 'RADIUS', radius_km: radius },

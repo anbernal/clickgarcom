@@ -15,6 +15,7 @@ export type DeliveryPolicySettings = {
         enabled: boolean;
         require_confirmed_payment: boolean;
         max_active_deliveries: number;
+        preparation_minutes: number;
         windows: DeliveryWindow[];
     };
 };
@@ -61,6 +62,7 @@ export class DeliveryPolicyService {
                 enabled: auto.enabled === true,
                 require_confirmed_payment: auto.require_confirmed_payment !== false,
                 max_active_deliveries: this.normalizeCapacity(auto.max_active_deliveries),
+                preparation_minutes: this.normalizePreparationMinutes(auto.preparation_minutes),
                 windows: this.normalizeWindows(auto.windows || []),
             },
         };
@@ -175,6 +177,12 @@ export class DeliveryPolicyService {
         const capacity = Number(value);
         if (!Number.isFinite(capacity)) return 8;
         return Math.min(500, Math.max(1, Math.trunc(capacity)));
+    }
+
+    private normalizePreparationMinutes(value: unknown): number {
+        const parsed = Number(value);
+        if (!Number.isFinite(parsed)) return 30;
+        return Math.min(240, Math.max(5, Math.round(parsed)));
     }
 
     private normalizeTimezone(value: unknown): string {

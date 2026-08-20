@@ -421,7 +421,6 @@ async function fetchJson(url, options = {}) {
 
     if (!response.ok) {
         const payload = await response.json().catch(() => ({}));
-        const providerMessage = normalizeCheckoutText(payload?.provider_message);
         const rawUserMessage = normalizeCheckoutText(payload?.message || payload?.error || 'Falha ao processar a requisicao');
         const paymentAction = /\/payments\/(?:pix|card)(?:\?|$)/i.test(String(url || ''));
         const authorizationFailure = /missing authorization token|invalid or expired token/i.test(rawUserMessage);
@@ -430,10 +429,7 @@ async function fetchJson(url, options = {}) {
             : (/invalid or expired token|link de pagamento inv[aá]lido/i.test(rawUserMessage)
                 ? INVALID_CHECKOUT_LINK_MESSAGE
                 : rawUserMessage);
-        const composedMessage = providerMessage
-            ? `${userMessage} Detalhe Mercado Pago: ${providerMessage}`
-            : userMessage;
-        throw new Error(composedMessage);
+        throw new Error(userMessage);
     }
     return response.json();
 }

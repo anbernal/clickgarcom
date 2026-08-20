@@ -12,7 +12,7 @@ Cada filial é um tenant independente. O ClickGarçom integra tecnicamente opera
 
 ### `OWN`
 
-Entrega própria do restaurante. O tenant informa apenas uma quantidade de entregadores disponíveis. O MVP não cadastra pessoa, não coleta localização, não oferece tracking próprio e não gera PIN.
+Entrega própria do restaurante. O tenant informa apenas uma quantidade de entregadores disponíveis. O fluxo não cadastra pessoa nem exige localização, mas oferece acompanhamento de status e gera um código hexadecimal de quatro caracteres para confirmar o recebimento.
 
 ### `EXTERNAL`
 
@@ -229,7 +229,10 @@ Critérios:
 
 - ação é administrativa;
 - não requer assigned driver;
-- não requer localização, tracking ou PIN;
+- não requer assigned driver nem localização;
+- ao registrar a saída, gera código hexadecimal de quatro caracteres e link autenticado, enviados somente ao cliente pelo WhatsApp;
+- operador ou cliente concluem a entrega informando o mesmo código; o primeiro sucesso encerra o fluxo;
+- o código não aparece na API administrativa nem na página de acompanhamento;
 - conclusão idempotente libera capacidade.
 
 ### RF-V2-017 — iFood off-platform
@@ -387,8 +390,7 @@ O fulfillment possui estado próprio para `CAPACITY_RESERVED`, `QUOTED`, `REQUES
 
 - entregador individual;
 - app de entregador;
-- GPS/tracking próprio;
-- PIN ClickGarçom;
+- GPS próprio para a modalidade `OWN`;
 - geofence/foto;
 - comparação automática de providers;
 - troca automática de provider;

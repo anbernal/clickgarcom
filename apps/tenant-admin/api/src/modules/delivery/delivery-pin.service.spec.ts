@@ -5,9 +5,9 @@ import {
 } from './delivery-pin.service';
 
 describe('DeliveryPinService cryptographic foundation', () => {
-    it('generates a six-digit PIN including leading zeroes', () => {
+    it('generates a four-character hexadecimal code including leading zeroes', () => {
         for (let index = 0; index < 100; index += 1) {
-            expect(generateDeliveryPin()).toMatch(/^\d{6}$/);
+            expect(generateDeliveryPin()).toMatch(/^[0-9A-F]{4}$/);
         }
     });
 
@@ -30,4 +30,3 @@ describe('DeliveryPinService cryptographic foundation', () => {
         expect(safeCompareDeliveryPinDigest('', '')).toBe(false);
     });
 });
-

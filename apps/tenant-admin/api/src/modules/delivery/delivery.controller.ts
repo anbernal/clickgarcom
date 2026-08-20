@@ -12,6 +12,7 @@ import {
     DeliveryAssignDto,
     DeliveryAcceptDto,
     DeliveryCancelDto,
+    DeliveryCompleteOwnDto,
     DeliveryCompleteReturnDto,
     DeliveryFeeQuoteQueryDto,
     DeliveryOwnOperationDto,
@@ -90,7 +91,7 @@ export class DeliveryController {
 
     @Post(':id/own/complete')
     @Roles(...TENANT_DELIVERY_DISPATCH_ROLES)
-    completeOwn(@Request() request: any, @Param('id') id: string, @Body() body: DeliveryOwnOperationDto, @Headers('idempotency-key') idempotencyKey?: string) {
+    completeOwn(@Request() request: any, @Param('id') id: string, @Body() body: DeliveryCompleteOwnDto, @Headers('idempotency-key') idempotencyKey?: string) {
         return this.deliveryService.completeOwn(request.user.tenantId, id, this.actor(request), body, idempotencyKey);
     }
 

@@ -406,6 +406,11 @@ export class SuperAdminService {
                 billingPlan: row.billing_plan || 'pre_paid',
                 messagePrice: Number(row.message_price || 0.02),
                 paymentGateway: this.summarizePaymentGateway(this.parseTenantSettings(row.settings)),
+                deliveryEnabled: this.isDeliveryEnabledNow(this.parseTenantSettings(row.settings)),
+                deliveryEnabledAt: this.parseTenantSettings(row.settings).delivery?.enabled_at || null,
+                deliveryExpiresAt: this.parseTenantSettings(row.settings).delivery?.expires_at || null,
+                deliveryPermanent: this.parseTenantSettings(row.settings).delivery?.permanent === true,
+                attendanceEnabled: this.parseTenantSettings(row.settings).attendance?.enabled !== false,
                 webhook: webhookUrl,
                 msgsIn: msgIn,
                 msgsOut: msgOut,
@@ -1859,6 +1864,11 @@ export class SuperAdminService {
             nps_enabled: true,
             voucher_enabled: true,
             service_fee_percent: 10,
+            delivery: {
+                enabled: false,
+                whatsapp_order_enabled: false,
+                whatsapp_order_mode: 'HYBRID',
+            },
         };
 
         const tenant = this.tenantRepo.create({
@@ -2018,6 +2028,124 @@ export class SuperAdminService {
             wabaId: tenant.wabaId || '',
             webhook: await this.getWebhookUrl(),
             updated: true,
+        };
+    }
+
+    async setTenantDeliveryEnabled(
+        id: string,
+        input: { enabled: boolean; expiresAt?: string | null; permanent?: boolean },
+        actor: SuperAdminActorContext,
+    ) {
+        const tenant = await this.tenantRepo.findOne({ where: { id } });
+        if (!tenant) throw new NotFoundException('Tenant nao encontrado.');
+
+        const settings = this.parseTenantSettings(tenant.settings);
+        const previousEnabled = this.isDeliveryEnabledNow(settings);
+        const enabled = input.enabled === true;
+        const now = new Date();
+        const currentDelivery = settings.delivery || {};
+        const permanent = enabled
+            ? (typeof input.permanent === 'boolean' ? input.permanent : currentDelivery.permanent === true)
+            : currentDelivery.permanent === true;
+        let expiresAt: string | null = permanent
+            ? null
+            : (input.expiresAt !== undefined ? input.expiresAt : currentDelivery.expires_at || null);
+
+        if (enabled && !permanent) {
+            if (!expiresAt) {
+                throw new BadRequestException('Informe uma data limite ou marque o módulo como permanente.');
+            }
+            const parsedExpiry = new Date(expiresAt);
+            if (Number.isNaN(parsedExpiry.getTime()) || parsedExpiry.getTime() <= now.getTime()) {
+                throw new BadRequestException('A data limite do módulo deve ser futura.');
+            }
+            expiresAt = parsedExpiry.toISOString();
+        }
+
+        const enabledAt = enabled
+            ? (previousEnabled && currentDelivery.enabled_at ? currentDelivery.enabled_at : now.toISOString())
+            : (currentDelivery.enabled_at || null);
+        const nextSettings: TenantSettings = {
+            ...settings,
+            delivery: {
+                ...currentDelivery,
+                enabled,
+                enabled_at: enabledAt,
+                expires_at: expiresAt,
+                permanent,
+                disabled_at: enabled ? null : now.toISOString(),
+            },
+        };
+
+        tenant.settings = nextSettings;
+        await this.tenantRepo.save(tenant);
+        await this.recordAuditLog({
+            action: 'TENANT_DELIVERY_STATUS_CHANGED',
+            entityType: 'TENANT',
+            entityId: tenant.id,
+            tenantId: tenant.id,
+            actor,
+            details: {
+                summary: `Delivery de ${tenant.name} foi ${enabled ? 'ativado' : 'desativado'} pelo Super Admin.`,
+                before_enabled: previousEnabled,
+                after_enabled: this.isDeliveryEnabledNow(nextSettings),
+                enabled_at: enabledAt,
+                expires_at: expiresAt,
+                permanent,
+            },
+        });
+
+        return {
+            id: tenant.id,
+            enabled: this.isDeliveryEnabledNow(nextSettings),
+            enabledAt: enabledAt,
+            expiresAt,
+            permanent,
+            updatedAt: tenant.updatedAt,
+        };
+    }
+
+    private isDeliveryEnabledNow(settings: TenantSettings, now = new Date()) {
+        const delivery = settings.delivery;
+        if (!delivery?.enabled) return false;
+        if (delivery.permanent === true || !delivery.expires_at) return true;
+        const expiresAt = new Date(delivery.expires_at);
+        return !Number.isNaN(expiresAt.getTime()) && expiresAt.getTime() > now.getTime();
+    }
+
+    async setTenantAttendanceEnabled(id: string, enabled: boolean, actor: SuperAdminActorContext) {
+        const tenant = await this.tenantRepo.findOne({ where: { id } });
+        if (!tenant) throw new NotFoundException('Tenant nao encontrado.');
+
+        const settings = this.parseTenantSettings(tenant.settings);
+        const previousEnabled = settings.attendance?.enabled !== false;
+        const nextSettings: TenantSettings = {
+            ...settings,
+            attendance: {
+                ...(settings.attendance || {}),
+                enabled: !!enabled,
+            },
+        };
+
+        tenant.settings = nextSettings;
+        await this.tenantRepo.save(tenant);
+        await this.recordAuditLog({
+            action: 'TENANT_ATTENDANCE_STATUS_CHANGED',
+            entityType: 'TENANT',
+            entityId: tenant.id,
+            tenantId: tenant.id,
+            actor,
+            details: {
+                summary: `Atendimento de ${tenant.name} foi ${enabled ? 'ativado' : 'desativado'} pelo Super Admin.`,
+                before_enabled: previousEnabled,
+                after_enabled: !!enabled,
+            },
+        });
+
+        return {
+            id: tenant.id,
+            enabled: !!enabled,
+            updatedAt: tenant.updatedAt,
         };
     }
 

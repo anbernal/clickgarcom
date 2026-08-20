@@ -1,8 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { MenuItem } from '../../entities/menu-item.entity';
 import { MenuCategory } from '../../entities/menu-category.entity';
+import { Tenant } from '../../entities/tenant.entity';
 import { v4 as uuidv4 } from 'uuid';
 
 type MenuAvailabilityWindow = {
@@ -44,7 +45,69 @@ export class MenuService {
         private readonly menuItemRepo: Repository<MenuItem>,
         @InjectRepository(MenuCategory)
         private readonly categoryRepo: Repository<MenuCategory>,
+        @InjectRepository(Tenant)
+        private readonly tenantRepo: Repository<Tenant>,
     ) { }
+
+    async findPublicMenuBySlug(rawSlug: string) {
+        const slug = String(rawSlug || '').trim().toLowerCase();
+        if (!/^[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?$/.test(slug)) {
+            throw new BadRequestException('Identificador do restaurante inválido.');
+        }
+
+        const tenant = await this.tenantRepo.findOne({ where: { slug, active: true } });
+        if (!tenant) throw new NotFoundException('Cardápio não encontrado.');
+
+        const [categories, menuItems] = await Promise.all([
+            this.categoryRepo.find({
+                where: { tenantId: tenant.id, active: true },
+                order: { displayOrder: 'ASC', name: 'ASC' },
+            }),
+            this.menuItemRepo.find({
+                where: { tenantId: tenant.id, available: true },
+                order: { displayOrder: 'ASC', name: 'ASC' },
+            }),
+        ]);
+        const serializedItems = (await this.serializeMenuItems(tenant.id, menuItems))
+            .filter((item) => item?.isCurrentlyAvailable === true);
+        const itemsByCategory = new Map<string, any[]>();
+        for (const item of serializedItems) {
+            const categoryId = String(item?.categoryId || '');
+            if (!categoryId) continue;
+            const current = itemsByCategory.get(categoryId) || [];
+            current.push(this.toPublicMenuItem(item));
+            itemsByCategory.set(categoryId, current);
+        }
+
+        const settings = tenant.settings?.digital_menu || {};
+        const publicCategories = categories
+            .map((category) => ({
+                id: category.id,
+                name: category.name,
+                description: category.description,
+                image_url: normalizePublicAssetUrl(category.imageUrl),
+                items: itemsByCategory.get(category.id) || [],
+            }))
+            .filter((category) => category.items.length > 0);
+
+        return {
+            restaurant: {
+                name: tenant.name,
+                slug: tenant.slug,
+                is_open: tenant.isOpen,
+                logo_url: normalizePublicAssetUrl(settings.logo_url),
+                cover_url: normalizePublicAssetUrl(settings.cover_url),
+                description: normalizePublicText(settings.description, 240),
+            },
+            theme: {
+                primary_color: normalizeHexColor(settings.primary_color, '#153f34'),
+                accent_color: normalizeHexColor(settings.accent_color, '#ef6a45'),
+            },
+            categories: publicCategories,
+            item_count: publicCategories.reduce((total, category) => total + category.items.length, 0),
+            updated_at: tenant.updatedAt,
+        };
+    }
 
     async findAll(tenantId: string, categoryId?: string) {
         const where: any = { tenantId };
@@ -167,6 +230,22 @@ export class MenuService {
         return normalized;
     }
 
+    private toPublicMenuItem(item: any) {
+        const optionGroups = normalizeOptionGroups(item.optionGroups);
+        return {
+            id: item.id,
+            category_id: item.categoryId,
+            name: item.name,
+            description: item.description || '',
+            price: Number(item.price || 0),
+            image_url: normalizePublicAssetUrl(item.imageUrl),
+            item_type: item.itemType,
+            prep_time_minutes: Number(item.prepTimeMinutes || 0),
+            has_options: Number(item.optionGroupCount || optionGroups?.length || 0) > 0,
+            option_groups: optionGroups || [],
+        };
+    }
+
     private serializeMenuItem(item: MenuItem | null, comboItemMap: Map<string, MenuItem>) {
         if (!item) {
             return null;
@@ -206,6 +285,27 @@ export class MenuService {
             configurationSummary: buildConfigurationSummary(normalizeItemType(item.itemType), optionGroups, comboComponents),
         };
     }
+}
+
+function normalizePublicAssetUrl(rawValue: unknown): string | null {
+    const value = String(rawValue || '').trim();
+    if (!value || value.length > 2048) return null;
+    if (value.startsWith('/') && !value.startsWith('//')) return value;
+    try {
+        const url = new URL(value);
+        return url.protocol === 'https:' ? url.toString() : null;
+    } catch (_error) {
+        return null;
+    }
+}
+
+function normalizeHexColor(rawValue: unknown, fallback: string): string {
+    const value = String(rawValue || '').trim();
+    return /^#[0-9a-f]{6}$/i.test(value) ? value.toLowerCase() : fallback;
+}
+
+function normalizePublicText(rawValue: unknown, maxLength: number): string {
+    return String(rawValue || '').trim().slice(0, maxLength);
 }
 
 function normalizeItemType(value: unknown) {

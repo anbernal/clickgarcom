@@ -4,7 +4,8 @@ import { Response } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Roles } from '../auth/roles.decorator';
 import { TENANT_DELIVERY_DISPATCH_ROLES } from '../auth/roles';
-import { CreateDeliveryTrackingLinkDto, DeliveryTrackingSessionDto } from './dto/delivery-commands.dto';
+import { CreateDeliveryTrackingLinkDto, DeliveryConfirmPinDto, DeliveryTrackingSessionDto } from './dto/delivery-commands.dto';
+import { DeliveryService } from './delivery.service';
 import { DeliveryTrackingService } from './delivery-tracking.service';
 
 @Controller('admin/api/deliveries')
@@ -31,7 +32,10 @@ export class DeliveryTrackingPublicController {
     private readonly windowMs = 60_000;
     private readonly maxRequests = 120;
 
-    constructor(private readonly trackingService: DeliveryTrackingService) { }
+    constructor(
+        private readonly trackingService: DeliveryTrackingService,
+        private readonly deliveryService: DeliveryService,
+    ) { }
 
     /** Exchanges the fragment token for an HttpOnly session cookie. */
     @Post('track/session')
@@ -71,6 +75,24 @@ export class DeliveryTrackingPublicController {
     @Get('track')
     snapshotFromSession(@Request() request: any, @Res({ passthrough: true }) response: Response) {
         return this.snapshot(undefined, request, response);
+    }
+
+    @Post('track/confirm')
+    async confirmReceipt(
+        @Body() body: DeliveryConfirmPinDto,
+        @Request() request: any,
+        @Res({ passthrough: true }) response: Response,
+    ) {
+        this.assertRateLimit(request);
+        response.setHeader('Cache-Control', 'no-store');
+        const token = request?.cookies?.delivery_tracking_token || this.readCookie(request?.headers?.cookie, 'delivery_tracking_token');
+        const credential = await this.trackingService.authorize(token);
+        return this.deliveryService.confirmPinForCustomer(
+            credential.tenantId,
+            credential.deliveryId,
+            credential.credentialId,
+            body,
+        );
     }
 
     @Get('track/:token')

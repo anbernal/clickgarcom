@@ -5,6 +5,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Table } from '../../entities/table.entity';
 import { Tab } from '../../entities/tab.entity';
 import { TableRequest } from '../../entities/table-request.entity';
+import { Tenant } from '../../entities/tenant.entity';
 import { WalletModule } from '../wallet/wallet.module';
 import { InternalTablesController } from './internal-tables.controller';
 import { PublicTablesController } from './public-tables.controller';
@@ -13,7 +14,7 @@ import { TablesService } from './tables.service';
 
 @Module({
     imports: [
-        TypeOrmModule.forFeature([Table, Tab, TableRequest]),
+        TypeOrmModule.forFeature([Table, Tab, TableRequest, Tenant]),
         WalletModule,
         JwtModule.registerAsync({
             imports: [ConfigModule],

@@ -123,6 +123,18 @@ const api = {
             body: JSON.stringify(payload),
         });
     },
+    setTenantDeliveryEnabled(id, payload) {
+        return request(`/tenants/${encodeURIComponent(String(id))}/delivery`, {
+            method: 'PATCH',
+            body: JSON.stringify(payload || {}),
+        });
+    },
+    setTenantAttendanceEnabled(id, enabled) {
+        return request(`/tenants/${encodeURIComponent(String(id))}/attendance`, {
+            method: 'PATCH',
+            body: JSON.stringify({ enabled: !!enabled }),
+        });
+    },
     getPaymentGateway(id) {
         return request(`/tenants/${encodeURIComponent(String(id))}/payment-gateway`);
     },
@@ -411,13 +423,13 @@ async function loadDashboard() {
 
 async function loadTenants() {
     try {
-        setTableLoading('#tenants-table tbody', 5, 'Carregando restaurantes...');
+        setTableLoading('#tenants-table tbody', 7, 'Carregando restaurantes...');
         const tenants = await api.getTenants();
         state.tenants = Array.isArray(tenants) ? tenants : [];
 
         const tbody = document.querySelector('#tenants-table tbody');
         if (!state.tenants.length) {
-            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted)">Nenhum restaurante cadastrado.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:var(--text-muted)">Nenhum restaurante cadastrado.</td></tr>';
             return;
         }
 
@@ -431,8 +443,12 @@ async function loadTenants() {
                 </td>
                 <td>${escapeHtml(t.adminEmail || '-')}</td>
                 <td>${formatNumber(t.msgs)} msgs</td>
+                <td><span class="badge ${t.attendanceEnabled !== false ? 'active' : 'inactive'}">${t.attendanceEnabled !== false ? 'Ativo' : 'Desativado'}</span></td>
+                <td><span class="badge ${t.deliveryEnabled ? 'active' : 'inactive'}">${t.deliveryEnabled ? 'Ativo' : 'Desativado'}</span></td>
                 <td>
                     <button class="btn" style="padding:6px 12px; background:var(--border)" onclick="openTenantModal('${escapeHtml(t.id)}')">Editar</button>
+                    <button class="btn" style="padding:6px 12px; background:${t.attendanceEnabled !== false ? 'rgba(239,68,68,.16)' : 'rgba(59,130,246,.2)'}; color:${t.attendanceEnabled !== false ? '#fca5a5' : '#93c5fd'}" onclick="openAttendanceModuleModal('${escapeHtml(t.id)}')">${t.attendanceEnabled !== false ? 'Desativar Atendimento' : 'Ativar Atendimento'}</button>
+                    <button class="btn" style="padding:6px 12px; background:${t.deliveryEnabled ? 'rgba(239,68,68,.16)' : 'rgba(59,130,246,.2)'}; color:${t.deliveryEnabled ? '#fca5a5' : '#93c5fd'}" onclick="openDeliveryModuleModal('${escapeHtml(t.id)}')">${t.deliveryEnabled ? 'Desativar Delivery' : 'Ativar Delivery'}</button>
                     <button class="btn" style="padding:6px 12px; background:rgba(59, 130, 246, 0.2); color:#93c5fd" onclick="openPaymentGatewayModal('${escapeHtml(t.id)}')">Pagamento</button>
                     <button class="btn" style="padding:6px 12px; background:${t.active ? 'rgba(239, 68, 68, 0.2)' : 'rgba(16, 185, 129, 0.2)'}; color:${t.active ? 'var(--danger)' : '#22c55e'}" onclick="toggleTenantActive('${escapeHtml(t.id)}', ${t.active ? 'false' : 'true'})">${t.active ? 'Pausar' : 'Ativar'}</button>
                 </td>
@@ -440,7 +456,7 @@ async function loadTenants() {
         `).join('');
     } catch (error) {
         console.error(error);
-        setTableLoading('#tenants-table tbody', 5, `Falha ao carregar restaurantes: ${error.message}`);
+        setTableLoading('#tenants-table tbody', 7, `Falha ao carregar restaurantes: ${error.message}`);
     }
 }
 
@@ -1083,6 +1099,127 @@ async function toggleTenantActive(tenantId, active) {
     } catch (error) {
         console.error(error);
         alert(`Falha ao atualizar status: ${error.message}`);
+    }
+}
+
+function closeDeliveryModuleModal() {
+    document.getElementById('delivery-module-modal')?.classList.remove('active');
+}
+
+function closeAttendanceModuleModal() {
+    document.getElementById('attendance-module-modal')?.classList.remove('active');
+}
+
+function openAttendanceModuleModal(tenantId) {
+    const tenant = state.tenants.find((item) => item.id === tenantId);
+    if (!tenant) return;
+    const enabled = tenant.attendanceEnabled !== false;
+    document.getElementById('am-title').textContent = `Atendimento · ${enabled ? 'Ativo' : 'Desativado'}`;
+    document.getElementById('am-body').innerHTML = `<div class="card" style="margin:0;border-color:${enabled ? 'rgba(16,185,129,.35)' : 'rgba(245,158,11,.35)'}">
+                <div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">Tenant</div>
+                <h3 style="margin-bottom:10px">${escapeHtml(tenant.name)}</h3>
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px"><span class="badge ${enabled ? 'active' : 'inactive'}">${enabled ? 'ATIVO' : 'DESATIVADO'}</span><strong>Atendimento</strong></div>
+                <p class="page-sub" style="margin:0">${enabled ? 'Mesas, comandas, chamados de garçom e KDS Salão estão disponíveis.' : 'Novas operações presenciais estão bloqueadas. Dados existentes permanecem preservados.'}</p>
+                <div style="margin-top:18px;padding:14px 16px;border-radius:12px;background:var(--surface-2);border:1px solid var(--border)"><strong style="display:block;font-size:13px;margin-bottom:8px">O que o Atendimento libera</strong><ul style="margin:0;padding-left:18px;color:var(--text-muted);font-size:12px;line-height:1.7"><li>Mesas e comandas presenciais</li><li>Chamados de garçom e fluxo de atendimento</li><li>KDS Salão para acompanhar a operação</li></ul></div>
+           </div>`;
+    document.getElementById('am-footer').innerHTML = enabled
+        ? `<button class="btn" style="background:rgba(239,68,68,.18);color:#fca5a5" onclick="setTenantAttendance('${escapeHtml(tenant.id)}', false)">Desativar Atendimento</button><button class="btn" onclick="closeAttendanceModuleModal()">Fechar</button>`
+        : `<button class="btn" onclick="setTenantAttendance('${escapeHtml(tenant.id)}', true)">Ativar Atendimento</button><button class="btn" style="background:transparent;border:1px solid var(--border);color:var(--text-main)" onclick="closeAttendanceModuleModal()">Cancelar</button>`;
+    document.getElementById('attendance-module-modal').classList.add('active');
+}
+
+async function setTenantAttendance(tenantId, enabled) {
+    const tenant = state.tenants.find((item) => item.id === tenantId);
+    if (!tenant) return;
+    const action = enabled ? 'ativar' : 'desativar';
+    if (!confirm(`Deseja ${action} o módulo Atendimento de ${tenant.name}?`)) return;
+    try {
+        await api.setTenantAttendanceEnabled(tenantId, enabled);
+        await loadTenants();
+        closeAttendanceModuleModal();
+        alert(`Módulo Atendimento ${enabled ? 'ativado' : 'desativado'} com sucesso.`);
+    } catch (error) {
+        alert(`Falha ao ${action} o módulo Atendimento: ${error.message}`);
+    }
+}
+
+function formatModuleDate(value) {
+    const date = value ? new Date(value) : null;
+    return date && !Number.isNaN(date.getTime()) ? date.toLocaleString('pt-BR') : '—';
+}
+
+function toDateTimeLocal(value) {
+    const date = value ? new Date(value) : null;
+    if (!date || Number.isNaN(date.getTime())) return '';
+    const pad = (part) => String(part).padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function toggleDeliveryExpiryField(permanent) {
+    const field = document.getElementById('dm-expires-at');
+    if (!field) return;
+    field.disabled = !!permanent;
+    if (permanent) field.value = '';
+}
+
+function openDeliveryModuleModal(tenantId) {
+    const tenant = state.tenants.find((item) => item.id === tenantId);
+    if (!tenant) return;
+    const enabled = tenant.deliveryEnabled === true;
+    document.getElementById('dm-title').textContent = `Delivery · ${enabled ? 'Ativo' : 'Desativado'}`;
+    const permanent = tenant.deliveryPermanent === true || (!tenant.deliveryExpiresAt && enabled);
+    document.getElementById('dm-body').innerHTML = `<div class="card" style="margin:0;border-color:${enabled ? 'rgba(16,185,129,.35)' : 'rgba(96,165,250,.35)'}">
+                <div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">Tenant</div>
+                <h3 style="margin-bottom:10px">${escapeHtml(tenant.name)}</h3>
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px"><span class="badge ${enabled ? 'active' : 'inactive'}">${enabled ? 'ATIVO' : 'DESATIVADO'}</span><strong>Delivery</strong></div>
+                <p class="page-sub" style="margin:0">${enabled ? 'O restaurante pode configurar e operar entregas pelo painel Admin e WhatsApp.' : 'O Delivery não aparece para o restaurante nem para os clientes deste tenant.'}</p>
+                <div style="margin-top:18px;padding:14px 16px;border-radius:12px;background:var(--surface-2);border:1px solid var(--border)"><strong style="display:block;font-size:13px;margin-bottom:8px">O que o Delivery libera</strong><ul style="margin:0;padding-left:18px;color:var(--text-muted);font-size:12px;line-height:1.7"><li>Área de atendimento, endereço de origem e taxas</li><li>Agenda, capacidade e aceite automático</li><li>Pedidos pelo WhatsApp/cardápio, KDS Delivery e rastreamento</li></ul></div>
+                <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:20px">
+                    <div><div style="font-size:12px;color:var(--text-muted);margin-bottom:5px">Ativo desde</div><strong>${escapeHtml(formatModuleDate(tenant.deliveryEnabledAt))}</strong></div>
+                    <div><div style="font-size:12px;color:var(--text-muted);margin-bottom:5px">Última data limite</div><strong>${escapeHtml(tenant.deliveryPermanent || (enabled && !tenant.deliveryExpiresAt) ? 'Permanente' : formatModuleDate(tenant.deliveryExpiresAt))}</strong></div>
+                </div>
+                <div style="margin-top:20px;padding-top:18px;border-top:1px solid var(--border)">
+                    <div style="font-size:13px;font-weight:700;margin-bottom:10px">Validade do módulo</div>
+                    <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:12px"><input id="dm-permanent" type="checkbox" ${permanent ? 'checked' : ''} onchange="toggleDeliveryExpiryField(this.checked)"> Ativação permanente</label>
+                    <input id="dm-expires-at" class="input" type="datetime-local" value="${escapeHtml(toDateTimeLocal(tenant.deliveryExpiresAt))}" ${permanent ? 'disabled' : ''}>
+                    <small style="display:block;color:var(--text-muted);margin-top:7px">Escolha uma data futura ou marque permanente.</small>
+                </div>
+           </div>`;
+    document.getElementById('dm-footer').innerHTML = enabled
+        ? `<button class="btn" onclick="setTenantDelivery('${escapeHtml(tenant.id)}', true)">Salvar validade</button><button class="btn" style="background:rgba(239,68,68,.18);color:#fca5a5" onclick="setTenantDelivery('${escapeHtml(tenant.id)}', false)">Desativar Delivery</button><button class="btn" onclick="closeDeliveryModuleModal()">Fechar</button>`
+        : `<button class="btn" onclick="setTenantDelivery('${escapeHtml(tenant.id)}', true)">Ativar Delivery</button><button class="btn" style="background:transparent;border:1px solid var(--border);color:var(--text-main)" onclick="closeDeliveryModuleModal()">Cancelar</button>`;
+    document.getElementById('delivery-module-modal').classList.add('active');
+}
+
+async function setTenantDelivery(tenantId, enabled) {
+    const tenant = state.tenants.find((item) => item.id === tenantId);
+    if (!tenant) return;
+    const action = enabled ? 'ativar' : 'desativar';
+    const payload = { enabled: !!enabled };
+    if (enabled) {
+        const permanent = document.getElementById('dm-permanent')?.checked === true;
+        const rawExpiry = String(document.getElementById('dm-expires-at')?.value || '').trim();
+        if (!permanent) {
+            const expiry = rawExpiry ? new Date(rawExpiry) : null;
+            if (!expiry || Number.isNaN(expiry.getTime()) || expiry.getTime() <= Date.now()) {
+                alert('Informe uma data limite futura ou marque a ativação como permanente.');
+                return;
+            }
+            payload.expires_at = expiry.toISOString();
+            payload.permanent = false;
+        } else {
+            payload.expires_at = null;
+            payload.permanent = true;
+        }
+    }
+    if (!confirm(`Deseja ${action} o módulo Delivery de ${tenant.name}?`)) return;
+    try {
+        await api.setTenantDeliveryEnabled(tenantId, payload);
+        await loadTenants();
+        closeDeliveryModuleModal();
+        alert(`Módulo Delivery ${enabled ? 'ativado' : 'desativado'} com sucesso.`);
+    } catch (error) {
+        alert(`Falha ao ${action} o módulo Delivery: ${error.message}`);
     }
 }
 

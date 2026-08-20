@@ -733,6 +733,11 @@ export class AuthService {
             tenant_whatsapp_number: user.tenant?.whatsappNumber || null,
             tenant_document: settings.document || null,
             tenant_address: settings.address || null,
+            delivery_enabled: this.isDeliveryEnabledNow(settings),
+            // Existing tenants do not have this key yet; preserve their
+            // current presencial behavior until the Super Admin explicitly
+            // disables the module.
+            attendance_enabled: settings.attendance?.enabled !== false,
             billing_plan: user.tenant?.billingPlan || 'pre_paid',
             active: !!user.active,
             isOpen: !!user.tenant?.isOpen,
@@ -740,7 +745,11 @@ export class AuthService {
             opened_at: settings.opened_at || null,
             opened_by: settings.opened_by || null,
             last_login_at: user.lastLoginAt ? new Date(user.lastLoginAt).toISOString() : null,
-            permissions: this.buildFrontendPermissions(normalizedRole),
+            permissions: this.buildFrontendPermissions(
+                normalizedRole,
+                this.isDeliveryEnabledNow(settings),
+                settings.attendance?.enabled !== false,
+            ),
         };
     }
 
@@ -780,7 +789,7 @@ export class AuthService {
         }));
     }
 
-    private buildFrontendPermissions(role: string) {
+    private buildFrontendPermissions(role: string, deliveryEnabled = false, attendanceEnabled = true) {
         const normalizedRole = normalizeTenantRole(role);
         const routeGroupAccessors = [
             { key: 'full_access', roles: TENANT_FULL_ACCESS_ROLES },
@@ -816,8 +825,10 @@ export class AuthService {
         if (routeGroups.includes('settlement')) pages.push('pagamentos');
         if (routeGroups.includes('reports')) pages.push('vendas');
         if (routeGroups.includes('purchases')) pages.push('compras');
-        // The driver experience is isolated in KDS Mobile. Never expose the
-        // administrative Delivery board to a DRIVER session.
+        // Keep Delivery discoverable for eligible restaurant profiles even
+        // before the module is activated. The web page renders the upgrade
+        // state without loading operational data; activation still gates all
+        // delivery actions below.
         if (routeGroups.includes('delivery_read')) pages.push('delivery');
         if (routeGroups.includes('full_access')) pages.push('meuRestaurante', 'configuracoes', 'equipe');
 
@@ -831,21 +842,31 @@ export class AuthService {
                 manageMenu: this.isRoleAllowed(normalizedRole, TENANT_MENU_WRITE_ROLES),
                 manageOrders: this.isRoleAllowed(normalizedRole, TENANT_ORDER_WRITE_ROLES),
                 cancelOrders: this.isRoleAllowed(normalizedRole, TENANT_ORDER_CANCEL_ROLES),
-                manageTables: this.isRoleAllowed(normalizedRole, TENANT_TABLE_WRITE_ROLES),
-                manageTabs: this.isRoleAllowed(normalizedRole, TENANT_TAB_OPERATION_ROLES),
+                manageTables: attendanceEnabled && this.isRoleAllowed(normalizedRole, TENANT_TABLE_WRITE_ROLES),
+                manageTabs: attendanceEnabled && this.isRoleAllowed(normalizedRole, TENANT_TAB_OPERATION_ROLES),
+                viewAttendance: attendanceEnabled && this.isRoleAllowed(normalizedRole, TENANT_FLOOR_ROLES),
+                manageAttendance: attendanceEnabled && this.isRoleAllowed(normalizedRole, TENANT_FLOOR_ROLES),
                 manageSettlement: this.isRoleAllowed(normalizedRole, TENANT_SETTLEMENT_ROLES),
                 manageClosedTabs: this.isRoleAllowed(normalizedRole, TENANT_CLOSED_TAB_MUTATION_ROLES),
                 viewReports: this.isRoleAllowed(normalizedRole, TENANT_REPORT_ROLES),
                 viewWallet: this.isRoleAllowed(normalizedRole, TENANT_WALLET_ROLES),
                 managePurchases: this.isRoleAllowed(normalizedRole, TENANT_PURCHASE_ROLES),
-                viewDelivery: this.isRoleAllowed(normalizedRole, TENANT_DELIVERY_READ_ROLES),
-                dispatchDelivery: this.isRoleAllowed(normalizedRole, TENANT_DELIVERY_DISPATCH_ROLES),
-                manageDeliverySettings: this.isRoleAllowed(normalizedRole, TENANT_DELIVERY_SETTINGS_ROLES),
-                overrideDelivery: this.isRoleAllowed(normalizedRole, TENANT_DELIVERY_OVERRIDE_ROLES),
-                driverDelivery: this.isRoleAllowed(normalizedRole, TENANT_DELIVERY_DRIVER_ROLES),
-                viewDeliveryReports: this.isRoleAllowed(normalizedRole, TENANT_DELIVERY_REPORT_ROLES),
+                viewDelivery: deliveryEnabled && this.isRoleAllowed(normalizedRole, TENANT_DELIVERY_READ_ROLES),
+                dispatchDelivery: deliveryEnabled && this.isRoleAllowed(normalizedRole, TENANT_DELIVERY_DISPATCH_ROLES),
+                manageDeliverySettings: deliveryEnabled && this.isRoleAllowed(normalizedRole, TENANT_DELIVERY_SETTINGS_ROLES),
+                overrideDelivery: deliveryEnabled && this.isRoleAllowed(normalizedRole, TENANT_DELIVERY_OVERRIDE_ROLES),
+                driverDelivery: deliveryEnabled && this.isRoleAllowed(normalizedRole, TENANT_DELIVERY_DRIVER_ROLES),
+                viewDeliveryReports: deliveryEnabled && this.isRoleAllowed(normalizedRole, TENANT_DELIVERY_REPORT_ROLES),
             },
         };
+    }
+
+    private isDeliveryEnabledNow(settings: TenantSettings, now = new Date()) {
+        const delivery = settings?.delivery;
+        if (!delivery?.enabled) return false;
+        if (delivery.permanent === true || !delivery.expires_at) return true;
+        const expiresAt = new Date(delivery.expires_at);
+        return !Number.isNaN(expiresAt.getTime()) && expiresAt.getTime() > now.getTime();
     }
 
     private getRoleLabel(role: string) {

@@ -24,7 +24,7 @@ func TestDeliveryOrderBatchClientReconcileSendsTenantAndEventScope(t *testing.T)
 		require.Equal(t, "secret", request.Header.Get("X-Internal-Token"))
 		require.Equal(t, tenantID.String(), request.Header.Get("X-Tenant-ID"))
 		require.Equal(t, eventID.String(), request.Header.Get("X-Correlation-ID"))
-		var payload map[string]string
+		var payload map[string]interface{}
 		require.NoError(t, json.NewDecoder(request.Body).Decode(&payload))
 		require.Equal(t, tenantID.String(), payload["tenant_id"])
 		require.Equal(t, batchID.String(), payload["batch_id"])

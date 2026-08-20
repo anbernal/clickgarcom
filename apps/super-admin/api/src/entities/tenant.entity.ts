@@ -28,6 +28,19 @@ export interface TenantSettings {
     mp_public_key?: string;
     payment_gateway?: PaymentGatewaySettings;
     messages?: MessageTemplates;
+    delivery?: {
+        enabled?: boolean;
+        whatsapp_order_enabled?: boolean;
+        whatsapp_order_mode?: 'HYBRID' | 'DELIVERY_ONLY';
+        enabled_at?: string | null;
+        expires_at?: string | null;
+        permanent?: boolean;
+        disabled_at?: string | null;
+    };
+    /** Missing attendance is treated as enabled for backwards compatibility. */
+    attendance?: {
+        enabled?: boolean;
+    };
 }
 
 export interface PaymentGatewaySettings {

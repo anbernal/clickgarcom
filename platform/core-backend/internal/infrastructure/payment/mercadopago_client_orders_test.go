@@ -27,6 +27,12 @@ func TestCreateCardPaymentFallsBackToOrdersAPI(t *testing.T) {
 			if payload["processing_mode"] != "automatic" || payload["total_amount"] != "44.90" {
 				t.Fatalf("unexpected order payload: %#v", payload)
 			}
+			transactions, _ := payload["transactions"].(map[string]any)
+			payments, _ := transactions["payments"].([]any)
+			method, _ := payments[0].(map[string]any)["payment_method"].(map[string]any)
+			if _, exists := method["issuer_id"]; exists {
+				t.Fatalf("Orders API payload must not include issuer_id: %#v", method)
+			}
 			w.WriteHeader(http.StatusCreated)
 			_, _ = w.Write([]byte(`{"id":"ORD01TEST","external_reference":"local-payment","status":"processed","status_detail":"accredited","transactions":{"payments":[{"id":"PAY01TEST","status":"processed","status_detail":"accredited","payment_method":{"id":"master","type":"credit_card"}}]}}`))
 		default:
@@ -43,6 +49,7 @@ func TestCreateCardPaymentFallsBackToOrdersAPI(t *testing.T) {
 	request.Description = "Pedido para entrega"
 	request.Installments = 1
 	request.PaymentMethodID = "master"
+	request.IssuerID = "123"
 	request.ExternalReference = "local-payment"
 	request.Payer.Email = "buyer@testuser.com"
 	request.Payer.Identification.Type = "CPF"

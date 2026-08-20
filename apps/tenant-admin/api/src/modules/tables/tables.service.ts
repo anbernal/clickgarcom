@@ -1,10 +1,11 @@
-import { BadRequestException, Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
 import { Table } from '../../entities/table.entity';
 import { Tab } from '../../entities/tab.entity';
 import { TableRequest, RequestStatus } from '../../entities/table-request.entity';
+import { Tenant } from '../../entities/tenant.entity';
 import { AmqpService } from '../amqp/amqp.service';
 import { WalletService } from '../wallet/wallet.service';
 import { TenantUserRole } from '../auth/roles';
@@ -45,6 +46,8 @@ export class TablesService {
         private readonly tabRepo: Repository<Tab>,
         @InjectRepository(TableRequest)
         private readonly tableRequestRepo: Repository<TableRequest>,
+        @InjectRepository(Tenant)
+        private readonly tenantRepo: Repository<Tenant>,
         private readonly amqpService: AmqpService,
         private readonly dataSource: DataSource,
         private readonly walletService: WalletService,
@@ -88,6 +91,7 @@ export class TablesService {
     }
 
     async create(tenantId: string, data: { number: string, capacity?: number }) {
+        await this.assertAttendanceEnabled(tenantId);
         const table = this.tableRepo.create({
             id: uuidv4(),
             tenantId,
@@ -269,6 +273,7 @@ export class TablesService {
         data: { user_phone?: string; customer_instagram?: string; table_id?: string },
         actor: TabActorContext,
     ) {
+        await this.assertAttendanceEnabled(tenantId);
         const phone = this.normalizePhone(data?.user_phone);
         const instagram = this.normalizeInstagram(data?.customer_instagram);
         const tableId = String(data?.table_id || '').trim() || null;
@@ -1585,6 +1590,7 @@ export class TablesService {
     }
 
     async approveRequest(requestId: string, tenantId: string, tableId?: string, approvedByUserId?: string, approvedByUserName?: string) {
+        await this.assertAttendanceEnabled(tenantId);
         const req = await this.tableRequestRepo.findOne({ where: { id: requestId, tenantId } });
         if (!req) throw new Error('Request not found');
         if (req.status === RequestStatus.REJECTED) {
@@ -1628,6 +1634,7 @@ export class TablesService {
     }
 
     async createManualRequest(tenantId: string, data: { tableId: string, userPhone: string, paxCount: number }, approvedByUserId?: string, approvedByUserName?: string) {
+        await this.assertAttendanceEnabled(tenantId);
         // 1. Create request directly as PENDING
         const req = this.tableRequestRepo.create({
             id: uuidv4(),
@@ -4611,7 +4618,7 @@ Esperamos te receber novamente em breve! 😊`;
                 enabled: false,
                 publicKey: '',
                 environment: '',
-                reason: 'Pagamento com cartão indisponível no momento. O restaurante ainda não configurou o Mercado Pago.',
+                reason: 'Pagamento com cartão indisponível no momento. O restaurante ainda não configurou o pagamento com cartão.',
             };
         }
 
@@ -4621,7 +4628,7 @@ Esperamos te receber novamente em breve! 😊`;
                 enabled: false,
                 publicKey: '',
                 environment: '',
-                reason: 'Pagamento com cartão indisponível no momento. Falta configurar a Public Key do Mercado Pago para este restaurante.',
+                reason: 'Pagamento com cartão indisponível no momento. Falta concluir a configuração do pagamento com cartão.',
             };
         }
 
@@ -4636,7 +4643,7 @@ Esperamos te receber novamente em breve! 😊`;
                 enabled: false,
                 publicKey: '',
                 environment: '',
-                reason: 'Pagamento com cartão indisponível no momento. As credenciais do Mercado Pago estão em ambientes diferentes.',
+                reason: 'Pagamento com cartão indisponível no momento. A configuração do pagamento precisa ser revisada.',
             };
         }
 
@@ -4854,6 +4861,21 @@ Esperamos te receber novamente em breve! 😊`;
 
         if (balance < messagePrice) {
             throw new BadRequestException('Saldo insuficiente para enviar mensagem WhatsApp');
+        }
+    }
+
+    private async assertAttendanceEnabled(tenantId: string) {
+        const tenant = await this.tenantRepo.findOne({
+            where: { id: tenantId },
+            select: ['id', 'settings'],
+        });
+        if (!tenant) throw new NotFoundException('Tenant não encontrado');
+        if (tenant.settings?.attendance?.enabled === false) {
+            throw new ConflictException({
+                code: 'MODULE_DISABLED',
+                module: 'attendance',
+                message: 'O módulo Atendimento não está ativo para esta conta.',
+            });
         }
     }
 }

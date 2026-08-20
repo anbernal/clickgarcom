@@ -58,6 +58,21 @@ button, a { font: inherit; }
 .tracking-note-icon { display:grid; place-items:center; flex:0 0 auto; width:34px; height:34px; border-radius:11px; background:#dff7f1; }
 .tracking-note strong { display:block; color:#30463f; font-size:11px; }
 .tracking-note p { margin:4px 0 0; color:var(--track-muted); font-size:9px; line-height:1.55; }
+.tracking-confirm { margin-top:14px; padding:17px; display:flex; align-items:center; justify-content:space-between; gap:15px; border:1px solid #bfe4d9; border-radius:18px; background:linear-gradient(135deg,#f7fcfa,#e9f8f3); box-shadow:0 8px 24px rgba(20,111,92,.08); }
+.tracking-confirm > div, .tracking-confirm-head { display:flex; align-items:flex-start; gap:12px; }
+.tracking-confirm-icon { width:38px; height:38px; flex:0 0 38px; display:grid; place-items:center; border-radius:12px; color:#fff; background:#168d75; font-weight:800; }
+.tracking-confirm strong { display:block; color:var(--track-dark); font-size:12px; }
+.tracking-confirm p { margin:4px 0 0; color:var(--track-muted); font-size:9px; line-height:1.5; }
+.tracking-confirm-primary { min-height:44px; padding:0 16px; border:0; border-radius:12px; color:#fff; background:#168d75; box-shadow:0 8px 18px rgba(22,141,117,.18); cursor:pointer; font-size:10px; font-weight:800; white-space:nowrap; }
+.tracking-confirm-primary:disabled, .tracking-button:disabled { opacity:.55; cursor:wait; }
+.tracking-confirm--open { display:block; }
+.tracking-confirm-form { margin-top:15px; }
+.tracking-confirm-form label { display:block; margin-bottom:7px; color:#38534b; font-size:10px; font-weight:800; }
+.tracking-confirm-form input { width:100%; height:58px; padding:0 16px; border:1px solid #bfd8d1; border-radius:14px; outline:0; color:var(--track-dark); background:#fff; font:700 24px/1 'JetBrains Mono',monospace; letter-spacing:.22em; text-align:center; text-transform:uppercase; }
+.tracking-confirm-form input:focus { border-color:#168d75; box-shadow:0 0 0 4px rgba(22,141,117,.1); }
+.tracking-confirm-form small { display:block; margin-top:7px; color:var(--track-muted); font-size:8px; line-height:1.5; }
+.tracking-confirm-error { margin-top:10px; padding:10px 12px; border-radius:10px; color:#8a302b; background:#ffedeb; font-size:9px; font-weight:700; }
+.tracking-confirm-actions { margin-top:14px; display:flex; justify-content:flex-end; gap:8px; }
 .tracking-help { display:flex; justify-content:center; gap:8px; margin:18px 0 0; }
 .tracking-button { min-height:44px; padding:0 15px; border:1px solid var(--track-line); border-radius:11px; color:#365149; background:#fff; font-size:10px; font-weight:800; cursor:pointer; text-decoration:none; }
 .tracking-button:hover { border-color:#a6d2c6; }
@@ -65,5 +80,5 @@ button, a { font: inherit; }
 .tracking-error-icon { display:grid; place-items:center; width:62px; height:62px; border-radius:20px; background:#fff0ec; font-size:24px; }
 @keyframes trackFloat { 50% { transform:translateY(-5px); } }
 @keyframes trackPulse { 50% { opacity:.45; transform:scale(.8); } }
-@media (max-width:560px) { .tracking-app{padding-left:12px;padding-right:12px}.tracking-hero{padding:22px 19px}.tracking-map{min-height:235px}.tracking-card{padding:17px 12px}.tracking-step-label{font-size:6px}.tracking-step-dot{width:18px;height:18px}.tracking-step:not(:last-child)::before{top:8px}.tracking-order{align-items:flex-start;flex-direction:column}.tracking-eta{text-align:left} }
+@media (max-width:560px) { .tracking-app{padding-left:12px;padding-right:12px}.tracking-hero{padding:22px 19px}.tracking-map{min-height:235px}.tracking-card{padding:17px 12px}.tracking-step-label{font-size:6px}.tracking-step-dot{width:18px;height:18px}.tracking-step:not(:last-child)::before{top:8px}.tracking-order{align-items:flex-start;flex-direction:column}.tracking-eta{text-align:left}.tracking-confirm:not(.tracking-confirm--open){align-items:stretch;flex-direction:column}.tracking-confirm-primary{width:100%}.tracking-confirm-actions .tracking-button,.tracking-confirm-actions .tracking-confirm-primary{width:auto;flex:1} }
 @media (prefers-reduced-motion:reduce) { * { animation-duration:.01ms!important; transition-duration:.01ms!important; } }

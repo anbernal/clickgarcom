@@ -318,6 +318,27 @@
             border-top: 1px solid var(--border);
         }
 
+        .kds-module-status {
+            margin: 0 12px 14px;
+            padding: 10px 11px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            color: var(--text-2);
+            background: var(--surface-2);
+            font-size: 11px;
+            line-height: 1.4;
+        }
+        .kds-module-status strong { display: block; margin-bottom: 3px; color: var(--text); font-size: 10px; text-transform: uppercase; letter-spacing: .08em; }
+        .kds-module-status--disabled { border-color: #f2c5a4; color: #9a4f1d; background: #fff7ed; }
+        .kds-module-status--disabled strong { color: #9a3412; }
+        .sidebar.collapsed .kds-module-status { display: none; }
+
+        .nav-item.module-disabled,
+        .screen-tab.module-disabled { opacity: .5; cursor: not-allowed; }
+        .nav-item.module-disabled { pointer-events: none; }
+        .nav-item.module-disabled:hover { background: transparent; color: var(--text-2); }
+        .screen-tab.module-disabled:hover { background: transparent; color: var(--text-2); }
+
         .sidebar.collapsed .sidebar-footer .status-text {
             display: none;
         }
@@ -664,10 +685,98 @@
             grid-template-columns: repeat(4, minmax(230px, 1fr));
         }
 
+        /* Alternating surfaces make each operational lane readable at a
+           glance on wide KDS screens, without competing with stage colors. */
+        #panel-delivery .delivery-grid .order-column:nth-child(odd) {
+            background: #f7f5f1;
+        }
+        #panel-delivery .delivery-grid .order-column:nth-child(even) {
+            background: #eef4f2;
+        }
+        #panel-delivery .delivery-grid .order-column:nth-child(odd) .column-header {
+            background: linear-gradient(135deg, #fffdf9, #f5f1e9);
+        }
+        #panel-delivery .delivery-grid .order-column:nth-child(even) .column-header {
+            background: linear-gradient(135deg, #f9fffd, #e7f1ee);
+        }
+
+        .kds-delivery-unavailable {
+            position: relative;
+            display: grid;
+            justify-items: center;
+            min-height: 470px;
+            margin: 8px 0 24px;
+            padding: 60px 30px 38px;
+            overflow: hidden;
+            border-radius: 20px;
+            color: #fff;
+            background: radial-gradient(circle at 8% 4%, rgba(255,255,255,.18), transparent 28%), radial-gradient(circle at 92% 96%, rgba(250,180,55,.28), transparent 32%), linear-gradient(135deg, #172c3d 0%, #155e75 55%, #ed7a27 150%);
+            box-shadow: 0 18px 35px rgba(21, 74, 98, .18);
+            text-align: center;
+        }
+        .kds-delivery-unavailable-icon { position: relative; z-index: 1; display: grid; place-items: center; width: 68px; height: 68px; margin-bottom: 18px; border: 1px solid rgba(255,255,255,.28); border-radius: 20px; background: rgba(255,255,255,.14); font-size: 34px; box-shadow: 0 12px 24px rgba(0,0,0,.16); }
+        .kds-delivery-unavailable-eyebrow { position: relative; z-index: 1; margin-bottom: 12px; color: #b8efff; font-size: 10px; font-weight: 800; letter-spacing: .18em; }
+        .kds-delivery-unavailable h2 { position: relative; z-index: 1; max-width: 600px; font-size: clamp(25px, 3vw, 39px); line-height: 1.08; letter-spacing: -.045em; }
+        .kds-delivery-unavailable > p { position: relative; z-index: 1; max-width: 570px; margin-top: 14px; color: rgba(255,255,255,.78); font-size: 14px; line-height: 1.65; }
+        .kds-delivery-unavailable-features { position: relative; z-index: 1; display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 24px; }
+        .kds-delivery-unavailable-features span { padding: 8px 11px; border: 1px solid rgba(255,255,255,.2); border-radius: 999px; color: rgba(255,255,255,.9); background: rgba(0,0,0,.12); font-size: 11px; font-weight: 700; }
+        .kds-delivery-unavailable-cta { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 18px; width: min(650px, 100%); margin-top: 30px; padding: 14px 16px; border: 1px solid rgba(255,255,255,.22); border-radius: 13px; background: rgba(7, 35, 49, .38); text-align: left; }
+        .kds-delivery-unavailable-cta div { display: grid; gap: 4px; min-width: 0; }
+        .kds-delivery-unavailable-cta strong { font-size: 12px; }
+        .kds-delivery-unavailable-cta small { color: rgba(255,255,255,.65); font-size: 10px; }
+        .kds-delivery-unavailable-cta a { display: inline-flex; align-items: center; justify-content: center; min-height: 42px; padding: 0 15px; border-radius: 9px; color: #173246; background: #fff; font-size: 11px; font-weight: 800; text-decoration: none; white-space: nowrap; }
+        .kds-delivery-unavailable-glow { position: absolute; border: 1px solid rgba(255,255,255,.12); border-radius: 50%; pointer-events: none; }
+        .kds-delivery-unavailable-glow--one { right: -90px; bottom: -110px; width: 300px; height: 300px; box-shadow: 0 0 0 28px rgba(255,255,255,.04), 0 0 0 56px rgba(255,255,255,.025); }
+        .kds-delivery-unavailable-glow--two { left: -75px; top: 30px; width: 160px; height: 160px; opacity: .65; }
+
+        .kds-attendance-unavailable { position: relative; display: grid; justify-items: center; min-height: 470px; margin: 8px 0 24px; padding: 60px 30px 38px; overflow: hidden; border-radius: 20px; color: #fff; background: radial-gradient(circle at 8% 4%, rgba(255,255,255,.15), transparent 28%), radial-gradient(circle at 92% 96%, rgba(245,158,11,.28), transparent 32%), linear-gradient(135deg, #21180c 0%, #78350f 55%, #ea580c 150%); box-shadow: 0 18px 35px rgba(120,53,15,.18); text-align: center; }
+        .kds-attendance-unavailable-icon { position: relative; z-index: 1; display: grid; place-items: center; width: 68px; height: 68px; margin-bottom: 18px; border: 1px solid rgba(255,255,255,.28); border-radius: 20px; background: rgba(255,255,255,.14); font-size: 34px; box-shadow: 0 12px 24px rgba(0,0,0,.16); }
+        .kds-attendance-unavailable-eyebrow { position: relative; z-index: 1; margin-bottom: 12px; color: #fde68a; font-size: 10px; font-weight: 800; letter-spacing: .18em; }
+        .kds-attendance-unavailable h2 { position: relative; z-index: 1; max-width: 600px; font-size: clamp(25px, 3vw, 39px); line-height: 1.08; letter-spacing: -.045em; }
+        .kds-attendance-unavailable > p { position: relative; z-index: 1; max-width: 570px; margin-top: 14px; color: rgba(255,255,255,.78); font-size: 14px; line-height: 1.65; }
+        .kds-attendance-unavailable-features { position: relative; z-index: 1; display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 24px; }
+        .kds-attendance-unavailable-features span { padding: 8px 11px; border: 1px solid rgba(255,255,255,.2); border-radius: 999px; color: #fde68a; background: rgba(0,0,0,.12); font-size: 11px; font-weight: 700; }
+        .kds-attendance-unavailable-cta { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 18px; width: min(650px, 100%); margin-top: 30px; padding: 14px 16px; border: 1px solid rgba(255,255,255,.22); border-radius: 13px; background: rgba(42,20,4,.42); text-align: left; }
+        .kds-attendance-unavailable-cta div { display: grid; gap: 4px; min-width: 0; }
+        .kds-attendance-unavailable-cta strong { font-size: 12px; }
+        .kds-attendance-unavailable-cta small { color: rgba(255,255,255,.65); font-size: 10px; }
+        .kds-attendance-unavailable-cta a { display: inline-flex; align-items: center; justify-content: center; min-height: 42px; padding: 0 15px; border-radius: 9px; color: #2a1604; background: #fbbf24; font-size: 11px; font-weight: 800; text-decoration: none; white-space: nowrap; }
+
         .delivery-card {
             border-left: 4px solid var(--accent);
             padding: 16px;
         }
+        .delivery-card--waiting { border-left-color: var(--red); }
+        .delivery-card--preparing { border-left-color: var(--yellow); }
+        .delivery-card--ready { border-left-color: var(--blue); }
+        .delivery-card--route { border-left-color: var(--green); }
+        .delivery-card--auto-accepted {
+            border-color: #8ed8bd;
+            box-shadow: 0 0 0 2px rgba(22, 160, 133, .11), var(--shadow-card);
+        }
+        .delivery-auto-accepted {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            margin: 0 0 10px;
+            padding: 9px 10px;
+            border: 1px solid #bde7d8;
+            border-radius: 10px;
+            color: #145b49;
+            background: #edfaf5;
+        }
+        .delivery-auto-accepted > span {
+            display: grid;
+            place-items: center;
+            flex: 0 0 auto;
+            width: 28px;
+            height: 28px;
+            border-radius: 9px;
+            background: #d6f3e8;
+        }
+        .delivery-auto-accepted > div { display: grid; gap: 2px; }
+        .delivery-auto-accepted strong { font-size: 11px; }
+        .delivery-auto-accepted small { color: #47796c; font-size: 9px; }
 
         .order-card-head,
         .delivery-card-head {
@@ -767,8 +876,112 @@
         .delivery-card .order-actions { margin-top: 0; }
         .delivery-card .order-actions .action-btn { width: 100%; justify-content: center; }
 
+        .delivery-stage-callout,
+        .delivery-stage-timing,
+        .delivery-route-status,
+        .delivery-compact-total {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            margin: 10px 0;
+            padding: 9px 10px;
+            border-radius: 10px;
+            font-size: 10px;
+        }
+        .delivery-stage-callout > span,
+        .delivery-stage-timing > span,
+        .delivery-route-status small,
+        .delivery-compact-total > span { color: var(--text-2); }
+        .delivery-stage-callout--waiting { background: #fff3f2; }
+        .delivery-stage-callout--waiting strong { color: #a32e2e; }
+        .delivery-stage-callout--ready { background: #eef5ff; }
+        .delivery-stage-callout--ready strong { color: #275da8; }
+        .delivery-stage-timing { background: #fff8dc; }
+        .delivery-stage-timing strong { color: #7c5b00; text-align: right; }
+        .delivery-stage-timing.is-late { background: #ffebea; }
+        .delivery-stage-timing.is-late strong { color: #a32e2e; }
+        .delivery-card-items--production {
+            gap: 9px;
+            margin-top: 2px;
+            padding-top: 10px;
+        }
+        .delivery-production-item {
+            display: grid;
+            gap: 5px;
+            padding: 10px;
+            border: 1px solid #eadfbd;
+            border-radius: 10px;
+            background: #fffdf5;
+        }
+        .delivery-production-item--checklist {
+            border-color: #dce7f7;
+            background: #f7faff;
+        }
+        .delivery-production-item-title {
+            display: flex;
+            align-items: baseline;
+            gap: 5px;
+            font-size: 12px;
+        }
+        .delivery-production-item-title > b { color: var(--accent); font-size: 14px; }
+        .delivery-check { color: var(--blue); font-size: 16px; line-height: 1; }
+        .delivery-item-options {
+            color: #5c5544;
+            font-size: 10px;
+            line-height: 1.45;
+            padding-left: 20px;
+        }
+        .delivery-item-observation {
+            color: #8a3a26;
+            font-size: 10px;
+            line-height: 1.4;
+            padding: 6px 8px;
+            border-left: 3px solid #f06449;
+            border-radius: 5px;
+            background: #fff0eb;
+        }
+        .delivery-order-note {
+            display: grid;
+            gap: 4px;
+            margin: 0 0 11px;
+            padding: 9px 10px;
+            border: 1px solid #ffd4c8;
+            border-radius: 9px;
+            color: #713323;
+            background: #fff4f0;
+            font-size: 10px;
+            line-height: 1.4;
+        }
+        .delivery-route-status {
+            justify-content: flex-start;
+            background: #edf9f3;
+        }
+        .delivery-route-status > div { display: grid; gap: 2px; }
+        .delivery-route-pulse {
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            background: var(--green);
+            box-shadow: 0 0 0 4px rgba(64, 190, 118, .14);
+        }
+        .delivery-compact-total {
+            border: 1px solid var(--border);
+            background: #f7f8f7;
+        }
+        .delivery-compact-total strong { color: #173f36; font-size: 12px; }
+        .delivery-card--preparing .delivery-card-head,
+        .delivery-card--route .delivery-card-head { margin-bottom: 8px; }
+        .delivery-card--preparing .delivery-card-section { border-top: 0; }
+        .delivery-card--ready .delivery-card-customer,
+        .delivery-card--route .delivery-card-customer { margin: 10px 0; }
+
         @media (max-width: 1360px) {
             .delivery-grid { grid-template-columns: repeat(2, minmax(250px, 1fr)); }
+            .kds-delivery-unavailable { min-height: 430px; padding: 45px 22px 30px; }
+            .kds-delivery-unavailable-cta { align-items: stretch; flex-direction: column; }
+            .kds-delivery-unavailable-cta a, .kds-attendance-unavailable-cta a { width: 100%; }
+            .kds-attendance-unavailable-cta { align-items: stretch; flex-direction: column; }
         }
 
         @media (max-width: 760px) {
@@ -3589,6 +3802,7 @@
                 <a class="nav-item" data-panel="delivery" onclick="switchPanel('delivery')"><span class="icon">🛵</span><span
                         class="nav-text">Delivery</span> <span class="nav-badge" id="nb-delivery">0</span></a>
             </nav>
+            <div id="kds-module-status" class="kds-module-status" aria-live="polite"></div>
             <div class="sidebar-footer">
                 <div class="station-status" id="ws-status" data-connection-status>
                     <div class="status-dot"></div><span class="status-text">Conectando…</span>
@@ -4014,7 +4228,7 @@
     <div class="toast-container" id="toasts"></div>
 
     <script src="/js/receipt.js"></script>
-    <script src="js/kds.js?v=20260815-card4"></script>
+    <script src="js/kds.js?v=20260819-alert-chime3"></script>
 </body>
 
 </html>

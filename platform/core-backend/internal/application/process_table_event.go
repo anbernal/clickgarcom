@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
@@ -237,7 +238,7 @@ func (uc *ProcessTableEventUseCase) rejectRequest(ctx context.Context, req *tabl
 	msg := whatsapp.ComandaRequestRejectedMessage()
 	if tenantObj, tenantErr := uc.tenantRepo.FindByID(ctx, req.TenantID); tenantErr == nil && tenantObj != nil {
 		welcome := whatsapp.WelcomeMenuMessage(tenantObj.Name, tenantObj.Settings.Messages)
-		if tenantObj.Settings.Delivery.Enabled && tenantObj.Settings.Delivery.WhatsAppOrderEnabled && !strings.Contains(welcome, "Pedido para entregar") && !strings.Contains(welcome, "Fazer pedido para entrega") {
+		if tenantObj.Settings.Delivery.IsActive(time.Now()) && tenantObj.Settings.Delivery.WhatsAppOrderEnabled && !strings.Contains(welcome, "Pedido para entregar") && !strings.Contains(welcome, "Fazer pedido para entrega") {
 			welcome += "\n\n*3* - 🛵 Pedido para entregar"
 		}
 		msg += "\n\n" + welcome

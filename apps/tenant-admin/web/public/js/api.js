@@ -124,6 +124,8 @@ function buildFallbackPermissions(role) {
     const pages = Object.entries(TENANT_PAGE_ACCESS)
         .filter(([, roles]) => roles.includes(normalizedRole))
         .map(([pageId]) => pageId);
+    const deliveryActionEnabled = getCurrentUser()?.delivery_enabled === true;
+    const attendanceActionEnabled = getCurrentUser()?.attendance_enabled !== false;
 
     return {
         pages,
@@ -135,17 +137,19 @@ function buildFallbackPermissions(role) {
             manageMenu: routeGroups.includes('menu_write'),
             manageOrders: routeGroups.includes('order_read_write'),
             cancelOrders: routeGroups.includes('order_cancel'),
-            manageTables: routeGroups.includes('table_write'),
-            manageTabs: routeGroups.includes('tab_operations'),
+            manageTables: attendanceActionEnabled && routeGroups.includes('table_write'),
+            manageTabs: attendanceActionEnabled && routeGroups.includes('tab_operations'),
+            viewAttendance: attendanceActionEnabled && routeGroups.includes('floor_operations'),
+            manageAttendance: attendanceActionEnabled && routeGroups.includes('floor_operations'),
             manageSettlement: routeGroups.includes('settlement'),
             manageClosedTabs: routeGroups.includes('full_access'),
             viewReports: routeGroups.includes('reports'),
             viewWallet: routeGroups.includes('wallet'),
             managePurchases: routeGroups.includes('purchases'),
-            manageDeliveries: routeGroups.includes('delivery_dispatch'),
-            manageDeliverySettings: routeGroups.includes('delivery_settings'),
-            overrideDelivery: routeGroups.includes('delivery_override'),
-            viewDeliveryReports: routeGroups.includes('delivery_reports'),
+            manageDeliveries: deliveryActionEnabled && routeGroups.includes('delivery_dispatch'),
+            manageDeliverySettings: deliveryActionEnabled && routeGroups.includes('delivery_settings'),
+            overrideDelivery: deliveryActionEnabled && routeGroups.includes('delivery_override'),
+            viewDeliveryReports: deliveryActionEnabled && routeGroups.includes('delivery_reports'),
         },
     };
 }
@@ -162,7 +166,7 @@ function getCurrentUserPermissions() {
     const storedPermissions = getCurrentUser()?.permissions;
     const fallbackPermissions = buildFallbackPermissions(getCurrentUserRole());
     if (storedPermissions && Array.isArray(storedPermissions.pages)) {
-        return {
+        const merged = {
             ...fallbackPermissions,
             ...storedPermissions,
             pages: Array.from(new Set([
@@ -178,6 +182,20 @@ function getCurrentUserPermissions() {
                 ...(storedPermissions.actions || {}),
             },
         };
+        // The navigation remains visible while the module is unavailable,
+        // but operational delivery actions must stay disabled until the
+        // Super Admin activates it for this tenant.
+        if (getCurrentUser()?.delivery_enabled !== true) {
+            Object.keys(merged.actions || {})
+                .filter((key) => key.toLowerCase().includes('delivery'))
+                .forEach((key) => { merged.actions[key] = false; });
+        }
+        if (getCurrentUser()?.attendance_enabled === false) {
+            Object.keys(merged.actions || {})
+                .filter((key) => ['attendance', 'table', 'tab'].some((token) => key.toLowerCase().includes(token)))
+                .forEach((key) => { merged.actions[key] = false; });
+        }
+        return merged;
     }
 
     return fallbackPermissions;

@@ -207,8 +207,8 @@ indisponível e nenhuma fórmula é calculada pelo navegador.
 4. Voltar ao board de Entregas.
 
 **Esperado:** o checkout cria hold/reserva de capacidade, o frete aparece
-separado, o preço fica congelado e o card não exibe motorista, GPS, PIN ou
-tracking próprio.
+separado, o preço fica congelado e o card não exibe motorista, GPS, código de
+recebimento ou credencial de tracking.
 
 ### T07.1 — PIX no sandbox do Mercado Pago
 
@@ -264,32 +264,46 @@ pertencem à mesma aplicação/conta de teste e se o perfil correto está ativo.
 
 1. Abrir o KDS como `ADMIN`, `MANAGER`, `WAITER` ou `DISPATCHER` e acessar a
    aba **🛵 Delivery**.
-2. Confirmar que o pedido pago aparece em **Aguardando preparo**, sem ação de
-   mesa, comanda ou chamar garçom.
-3. Clicar em **Definir previsão e iniciar preparo**, informar os minutos e
-   confirmar que o pedido aparece na cozinha/bar somente como item de preparo
-   e que a entrega muda para **Em preparo**.
+2. Com o aceite automático dentro da agenda/capacidade, confirmar que o pedido
+   pago entra diretamente em **Em preparo**, sem botão de aceite, toca o alerta
+   uma vez e anuncia por voz “Pedido aceito automaticamente”. A previsão de
+   preparo deve usar o valor configurado em **Previsão automática de preparo**
+   (padrão: 30 minutos), sem exigir o botão manual.
+3. Fora da agenda/capacidade, confirmar que o pedido permanece em
+   **Aguardando preparo**; clicar em **Definir previsão e iniciar preparo** e
+   informar os minutos manualmente.
 4. Marcar todos os itens como prontos no KDS de cozinha/bar.
 5. Confirmar que a entrega migra para **Pronto para saída** e clicar em
    **Imprimir expedição**.
 6. Conferir no ticket: código do pedido, itens, endereço, referência, telefone,
    frete e total.
-7. Clicar em **Registrar saída** e depois em **Confirmar entrega**.
-8. Repetir rapidamente os dois comandos e abrir a linha do tempo/reservas.
+7. Clicar em **Registrar saída** e confirmar no WhatsApp que a mensagem usa o
+   nome do cliente, inclui um código hexadecimal de quatro caracteres e possui
+   o botão **Finalizar entrega**.
+8. No Admin, clicar em **Finalizar entrega**, informar o código recebido pelo
+   cliente e confirmar a conclusão.
+9. Em uma segunda entrega, abrir o botão do WhatsApp e concluir pela página de
+   acompanhamento com o mesmo código.
+10. Repetir rapidamente o comando e abrir a linha do tempo/reservas.
 
-**Esperado:** a jornada é `aguardando preparo -> em preparo -> pronto para
-saída -> em rota -> entregue`; não há motorista individual, PIN ou tracking
-próprio. A segunda tentativa é idempotente, a reserva é liberada uma única vez
-e o usuário responsável fica registrado na auditoria.
+**Esperado:** no modo automático a jornada operacional começa em `em preparo`;
+no modo manual ela é `aguardando preparo -> em preparo`. Depois, ambas seguem
+por `pronto para saída -> em rota -> entregue`. As colunas do Delivery possuem
+fundos alternados para leitura rápida e o alerta automático não repete após
+recarregar a página. Não há motorista individual nem GPS obrigatório.
+O código nunca aparece na API Admin ou na página, aceita letras minúsculas na
+entrada e é normalizado para maiúsculas. A segunda tentativa é idempotente, a
+reserva é liberada uma única vez e o autor da confirmação fica na auditoria.
 
 ### T08.1 — Mensagens ao cliente durante a entrega
 
 1. Repetir T08 usando um telefone de QA no WhatsApp.
-2. Após iniciar o preparo, confirmar uma única mensagem com a previsão
-   escolhida: “Seu pedido foi aceito e está sendo preparado. A previsão é de
-   10 minutos.”
-3. Após **Registrar saída**, confirmar uma única mensagem: “Seu pedido está indo
-   até você”.
+2. Após o preparo automático, confirmar uma única mensagem: “Seu pedido foi
+   aceito e está sendo preparado”, com a previsão automática padrão de 30
+   minutos (ou o valor personalizado na configuração). No fluxo manual,
+   validar a previsão escolhida pelo operador.
+3. Após **Registrar saída**, confirmar uma única mensagem: “{nome}, seu pedido
+   está indo até você”, acompanhada do código e do botão **Finalizar entrega**.
 4. Após **Confirmar entrega**, confirmar uma única mensagem: “Entrega
    confirmada. Volte sempre!”.
 5. Confirmar que a aprovação do pagamento é informada apenas no checkout e não

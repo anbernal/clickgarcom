@@ -44,3 +44,16 @@ func TestSanitizeMessagePreviewRedactsDeliveryPIN(t *testing.T) {
 	require.NotContains(t, preview, "042391")
 	require.Contains(t, preview, "[REDACTED]")
 }
+
+func TestParseDeliveryConfirmationURLButton(t *testing.T) {
+	payload, err := parseOutboxURLButtonPayload(`{"type":"url_button","body":"Pedido em rota","button_text":"Finalizar entrega","url":"https://clickgarcom.example/tracking.html#token=abc"}`)
+	require.NoError(t, err)
+	require.Equal(t, "Pedido em rota", payload.Body)
+	require.Equal(t, "Finalizar entrega", payload.ButtonText)
+}
+
+func TestSanitizeMessagePreviewRedactsHexDeliveryCode(t *testing.T) {
+	preview := sanitizeMessagePreview("Código para confirmar o recebimento: *A3F9*")
+	require.NotContains(t, preview, "A3F9")
+	require.Contains(t, preview, "[REDACTED]")
+}

@@ -56,6 +56,63 @@ func TestDeliveryOrderingBackNeverOpensDineInMenu(t *testing.T) {
 	}
 }
 
+func TestDeliveryBackButtonTitleCancelsInsteadOfFallingThrough(t *testing.T) {
+	ctx := context.Background()
+	sess := session.NewSession("5511999999999", uuid.New())
+	sess.SetContext(deliveryChannelKey, deliveryChannelValue)
+	sess.TransitionTo(session.StateDeliveryCustomerName)
+
+	uc := &HandleWhatsAppMessageUseCase{}
+	response, state, err := uc.processMessage(ctx, sess, "↩️ Voltar ao menu")
+	if err != nil {
+		t.Fatalf("processMessage() error = %v", err)
+	}
+	if state != session.StateDeliveryMenu || !strings.Contains(response, "Cadastro para entrega cancelado") {
+		t.Fatalf("expected Delivery cancellation menu, state=%s response=%q", state, response)
+	}
+	if !uc.isDeliveryChannel(sess) {
+		t.Fatal("expected the Delivery channel to remain bound after cancellation")
+	}
+}
+
+func TestStaleDeliveryStartButtonDoesNotBecomeCustomerName(t *testing.T) {
+	ctx := context.Background()
+	sess := session.NewSession("5511999999999", uuid.New())
+	sess.SetContext(deliveryChannelKey, deliveryChannelValue)
+	sess.TransitionTo(session.StateDeliveryCustomerName)
+
+	uc := &HandleWhatsAppMessageUseCase{}
+	response, state, err := uc.processMessage(ctx, sess, deliveryActionButtonTitle)
+	if err != nil {
+		t.Fatalf("processMessage() error = %v", err)
+	}
+	if state != session.StateDeliveryMenu || !strings.Contains(response, "Atendimento Delivery") {
+		t.Fatalf("expected fresh Delivery menu, state=%s response=%q", state, response)
+	}
+	if got := uc.deliveryCustomerName(sess); got != "" {
+		t.Fatalf("stale menu label must not be stored as a customer name, got %q", got)
+	}
+}
+
+func TestLegacyWelcomeStateWithDeliveryContextIsRecovered(t *testing.T) {
+	ctx := context.Background()
+	sess := session.NewSession("5511999999999", uuid.New())
+	sess.SetContext(orderingServiceTypeKey, "DELIVERY")
+	sess.TransitionTo(session.StateMainMenu)
+
+	uc := &HandleWhatsAppMessageUseCase{}
+	response, state, err := uc.processMessage(ctx, sess, "Ver minha comanda")
+	if err != nil {
+		t.Fatalf("processMessage() error = %v", err)
+	}
+	if state != session.StateDeliveryMenu || !strings.Contains(response, "Atendimento Delivery") || strings.Contains(response, "Ver minha comanda") {
+		t.Fatalf("expected legacy Delivery recovery, state=%s response=%q", state, response)
+	}
+	if !uc.isDeliveryChannel(sess) {
+		t.Fatal("expected Delivery channel marker to be restored")
+	}
+}
+
 func TestDeliveryLegacyMainMenuStateIsRecoveredToDeliveryMenu(t *testing.T) {
 	ctx := context.Background()
 	sess := session.NewSession("5511999999999", uuid.New())
@@ -199,6 +256,85 @@ func TestHandleWhatsAppMessageFirstContactShowsWelcomeMenu(t *testing.T) {
 	}
 	if got := len(sender.interactiveMessages[1].Buttons); got != 2 {
 		t.Fatalf("expected two welcome actions before comanda, got %d buttons", got)
+	}
+}
+
+type fakeDigitalMenuAccessGateway struct{}
+
+func (fakeDigitalMenuAccessGateway) Create(context.Context, uuid.UUID, string) (string, string, error) {
+	return "anderson-restaurant-qa", "opaque-capability", nil
+}
+
+func TestDigitalMenuStaysBehindWelcomeChannelChoice(t *testing.T) {
+	ctx := context.Background()
+	tenantID := uuid.New()
+	phone := "5511999999999"
+	tenantObj := testTenant(tenantID)
+	tenantObj.IsOpen = true
+	tenantObj.Settings.Delivery = tenant.DeliverySettings{Enabled: true, WhatsAppOrderEnabled: true, WhatsAppOrderMode: "HYBRID"}
+	sessionRepo := newTestSessionRepo()
+	sender := &testExternalURLSender{}
+	uc := NewHandleWhatsAppMessageUseCase(
+		sessionRepo,
+		&testTenantRepo{tenant: tenantObj},
+		nil, nil, nil, nil, nil, nil, nil,
+		sender, "https://example.test", zap.NewNop(),
+	)
+	uc.SetDigitalMenuAccessGateway(fakeDigitalMenuAccessGateway{})
+
+	if err := uc.Execute(ctx, HandleMessageInput{From: phone, Text: "oi", TenantID: tenantID}); err != nil {
+		t.Fatalf("first contact failed: %v", err)
+	}
+	if len(sender.interactiveMessages) != 1 || len(sender.interactiveMessages[0].Buttons) != 2 {
+		t.Fatalf("expected the channel choice menu before the cardápio, got %+v", sender.interactiveMessages)
+	}
+	if sender.interactiveMessages[0].Buttons[0].Reply.ID != welcomeRestaurantActionID || sender.interactiveMessages[0].Buttons[1].Reply.ID != welcomeDeliveryActionID {
+		t.Fatalf("unexpected channel buttons: %+v", sender.interactiveMessages[0].Buttons)
+	}
+	if len(sender.urlMessages) != 0 {
+		t.Fatal("the first menu must not send the cardápio link")
+	}
+
+	if err := uc.Execute(ctx, HandleMessageInput{From: phone, Text: welcomeDeliveryActionID, TenantID: tenantID}); err != nil {
+		t.Fatalf("delivery choice failed: %v", err)
+	}
+	if len(sender.urlMessages) != 1 || !strings.Contains(sender.urlMessages[0].URL, "#whatsapp_access=opaque-capability") {
+		t.Fatalf("expected the cardápio link only after Delivery choice, got %+v", sender.urlMessages)
+	}
+	sess, _ := sessionRepo.Find(ctx, phone, tenantID.String())
+	if sess == nil || sess.State != session.StateDeliveryMenu {
+		t.Fatalf("expected delivery branch after link, session=%+v", sess)
+	}
+}
+
+func TestDeliveryOnlyTenantDoesNotExposeAttendanceMenu(t *testing.T) {
+	ctx := context.Background()
+	tenantID := uuid.New()
+	phone := "5511999999999"
+	attendanceEnabled := false
+	tenantObj := testTenant(tenantID)
+	tenantObj.IsOpen = true
+	tenantObj.Settings.Attendance.Enabled = &attendanceEnabled
+	tenantObj.Settings.Delivery = tenant.DeliverySettings{Enabled: true, WhatsAppOrderEnabled: true, WhatsAppOrderMode: "DELIVERY_ONLY"}
+	sender := &testWhatsAppSender{}
+	uc := NewHandleWhatsAppMessageUseCase(
+		newTestSessionRepo(),
+		&testTenantRepo{tenant: tenantObj},
+		nil, nil, nil, nil, nil, nil, nil,
+		sender, "https://example.test", zap.NewNop(),
+	)
+
+	if err := uc.Execute(ctx, HandleMessageInput{From: phone, Text: "oi", TenantID: tenantID}); err != nil {
+		t.Fatalf("delivery-only welcome failed: %v", err)
+	}
+	if len(sender.interactiveMessages) != 1 || len(sender.interactiveMessages[0].Buttons) != 1 {
+		t.Fatalf("expected only the Delivery action, got %+v", sender.interactiveMessages)
+	}
+	if sender.interactiveMessages[0].Buttons[0].Reply.ID != deliveryStartActionID {
+		t.Fatalf("unexpected Delivery action: %+v", sender.interactiveMessages[0].Buttons)
+	}
+	if strings.Contains(sender.interactiveMessages[0].Body, "comanda") || strings.Contains(sender.interactiveMessages[0].Body, "No restaurante") {
+		t.Fatalf("delivery-only welcome exposed attendance content: %q", sender.interactiveMessages[0].Body)
 	}
 }
 

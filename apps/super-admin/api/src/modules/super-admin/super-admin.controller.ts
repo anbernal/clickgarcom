@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query, Request } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query, Request } from '@nestjs/common';
 import { SuperAdminService } from './super-admin.service';
 
 @Controller('admin/api/super-admin')
@@ -258,6 +258,48 @@ export class SuperAdminController {
             sensitiveOperation: true,
         });
         return this.superAdminService.updatePaymentGateway(id, body || {}, actor);
+    }
+
+    @Patch('tenants/:id/delivery')
+    async updateTenantDelivery(
+        @Request() req,
+        @Headers('authorization') authorization: string | undefined,
+        @Param('id') id: string,
+        @Body() body: { enabled?: boolean; expires_at?: string | null; permanent?: boolean },
+    ) {
+        const actor = await this.superAdminService.requireAuthenticatedSession({
+            authorization,
+            sourceIp: this.resolveSourceIp(req),
+            userAgent: this.resolveUserAgent(req),
+            sensitiveOperation: true,
+        });
+        if (typeof body?.enabled !== 'boolean') {
+            throw new BadRequestException('Informe enabled como booleano.');
+        }
+        return this.superAdminService.setTenantDeliveryEnabled(id, {
+            enabled: body.enabled,
+            expiresAt: body.expires_at,
+            permanent: body.permanent,
+        }, actor);
+    }
+
+    @Patch('tenants/:id/attendance')
+    async updateTenantAttendance(
+        @Request() req,
+        @Headers('authorization') authorization: string | undefined,
+        @Param('id') id: string,
+        @Body() body: { enabled?: boolean },
+    ) {
+        const actor = await this.superAdminService.requireAuthenticatedSession({
+            authorization,
+            sourceIp: this.resolveSourceIp(req),
+            userAgent: this.resolveUserAgent(req),
+            sensitiveOperation: true,
+        });
+        if (typeof body?.enabled !== 'boolean') {
+            throw new BadRequestException('Informe enabled como booleano.');
+        }
+        return this.superAdminService.setTenantAttendanceEnabled(id, body.enabled, actor);
     }
 
     @Post('tenants/:id/payment-gateway/profiles')

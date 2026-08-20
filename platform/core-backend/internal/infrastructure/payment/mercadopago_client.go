@@ -279,7 +279,6 @@ type orderPaymentMethod struct {
 	Type         string `json:"type"`
 	Token        string `json:"token,omitempty"`
 	Installments int    `json:"installments,omitempty"`
-	IssuerID     string `json:"issuer_id,omitempty"`
 	QRCode       string `json:"qr_code"`
 	QRCodeBase64 string `json:"qr_code_base64"`
 }
@@ -346,12 +345,6 @@ func (client *MercadoPagoClient) createCardOrder(
 			},
 		},
 	}
-	if strings.TrimSpace(req.IssuerID) != "" {
-		payments := payload["transactions"].(map[string]any)["payments"].([]any)
-		method := payments[0].(map[string]any)["payment_method"].(map[string]any)
-		method["issuer_id"] = req.IssuerID
-	}
-
 	order, err := client.postOrder(ctx, accessToken, idempotencyKey, payload)
 	if err != nil {
 		return nil, err

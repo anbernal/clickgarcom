@@ -18,7 +18,7 @@ test('calcula tarifa por quilômetro e híbrida sem arredondamento financeiro lo
 
 test('aceite automático respeita janela que atravessa meia-noite', () => {
   const service = new DeliveryPolicyService();
-  const settings = { enabled: true, timezone: 'America/Sao_Paulo', auto_accept: { enabled: true, require_confirmed_payment: false, max_active_deliveries: 5, windows: [{ days: ['MON'], start: '22:00', end: '02:00' }] } };
+  const settings = { enabled: true, timezone: 'America/Sao_Paulo', auto_accept: { enabled: true, require_confirmed_payment: false, max_active_deliveries: 5, preparation_minutes: 30, windows: [{ days: ['MON'], start: '22:00', end: '02:00' }] } };
   assert.equal(service.isWithinWindow(settings.auto_accept.windows, { weekday: 'MON', minutes: 23 * 60 }), true);
   assert.equal(service.isWithinWindow(settings.auto_accept.windows, { weekday: 'MON', minutes: 1 * 60 }), true);
   assert.equal(service.isWithinWindow(settings.auto_accept.windows, { weekday: 'MON', minutes: 12 * 60 }), false);

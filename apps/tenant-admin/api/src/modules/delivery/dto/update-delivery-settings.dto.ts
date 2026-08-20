@@ -34,6 +34,13 @@ export class DeliveryAutoAcceptSettingsDto {
     max_active_deliveries?: number;
 
     @IsOptional()
+    @Type(() => Number)
+    @IsInt()
+    @Min(5)
+    @Max(240)
+    preparation_minutes?: number;
+
+    @IsOptional()
     @IsArray()
     @ValidateNested({ each: true })
     @Type(() => DeliveryWindowDto)

@@ -13,7 +13,7 @@ module.exports = defineConfig({
     trace: 'retain-on-failure',
   },
   webServer: {
-    command: 'PORT=4318 ADMIN_API_PROXY_TARGET=http://127.0.0.1:59999 node server.js',
+    command: 'PORT=4318 ADMIN_API_BASE_URL=http://127.0.0.1:4318/admin/api ADMIN_API_PROXY_TARGET=http://127.0.0.1:59999 node server.js',
     url: 'http://127.0.0.1:4318/health',
     reuseExistingServer: true,
   },

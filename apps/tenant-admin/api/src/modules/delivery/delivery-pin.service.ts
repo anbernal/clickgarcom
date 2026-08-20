@@ -18,7 +18,11 @@ export type IssuedDeliveryPin = {
 };
 
 export function generateDeliveryPin(): string {
-    return String(randomInt(0, 1_000_000)).padStart(6, '0');
+    return randomInt(0, 0x10000).toString(16).toUpperCase().padStart(4, '0');
+}
+
+export function normalizeDeliveryPin(value: string): string {
+    return String(value || '').trim().toUpperCase();
 }
 
 export function buildDeliveryPinDigest(secret: string, secretVersion: string, tenantId: string, deliveryId: string, pin: string): string {
@@ -33,7 +37,7 @@ export function safeCompareDeliveryPinDigest(expectedHex: string, actualHex: str
     return expected.length === actual.length && expected.length > 0 && timingSafeEqual(expected, actual);
 }
 
-/** Persistence and cryptographic rules for the six-digit delivery PIN. */
+/** Persistence and cryptographic rules for delivery confirmation codes. */
 @Injectable()
 export class DeliveryPinService {
     constructor(private readonly configService: ConfigService) { }
@@ -111,7 +115,8 @@ export class DeliveryPinService {
             return { valid: false, failure: 'LOCKED' };
         }
 
-        const digest = this.digest(tenantId, deliveryId, pin, challenge.secretVersion);
+        const normalizedPin = normalizeDeliveryPin(pin);
+        const digest = this.digest(tenantId, deliveryId, normalizedPin, challenge.secretVersion);
         if (!safeCompareDeliveryPinDigest(challenge.pinDigest, digest)) {
             challenge.attemptCount += 1;
             challenge.lastAttemptAt = now;
@@ -133,7 +138,7 @@ export class DeliveryPinService {
 
     /** Fingerprint used for idempotency without persisting the PIN itself. */
     fingerprint(pin: string): string {
-        return createHmac('sha256', this.secret()).update(`delivery-pin-idempotency:${pin}`).digest('hex');
+        return createHmac('sha256', this.secret()).update(`delivery-pin-idempotency:${normalizeDeliveryPin(pin)}`).digest('hex');
     }
 
     private digest(tenantId: string, deliveryId: string, pin: string, secretVersion: string): string {
@@ -154,7 +159,7 @@ export class DeliveryPinService {
     }
 
     private ttlMinutes(): number {
-        return this.clampedConfigNumber('DELIVERY_PIN_TTL_MINUTES', 30, 5, 120);
+        return this.clampedConfigNumber('DELIVERY_PIN_TTL_MINUTES', 1440, 30, 1440);
     }
 
     private lockMinutes(): number {

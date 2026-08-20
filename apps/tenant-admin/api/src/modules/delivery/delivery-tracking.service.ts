@@ -6,6 +6,7 @@ import { DataSource, EntityManager, Repository } from 'typeorm';
 import { Delivery } from '../../entities/delivery.entity';
 import { DeliveryLocationSample } from '../../entities/delivery-location-sample.entity';
 import { DeliveryTrackingCredential } from '../../entities/delivery-tracking-credential.entity';
+import { DeliveryPinChallenge } from '../../entities/delivery-pin-challenge.entity';
 
 type TrackingCredential = {
     tenantId: string;
@@ -19,6 +20,7 @@ export class DeliveryTrackingService {
         @InjectRepository(Delivery) private readonly deliveryRepository: Repository<Delivery>,
         @InjectRepository(DeliveryTrackingCredential) private readonly credentialRepository: Repository<DeliveryTrackingCredential>,
         @InjectRepository(DeliveryLocationSample) private readonly locationRepository: Repository<DeliveryLocationSample>,
+        @InjectRepository(DeliveryPinChallenge) private readonly pinChallengeRepository: Repository<DeliveryPinChallenge>,
         private readonly dataSource: DataSource,
     ) { }
 
@@ -95,6 +97,14 @@ export class DeliveryTrackingService {
             where: { tenantId: credential.tenantId, deliveryId: credential.deliveryId },
             order: { deviceRecordedAt: 'DESC' },
         });
+        const activePin = terminal ? null : await this.pinChallengeRepository.createQueryBuilder('challenge')
+            .where('challenge.tenant_id = :tenantId AND challenge.delivery_id = :deliveryId', {
+                tenantId: credential.tenantId,
+                deliveryId: credential.deliveryId,
+            })
+            .andWhere('challenge.replaced_at IS NULL AND challenge.verified_at IS NULL')
+            .andWhere('challenge.expires_at > NOW()')
+            .getOne();
 
         return {
             display_code: delivery.displayCode,
@@ -107,6 +117,7 @@ export class DeliveryTrackingService {
                 lng: delivery.destinationLng === null ? null : Number(delivery.destinationLng),
             },
             tracking_active: !terminal,
+            receipt_confirmation_available: Boolean(activePin) && ['IN_TRANSIT', 'ARRIVED'].includes(delivery.status),
             eta_seconds: delivery.etaSeconds,
             eta_updated_at: delivery.etaUpdatedAt,
             driver_location: latest ? {
