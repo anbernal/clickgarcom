@@ -96,6 +96,11 @@ body:has(#page-delivery.active) .main { min-width: 0; max-width: calc(100vw - 23
 .delivery-required-note { display: flex; align-items: flex-start; gap: 9px; margin-bottom: 16px; padding: 11px 13px; border: 1px solid #d6e8e3; border-radius: 11px; color: #40635b; background: #f0faf7; font-size: 10px; line-height: 1.45; }
 .delivery-required-note strong { color: #176957; white-space: nowrap; }
 .delivery-required-note b, .delivery-required { color: #bd3b2c; }
+.delivery-fleet-mode { display:grid; gap:12px; grid-column:1/-1; margin-top:16px; padding:15px; border:1px solid #dce9e5; border-radius:13px; background:#f7fbfa; }
+.delivery-fleet-mode>div:first-child { display:grid; gap:4px; }.delivery-fleet-mode>div:first-child strong { color:#24463e; font-size:12px; }.delivery-fleet-mode>div:first-child span,.delivery-fleet-mode>small { color:#71817c; font-size:9px; line-height:1.5; }
+.delivery-fleet-options { display:grid; grid-template-columns:1fr 1fr; gap:9px; }.delivery-fleet-options label { position:relative; cursor:pointer; }.delivery-fleet-options input { position:absolute; opacity:0; pointer-events:none; }.delivery-fleet-options label>span { display:grid; gap:4px; min-height:72px; padding:13px; border:1px solid #dbe5e2; border-radius:11px; color:#36534c; background:#fff; }.delivery-fleet-options b { font-size:10px; }.delivery-fleet-options small { color:#7b8a85; font-size:8px; line-height:1.45; }.delivery-fleet-options input:checked+span { border-color:#32af92; background:#ebfaf6; box-shadow:0 0 0 2px rgba(50,175,146,.1); }.delivery-fleet-options input:focus-visible+span { outline:3px solid rgba(26,188,156,.25); outline-offset:2px; }
+.delivery-fleet-prerequisites { display:flex; gap:7px; flex-wrap:wrap; }.delivery-fleet-prerequisites span { padding:5px 8px; border-radius:999px; color:#557169; background:#eaf3f0; font-size:8px; font-weight:700; }
+@media(max-width:620px){.delivery-fleet-options{grid-template-columns:1fr}}
 .delivery-location-status { margin-top: 10px; padding: 9px 11px; border-radius: 9px; color: #58706a; background: #f2f7f5; font-size: 10px; line-height: 1.45; }
 .delivery-origin-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .delivery-origin-address-grid { display: grid; grid-template-columns: minmax(130px,.75fr) minmax(220px,1.5fr) minmax(90px,.55fr); gap: 12px; margin-top: 13px; }

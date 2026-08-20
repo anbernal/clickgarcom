@@ -7,6 +7,7 @@
     "start": "node server.js",
     "test:kds-ux": "playwright test tests/kds-ux.spec.js",
     "test:delivery-ux": "playwright test tests/delivery-ux.spec.js",
+    "test:fleet-ux": "playwright test tests/fleet-ux.spec.js",
     "test:menu-ux": "playwright test tests/menu-public.spec.js"
   },
   "devDependencies": {

@@ -8,6 +8,7 @@
     <meta name="description" content="Painel administrativo ClickGarçom para gestão de restaurante">
     <link rel="stylesheet" href="/css/design-system.css">
     <link rel="stylesheet" href="/css/delivery.css">
+    <link rel="stylesheet" href="/css/fleet.css?v=20260820-frontend1">
 </head>
 
 <body>
@@ -39,6 +40,10 @@
             <button class="nav-item" data-page="delivery" data-route-group="delivery_read">
                 <span class="nav-icon">🚚</span> Entregas
                 <span class="badge red" id="badge-delivery"></span>
+            </button>
+            <button class="nav-item" data-page="fleet" data-route-group="fleet_read" id="nav-fleet">
+                <span class="nav-icon">🛵</span> Frota própria
+                <span class="badge" id="badge-fleet"></span>
             </button>
             <a href="/kds.html?panel=salao" target="_blank" rel="noopener noreferrer" class="nav-item" data-route-group="floor_operations">
                 <span class="nav-icon">🛎</span> Atendimento (KDS)
@@ -118,6 +123,7 @@
         <div id="page-extratoMensagens" class="page"></div>
         <div id="page-pedidos" class="page"></div>
         <div id="page-delivery" class="page"></div>
+        <div id="page-fleet" class="page"></div>
         <div id="page-cardapio" class="page"></div>
         <div id="page-categorias" class="page"></div>
         <div id="page-comandas" class="page">
@@ -183,6 +189,7 @@
     <script src="/js/pages/dashboard.js"></script>
     <script src="/js/pages/pedidos.js"></script>
     <script src="/js/pages/delivery.js?v=20260819-payment-auto3"></script>
+    <script src="/js/pages/fleet.js?v=20260820-frontend1"></script>
     <script src="/js/pages/cardapio.js"></script>
     <script src="/js/pages/categorias.js"></script>
     <script src="/js/pages/comandas.js"></script>

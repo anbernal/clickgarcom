@@ -90,7 +90,9 @@ async function loadDeliveryPage() {
         api.get('/deliveries/operations/summary'),
         canPerformAction('manageDeliverySettings') ? api.get('/delivery/settings') : Promise.resolve(null),
         canPerformAction('manageDeliverySettings') ? api.get('/delivery/capacity') : Promise.resolve(null),
-        canPerformAction('manageDeliveries') ? api.get('/deliveries/drivers/eligible') : Promise.resolve({ drivers: [] }),
+        canPerformAction('manageDeliveries')
+            ? (window.getFleetEligibleDrivers ? window.getFleetEligibleDrivers() : api.get('/deliveries/drivers/eligible'))
+            : Promise.resolve({ drivers: [] }),
     ]);
     if (sequence !== deliveryState.requestSequence) return;
     deliveryState.loading = false;
@@ -275,7 +277,7 @@ function renderDeliveryCard(item) {
         <div class="delivery-card-top"><span class="delivery-code">#${escapeHTML(item.display_code)}</span><span class="delivery-status" style="--status-color:${status.color};--status-bg:${status.bg}">${status.icon} ${escapeHTML(status.label)}</span></div>
         <div class="delivery-card-customer">${escapeHTML(deliveryMaskName(item.customer_name))}</div>
         <div class="delivery-card-location"><span aria-hidden="true">⌖</span><span>${escapeHTML(deliverySafeArea(item.formatted_address))}</span></div>
-        <div class="delivery-card-meta"><div class="delivery-meta-chip"><span>Tempo</span><strong>${deliveryRelativeAge(item.created_at)}</strong></div><div class="delivery-meta-chip"><span>Modalidade</span><strong>${own ? 'Entrega própria' : 'Entrega iFood'}</strong></div>${own ? '' : `<div class="delivery-meta-chip" style="grid-column:1/-1"><span>Entregador</span><strong>${escapeHTML(driver)}</strong></div>`}</div>
+        <div class="delivery-card-meta"><div class="delivery-meta-chip"><span>Tempo</span><strong>${deliveryRelativeAge(item.created_at)}</strong></div><div class="delivery-meta-chip"><span>Modalidade</span><strong>${own ? 'Entrega própria' : 'Entrega iFood'}</strong></div>${!own || window.deliveryUsesIdentifiedFleet?.() ? `<div class="delivery-meta-chip" style="grid-column:1/-1"><span>Motoboy</span><strong>${escapeHTML(driver)}</strong></div>` : ''}</div>
         <div class="delivery-card-footer"><span class="delivery-signal ${staleMinutes > 5 ? 'delivery-signal--stale' : ''}">${staleMinutes <= 1 ? 'agora' : `há ${staleMinutes} min`}</span><span class="delivery-card-action">Ver detalhes →</span></div>
     </button>`;
 }
@@ -391,7 +393,7 @@ function renderDeliveryDetail(item, events = [], fulfillment = null, attempts = 
     const modal = document.getElementById('modal-content');
     modal.innerHTML = `<div class="modal-header"><div class="delivery-detail-head"><div><div class="delivery-detail-code">#${escapeHTML(item.display_code)}</div><div class="modal-header-subtitle">Atualizada ${deliveryRelativeAge(item.updated_at)} atrás · versão ${Number(item.version || 1)}</div></div><span class="delivery-status" style="--status-color:${status.color};--status-bg:${status.bg}">${status.icon} ${escapeHTML(status.label)}</span></div><button class="modal-close" onclick="closeModal()" aria-label="Fechar">✕</button></div>
         <div class="modal-body">${renderDeliveryExceptionBanner(item)}<div class="delivery-detail-grid"><div>
-            <section class="delivery-panel"><h4>Destino e atendimento</h4><div class="delivery-info-grid"><div class="delivery-info"><span>Cliente</span><strong>${escapeHTML(item.customer_name || 'Não informado')}</strong></div><div class="delivery-info"><span>Taxa</span><strong>${formatCurrency(item.delivery_fee || 0)}</strong></div><div class="delivery-info"><span>Modalidade</span><strong>${own ? 'Entrega própria' : 'Entrega iFood'}</strong></div><div class="delivery-info" style="grid-column:1/-1"><span>Endereço autorizado</span><strong>${escapeHTML(item.formatted_address || 'Endereço não informado')}</strong></div>${own ? '' : `<div class="delivery-info"><span>Entregador</span><strong>${escapeHTML(deliveryDriverName(item.assigned_driver_id))}</strong></div>`}<div class="delivery-info"><span>Previsão</span><strong>${deliveryEta(item.eta_seconds)}</strong></div></div></section>
+            <section class="delivery-panel"><h4>Destino e atendimento</h4><div class="delivery-info-grid"><div class="delivery-info"><span>Cliente</span><strong>${escapeHTML(item.customer_name || 'Não informado')}</strong></div><div class="delivery-info"><span>Taxa</span><strong>${formatCurrency(item.delivery_fee || 0)}</strong></div><div class="delivery-info"><span>Modalidade</span><strong>${own ? 'Entrega própria' : 'Entrega iFood'}</strong></div><div class="delivery-info" style="grid-column:1/-1"><span>Endereço autorizado</span><strong>${escapeHTML(item.formatted_address || 'Endereço não informado')}</strong></div>${!own || window.deliveryUsesIdentifiedFleet?.() ? `<div class="delivery-info"><span>Motoboy</span><strong>${escapeHTML(deliveryDriverName(item.assigned_driver_id))}</strong></div>` : ''}<div class="delivery-info"><span>Previsão</span><strong>${deliveryEta(item.eta_seconds)}</strong></div></div></section>
             <section class="delivery-panel" style="margin-top:12px"><h4>Jornada da entrega</h4>${renderDeliveryTimeline(item, events)}</section>
             ${renderDeliveryFulfillment(fulfillment, attempts)}
         </div><aside><section class="delivery-panel"><h4>Localização do destino</h4><div class="delivery-map-preview"><div class="delivery-map-pin"><span>⌂</span></div></div>${item.destination_lat != null && item.destination_lng != null ? `<a class="delivery-btn delivery-btn--neutral" style="display:flex;align-items:center;justify-content:center;margin-top:10px;text-decoration:none" target="_blank" rel="noopener noreferrer" href="https://www.openstreetmap.org/?mlat=${encodeURIComponent(item.destination_lat)}&mlon=${encodeURIComponent(item.destination_lng)}#map=16/${encodeURIComponent(item.destination_lat)}/${encodeURIComponent(item.destination_lng)}">Abrir no mapa ↗</a>` : '<p class="delivery-helper">Coordenadas ainda não disponíveis.</p>'}</section></aside></div>
@@ -449,11 +451,12 @@ function renderDeliveryActions(item, canDispatch, canOverride) {
         actions.push(`<button class="delivery-btn delivery-btn--primary" onclick="runDeliveryAccept('${item.id}')">✓ Aceitar entrega</button>`);
         actions.push(`<button class="delivery-btn delivery-btn--danger" onclick="openDeliveryReasonModal('reject','${item.id}')">Recusar</button>`);
     }
-    if (!deliveryIsOwn(item) && ['READY_FOR_DISPATCH','ASSIGNED','DELIVERY_FAILED'].includes(item.status)) {
+    const identifiedOwnFleet = own && window.deliveryUsesIdentifiedFleet?.();
+    if ((!own || identifiedOwnFleet) && ['READY_FOR_DISPATCH','ASSIGNED','DELIVERY_FAILED'].includes(item.status)) {
         const assignLabel = item.status === 'DELIVERY_FAILED' ? '↻ Nova tentativa' : (item.assigned_driver_id ? '↻ Reatribuir' : '↗ Atribuir entregador');
         actions.push(`<button class="delivery-btn delivery-btn--primary" onclick="openDeliveryAssign('${item.id}')">${assignLabel}</button>`);
     }
-    if (own && item.status === 'READY_FOR_DISPATCH') actions.push(`<button class="delivery-btn delivery-btn--primary" onclick="runDeliveryOwnOperation('${item.id}','start',${Number(item.version || 1)})">↗ Marcar como saiu</button>`);
+    if (own && item.status === 'READY_FOR_DISPATCH' && !identifiedOwnFleet) actions.push(`<button class="delivery-btn delivery-btn--primary" onclick="runDeliveryOwnOperation('${item.id}','start',${Number(item.version || 1)})">↗ Marcar como saiu</button>`);
     if (own && ['IN_TRANSIT','ARRIVED'].includes(item.status)) actions.push(`<button class="delivery-btn delivery-btn--primary" onclick="openDeliveryPinCompletion('${item.id}',${Number(item.version || 1)})">✓ Finalizar entrega</button>`);
     if (['IN_TRANSIT','ARRIVED','DELIVERY_FAILED'].includes(item.status)) actions.push(`<button class="delivery-btn delivery-btn--neutral" onclick="openDeliveryReturn('${item.id}',false)">↩ Iniciar retorno</button>`);
     if (item.status === 'RETURNING') actions.push(`<button class="delivery-btn delivery-btn--primary" onclick="openDeliveryReturn('${item.id}',true)">✓ Confirmar devolução</button>`);
@@ -535,14 +538,21 @@ function openDeliveryAssign(id) {
     const requiresReason = retry || !!item.assigned_driver_id;
     const title = retry ? 'Planejar nova tentativa' : (item.assigned_driver_id ? 'Reatribuir entrega' : 'Escolher entregador');
     const reasonLabel = retry ? 'Plano / motivo da nova tentativa' : 'Motivo da reatribuição';
-    openModal(`<div class="modal-header"><div><h3>${title}</h3><div class="modal-header-subtitle">Entrega #${escapeHTML(item.display_code)}${retry ? ' · a ocorrência continuará registrada' : ''}</div></div><button class="modal-close" onclick="closeModal()">✕</button></div><div class="modal-body delivery-form"><div class="form-group"><label for="delivery-driver-choice">Entregador elegível</label><select id="delivery-driver-choice"><option value="">Selecione</option>${deliveryState.drivers.map((driver) => { const busy = String(driver.availability || '').toUpperCase() === 'BUSY'; return `<option value="${escapeHTML(driver.id)}" ${driver.id === item.assigned_driver_id ? 'selected' : ''} ${busy && driver.id !== item.assigned_driver_id ? 'disabled' : ''}>${escapeHTML(driver.name || 'Entregador')} · ${busy ? 'em outra entrega' : 'disponível'}</option>`; }).join('')}</select><div class="delivery-helper">Entregadores em outra rota ficam indisponíveis para uma nova atribuição.</div></div>${requiresReason ? `<div class="form-group"><label for="delivery-assign-reason">${reasonLabel}</label><textarea id="delivery-assign-reason" maxlength="500" placeholder="Obrigatório para manter o contexto operacional"></textarea></div>` : ''}</div><div class="modal-footer"><button class="delivery-btn delivery-btn--neutral" onclick="closeModal()">Cancelar</button><button class="delivery-btn delivery-btn--primary" onclick="submitDeliveryAssign('${id}',${Number(item.version || 1)},${requiresReason ? 'true' : 'false'})">${retry ? 'Iniciar nova tentativa' : 'Confirmar atribuição'}</button></div>`);
+    openModal(`<div class="modal-header"><div><h3>${title}</h3><div class="modal-header-subtitle">Entrega #${escapeHTML(item.display_code)}${retry ? ' · a ocorrência continuará registrada' : ''}</div></div><button class="modal-close" onclick="closeModal()">✕</button></div><div class="modal-body delivery-form"><div class="form-group"><label for="delivery-driver-choice">Motoboy elegível</label><select id="delivery-driver-choice"><option value="">Selecione</option>${deliveryState.drivers.map((driver) => { const load = Number(driver.active_deliveries || 0); const limit = Math.max(1, Number(driver.delivery_limit || 1)); const full = load >= limit; return `<option value="${escapeHTML(driver.id)}" ${driver.id === item.assigned_driver_id ? 'selected' : ''} ${full && driver.id !== item.assigned_driver_id ? 'disabled' : ''}>${escapeHTML(driver.name || 'Motoboy')} · ${load}/${limit} entrega(s)${full ? ' · limite atingido' : ''}</option>`; }).join('')}</select><div class="delivery-helper">A carga atual e o limite são conferidos novamente pelo backend antes de atribuir.</div></div>${requiresReason ? `<div class="form-group"><label for="delivery-assign-reason">${reasonLabel}</label><textarea id="delivery-assign-reason" maxlength="500" placeholder="Obrigatório para manter o contexto operacional"></textarea></div>` : ''}</div><div class="modal-footer"><button class="delivery-btn delivery-btn--neutral" onclick="closeModal()">Cancelar</button><button class="delivery-btn delivery-btn--primary" onclick="submitDeliveryAssign('${id}',${Number(item.version || 1)},${requiresReason ? 'true' : 'false'})">${retry ? 'Iniciar nova tentativa' : 'Confirmar atribuição'}</button></div>`);
 }
 
 async function submitDeliveryAssign(id, version, isReassign) {
+    const item = deliveryState.deliveries.find((delivery) => delivery.id === id);
     const driverId = document.getElementById('delivery-driver-choice')?.value;
     const reason = document.getElementById('delivery-assign-reason')?.value.trim();
     if (!driverId) return showToast('Escolha um entregador.', 'error');
     if (isReassign && !reason) return showToast('Informe o motivo da reatribuição.', 'error');
+    if (item && deliveryIsOwn(item) && window.deliveryUsesIdentifiedFleet?.() && window.fleetFrontendUsesApi?.() === false && window.assignFleetDeliveryPreview) {
+        const updated = await window.assignFleetDeliveryPreview(item, driverId, reason);
+        deliveryState.deliveries = deliveryState.deliveries.map((delivery) => delivery.id === id ? updated : delivery);
+        closeModal(); renderDeliveryPage(); showToast('Motoboy atribuído na prévia.', 'success');
+        return;
+    }
     await runDeliveryCommand(id, 'assign', { driver_id: driverId, expected_version: version, ...(reason ? { reason } : {}) }, 'Entregador atribuído.');
 }
 
@@ -627,6 +637,9 @@ function openDeliverySettings() {
     if (capacityInput && !document.getElementById('delivery-setting-preparation-minutes')) {
         capacityInput.closest('.form-group')?.insertAdjacentHTML('afterend', `<div class="form-group"><label for="delivery-setting-preparation-minutes">Previsão automática de preparo (minutos) <span class="delivery-required" aria-hidden="true">*</span></label><input id="delivery-setting-preparation-minutes" type="number" min="5" max="240" value="${Number(settings.auto_accept?.preparation_minutes || 30)}" required aria-required="true"><small class="delivery-helper">Usada quando o aceite automático mover o pedido para “Em preparo”.</small></div>`);
     }
+    const section = document.querySelector('#delivery-settings-form .delivery-form-section');
+    const fleetConfig = window.getFleetFrontendConfig?.() || { mode: 'CAPACITY_ONLY' };
+    if (section) section.insertAdjacentHTML('beforeend', `<div class="delivery-fleet-mode"><div><strong>Organização da frota própria</strong><span>Escolha como as entregas próprias serão distribuídas. A alteração vale apenas para novas atribuições.</span></div><div class="delivery-fleet-options" role="radiogroup" aria-label="Modo da frota"><label><input type="radio" name="delivery-fleet-mode" value="CAPACITY_ONLY" ${fleetConfig.mode !== 'IDENTIFIED_DRIVERS' ? 'checked' : ''}><span><b>Capacidade simples</b><small>Controle somente pela quantidade disponível.</small></span></label><label><input type="radio" name="delivery-fleet-mode" value="IDENTIFIED_DRIVERS" ${fleetConfig.mode === 'IDENTIFIED_DRIVERS' ? 'checked' : ''}><span><b>Motoboys cadastrados</b><small>Cadastro, acesso seguro, fila e histórico individual.</small></span></label></div><div class="delivery-fleet-prerequisites"><span>✓ Delivery ativo</span><span>✓ Permissão de administrador</span><span>○ Cadastre ao menos um motoboy antes de atribuir</span></div><small>Modo atual desde ${fleetConfig.updated_at ? escapeHTML(new Date(fleetConfig.updated_at).toLocaleString('pt-BR')) : 'a configuração inicial'}.</small></div>`);
     window.requestAnimationFrame(toggleDeliveryFeeFields);
 }
 
@@ -861,6 +874,8 @@ async function saveDeliverySettings() {
         fees: { mode, fixed_fee: Number(document.getElementById('delivery-setting-fixed-fee')?.value || 0), bands: ['DISTANCE_BANDS', 'HYBRID'].includes(mode) ? collectDeliveryBands() : [], included_km: Number(document.getElementById('delivery-setting-included-km')?.value || 0), price_per_km: Number(document.getElementById('delivery-setting-price-per-km')?.value || 0), minimum_fee: Number(document.getElementById('delivery-setting-minimum-fee')?.value || 0), rounding_mode: document.getElementById('delivery-setting-rounding')?.value || 'NONE' },
     };
     const reserved = Number((deliveryState.capacity?.data || deliveryState.capacity || {}).reserved || 0);
+    const requestedFleetMode = document.querySelector('input[name="delivery-fleet-mode"]:checked')?.value || 'CAPACITY_ONLY';
+    const currentFleetMode = window.getFleetFrontendConfig?.()?.mode || 'CAPACITY_ONLY';
     if (payload.own_available_couriers < reserved) {
         const confirmed = await showConfirmDialog({
             title: 'Capacidade abaixo das reservas atuais',
@@ -877,6 +892,13 @@ async function saveDeliverySettings() {
     if (button) { button.disabled = true; button.textContent = 'Salvando…'; }
     try {
         deliveryState.settings = await api.put('/delivery/settings', payload);
+        if (requestedFleetMode !== currentFleetMode && window.requestFleetModeChange) {
+            const changed = await window.requestFleetModeChange(requestedFleetMode);
+            if (!changed) {
+                if (button) { button.disabled = false; button.textContent = 'Salvar configuração'; }
+                return;
+            }
+        }
         deliveryState.capacity = await api.get('/delivery/capacity').catch(() => deliveryState.capacity);
         closeModal(); renderDeliveryPage(); showToast('Configuração de Delivery salva.', 'success');
     } catch (error) { showToast(error.message || 'Não foi possível salvar a configuração.', 'error'); if (button) { button.disabled = false; button.textContent = 'Salvar configuração'; } }

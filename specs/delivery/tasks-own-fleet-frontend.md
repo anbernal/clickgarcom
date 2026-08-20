@@ -4,9 +4,13 @@ Fonte: [plano de frota própria](./own-fleet-drivers-plan.md). Esta trilha não
 armazena CPF, código de entrega ou token no navegador além do necessário para a
 sessão segura.
 
+> Frontend concluído em modo `frontend-first`. As telas usam o adapter em
+> `public/js/pages/fleet.js`; para ligar o backend, consulte o
+> [mapa de integração](./own-fleet-frontend-integration.md).
+
 ## DEL-FLEET-FE-001 — Configurar o modo de frota identificada
 
-- Status: [ ] Pendente
+- Status: [x] Frontend concluído — integração de API pendente
 - Prioridade: P0
 - Dependências: DEL-FLEET-BE-001
 
@@ -27,7 +31,7 @@ Critérios de aceite:
 
 ## DEL-FLEET-FE-002 — Criar central de motoboys
 
-- Status: [ ] Pendente
+- Status: [x] Frontend concluído — integração de API pendente
 - Prioridade: P0
 - Dependências: DEL-FLEET-BE-003
 
@@ -49,7 +53,7 @@ Critérios de aceite:
 
 ## DEL-FLEET-FE-003 — Gerar e gerenciar acesso do motoboy
 
-- Status: [ ] Pendente
+- Status: [x] Frontend concluído — integração de API pendente
 - Prioridade: P0
 - Dependências: DEL-FLEET-BE-004
 
@@ -68,7 +72,7 @@ Critérios de aceite:
 
 ## DEL-FLEET-FE-004 — Atribuição e fila no painel Delivery
 
-- Status: [ ] Pendente
+- Status: [x] Frontend concluído — integração de API pendente
 - Prioridade: P0
 - Dependências: DEL-FLEET-BE-005
 
@@ -89,7 +93,7 @@ Critérios de aceite:
 
 ## DEL-FLEET-FE-005 — Integrar KDS/Expedição e relatórios
 
-- Status: [ ] Pendente
+- Status: [x] Frontend concluído — integração de API/realtime pendente
 - Prioridade: P1
 - Dependências: DEL-FLEET-BE-007, DEL-FLEET-FE-004
 
@@ -106,4 +110,3 @@ Critérios de aceite:
 - KDS não cria pedido de Delivery na cozinha indevidamente;
 - atualização realtime não reinicia áudio/alerta;
 - dados pessoais aparecem somente no contexto operacional autorizado.
-

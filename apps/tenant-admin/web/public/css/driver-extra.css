@@ -1,0 +1,36 @@
+.driver-history {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.driver-history article {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: #fff;
+}
+
+.driver-history article > span {
+  display: grid;
+  place-items: center;
+  width: 31px;
+  height: 31px;
+  border-radius: 10px;
+  color: #176450;
+  background: #e7f8f3;
+  font-weight: 800;
+}
+
+.driver-history article div {
+  display: grid;
+  gap: 4px;
+}
+
+.driver-history strong { font-size: 10px; }
+.driver-history small { color: var(--muted); font-size: 8px; }
+.driver-map-options { display: grid; gap: 8px; margin-top: 16px; }
+.driver-map-options .driver-btn { width: 100%; }

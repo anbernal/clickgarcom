@@ -71,6 +71,8 @@ const TENANT_ROUTE_GROUPS = {
     delivery_settings: ['ADMIN', 'MANAGER'],
     delivery_override: ['ADMIN', 'MANAGER'],
     delivery_reports: ['ADMIN', 'MANAGER'],
+    fleet_read: ['ADMIN', 'MANAGER', 'DISPATCHER'],
+    fleet_write: ['ADMIN', 'MANAGER'],
 };
 
 const TENANT_PAGE_ACCESS = {
@@ -88,6 +90,7 @@ const TENANT_PAGE_ACCESS = {
     configuracoes: TENANT_ROUTE_GROUPS.full_access,
     equipe: TENANT_ROUTE_GROUPS.full_access,
     delivery: TENANT_ROUTE_GROUPS.delivery_read,
+    fleet: TENANT_ROUTE_GROUPS.fleet_read,
 };
 
 function normalizeTenantUserRole(role) {
@@ -150,6 +153,8 @@ function buildFallbackPermissions(role) {
             manageDeliverySettings: deliveryActionEnabled && routeGroups.includes('delivery_settings'),
             overrideDelivery: deliveryActionEnabled && routeGroups.includes('delivery_override'),
             viewDeliveryReports: deliveryActionEnabled && routeGroups.includes('delivery_reports'),
+            viewFleet: deliveryActionEnabled && routeGroups.includes('fleet_read'),
+            manageFleet: deliveryActionEnabled && routeGroups.includes('fleet_write'),
         },
     };
 }
@@ -208,7 +213,7 @@ function canAccessRouteGroup(routeGroup) {
 function canAccessPage(pageId) {
     // The delivery driver uses the dedicated mobile workflow; a stale session
     // must never retain access to the administrative dispatch board.
-    if (pageId === 'delivery' && getCurrentUserRole() === 'DRIVER') {
+    if (['delivery', 'fleet'].includes(pageId) && getCurrentUserRole() === 'DRIVER') {
         return false;
     }
     return getCurrentUserPermissions().pages?.includes(pageId);

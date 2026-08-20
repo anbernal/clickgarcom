@@ -10,13 +10,14 @@ async function prepareKds(page, options = {}) {
   const deliveries = options.deliveries || [];
   const tables = options.tables || [];
   const payload = Buffer.from(JSON.stringify({ tenant_id: 'tenant-ux-test', role })).toString('base64url');
-  await page.addInitScript(({ payloadValue, roleValue }) => {
+  await page.addInitScript(({ payloadValue, roleValue, fleetPreview }) => {
     localStorage.setItem('clickgarcom_auth', JSON.stringify({
       token: `x.${payloadValue}.x`,
       user: { role: roleValue, tenant_name: 'Restaurante UX', delivery_enabled: true },
     }));
     localStorage.removeItem('clickgarcom_kds_density');
-  }, { payloadValue: payload, roleValue: role });
+    if (fleetPreview) localStorage.setItem('clickgarcom_fleet_preview_v1_tenant-ux-test', JSON.stringify(fleetPreview));
+  }, { payloadValue: payload, roleValue: role, fleetPreview: options.fleetPreview || null });
 
   await page.route('**/admin/api/**', async (route) => {
     const path = new URL(route.request().url()).pathname;
@@ -39,6 +40,29 @@ async function prepareKds(page, options = {}) {
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(response) });
   });
 }
+
+test('KDS atribui entrega pronta à frota identificada e mostra capacidade', async ({ page }) => {
+  const delivery = {
+    id: 'delivery-fleet-ready', batch_id: 'batch-fleet-ready', display_code: '814205',
+    status: 'READY_FOR_DISPATCH', version: 4, created_at: minutesAgo(18),
+    customer_name: 'Mariana', formatted_address: 'Rua das Flores, 120, Osasco/SP',
+    neighborhood: 'Centro', eta_seconds: 1200, default_fulfillment_mode: 'OWN',
+    orders: [{ id: 'order-fleet-ready', batch_id: 'batch-fleet-ready', status: 'READY', items: [{ id: 'item-fleet', quantity: 1, unit_price: 32, item_name_snapshot: 'Smash' }] }],
+  };
+  const fleetPreview = {
+    config: { mode: 'IDENTIFIED_DRIVERS', version: 2 },
+    drivers: [{ id: 'driver-fleet-1', name: 'Rafael Souza', plate: 'FRT4A21', active: true, availability: 'AVAILABLE', active_deliveries: 0, delivery_limit: 2, version: 1 }],
+    assignments: [],
+  };
+  await prepareKds(page, { role: 'DISPATCHER', deliveries: [delivery], fleetPreview });
+  await page.goto('/kds.html?panel=delivery');
+  await expect(page.getByRole('button', { name: '🛵 Atribuir motoboy' })).toBeVisible();
+  await page.getByRole('button', { name: '🛵 Atribuir motoboy' }).click();
+  await expect(page.locator('#kds-fleet-driver')).toContainText('Rafael Souza · 0/2');
+  await page.locator('#kds-fleet-driver').selectOption('driver-fleet-1');
+  await page.getByRole('button', { name: 'Confirmar atribuição' }).click();
+  await expect(page.locator('#col-d-route .delivery-driver-badge')).toContainText('Rafael Souza');
+});
 
 test('Delivery recarrega pelo websocket e usa os itens da própria projeção', async ({ page }) => {
   const delivery = {

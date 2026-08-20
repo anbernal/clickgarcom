@@ -9,6 +9,7 @@ const pages = {
     },
     pedidos: { title: 'Pedidos', sub: 'Fila de pedidos recebidos', loader: loadPedidos },
     delivery: { title: 'Entregas', sub: 'Despacho, acompanhamento e experiência do cliente', loader: loadDeliveryPage },
+    fleet: { title: 'Frota própria', sub: 'Motoboys, acessos, capacidade e desempenho', loader: loadFleetPage },
     cardapio: { title: 'Cardápio', sub: 'Gerencie os itens do seu menu', loader: loadCardapio },
     categorias: { title: 'Categorias', sub: 'Organize o cardápio em categorias', loader: loadCategorias },
     comandas: { title: 'Comandas', sub: 'Abra e acompanhe as comandas do restaurante', loader: loadComandas },
@@ -161,6 +162,9 @@ function navigate(pageId, options = {}) {
     if (authorizedPageId !== 'delivery' && typeof window.destroyDeliveryPage === 'function') {
         window.destroyDeliveryPage();
     }
+    if (authorizedPageId !== 'fleet' && typeof window.destroyFleetPage === 'function') {
+        window.destroyFleetPage();
+    }
 
     if (typeof window.stopConsultaScanner === 'function') {
         window.stopConsultaScanner().catch(() => {});
@@ -306,6 +310,10 @@ function closeModal() {
     const overlay = document.getElementById('modal-overlay');
     overlay.classList.remove('active');
     overlay.setAttribute('aria-hidden', 'true');
+    // Remove dados sensíveis e tokens de uso único assim que a janela fecha.
+    // A próxima abertura sempre reconstrói o conteúdo do modal.
+    const modal = document.getElementById('modal-content');
+    if (modal) modal.replaceChildren();
     const previousFocus = modalPreviousFocus;
     modalPreviousFocus = null;
     if (previousFocus && document.contains(previousFocus) && previousFocus.getClientRects().length) previousFocus.focus({ preventScroll: true });

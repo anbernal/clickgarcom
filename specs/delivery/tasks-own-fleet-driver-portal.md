@@ -4,9 +4,13 @@ Fonte: [plano de frota própria](./own-fleet-drivers-plan.md). O portal é uma
 interface web pública no sentido de ser acessível por URL, mas privada após
 autenticação: cada motoboy só acessa a própria fila.
 
+> Interface responsiva/PWA concluída em `public/driver.html`, com adapter
+> isolado em `public/js/driver.js`. Sessão HttpOnly, dados reais e realtime
+> dependem do [mapa de integração](./own-fleet-frontend-integration.md).
+
 ## DEL-FLEET-DRV-001 — Shell PWA e identidade do tenant
 
-- Status: [ ] Pendente
+- Status: [x] Frontend concluído — integração de API pendente
 - Prioridade: P0
 - Dependências: DEL-FLEET-BE-004
 
@@ -28,7 +32,7 @@ Critérios de aceite:
 
 ## DEL-FLEET-DRV-002 — Ativação, login e turno
 
-- Status: [ ] Pendente
+- Status: [x] Frontend concluído — autenticação backend pendente
 - Prioridade: P0
 - Dependências: DEL-FLEET-BE-004, DEL-FLEET-DRV-001
 
@@ -48,7 +52,7 @@ Critérios de aceite:
 
 ## DEL-FLEET-DRV-003 — Fila, detalhe e navegação
 
-- Status: [ ] Pendente
+- Status: [x] Frontend concluído — fila backend pendente
 - Prioridade: P0
 - Dependências: DEL-FLEET-BE-006, DEL-FLEET-DRV-002
 
@@ -68,7 +72,7 @@ Critérios de aceite:
 
 ## DEL-FLEET-DRV-004 — Retirada, rota, código e ocorrências
 
-- Status: [ ] Pendente
+- Status: [x] Frontend concluído — comandos backend pendentes
 - Prioridade: P0
 - Dependências: DEL-FLEET-BE-006, DEL-FLEET-DRV-003
 
@@ -90,7 +94,7 @@ Critérios de aceite:
 
 ## DEL-FLEET-DRV-005 — Realtime, conexão e acessibilidade
 
-- Status: [ ] Pendente
+- Status: [x] Frontend concluído — realtime backend pendente
 - Prioridade: P1
 - Dependências: DEL-FLEET-BE-007, DEL-FLEET-DRV-004
 
@@ -107,4 +111,3 @@ Critérios de aceite:
 - reatribuição remove cartão sem refresh;
 - sessão não recebe evento de outro motoboy;
 - modo offline não revela pedidos antigos a outro usuário do mesmo aparelho.
-

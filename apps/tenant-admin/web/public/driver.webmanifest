@@ -1,0 +1,13 @@
+{
+  "name": "ClickGarçom — Minha rota",
+  "short_name": "Minha rota",
+  "description": "Fila de entregas da frota própria",
+  "start_url": "/driver.html",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f1f5f3",
+  "theme_color": "#123f35",
+  "icons": [
+    { "src": "/assets/driver-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
