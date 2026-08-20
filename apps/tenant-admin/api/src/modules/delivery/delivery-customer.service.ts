@@ -63,26 +63,44 @@ export class DeliveryCustomerService {
 
     async createAddress(tenantId: string, customerId: string, dto: CreateCustomerAddressDto) {
         if (!dto.confirmed) throw new BadRequestException('O endereço precisa ser confirmado pelo cliente.');
-        const result = await this.dataSource.transaction(async (manager) => {
+        try {
+            const result = await this.dataSource.transaction(async (manager) => {
             const customer = await manager.getRepository(Customer).createQueryBuilder('customer')
                 .where('customer.id = :customerId AND customer.tenant_id = :tenantId AND customer.active = TRUE', { customerId, tenantId })
                 .setLock('pessimistic_write')
                 .getOne();
             if (!customer) throw new NotFoundException('Cliente não encontrado.');
 
-            const count = await manager.getRepository(CustomerAddress).count({ where: { tenantId, customerId, deletedAt: null } });
+            const countRows = await manager.query(
+                `SELECT COUNT(*)::int AS count
+                   FROM customer_addresses
+                  WHERE tenant_id = $1 AND customer_id = $2 AND deleted_at IS NULL`,
+                [tenantId, customerId],
+            );
+            const count = Number(countRows?.[0]?.count || 0);
             if (count >= 5) throw new ConflictException('O cliente já possui o limite de cinco endereços ativos.');
 
             const isDefault = dto.is_default === true || count === 0;
             if (isDefault) {
-                await manager.getRepository(CustomerAddress).update({ tenantId, customerId, deletedAt: null }, { isDefault: false });
+                await manager.query(
+                    `UPDATE customer_addresses
+                        SET is_default = FALSE, updated_at = NOW()
+                      WHERE tenant_id = $1 AND customer_id = $2 AND deleted_at IS NULL`,
+                    [tenantId, customerId],
+                );
             }
             const address = manager.getRepository(CustomerAddress).create(this.addressValues(dto, tenantId, customerId, isDefault));
             const saved = await manager.getRepository(CustomerAddress).save(address);
             await this.audit(manager, tenantId, 'DELIVERY_ADDRESS_CREATED', { customer_id: customerId, address_id: saved.id, is_default: saved.isDefault });
             return saved;
-        });
-        return this.addressView(result);
+            });
+            return this.addressView(result);
+        } catch (error) {
+            if ((error as any)?.code === '23505' && (error as any)?.constraint === 'uq_customer_addresses_default') {
+                throw new ConflictException('Não foi possível definir este endereço como padrão. Atualize a lista e tente novamente.');
+            }
+            throw error;
+        }
     }
 
     async updateAddress(tenantId: string, customerId: string, addressId: string, dto: UpdateCustomerAddressDto) {
@@ -94,7 +112,12 @@ export class DeliveryCustomerService {
             if (dto.confirmed === false) throw new BadRequestException('O endereço precisa permanecer confirmado.');
 
             if (dto.is_default === true) {
-                await repository.update({ tenantId, customerId, deletedAt: null }, { isDefault: false });
+                await manager.query(
+                    `UPDATE customer_addresses
+                        SET is_default = FALSE, updated_at = NOW()
+                      WHERE tenant_id = $1 AND customer_id = $2 AND deleted_at IS NULL`,
+                    [tenantId, customerId],
+                );
                 address.isDefault = true;
             } else if (dto.is_default === false) {
                 address.isDefault = false;
@@ -146,7 +169,12 @@ export class DeliveryCustomerService {
                 .getOne();
             if (!address) throw new NotFoundException('Endereço não encontrado.');
             const lastUsedAt = new Date();
-            await repository.update({ tenantId, customerId, deletedAt: null }, { isDefault: false });
+            await manager.query(
+                `UPDATE customer_addresses
+                    SET is_default = FALSE, updated_at = NOW()
+                  WHERE tenant_id = $1 AND customer_id = $2 AND deleted_at IS NULL`,
+                [tenantId, customerId],
+            );
             address.isDefault = true;
             address.lastUsedAt = lastUsedAt;
             const saved = await repository.save(address);
