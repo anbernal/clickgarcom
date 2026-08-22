@@ -6,7 +6,9 @@ export class DeliveryLocationSample {
     @PrimaryGeneratedColumn('uuid') id: string;
     @Column({ name: 'tenant_id', type: 'uuid' }) tenantId: string;
     @Column({ name: 'delivery_id', type: 'uuid' }) deliveryId: string;
-    @Column({ name: 'driver_id', type: 'uuid' }) driverId: string;
+    /** Legacy Driver user. Fleet drivers use driverProfileId instead. */
+    @Column({ name: 'driver_id', type: 'uuid', nullable: true }) driverId: string | null;
+    @Column({ name: 'driver_profile_id', type: 'uuid', nullable: true }) driverProfileId: string | null;
     @Column({ type: 'numeric', precision: 9, scale: 6 }) lat: string;
     @Column({ type: 'numeric', precision: 9, scale: 6 }) lng: string;
     @Column({ name: 'accuracy_m', type: 'numeric', precision: 8, scale: 2, nullable: true }) accuracyM: string | null;

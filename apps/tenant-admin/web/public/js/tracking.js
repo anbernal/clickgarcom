@@ -101,23 +101,29 @@
     }
     function renderMap(data, stale) {
         const destination = data.destination || {};
-        const canShowDriver = ['PICKED_UP','IN_TRANSIT','ARRIVED'].includes(data.status) && data.driver_location && !terminalStatuses.has(data.status);
-        const mapLink = destination.lat != null && destination.lng != null ? `https://www.openstreetmap.org/?mlat=${encodeURIComponent(destination.lat)}&mlon=${encodeURIComponent(destination.lng)}#map=16/${encodeURIComponent(destination.lat)}/${encodeURIComponent(destination.lng)}` : '';
-        if (!canShowDriver) return `<section class="tracking-map"><div class="tracking-map-grid"></div><div class="tracking-map-unavailable"><div><strong>${['PENDING_RESTAURANT_ACCEPTANCE','ACCEPTED','PREPARING','READY_FOR_DISPATCH','ASSIGNED'].includes(data.status) ? 'O mapa aparece depois da coleta' : 'Localização não disponível'}</strong><span>${terminalStatuses.has(data.status) ? 'A localização deixa de ser compartilhada quando a entrega termina.' : 'Você continuará vendo todas as mudanças de status por aqui.'}</span>${mapLink ? `<div style="margin-top:14px"><a class="tracking-map-link" target="_blank" rel="noopener noreferrer" href="${mapLink}">Ver destino no mapa ↗</a></div>` : ''}</div></div></section>`;
-        if (data.driver_location.lat == null || data.driver_location.lng == null || destination.lat == null || destination.lng == null) return `<section class="tracking-map"><div class="tracking-map-grid"></div><div class="tracking-map-unavailable"><div><strong>Posição em atualização</strong><span>O trajeto continua sendo acompanhado e uma nova posição aparecerá em instantes.</span></div></div></section>`;
-        return `<section class="tracking-map" aria-label="Posição do entregador e destino no mapa"><div id="tracking-live-map" class="tracking-leaflet-map"></div><div class="tracking-map-legend"><span>${stale ? `Posição de ${relative(data.driver_location.recorded_at)}` : '● Entregador em deslocamento'}</span>${mapLink ? `<a class="tracking-map-link" target="_blank" rel="noopener noreferrer" href="${mapLink}">Abrir destino ↗</a>` : '<span>Destino confirmado</span>'}</div></section>`;
+        const hasDestination = destination.lat != null && destination.lng != null;
+        const driver = data.driver_location;
+        const hasDriver = ['PICKED_UP','IN_TRANSIT','ARRIVED'].includes(data.status) && driver && driver.lat != null && driver.lng != null && !terminalStatuses.has(data.status);
+        if (!hasDestination) return `<section class="tracking-map"><div class="tracking-map-grid"></div><div class="tracking-map-unavailable"><div><strong>Destino em atualização</strong><span>Assim que o endereço for confirmado, o mapa aparecerá aqui.</span></div></div></section>`;
+        const mapStatus = hasDriver ? (stale ? `Posição de ${relative(driver.recorded_at)}` : '● Entregador em deslocamento') : terminalStatuses.has(data.status) ? 'Acompanhamento encerrado' : '⌂ Destino da entrega';
+        const mapHint = hasDriver ? 'Acompanhe o motoboy e o destino neste mapa.' : terminalStatuses.has(data.status) ? 'A localização deixa de ser compartilhada após a entrega.' : 'A posição do entregador aparecerá aqui assim que a localização for recebida.';
+        return `<section class="tracking-map" aria-label="Mapa da entrega"><div id="tracking-live-map" class="tracking-leaflet-map"></div><div class="tracking-map-legend"><span>${esc(mapStatus)}</span><span>${esc(mapHint)}</span></div></section>`;
     }
     function renderActualMap(data, stale) {
         if (state.map) { state.map.remove(); state.map=null; }
         const node=document.getElementById('tracking-live-map'); const driver=data.driver_location; const destination=data.destination||{};
-        if(!node||!window.L||!driver||driver.lat==null||driver.lng==null||destination.lat==null||destination.lng==null)return;
+        if(!node||!window.L||destination.lat==null||destination.lng==null)return;
         state.map=window.L.map(node,{zoomControl:false,attributionControl:true,dragging:true,scrollWheelZoom:false,tap:true});
         window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(state.map);
-        const driverIcon=window.L.divIcon({className:'tracking-leaflet-icon',html:stale?'◷':'➜',iconSize:[38,38]});
         const destinationIcon=window.L.divIcon({className:'tracking-leaflet-icon destination',html:'⌂',iconSize:[38,38]});
-        const driverPoint=[Number(driver.lat),Number(driver.lng)]; const destinationPoint=[Number(destination.lat),Number(destination.lng)];
-        window.L.marker(driverPoint,{icon:driverIcon,keyboard:false}).addTo(state.map); window.L.marker(destinationPoint,{icon:destinationIcon,keyboard:false}).addTo(state.map);
-        state.map.fitBounds(window.L.latLngBounds([driverPoint,destinationPoint]),{padding:[48,48],maxZoom:16});
+        const destinationPoint=[Number(destination.lat),Number(destination.lng)];
+        window.L.marker(destinationPoint,{icon:destinationIcon,keyboard:false}).addTo(state.map);
+        if(driver&&driver.lat!=null&&driver.lng!=null&&!terminalStatuses.has(data.status)){
+            const driverIcon=window.L.divIcon({className:'tracking-leaflet-icon',html:stale?'◷':'➜',iconSize:[38,38]});
+            const driverPoint=[Number(driver.lat),Number(driver.lng)];
+            window.L.marker(driverPoint,{icon:driverIcon,keyboard:false}).addTo(state.map);
+            state.map.fitBounds(window.L.latLngBounds([driverPoint,destinationPoint]),{padding:[48,48],maxZoom:16});
+        } else state.map.setView(destinationPoint,16);
     }
     function renderSteps(status) {
         const steps = [

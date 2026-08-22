@@ -67,7 +67,11 @@ export class DeliveryLocationService {
                 const sample = manager.getRepository(DeliveryLocationSample).create({
                     tenantId,
                     deliveryId,
-                    driverId,
+                    // A fleet driver is an operational profile, not a User.
+                    // Keep the legacy user relation intact while persisting the
+                    // correct actor for the new fleet portal.
+                    driverId: profileMode ? null : driverId,
+                    driverProfileId: profileMode ? driverId : null,
                     lat: String(point.lat),
                     lng: String(point.lng),
                     accuracyM: point.accuracy_m === undefined ? null : String(point.accuracy_m),
