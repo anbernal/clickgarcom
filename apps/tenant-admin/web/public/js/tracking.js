@@ -60,17 +60,18 @@
         if (Number.isFinite(occurredAt) && occurredAt < state.lastEventAt) return;
         state.lastEventAt = Number.isFinite(occurredAt) ? occurredAt : Date.now();
         const data = event.data;
-        const location = data.location ? {
-            lat: data.location.latitude, lng: data.location.longitude, accuracy_m: data.location.accuracy_m ?? null,
-            speed_mps: data.location.speed_mps ?? null, heading_deg: data.location.heading_deg ?? null,
-            recorded_at: data.location.recorded_at || event.occurred_at,
+        const locationPayload = data.location || (data.lat != null && data.lng != null ? data : null);
+        const location = locationPayload ? {
+            lat: locationPayload.latitude ?? locationPayload.lat, lng: locationPayload.longitude ?? locationPayload.lng, accuracy_m: locationPayload.accuracy_m ?? null,
+            speed_mps: locationPayload.speed_mps ?? null, heading_deg: locationPayload.heading_deg ?? null,
+            recorded_at: locationPayload.recorded_at || event.occurred_at,
         } : state.snapshot.driver_location;
         state.snapshot = {
             ...state.snapshot,
             ...(data.status ? { status: data.status } : {}),
             ...(data.eta_seconds != null ? { eta_seconds: data.eta_seconds } : {}),
             ...(data.eta_updated_at ? { eta_updated_at: data.eta_updated_at } : {}),
-            ...(data.location ? { driver_location: location } : {}),
+            ...(locationPayload ? { driver_location: location } : {}),
             updated_at: event.occurred_at || state.snapshot.updated_at,
         };
         render();
