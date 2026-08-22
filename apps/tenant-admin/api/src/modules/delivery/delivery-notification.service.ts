@@ -62,7 +62,7 @@ export class DeliveryNotificationService {
             milestone: DeliveryNotificationMilestone.InTransit,
             body: bodyWithCode,
             templateId: 'delivery_in_transit_confirm_v1',
-            button: trackingUrl ? { text: 'Finalizar entrega', url: trackingUrl } : undefined,
+            button: trackingUrl ? { text: 'Acompanhar entrega', url: trackingUrl } : undefined,
         });
     }
 
