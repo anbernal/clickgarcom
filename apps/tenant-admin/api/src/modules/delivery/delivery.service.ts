@@ -1109,6 +1109,7 @@ export class DeliveryService {
     async confirmPinForFleetDriver(tenantId: string, deliveryId: string, profileId: string, command: DeliveryConfirmPinDto, idempotencyKey?: string) {
         const snapshot = await this.runIdempotent(tenantId, deliveryId, 'fleet-confirm-pin', idempotencyKey, { type: DeliveryActorType.Driver }, { pin_fingerprint: this.pinService.fingerprint(command.pin) }, () => this.confirmPinInternal(tenantId, deliveryId, profileId, command.pin, true));
         if (snapshot.status === DeliveryStatus.Delivered) {
+            await this.capacityService.releaseForDelivery(tenantId, deliveryId, 'DELIVERY_COMPLETED_BY_DRIVER');
             await this.driverAssignmentRepository.update({ tenantId, deliveryId, driverProfileId: profileId, status: 'ACTIVE' }, { status: 'COMPLETED', unassignedAt: new Date(), version: () => 'version + 1' });
         }
         return snapshot;
@@ -1188,7 +1189,7 @@ export class DeliveryService {
         command: DeliveryConfirmPinDto,
         idempotencyKey?: string,
     ): Promise<DeliverySnapshot> {
-        return this.runIdempotent(
+        const snapshot = await this.runIdempotent(
             tenantId,
             deliveryId,
             'confirm-pin',
@@ -1197,6 +1198,10 @@ export class DeliveryService {
             { pin_fingerprint: this.pinService.fingerprint(command.pin) },
             () => this.confirmPinInternal(tenantId, deliveryId, driverId, command.pin),
         );
+        if (snapshot.status === DeliveryStatus.Delivered) {
+            await this.capacityService.releaseForDelivery(tenantId, deliveryId, 'DELIVERY_COMPLETED_BY_DRIVER');
+        }
+        return snapshot;
     }
 
     private async confirmPinInternal(tenantId: string, deliveryId: string, driverId: string, pin: string, profileMode = false): Promise<DeliverySnapshot> {
