@@ -10,6 +10,8 @@ const fleetState = {
     drivers: [],
     deliveries: [],
     report: null,
+    payments: null,
+    paymentsLoading: false,
     tab: 'drivers',
     query: '',
     status: 'ALL',
@@ -29,8 +31,8 @@ function fleetDemoStore() {
     return {
         config: { mode: FLEET_MODE.CAPACITY_ONLY, updated_at: fleetNow(-180), updated_by: 'Configuração atual', version: 1 },
         drivers: [
-            { id: 'fleet-driver-rafael', name: 'Rafael Souza', cpf_masked: '***.***.*12-42', plate: 'FRT4A21', phone: '5511987654321', active: true, availability: 'AVAILABLE', active_deliveries: 0, delivery_limit: 2, access_status: 'ACTIVE', last_access_at: fleetNow(-35), created_at: fleetNow(-43200), version: 1 },
-            { id: 'fleet-driver-luana', name: 'Luana Martins', cpf_masked: '***.***.*31-08', plate: 'GDX8C90', phone: '5511976543210', active: true, availability: 'ON_ROUTE', active_deliveries: 1, delivery_limit: 2, access_status: 'ACTIVE', last_access_at: fleetNow(-8), created_at: fleetNow(-20160), version: 1 },
+            { id: 'fleet-driver-rafael', name: 'Rafael Souza', cpf_masked: '***.***.*12-42', plate: 'FRT4A21', phone: '5511987654321', active: true, availability: 'AVAILABLE', active_deliveries: 0, delivery_limit: 2, per_delivery_rate: 9, access_status: 'ACTIVE', last_access_at: fleetNow(-35), created_at: fleetNow(-43200), version: 1 },
+            { id: 'fleet-driver-luana', name: 'Luana Martins', cpf_masked: '***.***.*31-08', plate: 'GDX8C90', phone: '5511976543210', active: true, availability: 'ON_ROUTE', active_deliveries: 1, delivery_limit: 2, per_delivery_rate: 10, access_status: 'ACTIVE', last_access_at: fleetNow(-8), created_at: fleetNow(-20160), version: 1 },
             { id: 'fleet-driver-carlos', name: 'Carlos Lima', cpf_masked: '***.***.*84-16', plate: 'EJQ2B77', phone: '', active: false, availability: 'OFFLINE', active_deliveries: 0, delivery_limit: 1, access_status: 'REVOKED', last_access_at: null, created_at: fleetNow(-86400), version: 1 },
         ],
         assignments: [
@@ -134,6 +136,16 @@ const fleetGateway = {
         const store = fleetReadDemoStore();
         return { rows: store.drivers.filter((driver) => driver.active).map((driver, index) => ({ driver_id: driver.id, driver_name: driver.name, completed: index === 0 ? 28 : 21, average_minutes: index === 0 ? 31 : 36, incidents: index, success_rate: index === 0 ? 98 : 95 })) };
     },
+    async payments(filters) {
+        if (FLEET_API_ENABLED) return api.get('/delivery/fleet/payments', filters);
+        const store = fleetReadDemoStore();
+        const driver = store.drivers[0];
+        return { range: filters, pending_total: Number(driver?.per_delivery_rate || 0) * 2, pending_deliveries: 2, pending: driver ? [{ driver_id: driver.id, driver_name: driver.name, per_delivery_rate: Number(driver.per_delivery_rate || 0), delivery_count: 2, total_amount: Number(driver.per_delivery_rate || 0) * 2, deliveries: [{ delivery_id: 'demo-payment-1', delivery_code: '600364', delivered_at: fleetNow(-150), address: 'Vila Yara · Osasco/SP', amount: Number(driver.per_delivery_rate || 0) }, { delivery_id: 'demo-payment-2', delivery_code: '584210', delivered_at: fleetNow(-420), address: 'Centro · Osasco/SP', amount: Number(driver.per_delivery_rate || 0) }] }] : [], settlements: [] };
+    },
+    async settlePayments(input) {
+        if (FLEET_API_ENABLED) return api.post('/delivery/fleet/payments/settle', input);
+        return { settlement: { id: crypto.randomUUID(), ...input, delivery_count: 2, total_amount: 18, paid_at: fleetNow() } };
+    },
 };
 
 function fleetIsIdentifiedMode() {
@@ -219,7 +231,7 @@ function renderFleetPage() {
             ${fleetKpi('Ocorrências', incidents, '!', incidents ? 'Precisam de ação' : 'Operação fluindo', incidents ? 'danger' : '')}
         </section>
         <nav class="fleet-tabs" aria-label="Visões da frota">
-            ${fleetTab('drivers', 'Motoboys', active.length)}${fleetTab('queues', 'Filas por motoboy', fleetState.deliveries.length)}${fleetTab('reports', 'Desempenho', '')}
+            ${fleetTab('drivers', 'Motoboys', active.length)}${fleetTab('queues', 'Filas por motoboy', fleetState.deliveries.length)}${fleetTab('payments', 'Acertos', '')}${fleetTab('reports', 'Desempenho', '')}
         </nav>
         <section id="fleet-content">${renderFleetActiveTab()}</section>
     </div>`;
@@ -248,10 +260,12 @@ function setFleetTab(tab) {
     fleetState.tab = tab;
     renderFleetPage();
     if (tab === 'reports') loadFleetReport();
+    if (tab === 'payments') loadFleetPayments();
 }
 
 function renderFleetActiveTab() {
     if (fleetState.tab === 'queues') return renderFleetQueues();
+    if (fleetState.tab === 'payments') return renderFleetPayments();
     if (fleetState.tab === 'reports') return renderFleetReports();
     return renderFleetDrivers();
 }
@@ -345,6 +359,55 @@ function renderFleetReportRows(report) {
     return `<div class="fleet-report-table" role="table"><div class="fleet-report-row fleet-report-row--head" role="row"><span>Motoboy</span><span>Entregas</span><span>Tempo médio</span><span>Sucesso</span><span>Ocorrências</span></div>${rows.map((row) => `<div class="fleet-report-row" role="row"><strong>${escapeHTML(row.driver_name)}</strong><span>${Number(row.completed || 0)}</span><span>${Number(row.average_minutes || 0)} min</span><span>${Number(row.success_rate || 0)}%</span><span>${Number(row.incidents || 0)}</span></div>`).join('')}</div>`;
 }
 
+function fleetMoney(value) { return Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }); }
+
+function renderFleetPayments() {
+    const data = fleetState.payments;
+    const pending = data?.pending || [];
+    const settlements = data?.settlements || [];
+    return `<div class="fleet-panel">
+        <header class="fleet-panel-head"><div><h3>Acertos de motoboy</h3><p>Somente entregas concluídas entram no pagamento. Cada acerto fica registrado e não pode ser duplicado.</p></div><div class="fleet-report-filters"><input id="fleet-payment-from" type="date" value="${escapeHTML(data?.range?.from || fleetDate(-30))}"><input id="fleet-payment-to" type="date" value="${escapeHTML(data?.range?.to || fleetDate())}"><button class="fleet-btn fleet-btn--primary" onclick="loadFleetPayments()">Atualizar</button></div></header>
+        ${fleetState.paymentsLoading ? '<div class="fleet-report-loading">Atualizando acertos…</div>' : `<section class="fleet-kpis fleet-payment-kpis"><article class="fleet-kpi fleet-kpi--route"><div><span>A pagar</span><strong>${fleetMoney(data?.pending_total || 0)}</strong><small>${Number(data?.pending_deliveries || 0)} entrega(s) concluída(s)</small></div><i>R$</i></article><article class="fleet-kpi fleet-kpi--success"><div><span>Acertos no período</span><strong>${settlements.length}</strong><small>Pagamentos já registrados</small></div><i>✓</i></article></section><div class="fleet-payment-list">${pending.length ? pending.map(renderFleetPaymentPending).join('') : '<div class="fleet-empty"><span>✓</span><strong>Nenhum acerto pendente</strong><small>As entregas concluídas deste período já foram pagas ou ainda não há entregas para pagar.</small></div>'}</div><section class="fleet-payment-history"><h4>Histórico de pagamentos</h4>${settlements.length ? `<div class="fleet-report-table"><div class="fleet-report-row fleet-report-row--head"><span>Motoboy</span><span>Período</span><span>Entregas</span><span>Pagamento</span><span>Valor</span></div>${settlements.map((item) => `<div class="fleet-report-row"><strong>${escapeHTML(item.driver_name || 'Motoboy')}</strong><span>${escapeHTML(fleetDateLabel(item.period_start))} — ${escapeHTML(fleetDateLabel(item.period_end))}</span><span>${Number(item.delivery_count || 0)}</span><span>${escapeHTML(fleetPaymentMethodLabel(item.payment_method))}</span><strong>${fleetMoney(item.total_amount)}</strong></div>`).join('')}</div>` : '<p class="fleet-history-empty">Nenhum pagamento registrado neste período.</p>'}</section>`}
+    </div>`;
+}
+
+function renderFleetPaymentPending(item) {
+    const missingRate = !(Number(item.per_delivery_rate) > 0);
+    const preview = (item.deliveries || []).slice(0, 3).map((delivery) => `<li><strong>#${escapeHTML(delivery.delivery_code)}</strong><span>${escapeHTML(fleetDateTime(delivery.delivered_at))} · ${escapeHTML(delivery.address || 'Destino')}</span><b>${fleetMoney(delivery.amount)}</b></li>`).join('');
+    return `<article class="fleet-payment-card"><header><div><span class="fleet-status fleet-status--${missingRate ? 'danger' : 'success'}">${missingRate ? 'Valor pendente' : 'Pronto para pagar'}</span><h4>${escapeHTML(item.driver_name)}</h4><p>${Number(item.delivery_count || 0)} entrega(s) concluída(s) · ${fleetMoney(item.per_delivery_rate)} por entrega</p></div><div><strong>${fleetMoney(item.total_amount)}</strong>${canPerformAction('manageFleet') ? `<button class="fleet-btn fleet-btn--primary" onclick="${missingRate ? `openFleetDriverForm('${escapeHTML(item.driver_id)}')` : `openFleetPaymentSettlement('${escapeHTML(item.driver_id)}')`}">${missingRate ? 'Definir valor' : 'Registrar pagamento'}</button>` : ''}</div></header><ul>${preview}${Number(item.delivery_count || 0) > 3 ? `<li class="fleet-payment-more">+ ${Number(item.delivery_count || 0) - 3} entrega(s) no acerto</li>` : ''}</ul></article>`;
+}
+
+async function loadFleetPayments() {
+    if (fleetState.paymentsLoading) return;
+    const from = document.getElementById('fleet-payment-from')?.value || fleetState.payments?.range?.from || fleetDate(-30);
+    const to = document.getElementById('fleet-payment-to')?.value || fleetState.payments?.range?.to || fleetDate();
+    if (from > to) { showToast('A data inicial não pode ser posterior à data final.', 'error'); return; }
+    fleetState.paymentsLoading = true;
+    if (fleetState.tab === 'payments') renderFleetPage();
+    try { fleetState.payments = await fleetGateway.payments({ from, to }); }
+    catch (error) { showToast(error.message || 'Não foi possível carregar os acertos.', 'error'); }
+    finally { fleetState.paymentsLoading = false; if (fleetState.tab === 'payments') renderFleetPage(); }
+}
+
+function openFleetPaymentSettlement(driverId) {
+    const payment = (fleetState.payments?.pending || []).find((item) => item.driver_id === driverId);
+    if (!payment) return;
+    if (!(Number(payment.per_delivery_rate) > 0)) { openFleetDriverForm(driverId); showToast('Defina o valor por entrega antes de registrar o pagamento.', 'error'); return; }
+    const rows = (payment.deliveries || []).map((delivery) => `<li><span>#${escapeHTML(delivery.delivery_code)} · ${escapeHTML(fleetDateTime(delivery.delivered_at))}</span><strong>${fleetMoney(delivery.amount)}</strong></li>`).join('');
+    openModal(`<div class="modal-header"><div><h3>Registrar pagamento</h3><div class="modal-header-subtitle">${escapeHTML(payment.driver_name)} · ${Number(payment.delivery_count)} entrega(s) concluída(s)</div></div><button class="modal-close" onclick="closeModal()" aria-label="Fechar">✕</button></div><div class="modal-body delivery-form"><div class="fleet-settlement-total"><span>Total do acerto</span><strong>${fleetMoney(payment.total_amount)}</strong><small>${escapeHTML(fleetDateLabel(fleetState.payments.range.from))} a ${escapeHTML(fleetDateLabel(fleetState.payments.range.to))}</small></div><ul class="fleet-settlement-deliveries">${rows}</ul><div class="delivery-form-grid"><div class="form-group"><label for="fleet-payment-method">Forma de pagamento *</label><select id="fleet-payment-method"><option value="PIX">PIX</option><option value="CASH">Dinheiro</option><option value="BANK_TRANSFER">Transferência bancária</option><option value="OTHER">Outro</option></select></div><div class="form-group"><label for="fleet-payment-reference">Referência / comprovante</label><input id="fleet-payment-reference" maxlength="120" placeholder="Ex.: ID do PIX ou recibo"></div></div><div class="form-group"><label for="fleet-payment-notes">Observação</label><textarea id="fleet-payment-notes" maxlength="1000" placeholder="Opcional. Ex.: pagamento semanal."></textarea></div><div id="fleet-payment-error" class="fleet-form-error" aria-live="polite"></div></div><div class="modal-footer"><button class="delivery-btn delivery-btn--neutral" onclick="closeModal()">Cancelar</button><button class="delivery-btn delivery-btn--primary" onclick="submitFleetPaymentSettlement('${escapeHTML(driverId)}')">Confirmar pagamento</button></div>`, { size: 'lg' });
+}
+
+async function submitFleetPaymentSettlement(driverId) {
+    const error = document.getElementById('fleet-payment-error');
+    const input = { driver_id: driverId, from: fleetState.payments?.range?.from, to: fleetState.payments?.range?.to, payment_method: document.getElementById('fleet-payment-method')?.value, payment_reference: document.getElementById('fleet-payment-reference')?.value.trim() || undefined, notes: document.getElementById('fleet-payment-notes')?.value.trim() || undefined };
+    try { await fleetGateway.settlePayments(input); closeModal(); await loadFleetPayments(); showToast('Pagamento registrado. As entregas foram baixadas do acerto.', 'success'); }
+    catch (requestError) { if (error) error.textContent = requestError.message || 'Não foi possível registrar o pagamento.'; }
+}
+
+function fleetDateLabel(value) { if (!value) return '—'; const date = new Date(`${String(value).slice(0, 10)}T12:00:00`); return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleDateString('pt-BR'); }
+function fleetDateTime(value) { const date = new Date(value); return Number.isNaN(date.getTime()) ? 'Data indisponível' : date.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }); }
+function fleetPaymentMethodLabel(value) { return ({ PIX: 'PIX', CASH: 'Dinheiro', BANK_TRANSFER: 'Transferência', OTHER: 'Outro' })[String(value)] || 'Pagamento'; }
+
 function fleetDigits(value) { return String(value || '').replace(/\D/g, ''); }
 function fleetCpfValid(value) {
     const cpf = fleetDigits(value);
@@ -374,7 +437,7 @@ function fleetPhoneInput(input) { input.value = fleetPhoneMask(input.value); }
 
 function openFleetDriverForm(id = '') {
     const driver = fleetState.drivers.find((item) => item.id === id) || {};
-    openModal(`<div class="modal-header"><div><h3>${id ? 'Editar motoboy' : 'Cadastrar motoboy'}</h3><div class="modal-header-subtitle">Dados operacionais protegidos por tenant.</div></div><button class="modal-close" onclick="closeModal()" aria-label="Fechar">✕</button></div><div class="modal-body delivery-form"><div class="fleet-form-note"><span>🔒</span><p>O CPF será criptografado pelo backend. Depois do cadastro, somente os últimos dígitos ficam visíveis.</p></div><div class="delivery-form-grid"><div class="form-group"><label for="fleet-driver-name">Nome completo *</label><input id="fleet-driver-name" maxlength="120" autocomplete="name" value="${escapeHTML(driver.name || '')}"></div><div class="form-group"><label for="fleet-driver-cpf">CPF *</label><input id="fleet-driver-cpf" inputmode="numeric" autocomplete="off" ${id ? 'disabled' : ''} placeholder="000.000.000-00" value="${id ? escapeHTML(driver.cpf_masked || '') : ''}" oninput="fleetCpfInput(this)"><small class="delivery-helper">${id ? 'Para alterar o CPF, será necessária uma ação protegida do backend.' : 'Usado apenas para identificação interna.'}</small></div><div class="form-group"><label for="fleet-driver-plate">Placa da moto *</label><input id="fleet-driver-plate" maxlength="8" autocapitalize="characters" value="${escapeHTML(fleetPlateMask(driver.plate || ''))}" oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9-]/g,'')" placeholder="ABC-1D23"></div><div class="form-group"><label for="fleet-driver-phone">Telefone</label><input id="fleet-driver-phone" inputmode="tel" autocomplete="tel" value="${escapeHTML(fleetPhoneMask(driver.phone || ''))}" oninput="fleetPhoneInput(this)" placeholder="+55 (11) 99999-9999"><small class="delivery-helper">O código do país +55 é fixo.</small></div><div class="form-group"><label for="fleet-driver-limit">Limite simultâneo *</label><input id="fleet-driver-limit" type="number" min="1" max="10" value="${Number(driver.delivery_limit || 1)}"><small class="delivery-helper">Quantas entregas podem compor a fila do motoboy.</small></div></div><div id="fleet-driver-error" class="fleet-form-error" aria-live="polite"></div></div><div class="modal-footer">${id && canPerformAction('manageFleet') ? `<button class="delivery-btn ${driver.active ? 'delivery-btn--danger' : 'delivery-btn--neutral'}" onclick="${driver.active ? `openFleetDeactivation('${escapeHTML(id)}')` : `toggleFleetDriver('${escapeHTML(id)}',true)`}">${driver.active ? 'Inativar' : 'Reativar'}</button>` : ''}<span class="fleet-modal-spacer"></span><button class="delivery-btn delivery-btn--neutral" onclick="closeModal()">Cancelar</button><button class="delivery-btn delivery-btn--primary" onclick="saveFleetDriver('${escapeHTML(id)}')">Salvar motoboy</button></div>`, { size: 'lg' });
+    openModal(`<div class="modal-header"><div><h3>${id ? 'Editar motoboy' : 'Cadastrar motoboy'}</h3><div class="modal-header-subtitle">Dados operacionais protegidos por tenant.</div></div><button class="modal-close" onclick="closeModal()" aria-label="Fechar">✕</button></div><div class="modal-body delivery-form"><div class="fleet-form-note"><span>🔒</span><p>O CPF será criptografado pelo backend. Depois do cadastro, somente os últimos dígitos ficam visíveis.</p></div><div class="delivery-form-grid"><div class="form-group"><label for="fleet-driver-name">Nome completo *</label><input id="fleet-driver-name" maxlength="120" autocomplete="name" value="${escapeHTML(driver.name || '')}"></div><div class="form-group"><label for="fleet-driver-cpf">CPF *</label><input id="fleet-driver-cpf" inputmode="numeric" autocomplete="off" ${id ? 'disabled' : ''} placeholder="000.000.000-00" value="${id ? escapeHTML(driver.cpf_masked || '') : ''}" oninput="fleetCpfInput(this)"><small class="delivery-helper">${id ? 'Para alterar o CPF, será necessária uma ação protegida do backend.' : 'Usado apenas para identificação interna.'}</small></div><div class="form-group"><label for="fleet-driver-plate">Placa da moto *</label><input id="fleet-driver-plate" maxlength="8" autocapitalize="characters" value="${escapeHTML(fleetPlateMask(driver.plate || ''))}" oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9-]/g,'')" placeholder="ABC-1D23"></div><div class="form-group"><label for="fleet-driver-phone">Telefone</label><input id="fleet-driver-phone" inputmode="tel" autocomplete="tel" value="${escapeHTML(fleetPhoneMask(driver.phone || ''))}" oninput="fleetPhoneInput(this)" placeholder="+55 (11) 99999-9999"><small class="delivery-helper">O código do país +55 é fixo.</small></div><div class="form-group"><label for="fleet-driver-limit">Limite simultâneo *</label><input id="fleet-driver-limit" type="number" min="1" max="10" value="${Number(driver.delivery_limit || 1)}"><small class="delivery-helper">Quantas entregas podem compor a fila do motoboy.</small></div><div class="form-group"><label for="fleet-driver-rate">Valor por entrega (R$) *</label><input id="fleet-driver-rate" type="number" min="0" max="10000" step="0.01" value="${Number(driver.per_delivery_rate || 0)}"><small class="delivery-helper">Usado nos próximos acertos; pagamentos anteriores não são alterados.</small></div></div><div id="fleet-driver-error" class="fleet-form-error" aria-live="polite"></div></div><div class="modal-footer">${id && canPerformAction('manageFleet') ? `<button class="delivery-btn ${driver.active ? 'delivery-btn--danger' : 'delivery-btn--neutral'}" onclick="${driver.active ? `openFleetDeactivation('${escapeHTML(id)}')` : `toggleFleetDriver('${escapeHTML(id)}',true)`}">${driver.active ? 'Inativar' : 'Reativar'}</button>` : ''}<span class="fleet-modal-spacer"></span><button class="delivery-btn delivery-btn--neutral" onclick="closeModal()">Cancelar</button><button class="delivery-btn delivery-btn--primary" onclick="saveFleetDriver('${escapeHTML(id)}')">Salvar motoboy</button></div>`, { size: 'lg' });
 }
 
 async function saveFleetDriver(id) {
@@ -384,6 +447,7 @@ async function saveFleetDriver(id) {
     const phoneNational = fleetPhoneNationalDigits(document.getElementById('fleet-driver-phone')?.value);
     const phone = phoneNational ? `55${phoneNational}` : '';
     const deliveryLimit = Number(document.getElementById('fleet-driver-limit')?.value || 0);
+    const perDeliveryRate = Number(document.getElementById('fleet-driver-rate')?.value || 0);
     const error = document.getElementById('fleet-driver-error');
     const fail = (message) => { if (error) error.textContent = message; };
     if (!name || name.length < 3) return fail('Informe o nome completo.');
@@ -391,8 +455,9 @@ async function saveFleetDriver(id) {
     if (!fleetPlateValid(plate)) return fail('Informe uma placa válida, antiga ou Mercosul.');
     if (phoneNational && ![10, 11].includes(phoneNational.length)) return fail('Informe o telefone com DDD.');
     if (!Number.isInteger(deliveryLimit) || deliveryLimit < 1 || deliveryLimit > 10) return fail('O limite deve ficar entre 1 e 10 entregas.');
+    if (!Number.isFinite(perDeliveryRate) || perDeliveryRate < 0 || perDeliveryRate > 10000) return fail('Informe um valor por entrega válido.');
     try {
-        await fleetGateway.saveDriver(id, { name, ...(!id ? { cpf: fleetDigits(cpf) } : {}), plate, ...(phone ? { phone } : {}), delivery_limit: deliveryLimit, ...(id ? { expected_version: Number(fleetState.drivers.find((driver) => driver.id === id)?.version || 1) } : {}) });
+        await fleetGateway.saveDriver(id, { name, ...(!id ? { cpf: fleetDigits(cpf) } : {}), plate, ...(phone ? { phone } : {}), delivery_limit: deliveryLimit, per_delivery_rate: perDeliveryRate, ...(id ? { expected_version: Number(fleetState.drivers.find((driver) => driver.id === id)?.version || 1) } : {}) });
         closeModal(); await refreshFleetData({ silent: true }); showToast(id ? 'Cadastro atualizado.' : 'Motoboy cadastrado.', 'success');
     } catch (requestError) { fail(requestError.message || 'Não foi possível salvar. Os dados preenchidos foram preservados.'); }
 }

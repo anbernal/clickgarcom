@@ -3,7 +3,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Roles } from '../auth/roles.decorator';
 import { TENANT_DELIVERY_DISPATCH_ROLES, TENANT_DELIVERY_REPORT_ROLES, TENANT_FULL_ACCESS_ROLES } from '../auth/roles';
 import { DeliveryFleetService } from './delivery-fleet.service';
-import { CreateDeliveryDriverDto, DeliveryFleetAssignmentsQueryDto, DeliveryFleetDriversQueryDto, DeliveryFleetReportQueryDto, ReorderDeliveryDriverQueueDto, SetDeliveryDriverStatusDto, UpdateDeliveryDriverDto, UpdateDeliveryFleetConfigDto } from './dto/delivery-fleet.dto';
+import { CreateDeliveryDriverDto, DeliveryFleetAssignmentsQueryDto, DeliveryFleetDriversQueryDto, DeliveryFleetPaymentsQueryDto, DeliveryFleetReportQueryDto, ReorderDeliveryDriverQueueDto, SetDeliveryDriverStatusDto, SettleDeliveryDriverPaymentsDto, UpdateDeliveryDriverDto, UpdateDeliveryFleetConfigDto } from './dto/delivery-fleet.dto';
 
 @Controller('admin/api/delivery')
 @UseGuards(JwtAuthGuard)
@@ -53,6 +53,14 @@ export class DeliveryFleetController {
     @Put('drivers/:id/queue')
     @Roles(...TENANT_DELIVERY_DISPATCH_ROLES)
     reorder(@Request() req: any, @Param('id') id: string, @Body() body: ReorderDeliveryDriverQueueDto) { return this.fleet.reorder(req.user.tenantId, id, body, req.user); }
+
+    @Get('fleet/payments')
+    @Roles(...TENANT_FULL_ACCESS_ROLES)
+    payments(@Request() req: any, @Query() query: DeliveryFleetPaymentsQueryDto) { return this.fleet.paymentOverview(req.user.tenantId, query); }
+
+    @Post('fleet/payments/settle')
+    @Roles(...TENANT_FULL_ACCESS_ROLES)
+    settlePayments(@Request() req: any, @Body() body: SettleDeliveryDriverPaymentsDto) { return this.fleet.settlePayments(req.user.tenantId, body, req.user); }
 }
 
 @Controller('admin/api/deliveries/reports')

@@ -15,6 +15,7 @@ export class DeliveryDriverProfile {
     @Column({ name: 'pin_hash', type: 'text', nullable: true }) pinHash: string | null;
     @Column({ type: 'varchar', length: 20, nullable: true }) phone: string | null;
     @Column({ name: 'delivery_limit', type: 'integer', default: 1 }) deliveryLimit: number;
+    @Column({ name: 'per_delivery_rate', type: 'numeric', precision: 10, scale: 2, default: 0 }) perDeliveryRate: string;
     @Column({ type: 'boolean', default: true }) active: boolean;
     @Column({ type: 'varchar', length: 20, default: 'OFFLINE' }) availability: string;
     @Column({ name: 'deactivation_reason', type: 'text', nullable: true }) deactivationReason: string | null;

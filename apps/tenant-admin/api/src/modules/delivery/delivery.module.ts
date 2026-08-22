@@ -81,6 +81,8 @@ import { DeliveryDriverAccessLink } from '../../entities/delivery-driver-access-
 import { DeliveryDriverSession } from '../../entities/delivery-driver-session.entity';
 import { DeliveryDriverIncident } from '../../entities/delivery-driver-incident.entity';
 import { DeliveryDriverEvent } from '../../entities/delivery-driver-event.entity';
+import { DeliveryDriverPaymentBatch } from '../../entities/delivery-driver-payment-batch.entity';
+import { DeliveryDriverPaymentItem } from '../../entities/delivery-driver-payment-item.entity';
 import { FleetDriverPublicController, FleetDriverPortalController } from './fleet-driver-portal.controller';
 import { FleetDriverPortalService } from './fleet-driver-portal.service';
 
@@ -114,6 +116,8 @@ import { FleetDriverPortalService } from './fleet-driver-portal.service';
         DeliveryDriverSession,
         DeliveryDriverIncident,
         DeliveryDriverEvent,
+        DeliveryDriverPaymentBatch,
+        DeliveryDriverPaymentItem,
     ])],
     controllers: [DeliverySettingsController, DeliveryController, DeliveryInternalController, DeliveryCustomerController, DeliveryCustomerInternalController, DeliveryPostalCodeController, DeliveryPostalCodeInternalController, DeliveryProviderConfigController, DeliveryCapacityController, DeliveryCapacityInternalController, DeliveryQuoteController, DeliveryQuoteInternalController, DeliveryFulfillmentController, DeliveryFulfillmentInternalController, DeliveryCheckoutController, DeliveryCheckoutInternalController, DeliveryWebhookController, DeliveryDriverController, DeliveryTrackingAdminController, DeliveryTrackingPublicController, DeliveryReportsController, DeliveryFleetController, DeliveryFleetReportController, FleetDriverPublicController, FleetDriverPortalController],
     providers: [

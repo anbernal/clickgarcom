@@ -41,6 +41,8 @@ import { DeliveryDriverAccessLink } from './entities/delivery-driver-access-link
 import { DeliveryDriverSession } from './entities/delivery-driver-session.entity';
 import { DeliveryDriverIncident } from './entities/delivery-driver-incident.entity';
 import { DeliveryDriverEvent } from './entities/delivery-driver-event.entity';
+import { DeliveryDriverPaymentBatch } from './entities/delivery-driver-payment-batch.entity';
+import { DeliveryDriverPaymentItem } from './entities/delivery-driver-payment-item.entity';
 
 import { MenuModule } from './modules/menu/menu.module';
 import { CategoriesModule } from './modules/categories/categories.module';
@@ -66,7 +68,7 @@ import { AppController } from './app.controller';
             username: process.env.DATABASE_USER || 'postgres',
             password: process.env.DATABASE_PASSWORD || 'postgres123',
             database: process.env.DATABASE_NAME || 'clickgarcom_db',
-            entities: [MenuCategory, MenuItem, Order, OrderItem, OrderBatch, Table, Tab, TableRequest, User, Tenant, MessageLog, BotFlowDefinition, UserAccessAuditLog, WalletBillingCycle, PurchaseEntry, Delivery, DeliveryEvent, DeliveryTrackingCredential, DeliveryLocationSample, DeliveryPinChallenge, DeliveryCommandIdempotency, DomainOutboxEvent, Customer, CustomerAddress, DeliveryProviderConfig, DeliveryProviderCredential, DeliveryQuote, DeliveryFulfillment, DeliveryProviderAttempt, DeliveryOwnCapacityReservation, DeliveryProviderWebhookInbox, DeliveryCheckout, DeliveryDriverProfile, DeliveryDriverAssignment, DeliveryDriverAccessLink, DeliveryDriverSession, DeliveryDriverIncident, DeliveryDriverEvent],
+            entities: [MenuCategory, MenuItem, Order, OrderItem, OrderBatch, Table, Tab, TableRequest, User, Tenant, MessageLog, BotFlowDefinition, UserAccessAuditLog, WalletBillingCycle, PurchaseEntry, Delivery, DeliveryEvent, DeliveryTrackingCredential, DeliveryLocationSample, DeliveryPinChallenge, DeliveryCommandIdempotency, DomainOutboxEvent, Customer, CustomerAddress, DeliveryProviderConfig, DeliveryProviderCredential, DeliveryQuote, DeliveryFulfillment, DeliveryProviderAttempt, DeliveryOwnCapacityReservation, DeliveryProviderWebhookInbox, DeliveryCheckout, DeliveryDriverProfile, DeliveryDriverAssignment, DeliveryDriverAccessLink, DeliveryDriverSession, DeliveryDriverIncident, DeliveryDriverEvent, DeliveryDriverPaymentBatch, DeliveryDriverPaymentItem],
             synchronize: false,
         }),
         AmqpModule,
