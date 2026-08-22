@@ -116,11 +116,11 @@
         if(!node||!window.L||destination.lat==null||destination.lng==null)return;
         state.map=window.L.map(node,{zoomControl:false,attributionControl:true,dragging:true,scrollWheelZoom:false,tap:true});
         window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(state.map);
-        const destinationIcon=window.L.divIcon({className:'tracking-leaflet-icon destination',html:'⌂',iconSize:[38,38]});
+        const destinationIcon=window.L.divIcon({className:'tracking-leaflet-icon destination',html:'📍',iconSize:[38,38]});
         const destinationPoint=[Number(destination.lat),Number(destination.lng)];
         window.L.marker(destinationPoint,{icon:destinationIcon,keyboard:false}).addTo(state.map);
         if(driver&&driver.lat!=null&&driver.lng!=null&&!terminalStatuses.has(data.status)){
-            const driverIcon=window.L.divIcon({className:'tracking-leaflet-icon',html:stale?'◷':'➜',iconSize:[38,38]});
+            const driverIcon=window.L.divIcon({className:'tracking-leaflet-icon',html:'🛵',iconSize:[38,38]});
             const driverPoint=[Number(driver.lat),Number(driver.lng)];
             window.L.marker(driverPoint,{icon:driverIcon,keyboard:false}).addTo(state.map);
             state.map.fitBounds(window.L.latLngBounds([driverPoint,destinationPoint]),{padding:[48,48],maxZoom:16});
