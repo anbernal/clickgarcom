@@ -132,6 +132,32 @@ não controla estoque por complemento ou opção.
 
 ## 6. Requisitos funcionais
 
+### RET-RF-000 — Separação entre catálogo, canais e logística
+
+Os módulos são independentes e devem ser avaliados separadamente no tenant:
+
+| Configuração | Experiência no WhatsApp | Pode concluir pedido? |
+| --- | --- | --- |
+| Atendimento ativo | Fluxo presencial/comanda | Conforme regras do Atendimento |
+| Delivery ativo + `RESTAURANT` | Link autenticado para o Cardápio | Sim, pelo checkout Delivery |
+| RETAIL ativo + Delivery ativo + `MARKET` ou `PHARMACY` | Link autenticado para a Loja/Catálogo | Sim, pelo checkout Retail + Delivery |
+| RETAIL ativo sem Delivery | Catálogo administrativo/loja, sem expedição Delivery | Não para entrega |
+| Atendimento e Delivery inativos | Mensagem de canal indisponível | Não |
+
+Delivery é o domínio de logística, capacidade, endereço, pagamento e
+rastreamento. Ele não define se o tenant vende refeições ou mercadorias. O
+tipo `establishment_type` seleciona a experiência (`Cardápio` para restaurante
+e `Loja` para mercado/farmácia), enquanto RETAIL controla catálogo e estoque.
+
+Assim, ativar Delivery em um mercado não coloca produtos na Cozinha, e ativar
+RETAIL não cria um canal presencial nem altera Atendimento. Um tenant pode ter
+os módulos ativos de forma híbrida, mas cada pedido deve seguir apenas a
+experiência correspondente ao seu tipo e ao seu `service_type`.
+
+No WhatsApp, o link é sempre autenticado e de uso controlado. A opção de
+entrega só é exibida quando o tenant está aberto, Delivery está ativo e
+`whatsapp_order_enabled` está habilitado.
+
 ### RET-RF-001 — Ativação segura
 
 O Super Admin deve habilitar ou desabilitar RETAIL como módulo independente.

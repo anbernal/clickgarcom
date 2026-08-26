@@ -75,6 +75,22 @@ O agregado operacional e a semântica dos estados são próprios de RETAIL.
 tipo do estabelecimento. RETAIL entrega ao domínio Delivery somente quando a
 compra estiver pronta para expedição.
 
+### RET-DA-009 — Roteamento de experiência no WhatsApp
+
+O módulo ativo não altera sozinho a experiência apresentada ao cliente. O
+worker consulta o tipo do tenant e a configuração dos módulos ao gerar o
+acesso autenticado:
+
+- `RESTAURANT` + Delivery ativo: link para `/cardapio/:slug`;
+- `MARKET` ou `PHARMACY` + RETAIL e Delivery ativos: link para `/loja/:slug`;
+- Delivery inativo, tenant fechado ou pedidos WhatsApp desabilitados: nenhum
+  link de pedido é enviado.
+
+Essa decisão evita que um pedido de mercadoria seja criado na Cozinha/Bar e
+mantém o fluxo legado dos restaurantes. O catálogo Retail e o cardápio usam
+experiências distintas, mas compartilham autenticação, clientes, endereços,
+pagamento e o domínio de entrega quando aplicável.
+
 ## 3. Modelo de dados
 
 ### 3.1 Tenant
@@ -335,4 +351,3 @@ o catálogo completo.
 - idempotência em toda mutação financeira/estoque;
 - logs sem telefone, endereço ou itens sensíveis em texto livre;
 - auditoria de alteração de preço e estoque.
-
