@@ -38,6 +38,7 @@ const storeState = {
     profile: null,
     loginChallengeId: '',
     cart: {},
+    orders: [],
     query: '',
     category: 'all',
     sort: 'relevance',
@@ -247,6 +248,9 @@ function renderStoreCartCounters() {
     document.getElementById('store-floating-count').textContent = `${quantity} ${quantity === 1 ? 'item' : 'itens'}`;
     document.getElementById('store-floating-total').textContent = storeMoney(cartTotal());
     document.getElementById('store-floating-cart').hidden = quantity === 0;
+    const navCount = document.getElementById('store-nav-cart-count');
+    navCount.textContent = quantity;
+    navCount.hidden = quantity === 0;
 }
 
 function openStoreLayer(html, className = '') {
@@ -272,13 +276,19 @@ function openStoreProduct(productId) {
     const product = storeState.data.products.find((item) => item.id === productId);
     if (!product) return;
     const quantity = productQuantity(productId);
-    openStoreLayer(`${storeSheetHead(product.name, `${product.brand} · ${product.package}`)}<div class="store-product-detail"><div class="store-product-detail__visual" style="--product-accent:${product.accent}"><span>${product.emoji}</span></div><div class="store-product-detail__copy"><small>${storeEscape(product.brand)}</small><h3>${storeEscape(product.name)}</h3><p>${storeEscape(product.package)}. Produto unitário com preço confirmado antes do pagamento.</p><strong>${storeMoney(product.price)}</strong></div></div><div class="store-detail-action">${product.stock > 0 ? `<div class="store-stepper store-stepper--large"><button onclick="changeStoreDetailQuantity('${storeEscape(product.id)}', -1)">−</button><b id="store-detail-quantity">${quantity}</b><button onclick="changeStoreDetailQuantity('${storeEscape(product.id)}', 1)">+</button></div><button class="store-primary-button" onclick="closeStoreLayer();openStoreCart()">${quantity ? 'Ver sacola' : 'Adicionar à sacola'}</button>` : '<button class="store-primary-button" disabled>Produto indisponível</button>'}</div>`, 'store-sheet--product');
+    openStoreLayer(`${storeSheetHead(product.name, `${product.brand} · ${product.package}`)}<div class="store-product-detail"><div class="store-product-detail__visual" style="--product-accent:${product.accent}"><span>${product.emoji}</span></div><div class="store-product-detail__copy"><small>${storeEscape(product.brand)}</small><h3>${storeEscape(product.name)}</h3><p>${storeEscape(product.package)}. Produto unitário com preço confirmado antes do pagamento.</p><strong>${storeMoney(product.price)}</strong></div></div><div class="store-detail-action">${product.stock > 0 ? `<div class="store-stepper store-stepper--large"><button onclick="changeStoreDetailQuantity('${storeEscape(product.id)}', -1)">−</button><b id="store-detail-quantity">${quantity}</b><button onclick="changeStoreDetailQuantity('${storeEscape(product.id)}', 1)">+</button></div><button class="store-primary-button" onclick="addStoreProductAndOpenCart('${storeEscape(product.id)}')">${quantity ? 'Ver sacola' : 'Adicionar à sacola'}</button>` : '<button class="store-primary-button" disabled>Produto indisponível</button>'}</div>`, 'store-sheet--product');
 }
 
 function changeStoreDetailQuantity(productId, delta) {
     changeStoreQuantity(productId, delta);
     const target = document.getElementById('store-detail-quantity');
     if (target) target.textContent = productQuantity(productId);
+}
+
+function addStoreProductAndOpenCart(productId) {
+    if (!productQuantity(productId)) changeStoreQuantity(productId, 1);
+    closeStoreLayer();
+    openStoreCart();
 }
 
 function openStoreCart() {
@@ -334,8 +344,30 @@ function finishStorePreviewCheckout() {
     openStoreLayer(`<div class="store-success"><span>✓</span><small>PAGAMENTO CONFIRMADO</small><h2>Compra #${code} recebida!</h2><p>Os produtos agora seguirão para a Central de Separação. Você poderá acompanhar tudo por aqui e pelo WhatsApp.</p><div><b>Próxima etapa</b><strong>Em separação</strong></div><button class="store-primary-button" onclick="closeStoreLayer();openStoreOrders()">Acompanhar compra</button><button class="store-secondary-button" onclick="closeStoreLayer()">Voltar à loja</button></div>`, 'store-sheet--success');
 }
 
+function storeOrderStage(order) {
+    const delivery = String(order.delivery_status || '').toUpperCase();
+    const orderStatus = String(order.order_status || '').toUpperCase();
+    const payment = String(order.payment_status || '').toUpperCase();
+    if (delivery === 'DELIVERED' || orderStatus === 'DELIVERED') return { label: 'Entregue', step: 5 };
+    if (delivery === 'IN_ROUTE' || delivery === 'OUT_FOR_DELIVERY' || delivery === 'ROUTE') return { label: 'Em rota', step: 4 };
+    if (delivery === 'READY' || orderStatus === 'READY') return { label: 'Pronto para saída', step: 3 };
+    if (payment === 'APPROVED' || payment === 'PAID' || orderStatus === 'ACCEPTED' || orderStatus === 'PREPARING' || orderStatus === 'PICKING') return { label: 'Em separação', step: 2 };
+    return { label: 'Aguardando pagamento', step: 1 };
+}
+
+function renderStoreOrder(order) {
+    const stage = storeOrderStage(order);
+    const items = Array.isArray(order.items) ? order.items : [];
+    const labels = ['Recebido', 'Separação', 'Pronto', 'Em rota', 'Entregue'];
+    const code = order.delivery_code || String(order.checkout_key || '').slice(-6).toUpperCase();
+    const created = order.created_at ? new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'short' }).format(new Date(order.created_at)) : 'Agora';
+    return `<article class="store-order ${stage.step === 5 ? 'store-order--past' : ''}"><div class="store-order__head"><div><small>COMPRA #${storeEscape(code)}</small><h3>${storeEscape(stage.label)}</h3></div><span>${items.reduce((total, item) => total + Number(item.quantity || 0), 0)} produto${items.reduce((total, item) => total + Number(item.quantity || 0), 0) === 1 ? '' : 's'}</span></div><div class="store-order__timeline">${labels.map((label, index) => `<i class="${index + 1 < stage.step ? 'is-done' : index + 1 === stage.step ? 'is-current' : ''}"><b>${index + 1 < stage.step ? '✓' : ''}</b><small>${label}</small></i>`).join('')}</div><div class="store-order__footer"><span>${stage.step === 5 ? `${created} · ${storeMoney(order.total)}` : 'Atualização ao vivo'}</span><button type="button" onclick="showStoreToast('Os detalhes da entrega também são enviados pelo WhatsApp.')">Ver detalhes</button></div></article>`;
+}
+
 function openStoreOrders() {
-    openStoreLayer(`${storeSheetHead('Suas compras', 'Acompanhe cada etapa sem atualizar a página')}<article class="store-order"><div class="store-order__head"><div><small>COMPRA #4821</small><h3>Em separação</h3></div><span>3 produtos</span></div><div class="store-order__timeline"><i class="is-done"><b>✓</b><small>Recebido</small></i><i class="is-current"><b></b><small>Separação</small></i><i><b></b><small>Pronto</small></i><i><b></b><small>Em rota</small></i><i><b></b><small>Entregue</small></i></div><div class="store-order__footer"><span>Atualizado agora</span><button>Ver detalhes</button></div></article><article class="store-order store-order--past"><div class="store-order__head"><div><small>COMPRA #4759</small><h3>Entregue</h3></div><span>5 produtos</span></div><div class="store-order__footer"><span>22 de ago. · ${storeMoney(74.38)}</span><button onclick="showStoreToast('Itens disponíveis adicionados à sacola.')">Comprar novamente</button></div></article>`, 'store-sheet--orders');
+    const orders = storePreviewType() ? [{ checkout_key: '4821', payment_status: 'APPROVED', order_status: 'PICKING', total: 86.72, items: [{ quantity: 3 }] }, { checkout_key: '4759', payment_status: 'APPROVED', order_status: 'DELIVERED', total: 74.38, items: [{ quantity: 5 }], created_at: '2026-08-22T12:00:00Z' }] : storeState.orders;
+    const content = orders.length ? orders.map(renderStoreOrder).join('') : `<div class="store-sheet-empty"><span>🛍️</span><h3>Nenhuma compra ainda</h3><p>Os produtos da sua sacola aparecem aqui somente depois da confirmação do pagamento.</p><button class="store-primary-button" onclick="closeStoreLayer();openStoreCart()">Abrir sacola</button></div>`;
+    openStoreLayer(`${storeSheetHead('Suas compras', 'Acompanhe cada etapa sem atualizar a página')}${content}`, 'store-sheet--orders');
 }
 
 function openStoreAccount() {
@@ -390,7 +422,17 @@ async function initializeStore() {
         const access = new URLSearchParams(window.location.search).get('access') || new URLSearchParams(window.location.hash.replace(/^#/, '')).get('whatsapp_access');
         if (access && !storePreviewType()) await storeFetch('/session/exchange', { method: 'POST', body: JSON.stringify({ capability: access }) });
         storeState.data = await fetchStoreData();
-        if (!storePreviewType()) storeState.profile = await storeFetch('/session');
+        if (!storePreviewType()) {
+            storeState.profile = await storeFetch('/session');
+            try {
+                const history = await storeFetch('/orders');
+                storeState.orders = Array.isArray(history) ? history.filter((order) => String(order?.storefront || '').toUpperCase() === 'RETAIL') : [];
+            } catch (_) {
+                // The purchase history must never prevent the customer from
+                // browsing products or reaching the cart.
+                storeState.orders = [];
+            }
+        }
         renderStore();
     } catch (error) {
         if (error?.code === 'AUTH') renderStoreAccess(error.message);
@@ -409,6 +451,7 @@ window.selectStoreSection = selectStoreSection;
 window.changeStoreQuantity = changeStoreQuantity;
 window.openStoreProduct = openStoreProduct;
 window.changeStoreDetailQuantity = changeStoreDetailQuantity;
+window.addStoreProductAndOpenCart = addStoreProductAndOpenCart;
 window.openStoreCart = openStoreCart;
 window.closeStoreLayer = closeStoreLayer;
 window.openStoreCheckoutAddress = openStoreCheckoutAddress;

@@ -292,6 +292,7 @@ export class PublicMenuCustomerService {
         const session = await this.resolveSession(rawSlug, sessionToken);
         const rows = await this.dataSource.query(
             `SELECT dc.checkout_key,
+                    CASE WHEN retail_request.id IS NULL THEN 'FOOD' ELSE 'RETAIL' END AS storefront,
                     dc.status AS payment_status,
                     dc.order_total,
                     dc.customer_delivery_fee,
@@ -314,13 +315,14 @@ export class PublicMenuCustomerService {
                     ) ORDER BY o.created_at, oi.created_at) FILTER (WHERE oi.id IS NOT NULL), '[]'::jsonb) AS items
                FROM delivery_checkouts dc
                JOIN order_batches ob ON ob.id = dc.order_batch_id AND ob.tenant_id = dc.tenant_id
+          LEFT JOIN retail_order_requests retail_request ON retail_request.order_batch_id = ob.id AND retail_request.tenant_id = dc.tenant_id
           LEFT JOIN deliveries d ON d.batch_id = ob.id AND d.tenant_id = dc.tenant_id
           LEFT JOIN orders o ON o.batch_id = ob.id AND o.tenant_id = dc.tenant_id
           LEFT JOIN order_items oi ON oi.order_id = o.id
           LEFT JOIN menu_items mi ON mi.id = oi.menu_item_id
               WHERE dc.tenant_id = $1
                 AND dc.customer_id = $2
-              GROUP BY dc.checkout_key, dc.status, dc.order_total, dc.customer_delivery_fee,
+              GROUP BY dc.checkout_key, dc.tenant_id, retail_request.id, dc.status, dc.order_total, dc.customer_delivery_fee,
                        dc.total_amount, dc.created_at, dc.expires_at, ob.id, ob.status,
                        d.id, d.display_code, d.status, d.eta_seconds, d.delivered_at
               ORDER BY dc.created_at DESC
@@ -329,6 +331,7 @@ export class PublicMenuCustomerService {
         );
         return rows.map((row: any) => ({
             checkout_key: row.checkout_key,
+            storefront: String(row.storefront || 'FOOD'),
             payment_status: row.payment_status,
             order_status: row.order_status,
             delivery_id: row.delivery_id || null,

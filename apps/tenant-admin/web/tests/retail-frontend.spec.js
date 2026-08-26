@@ -141,6 +141,22 @@ test('Loja RETAIL mobile oferece categorias, recompra, ofertas e checkout comple
   await expect(page.getByRole('heading', { name: /Compra #[0-9]{4} recebida!/ })).toBeVisible();
 });
 
+test('Sacola e compras permanecem ações separadas na loja mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/loja/mercado-modelo?preview=market');
+
+  await page.locator('.store-product-card__main').first().click();
+  await expect(page.getByRole('button', { name: 'Adicionar à sacola' })).toBeVisible();
+  await page.getByRole('button', { name: 'Adicionar à sacola' }).click();
+  await expect(page.getByRole('heading', { name: 'Sua sacola' })).toBeVisible();
+  await expect(page.locator('.store-cart-list')).toContainText('Biscoito de Polvilho Tradicional');
+
+  await page.getByRole('button', { name: 'Fechar' }).click();
+  await page.getByRole('button', { name: 'Compras', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Suas compras' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Suas compras' })).not.toHaveText('Sua sacola');
+});
+
 test('Preview de farmácia usa o mesmo RETAIL com identidade própria', async ({ page }) => {
   await page.goto('/loja/farmacia-modelo?preview=pharmacy');
   await expect(page.getByText('Farmácia Modelo')).toBeVisible();

@@ -17,7 +17,7 @@
                     <span><strong id="store-name">Mercado Modelo</strong><small><i id="store-open-dot"></i><span id="store-status">Aberto · entrega hoje</span></small></span>
                 </button>
                 <div class="store-header__actions">
-                    <button class="store-icon-button" type="button" aria-label="Acompanhar compras" onclick="openStoreOrders()"><svg viewBox="0 0 24 24" fill="none"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg><b id="store-order-count" hidden>1</b></button>
+                    <button class="store-icon-button" type="button" aria-label="Acompanhar compras feitas" title="Compras feitas" onclick="openStoreOrders()"><svg viewBox="0 0 24 24" fill="none"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg><b id="store-order-count" hidden>1</b></button>
                     <button class="store-cart-button" type="button" onclick="openStoreCart()"><svg viewBox="0 0 24 24" fill="none"><path d="M6 7h15l-2 8H8L6 3H3M9 20h.01M18 20h.01"/></svg><span>Sacola</span><b id="store-cart-count">0</b></button>
                 </div>
             </div>
@@ -41,6 +41,7 @@
         <nav class="store-bottom-nav" aria-label="Navegação principal">
             <button type="button" class="is-active" onclick="scrollStoreTop()"><svg viewBox="0 0 24 24" fill="none"><path d="m3 11 9-8 9 8v9H3z"/><path d="M9 20v-6h6v6"/></svg><span>Início</span></button>
             <button type="button" onclick="focusStoreSearch()"><svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><span>Buscar</span></button>
+            <button class="store-bottom-nav__cart" type="button" onclick="openStoreCart()"><svg viewBox="0 0 24 24" fill="none"><path d="M6 7h15l-2 8H8L6 3H3M9 20h.01M18 20h.01"/></svg><span>Sacola</span><b id="store-nav-cart-count" hidden>0</b></button>
             <button type="button" onclick="openStoreOrders()"><svg viewBox="0 0 24 24" fill="none"><path d="M5 3h14v18l-3-2-4 2-4-2-3 2z"/><path d="M8 8h8M8 12h6"/></svg><span>Compras</span></button>
             <button type="button" onclick="openStoreAccount()"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg><span>Conta</span></button>
         </nav>
