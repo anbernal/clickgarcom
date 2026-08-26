@@ -7,6 +7,11 @@ const pages = {
         sub: 'Cada linha representa uma mensagem contabilizada no consumo do WhatsApp',
         loader: loadExtratoMensagens,
     },
+    retailOverview: { title: 'Painel da loja', sub: 'Vendas, pedidos e estoque em um único lugar', loader: loadRetailOverview },
+    retailProducts: { title: 'Produtos', sub: 'Catálogo, preços e disponibilidade para venda', loader: loadRetailProductsPage },
+    retailInventory: { title: 'Estoque', sub: 'Saldo físico, reservas e movimentações', loader: loadRetailInventoryPage },
+    retailPicking: { title: 'Central de Separação', sub: 'Separe, confira e libere compras pagas', loader: loadRetailPickingPage },
+    retailOrders: { title: 'Compras online', sub: 'Acompanhe compras atuais e histórico de conclusão', loader: loadRetailOrdersPage },
     pedidos: { title: 'Pedidos', sub: 'Fila de pedidos recebidos', loader: loadPedidos },
     delivery: { title: 'Entregas', sub: 'Despacho, acompanhamento e experiência do cliente', loader: loadDeliveryPage },
     fleet: { title: 'Frota própria', sub: 'Motoboys, acessos, capacidade e desempenho', loader: loadFleetPage },
@@ -33,6 +38,20 @@ function buildAppPath(pathname) {
 }
 
 function getDefaultPageId() {
+    const user = getCurrentUser() || {};
+    const attendanceEnabled = user.attendance_enabled !== false;
+    const retailEnabled = typeof window.isRetailProfile === 'function' && window.isRetailProfile();
+    const deliveryEnabled = user.delivery_enabled === true;
+
+    // A tenant focused on products must open in the store operation, not in a
+    // restaurant dashboard that is unavailable to it. The same principle makes
+    // a Delivery-only account land directly on its dispatch queue.
+    if (!attendanceEnabled && retailEnabled && canAccessPage('retailOverview')) {
+        return 'retailOverview';
+    }
+    if (!attendanceEnabled && deliveryEnabled && canAccessPage('delivery')) {
+        return 'delivery';
+    }
     return Object.keys(pages).find((pageId) => canAccessPage(pageId)) || 'dashboard';
 }
 
@@ -44,7 +63,11 @@ function applyNavigationPermissions() {
 
     document.querySelectorAll('.nav-item[data-route-group]').forEach((navItem) => {
         const routeGroup = navItem.dataset.routeGroup;
-        navItem.style.display = canAccessRouteGroup(routeGroup) ? '' : 'none';
+        const pageId = navItem.dataset.page;
+        // A link can belong both to a role group and to a module. It must pass
+        // both checks; otherwise an eligible ADMIN could see Delivery merely
+        // because its route group exists while the module is disabled.
+        navItem.style.display = canAccessRouteGroup(routeGroup) && (!pageId || canAccessPage(pageId)) ? '' : 'none';
     });
 
     const btnExpediente = document.getElementById('btn-expediente');
@@ -53,8 +76,26 @@ function applyNavigationPermissions() {
     }
 
     configureKdsNavigation();
+    configureBusinessProfileNavigation();
     collapseEmptyNavigationSections();
     refreshModuleStatusIndicators();
+}
+
+function configureBusinessProfileNavigation() {
+    const retail = typeof window.isRetailProfile === 'function' && window.isRetailProfile();
+    const attendance = (getCurrentUser() || {}).attendance_enabled !== false;
+    const standaloneRetail = retail && !attendance;
+    document.body.classList.toggle('is-retail-profile', standaloneRetail);
+    document.querySelectorAll('[data-business-profile]').forEach((item) => {
+        const target = item.dataset.businessProfile;
+        const visible = target === 'retail' ? retail : attendance;
+        item.style.display = visible ? '' : 'none';
+    });
+
+    const establishmentLabel = document.getElementById('nav-establishment-label');
+    if (establishmentLabel) establishmentLabel.textContent = standaloneRetail ? 'Meu estabelecimento' : 'Meu Restaurante';
+    const logoIcon = document.querySelector('.logo-icon');
+    if (logoIcon) logoIcon.textContent = standaloneRetail ? '▦' : '🍽';
 }
 
 function getModuleStatusModel() {
@@ -63,19 +104,21 @@ function getModuleStatusModel() {
         tenantName: String(user.tenant_name || 'esta conta').trim(),
         attendanceEnabled: user.attendance_enabled !== false,
         deliveryEnabled: user.delivery_enabled === true,
+        retailEnabled: user.retail_enabled === true,
     };
 }
 
 function renderModuleStatusSidebar() {
     const status = getModuleStatusModel();
     const module = (icon, label, enabled) => `<div class="module-status-item ${enabled ? 'module-status-item--on' : 'module-status-item--off'}"><span><i aria-hidden="true">${icon}</i>${label}</span><strong>${enabled ? 'Ativo' : 'Desativado'}</strong></div>`;
-    return `<div class="module-status-panel"><div class="module-status-panel__title">Módulos da conta</div>${module('⚡', 'Atendimento', status.attendanceEnabled)}${module('🚚', 'Delivery', status.deliveryEnabled)}</div>`;
+    return `<div class="module-status-panel"><div class="module-status-panel__title">Módulos da conta</div>${module('⚡', 'Atendimento', status.attendanceEnabled)}${module('▦', 'Retail', status.retailEnabled)}${module('🚚', 'Delivery', status.deliveryEnabled)}</div>`;
 }
 
 function renderModuleStatusDashboard() {
     const status = getModuleStatusModel();
     const disabled = [];
     if (!status.attendanceEnabled) disabled.push('Atendimento presencial');
+    if (!status.retailEnabled) disabled.push('Retail');
     if (!status.deliveryEnabled) disabled.push('Delivery');
     if (!disabled.length) return '';
     return `<section class="module-status-dashboard" aria-live="polite"><div class="module-status-dashboard__icon">!</div><div><strong>Módulos desabilitados</strong><p>${escapeHTML(disabled.join(' e '))} não está disponível para esta conta. A ativação é feita pelo Super Admin.</p></div></section>`;
@@ -164,6 +207,9 @@ function navigate(pageId, options = {}) {
     }
     if (authorizedPageId !== 'fleet' && typeof window.destroyFleetPage === 'function') {
         window.destroyFleetPage();
+    }
+    if (authorizedPageId !== 'retailPicking' && typeof window.destroyRetailPickingPage === 'function') {
+        window.destroyRetailPickingPage();
     }
 
     if (typeof window.stopConsultaScanner === 'function') {

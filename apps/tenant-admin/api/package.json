@@ -14,6 +14,7 @@
     "test:delivery-contract": "npm run build && node --test scripts/delivery-contract-smoke-test.js",
     "test:delivery-security": "npm run build && node --test scripts/delivery-security-smoke-test.js",
     "seed:qa": "node seed-qa-demo.js",
+    "seed:retail-demo": "node seed-retail-demo.js",
     "seed:visual-menu-demo": "node seed-visual-menu-demo.js",
     "benchmark:critical": "node scripts/benchmark-critical-queries.js"
   },

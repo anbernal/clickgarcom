@@ -73,6 +73,9 @@ const TENANT_ROUTE_GROUPS = {
     delivery_reports: ['ADMIN', 'MANAGER'],
     fleet_read: ['ADMIN', 'MANAGER', 'DISPATCHER'],
     fleet_write: ['ADMIN', 'MANAGER'],
+    retail_read: ['ADMIN', 'MANAGER', 'WAITER', 'CASHIER', 'DISPATCHER'],
+    retail_write: ['ADMIN', 'MANAGER'],
+    retail_fulfillment: ['ADMIN', 'MANAGER', 'WAITER', 'DISPATCHER'],
 };
 
 const TENANT_PAGE_ACCESS = {
@@ -91,7 +94,19 @@ const TENANT_PAGE_ACCESS = {
     equipe: TENANT_ROUTE_GROUPS.full_access,
     delivery: TENANT_ROUTE_GROUPS.delivery_read,
     fleet: TENANT_ROUTE_GROUPS.fleet_read,
+    retailOverview: TENANT_ROUTE_GROUPS.retail_read,
+    retailProducts: TENANT_ROUTE_GROUPS.retail_read,
+    retailInventory: TENANT_ROUTE_GROUPS.retail_read,
+    retailPicking: TENANT_ROUTE_GROUPS.retail_fulfillment,
+    retailOrders: TENANT_ROUTE_GROUPS.retail_read,
 };
+
+// Visibility is not enough: an old browser tab, bookmark or cached session may
+// still call navigate('comandas'). Keep the module boundary at the client API
+// layer as well, while the backend remains the authorization source of truth.
+const FOOD_SERVICE_PAGES = new Set(['dashboard', 'pedidos', 'cardapio', 'categorias', 'comandas', 'mesas']);
+const RETAIL_PAGES = new Set(['retailOverview', 'retailProducts', 'retailInventory', 'retailPicking', 'retailOrders']);
+const DELIVERY_PAGES = new Set(['delivery', 'fleet']);
 
 function normalizeTenantUserRole(role) {
     const normalized = String(role || '').trim().toUpperCase();
@@ -155,6 +170,10 @@ function buildFallbackPermissions(role) {
             viewDeliveryReports: deliveryActionEnabled && routeGroups.includes('delivery_reports'),
             viewFleet: deliveryActionEnabled && routeGroups.includes('fleet_read'),
             manageFleet: deliveryActionEnabled && routeGroups.includes('fleet_write'),
+            viewRetail: routeGroups.includes('retail_read'),
+            manageRetailCatalog: routeGroups.includes('retail_write'),
+            manageRetailInventory: routeGroups.includes('retail_write'),
+            manageRetailFulfillment: routeGroups.includes('retail_fulfillment'),
         },
     };
 }
@@ -211,12 +230,32 @@ function canAccessRouteGroup(routeGroup) {
 }
 
 function canAccessPage(pageId) {
+    const user = getCurrentUser() || {};
+    if (FOOD_SERVICE_PAGES.has(pageId) && user.attendance_enabled === false) {
+        return false;
+    }
+    if (RETAIL_PAGES.has(pageId) && !isRetailModuleEnabledForNavigation(user)) {
+        return false;
+    }
+    if (DELIVERY_PAGES.has(pageId) && user.delivery_enabled !== true) {
+        return false;
+    }
     // The delivery driver uses the dedicated mobile workflow; a stale session
     // must never retain access to the administrative dispatch board.
     if (['delivery', 'fleet'].includes(pageId) && getCurrentUserRole() === 'DRIVER') {
         return false;
     }
     return getCurrentUserPermissions().pages?.includes(pageId);
+}
+
+function isRetailModuleEnabledForNavigation(user) {
+    if (typeof user?.retail_enabled === 'boolean') {
+        return user.retail_enabled;
+    }
+    if (new URLSearchParams(window.location.search).has('retail-preview')) {
+        return true;
+    }
+    return ['MARKET', 'PHARMACY'].includes(String(user?.establishment_type || user?.establishmentType || '').toUpperCase());
 }
 
 function canPerformAction(actionKey) {

@@ -302,6 +302,25 @@ export class SuperAdminController {
         return this.superAdminService.setTenantAttendanceEnabled(id, body.enabled, actor);
     }
 
+    @Patch('tenants/:id/retail')
+    async updateTenantRetail(
+        @Request() req,
+        @Headers('authorization') authorization: string | undefined,
+        @Param('id') id: string,
+        @Body() body: { enabled?: boolean },
+    ) {
+        const actor = await this.superAdminService.requireAuthenticatedSession({
+            authorization,
+            sourceIp: this.resolveSourceIp(req),
+            userAgent: this.resolveUserAgent(req),
+            sensitiveOperation: true,
+        });
+        if (typeof body?.enabled !== 'boolean') {
+            throw new BadRequestException('Informe enabled como booleano.');
+        }
+        return this.superAdminService.setTenantRetailEnabled(id, body.enabled, actor);
+    }
+
     @Post('tenants/:id/payment-gateway/profiles')
     async createPaymentGatewayProfile(
         @Request() req,

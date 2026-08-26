@@ -446,3 +446,11 @@ tr:hover td {
 .input::placeholder {
     color: #475569;
 }
+.retail-profile-preview { margin-top:10px; }
+.retail-profile-preview > div { padding:13px; display:grid; grid-template-columns:auto minmax(0,1fr); gap:11px; border:1px solid rgba(52,211,153,.28); border-radius:11px; background:rgba(16,185,129,.08); }
+.retail-profile-preview > div > span { width:38px; height:38px; display:grid; place-items:center; border-radius:11px; color:#d1fae5; background:rgba(16,185,129,.2); }
+.retail-profile-preview strong { display:block; color:#d1fae5; font-size:12px; }
+.retail-profile-preview p { margin:5px 0 0; color:var(--text-muted); font-size:10px; line-height:1.45; }
+.retail-profile-preview section > div { margin-top:9px; display:flex; flex-wrap:wrap; gap:5px; }
+.retail-profile-preview b { padding:4px 6px; border-radius:6px; color:#a7f3d0; background:rgba(16,185,129,.12); font-size:8px; }
+.retail-profile-preview > small { margin-top:6px; display:block; color:#fbbf24; font-size:9px; }

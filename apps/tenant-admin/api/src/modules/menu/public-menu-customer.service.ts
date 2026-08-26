@@ -161,7 +161,7 @@ export class PublicMenuCustomerService {
         const tenantId = String(rawTenantId || '').trim();
         if (!this.isUuid(tenantId)) throw new BadRequestException('tenant_id inválido.');
         const rows = await this.dataSource.query(
-            `SELECT id, slug, name, is_open, active FROM tenants WHERE id = $1 LIMIT 1`,
+            `SELECT id, slug, name, is_open, active, establishment_type, settings FROM tenants WHERE id = $1 LIMIT 1`,
             [tenantId],
         );
         const tenant = rows?.[0];
@@ -190,7 +190,12 @@ export class PublicMenuCustomerService {
             );
         });
 
-        return { slug: tenant.slug, restaurant_name: tenant.name, capability, expires_at: expiresAt };
+        const settings = this.parseSettings(tenant.settings);
+        const establishmentType = String(tenant.establishment_type || '').toUpperCase();
+        const experience = ['MARKET', 'PHARMACY'].includes(establishmentType) && settings?.retail?.enabled !== false
+            ? 'STORE'
+            : 'MENU';
+        return { slug: tenant.slug, restaurant_name: tenant.name, capability, expires_at: expiresAt, experience };
     }
 
     async exchangeWhatsAppAccess(rawSlug: string, rawCapability: string) {
@@ -511,7 +516,10 @@ export class PublicMenuCustomerService {
         }
     }
 
-    private async resolveSession(rawSlug: string, token: string): Promise<MenuCustomerSession> {
+    // Shared customer identity boundary for the digital menu and the store.
+    // The HttpOnly cookie remains tenant-bound, so exposing this resolver does
+    // not broaden access beyond the existing customer session contract.
+    async resolveSession(rawSlug: string, token: string): Promise<MenuCustomerSession> {
         if (!token) throw new UnauthorizedException('Entre para continuar.');
         let decoded: any;
         try {

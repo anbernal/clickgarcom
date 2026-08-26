@@ -38,6 +38,8 @@ type MenuItemComboComponent = {
     menuItemPrice?: number | null;
 };
 
+const FOOD_DESTINATIONS = ['KITCHEN', 'BAR'];
+
 @Injectable()
 export class MenuService {
     constructor(
@@ -63,10 +65,14 @@ export class MenuService {
                 where: { tenantId: tenant.id, active: true },
                 order: { displayOrder: 'ASC', name: 'ASC' },
             }),
-            this.menuItemRepo.find({
-                where: { tenantId: tenant.id, available: true },
-                order: { displayOrder: 'ASC', name: 'ASC' },
-            }),
+            this.menuItemRepo
+                .createQueryBuilder('item')
+                .where('item.tenant_id = :tenantId', { tenantId: tenant.id })
+                .andWhere('item.available = TRUE')
+                .andWhere('item.destination IN (:...destinations)', { destinations: FOOD_DESTINATIONS })
+                .orderBy('item.display_order', 'ASC')
+                .addOrderBy('item.name', 'ASC')
+                .getMany(),
         ]);
         const serializedItems = (await this.serializeMenuItems(tenant.id, menuItems))
             .filter((item) => item?.isCurrentlyAvailable === true);
@@ -110,14 +116,19 @@ export class MenuService {
     }
 
     async findAll(tenantId: string, categoryId?: string) {
-        const where: any = { tenantId };
-        if (categoryId) where.categoryId = categoryId;
+        const query = this.menuItemRepo
+            .createQueryBuilder('item')
+            .leftJoinAndSelect('item.category', 'category')
+            .where('item.tenant_id = :tenantId', { tenantId })
+            .andWhere('item.destination IN (:...destinations)', { destinations: FOOD_DESTINATIONS })
+            .orderBy('item.display_order', 'ASC')
+            .addOrderBy('item.name', 'ASC');
 
-        const items = await this.menuItemRepo.find({
-            where,
-            relations: ['category'],
-            order: { displayOrder: 'ASC', name: 'ASC' },
-        });
+        if (categoryId) {
+            query.andWhere('item.category_id = :categoryId', { categoryId });
+        }
+
+        const items = await query.getMany();
 
         return this.serializeMenuItems(tenantId, items);
     }
@@ -128,7 +139,7 @@ export class MenuService {
             relations: ['category'],
         });
 
-        if (!item) {
+        if (!item || !isFoodDestination(item.destination)) {
             return null;
         }
 
@@ -147,19 +158,27 @@ export class MenuService {
     }
 
     async update(id: string, tenantId: string, data: Partial<MenuItem>) {
+        const existing = await this.menuItemRepo.findOne({ where: { id, tenantId } });
+        if (!existing || !isFoodDestination(existing.destination)) {
+            return null;
+        }
         await this.menuItemRepo.update({ id, tenantId }, this.normalizeWriteData(data));
         return this.findOne(id, tenantId);
     }
 
     async toggleAvailability(id: string, tenantId: string) {
         const item = await this.menuItemRepo.findOne({ where: { id, tenantId } });
-        if (!item) return null;
+        if (!item || !isFoodDestination(item.destination)) return null;
         item.available = !item.available;
         const saved = await this.menuItemRepo.save(item);
         return this.findOne(saved.id, tenantId);
     }
 
     async remove(id: string, tenantId: string) {
+        const item = await this.menuItemRepo.findOne({ where: { id, tenantId } });
+        if (!item || !isFoodDestination(item.destination)) {
+            return { affected: 0 };
+        }
         return this.menuItemRepo.delete({ id, tenantId });
     }
 
@@ -176,6 +195,7 @@ export class MenuService {
                 where: {
                     tenantId,
                     id: In(Array.from(comboComponentIds)),
+                    destination: In(FOOD_DESTINATIONS),
                 },
             })
             : [];
@@ -186,6 +206,15 @@ export class MenuService {
 
     private normalizeWriteData(data: Partial<MenuItem>): Partial<MenuItem> {
         const normalized: Partial<MenuItem> = { ...data };
+
+        // This service backs the restaurant menu. Retail products use PICKING and
+        // are managed through the RETAIL domain, so a food-menu request can never
+        // move an item into that catalog by accident.
+        if (Object.prototype.hasOwnProperty.call(data, 'destination')) {
+            normalized.destination = isFoodDestination(data.destination)
+                ? String(data.destination).trim().toUpperCase()
+                : 'KITCHEN';
+        }
 
         if (Object.prototype.hasOwnProperty.call(data, 'itemType')) {
             normalized.itemType = normalizeItemType(data.itemType);
@@ -310,6 +339,10 @@ function normalizePublicText(rawValue: unknown, maxLength: number): string {
 
 function normalizeItemType(value: unknown) {
     return String(value || 'STANDARD').trim().toUpperCase() === 'COMBO' ? 'COMBO' : 'STANDARD';
+}
+
+function isFoodDestination(value: unknown): boolean {
+    return FOOD_DESTINATIONS.includes(String(value || '').trim().toUpperCase());
 }
 
 function normalizeAvailabilityWindows(

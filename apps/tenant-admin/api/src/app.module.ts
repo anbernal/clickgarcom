@@ -54,6 +54,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { WalletModule } from './modules/wallet/wallet.module';
 import { BotConfigModule } from './modules/bot-config/bot-config.module';
 import { PurchasesModule } from './modules/purchases/purchases.module';
+import { RetailModule } from './modules/retail/retail.module';
 import { DeliveryModule } from './modules/delivery/delivery.module';
 import { RolesGuard } from './modules/auth/roles.guard';
 import { AppController } from './app.controller';
@@ -81,6 +82,7 @@ import { AppController } from './app.controller';
         WalletModule,
         BotConfigModule,
         PurchasesModule,
+        RetailModule,
         DeliveryModule,
     ],
     controllers: [AppController],

@@ -721,6 +721,8 @@ export class AuthService {
     private buildSessionUser(user: User & { tenant?: Tenant | null }) {
         const normalizedRole = normalizeTenantRole(user.role);
         const settings = user.tenant?.settings || {};
+        const establishmentType = user.tenant?.establishmentType || 'RESTAURANT';
+        const retailEnabled = this.isRetailEnabled(settings, establishmentType);
 
         return {
             id: user.id,
@@ -730,10 +732,13 @@ export class AuthService {
             role: normalizedRole,
             tenant_id: user.tenantId,
             tenant_name: user.tenant?.name,
+            tenant_slug: user.tenant?.slug || null,
             tenant_whatsapp_number: user.tenant?.whatsappNumber || null,
             tenant_document: settings.document || null,
             tenant_address: settings.address || null,
+            establishment_type: establishmentType,
             delivery_enabled: this.isDeliveryEnabledNow(settings),
+            retail_enabled: retailEnabled,
             // Existing tenants do not have this key yet; preserve their
             // current presencial behavior until the Super Admin explicitly
             // disables the module.
@@ -749,6 +754,7 @@ export class AuthService {
                 normalizedRole,
                 this.isDeliveryEnabledNow(settings),
                 settings.attendance?.enabled !== false,
+                retailEnabled,
             ),
         };
     }
@@ -789,7 +795,7 @@ export class AuthService {
         }));
     }
 
-    private buildFrontendPermissions(role: string, deliveryEnabled = false, attendanceEnabled = true) {
+    private buildFrontendPermissions(role: string, deliveryEnabled = false, attendanceEnabled = true, retailEnabled = false) {
         const normalizedRole = normalizeTenantRole(role);
         const routeGroupAccessors = [
             { key: 'full_access', roles: TENANT_FULL_ACCESS_ROLES },
@@ -812,24 +818,30 @@ export class AuthService {
             { key: 'delivery_override', roles: TENANT_DELIVERY_OVERRIDE_ROLES },
             { key: 'delivery_driver', roles: TENANT_DELIVERY_DRIVER_ROLES },
             { key: 'delivery_reports', roles: TENANT_DELIVERY_REPORT_ROLES },
+            { key: 'retail_read', roles: TENANT_MENU_READ_ROLES },
+            { key: 'retail_write', roles: TENANT_MENU_WRITE_ROLES },
+            { key: 'retail_fulfillment', roles: TENANT_ORDER_WRITE_ROLES },
         ];
         const routeGroups = routeGroupAccessors
             .filter((group) => this.isRoleAllowed(normalizedRole, group.roles))
             .map((group) => group.key);
-        const pages = ['dashboard'];
+        const pages = attendanceEnabled ? ['dashboard'] : [];
+
+        if (retailEnabled && routeGroups.includes('retail_read')) {
+            pages.push('retailOverview', 'retailProducts', 'retailInventory', 'retailPicking', 'retailOrders');
+        }
 
         if (routeGroups.includes('wallet')) pages.push('wallet', 'extratoMensagens');
-        if (routeGroups.includes('order_read_write')) pages.push('pedidos');
-        if (routeGroups.includes('menu_read')) pages.push('cardapio', 'categorias');
-        if (routeGroups.includes('table_read')) pages.push('comandas', 'mesas');
+        if (attendanceEnabled && routeGroups.includes('order_read_write')) pages.push('pedidos');
+        if (attendanceEnabled && routeGroups.includes('menu_read')) pages.push('cardapio', 'categorias');
+        if (attendanceEnabled && routeGroups.includes('table_read')) pages.push('comandas', 'mesas');
         if (routeGroups.includes('settlement')) pages.push('pagamentos');
         if (routeGroups.includes('reports')) pages.push('vendas');
         if (routeGroups.includes('purchases')) pages.push('compras');
-        // Keep Delivery discoverable for eligible restaurant profiles even
-        // before the module is activated. The web page renders the upgrade
-        // state without loading operational data; activation still gates all
-        // delivery actions below.
-        if (routeGroups.includes('delivery_read')) pages.push('delivery');
+        // Module activation is the only tenant-level switch. When it is on,
+        // every screen allowed by the user's role becomes available; when it
+        // is off, it is not exposed as an operational page.
+        if (deliveryEnabled && routeGroups.includes('delivery_read')) pages.push('delivery', 'fleet');
         if (routeGroups.includes('full_access')) pages.push('meuRestaurante', 'configuracoes', 'equipe');
 
         return {
@@ -846,6 +858,7 @@ export class AuthService {
                 manageTabs: attendanceEnabled && this.isRoleAllowed(normalizedRole, TENANT_TAB_OPERATION_ROLES),
                 viewAttendance: attendanceEnabled && this.isRoleAllowed(normalizedRole, TENANT_FLOOR_ROLES),
                 manageAttendance: attendanceEnabled && this.isRoleAllowed(normalizedRole, TENANT_FLOOR_ROLES),
+                manageRetail: retailEnabled && this.isRoleAllowed(normalizedRole, TENANT_MENU_WRITE_ROLES),
                 manageSettlement: this.isRoleAllowed(normalizedRole, TENANT_SETTLEMENT_ROLES),
                 manageClosedTabs: this.isRoleAllowed(normalizedRole, TENANT_CLOSED_TAB_MUTATION_ROLES),
                 viewReports: this.isRoleAllowed(normalizedRole, TENANT_REPORT_ROLES),
@@ -867,6 +880,15 @@ export class AuthService {
         if (delivery.permanent === true || !delivery.expires_at) return true;
         const expiresAt = new Date(delivery.expires_at);
         return !Number.isNaN(expiresAt.getTime()) && expiresAt.getTime() > now.getTime();
+    }
+
+    private isRetailEnabled(settings: TenantSettings, establishmentType: string) {
+        if (typeof settings?.retail?.enabled === 'boolean') {
+            return settings.retail.enabled;
+        }
+        // Existing MARKET/PHARMACY tenants were introduced before module flags.
+        // Keep them functional until an explicit Super Admin deactivation.
+        return ['MARKET', 'PHARMACY'].includes(String(establishmentType || '').toUpperCase());
     }
 
     private getRoleLabel(role: string) {

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+    <meta name="theme-color" content="#123f35">
+    <title>Loja digital — ClickGarçom</title>
+    <meta name="description" content="Compre produtos com entrega ou retirada pelo ClickGarçom">
+    <link rel="stylesheet" href="/css/retail-store.css?v=20260825-retail-delivery1">
+</head>
+<body>
+    <div class="store-app" id="store-app">
+        <header class="store-header">
+            <div class="store-shell store-header__inner">
+                <button class="store-brand" type="button" aria-label="Início da loja" onclick="scrollStoreTop()">
+                    <span class="store-brand__logo" id="store-logo">ML</span>
+                    <span><strong id="store-name">Mercado Modelo</strong><small><i id="store-open-dot"></i><span id="store-status">Aberto · entrega hoje</span></small></span>
+                </button>
+                <div class="store-header__actions">
+                    <button class="store-icon-button" type="button" aria-label="Acompanhar compras" onclick="openStoreOrders()"><svg viewBox="0 0 24 24" fill="none"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg><b id="store-order-count" hidden>1</b></button>
+                    <button class="store-cart-button" type="button" onclick="openStoreCart()"><svg viewBox="0 0 24 24" fill="none"><path d="M6 7h15l-2 8H8L6 3H3M9 20h.01M18 20h.01"/></svg><span>Sacola</span><b id="store-cart-count">0</b></button>
+                </div>
+            </div>
+        </header>
+
+        <main class="store-shell store-main">
+            <section class="store-hero">
+                <div class="store-hero__copy"><span>COMPRA FÁCIL, ENTREGA ACOMPANHADA</span><h1 id="store-hero-title">O que você precisa, sem complicação.</h1><p id="store-hero-copy">Escolha seus produtos, pague com segurança e acompanhe cada etapa.</p></div>
+                <div class="store-hero__art" aria-hidden="true"><span>🛍️</span><i></i><i></i></div>
+            </section>
+
+            <label class="store-search"><svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><input id="store-search-input" type="search" autocomplete="off" placeholder="Buscar produto, marca ou categoria" oninput="filterStoreProducts(this.value)"><button id="store-search-clear" type="button" aria-label="Limpar busca" onclick="clearStoreSearch()" hidden>×</button></label>
+
+            <section class="store-category-section"><div class="store-section-head"><div><span>ENCONTRE RÁPIDO</span><h2>Categorias</h2></div></div><div class="store-categories" id="store-categories"></div></section>
+            <section class="store-product-section" id="store-repeat-section"><div class="store-section-head"><div><span>SEUS FAVORITOS</span><h2>Compre de novo</h2></div><button onclick="selectStoreSection('all')">Ver todos</button></div><div class="store-product-rail" id="store-repeat-products"></div></section>
+            <section class="store-benefit-banner"><span>✦</span><div><strong>Frete claro antes do pagamento</strong><p>Seu endereço, taxa e total são confirmados antes de concluir.</p></div><button onclick="openStoreAccount()">Meus endereços</button></section>
+            <section class="store-product-section" id="store-offers-section"><div class="store-section-head"><div><span>PREÇOS ESPECIAIS</span><h2>Ofertas do dia</h2></div><button onclick="selectStoreSection('offers')">Ver ofertas</button></div><div class="store-product-rail" id="store-offer-products"></div></section>
+            <section class="store-product-section store-product-section--catalog"><div class="store-section-head"><div><span id="store-catalog-eyebrow">CATÁLOGO COMPLETO</span><h2 id="store-catalog-title">Todos os produtos</h2><p id="store-results-count"></p></div><select id="store-sort" aria-label="Ordenar produtos" onchange="sortStoreProducts(this.value)"><option value="relevance">Mais relevantes</option><option value="price-asc">Menor preço</option><option value="price-desc">Maior preço</option><option value="name">Nome</option></select></div><div class="store-product-grid" id="store-product-grid"></div></section>
+        </main>
+
+        <nav class="store-bottom-nav" aria-label="Navegação principal">
+            <button type="button" class="is-active" onclick="scrollStoreTop()"><svg viewBox="0 0 24 24" fill="none"><path d="m3 11 9-8 9 8v9H3z"/><path d="M9 20v-6h6v6"/></svg><span>Início</span></button>
+            <button type="button" onclick="focusStoreSearch()"><svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><span>Buscar</span></button>
+            <button type="button" onclick="openStoreOrders()"><svg viewBox="0 0 24 24" fill="none"><path d="M5 3h14v18l-3-2-4 2-4-2-3 2z"/><path d="M8 8h8M8 12h6"/></svg><span>Compras</span></button>
+            <button type="button" onclick="openStoreAccount()"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg><span>Conta</span></button>
+        </nav>
+
+        <button class="store-floating-cart" id="store-floating-cart" type="button" onclick="openStoreCart()" hidden><span><b id="store-floating-count">0 itens</b><small>Ver sacola</small></span><strong id="store-floating-total">R$ 0,00</strong></button>
+    </div>
+    <div class="store-layer" id="store-layer" hidden><div id="store-sheet"></div></div>
+    <div class="store-toast" id="store-toast" role="status" aria-live="polite" hidden></div>
+    <script src="/_config.js"></script>
+    <script src="/js/retail-store.js?v=20260825-retail-delivery1"></script>
+</body>
+</html>

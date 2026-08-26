@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="/css/design-system.css">
     <link rel="stylesheet" href="/css/delivery.css">
     <link rel="stylesheet" href="/css/fleet.css?v=20260822-payments1">
+    <link rel="stylesheet" href="/css/retail.css?v=20260825-retail1">
 </head>
 
 <body>
@@ -24,7 +25,7 @@
 
         <div class="nav-section">
             <div class="nav-label">Menu Principal</div>
-            <button class="nav-item active" data-page="dashboard">
+            <button class="nav-item active" data-page="dashboard" data-business-profile="food-service">
                 <span class="nav-icon">📊</span> Dashboard
             </button>
             <button class="nav-item" data-page="wallet">
@@ -33,7 +34,24 @@
             <button class="nav-item" data-page="extratoMensagens">
                 <span class="nav-icon">🧾</span> Extrato de Mensagens
             </button>
-            <button class="nav-item" data-page="pedidos">
+            <button class="nav-item" data-page="retailOverview" data-business-profile="retail">
+                <span class="nav-icon">▦</span> Visão da loja
+            </button>
+            <button class="nav-item" data-page="retailProducts" data-business-profile="retail">
+                <span class="nav-icon">▣</span> Produtos
+            </button>
+            <button class="nav-item" data-page="retailInventory" data-business-profile="retail">
+                <span class="nav-icon">◫</span> Estoque
+                <span class="badge red" id="badge-retail-stock"></span>
+            </button>
+            <button class="nav-item" data-page="retailPicking" data-business-profile="retail">
+                <span class="nav-icon">✓</span> Separação
+                <span class="badge red" id="badge-retail-picking"></span>
+            </button>
+            <button class="nav-item" data-page="retailOrders" data-business-profile="retail">
+                <span class="nav-icon">▤</span> Compras online
+            </button>
+            <button class="nav-item" data-page="pedidos" data-business-profile="food-service">
                 <span class="nav-icon">🛒</span> Pedidos
                 <span class="badge red" id="badge-pedidos"></span>
             </button>
@@ -45,19 +63,19 @@
                 <span class="nav-icon">🛵</span> Frota própria
                 <span class="badge" id="badge-fleet"></span>
             </button>
-            <a href="/kds.html?panel=salao" target="_blank" rel="noopener noreferrer" class="nav-item" data-route-group="floor_operations">
+            <a href="/kds.html?panel=salao" target="_blank" rel="noopener noreferrer" class="nav-item" data-route-group="floor_operations" data-business-profile="food-service">
                 <span class="nav-icon">🛎</span> Atendimento (KDS)
             </a>
-            <button class="nav-item" data-page="cardapio">
+            <button class="nav-item" data-page="cardapio" data-business-profile="food-service">
                 <span class="nav-icon">🍕</span> Cardápio
             </button>
-            <button class="nav-item" data-page="categorias">
+            <button class="nav-item" data-page="categorias" data-business-profile="food-service">
                 <span class="nav-icon">🏷</span> Categorias
             </button>
-            <button class="nav-item" data-page="comandas">
+            <button class="nav-item" data-page="comandas" data-business-profile="food-service">
                 <span class="nav-icon">🔖</span> Comandas
             </button>
-            <button class="nav-item" data-page="mesas">
+            <button class="nav-item" data-page="mesas" data-business-profile="food-service">
                 <span class="nav-icon">🪑</span> Mesas
             </button>
             <button class="nav-item" data-page="pagamentos">
@@ -73,7 +91,7 @@
             <button class="nav-item" data-page="vendas">
                 <span class="nav-icon">📈</span> Vendas
             </button>
-            <a href="/kds.html" target="_blank" class="nav-item" id="nav-kds-link" data-route-group="order_read_write">
+            <a href="/kds.html" target="_blank" class="nav-item" id="nav-kds-link" data-route-group="order_read_write" data-business-profile="food-service">
                 <span class="nav-icon" id="nav-kds-icon">🍳</span> <span id="nav-kds-label">KDS (Cozinha)</span>
             </a>
         </div>
@@ -83,7 +101,7 @@
                 <span class="nav-icon">🔴</span> Carregando...
             </button>
             <button class="nav-item" data-page="meuRestaurante" style="margin-top: 10px;">
-                <span class="nav-icon">🏢</span> Meu Restaurante
+                <span class="nav-icon">🏢</span> <span id="nav-establishment-label">Meu Restaurante</span>
             </button>
             <button class="nav-item" data-page="equipe">
                 <span class="nav-icon">👥</span> Equipe & Acessos
@@ -121,6 +139,11 @@
         <div id="page-dashboard" class="page active"></div>
         <div id="page-wallet" class="page"></div>
         <div id="page-extratoMensagens" class="page"></div>
+        <div id="page-retailOverview" class="page"></div>
+        <div id="page-retailProducts" class="page"></div>
+        <div id="page-retailInventory" class="page"></div>
+        <div id="page-retailPicking" class="page"></div>
+        <div id="page-retailOrders" class="page"></div>
         <div id="page-pedidos" class="page"></div>
         <div id="page-delivery" class="page"></div>
         <div id="page-fleet" class="page"></div>
@@ -190,6 +213,7 @@
     <script src="/js/pages/pedidos.js"></script>
     <script src="/js/pages/delivery.js?v=20260819-payment-auto3"></script>
     <script src="/js/pages/fleet.js?v=20260822-payments1"></script>
+    <script src="/js/pages/retail.js?v=20260825-retail-delivery1"></script>
     <script src="/js/pages/cardapio.js"></script>
     <script src="/js/pages/categorias.js"></script>
     <script src="/js/pages/comandas.js"></script>

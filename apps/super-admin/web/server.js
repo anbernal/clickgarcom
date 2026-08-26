@@ -83,6 +83,9 @@ function sendRuntimeConfig(res, requestBasePath) {
     appBasePath: requestBasePath,
     loginPagePath: buildPathWithBase(requestBasePath, '/login.html'),
     appHomePath: buildPathWithBase(requestBasePath, '/'),
+    // The API persists the establishment type and module state. Keep this on by
+    // default so the UI never falls back to a browser-only profile draft.
+    retailProfileApiEnabled: String(process.env.SUPER_ADMIN_RETAIL_API_ENABLED || 'true').trim().toLowerCase() === 'true',
   };
 
   res.writeHead(200, {

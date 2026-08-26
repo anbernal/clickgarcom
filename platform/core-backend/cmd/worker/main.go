@@ -377,12 +377,12 @@ type digitalMenuAccessGatewayAdapter struct {
 	client *adminclient.DigitalMenuAccessClient
 }
 
-func (a digitalMenuAccessGatewayAdapter) Create(ctx context.Context, tenantID uuid.UUID, phone string) (string, string, error) {
+func (a digitalMenuAccessGatewayAdapter) Create(ctx context.Context, tenantID uuid.UUID, phone string) (string, string, string, error) {
 	access, err := a.client.Create(ctx, tenantID, phone)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
-	return access.Slug, access.Capability, nil
+	return access.Slug, access.Capability, access.Experience, nil
 }
 
 func resolvePublicCheckoutBaseURL() string {

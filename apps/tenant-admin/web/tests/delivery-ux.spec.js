@@ -139,7 +139,7 @@ test('tracking troca o fragmento, permite confirmação autenticada e não revel
   await expect(page.getByRole('heading', { name: /a caminho/i })).toBeVisible();
   await expect(page.locator('.tracking-steps')).toBeVisible();
   await expect(page.locator('body')).not.toContainText(/\b\d{4}\b.*código/i);
-  await page.getByRole('button', { name: 'Finalizar entrega' }).click();
+  await page.getByRole('button', { name: 'Confirmar recebimento' }).click();
   await page.locator('#tracking-confirm-pin').fill('a3f9');
   await expect(page.locator('#tracking-confirm-pin')).toHaveValue('A3F9');
   await page.getByRole('button', { name: 'Confirmar entrega' }).click();

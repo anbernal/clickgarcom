@@ -42,6 +42,12 @@ export interface TenantSettings {
     attendance?: {
         enabled?: boolean;
     };
+    /** RETAIL is an independent commercial module and may coexist with restaurant flows. */
+    retail?: {
+        enabled?: boolean;
+        enabled_at?: string | null;
+        disabled_at?: string | null;
+    };
     service_mode?: 'COM_MESA' | 'SEM_MESA';
     service_fee_percent?: number;
     split_enabled?: boolean;
@@ -63,6 +69,8 @@ export interface TenantSettings {
     opened_at?: string | null;
     opened_by?: string | null;
 }
+
+export type EstablishmentType = 'RESTAURANT' | 'MARKET' | 'PHARMACY';
 
 @Entity('tenants')
 export class Tenant {
@@ -101,6 +109,9 @@ export class Tenant {
 
     @Column({ name: 'is_open', default: false })
     isOpen: boolean;
+
+    @Column({ name: 'establishment_type', type: 'varchar', length: 30, default: 'RESTAURANT' })
+    establishmentType: EstablishmentType;
 
     @CreateDateColumn({ name: 'created_at' })
     createdAt: Date;

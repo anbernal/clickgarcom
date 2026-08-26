@@ -25,5 +25,6 @@ import { DeliveryModule } from '../delivery/delivery.module';
     ],
     controllers: [MenuController, PublicMenuController],
     providers: [MenuService, PublicMenuCustomerService],
+    exports: [PublicMenuCustomerService],
 })
 export class MenuModule { }

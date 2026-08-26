@@ -14,6 +14,23 @@ const state = {
     reliabilityIncidents: [],
     session: null,
 };
+const RETAIL_PROFILE_DRAFT_KEY = 'clickgarcom_super_admin_retail_profiles_v1';
+// Nome amigável exibido no Super Admin. RETAIL continua sendo o identificador técnico.
+const RETAIL_DISPLAY_NAME = 'Loja';
+
+function readRetailProfileDrafts() {
+    try { return JSON.parse(localStorage.getItem(RETAIL_PROFILE_DRAFT_KEY) || '{}') || {}; } catch (_) { return {}; }
+}
+
+function getTenantEstablishmentType(tenant) {
+    const serverValue = tenant?.establishmentType || tenant?.establishment_type;
+    if (serverValue) return String(serverValue).toUpperCase();
+    return String(readRetailProfileDrafts()[tenant?.id] || 'RESTAURANT').toUpperCase();
+}
+
+function establishmentTypeLabel(value) {
+    return { RESTAURANT: 'Restaurante', MARKET: 'Mercado', PHARMACY: 'Farmácia' }[String(value || '').toUpperCase()] || 'Restaurante';
+}
 
 function resolveApiBase() {
     const custom = (localStorage.getItem('clickgarcom_super_admin_api_base') || '').trim();
@@ -131,6 +148,12 @@ const api = {
     },
     setTenantAttendanceEnabled(id, enabled) {
         return request(`/tenants/${encodeURIComponent(String(id))}/attendance`, {
+            method: 'PATCH',
+            body: JSON.stringify({ enabled: !!enabled }),
+        });
+    },
+    setTenantRetailEnabled(id, enabled) {
+        return request(`/tenants/${encodeURIComponent(String(id))}/retail`, {
             method: 'PATCH',
             body: JSON.stringify({ enabled: !!enabled }),
         });
@@ -423,13 +446,13 @@ async function loadDashboard() {
 
 async function loadTenants() {
     try {
-        setTableLoading('#tenants-table tbody', 7, 'Carregando restaurantes...');
+        setTableLoading('#tenants-table tbody', 9, 'Carregando estabelecimentos...');
         const tenants = await api.getTenants();
         state.tenants = Array.isArray(tenants) ? tenants : [];
 
         const tbody = document.querySelector('#tenants-table tbody');
         if (!state.tenants.length) {
-            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:var(--text-muted)">Nenhum restaurante cadastrado.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:var(--text-muted)">Nenhum estabelecimento cadastrado.</td></tr>';
             return;
         }
 
@@ -441,13 +464,16 @@ async function loadTenants() {
                     <small style="color:var(--text-muted)">Meta Phone-Number-ID: ${escapeHtml(t.wabaId || '-')}</small><br>
                     <small style="color:var(--text-muted)">WhatsApp: ${escapeHtml(t.whatsappNumber || '-')}</small>
                 </td>
+                <td><span class="badge ${getTenantEstablishmentType(t) === 'RESTAURANT' ? '' : 'active'}">${escapeHtml(establishmentTypeLabel(getTenantEstablishmentType(t)))}</span><br><small style="color:var(--text-muted)">${getTenantEstablishmentType(t) === 'RESTAURANT' ? 'FOOD SERVICE' : RETAIL_DISPLAY_NAME.toUpperCase()}</small></td>
                 <td>${escapeHtml(t.adminEmail || '-')}</td>
                 <td>${formatNumber(t.msgs)} msgs</td>
                 <td><span class="badge ${t.attendanceEnabled !== false ? 'active' : 'inactive'}">${t.attendanceEnabled !== false ? 'Ativo' : 'Desativado'}</span></td>
+                <td><span class="badge ${t.retailEnabled ? 'active' : 'inactive'}">${t.retailEnabled ? 'Ativo' : 'Desativado'}</span></td>
                 <td><span class="badge ${t.deliveryEnabled ? 'active' : 'inactive'}">${t.deliveryEnabled ? 'Ativo' : 'Desativado'}</span></td>
                 <td>
                     <button class="btn" style="padding:6px 12px; background:var(--border)" onclick="openTenantModal('${escapeHtml(t.id)}')">Editar</button>
                     <button class="btn" style="padding:6px 12px; background:${t.attendanceEnabled !== false ? 'rgba(239,68,68,.16)' : 'rgba(59,130,246,.2)'}; color:${t.attendanceEnabled !== false ? '#fca5a5' : '#93c5fd'}" onclick="openAttendanceModuleModal('${escapeHtml(t.id)}')">${t.attendanceEnabled !== false ? 'Desativar Atendimento' : 'Ativar Atendimento'}</button>
+                    <button class="btn" style="padding:6px 12px; background:${t.retailEnabled ? 'rgba(239,68,68,.16)' : 'rgba(59,130,246,.2)'}; color:${t.retailEnabled ? '#fca5a5' : '#93c5fd'}" onclick="openRetailModuleModal('${escapeHtml(t.id)}')">${t.retailEnabled ? `Desativar ${RETAIL_DISPLAY_NAME}` : `Ativar ${RETAIL_DISPLAY_NAME}`}</button>
                     <button class="btn" style="padding:6px 12px; background:${t.deliveryEnabled ? 'rgba(239,68,68,.16)' : 'rgba(59,130,246,.2)'}; color:${t.deliveryEnabled ? '#fca5a5' : '#93c5fd'}" onclick="openDeliveryModuleModal('${escapeHtml(t.id)}')">${t.deliveryEnabled ? 'Desativar Delivery' : 'Ativar Delivery'}</button>
                     <button class="btn" style="padding:6px 12px; background:rgba(59, 130, 246, 0.2); color:#93c5fd" onclick="openPaymentGatewayModal('${escapeHtml(t.id)}')">Pagamento</button>
                     <button class="btn" style="padding:6px 12px; background:${t.active ? 'rgba(239, 68, 68, 0.2)' : 'rgba(16, 185, 129, 0.2)'}; color:${t.active ? 'var(--danger)' : '#22c55e'}" onclick="toggleTenantActive('${escapeHtml(t.id)}', ${t.active ? 'false' : 'true'})">${t.active ? 'Pausar' : 'Ativar'}</button>
@@ -456,7 +482,7 @@ async function loadTenants() {
         `).join('');
     } catch (error) {
         console.error(error);
-        setTableLoading('#tenants-table tbody', 7, `Falha ao carregar restaurantes: ${error.message}`);
+        setTableLoading('#tenants-table tbody', 9, `Falha ao carregar estabelecimentos: ${error.message}`);
     }
 }
 
@@ -903,7 +929,7 @@ function openTenantModal(tenantId = '') {
     const isEditing = !!tenant;
 
     document.getElementById('tm-id').value = isEditing ? tenant.id : '';
-    document.getElementById('tm-title').textContent = isEditing ? 'Editar Restaurante' : 'Novo Restaurante';
+    document.getElementById('tm-title').textContent = isEditing ? 'Editar estabelecimento' : 'Novo estabelecimento';
     document.getElementById('tm-name').value = isEditing ? (tenant.name || '') : '';
     document.getElementById('tm-slug').value = isEditing ? (tenant.slug || '') : '';
     document.getElementById('tm-waba-id').value = isEditing ? (tenant.wabaId || '') : '';
@@ -911,12 +937,24 @@ function openTenantModal(tenantId = '') {
     document.getElementById('tm-whatsapp-number').value = isEditing ? (tenant.whatsappNumber || '') : '';
     document.getElementById('tm-email').value = isEditing ? (tenant.adminEmail || '') : '';
     document.getElementById('tm-password').value = '';
+    document.getElementById('tm-establishment-type').value = isEditing ? getTenantEstablishmentType(tenant) : 'RESTAURANT';
+    renderTenantProfilePreview();
 
     const passwordInput = document.getElementById('tm-password');
     passwordInput.required = !isEditing;
     passwordInput.placeholder = isEditing ? 'Preencha só se quiser trocar a senha' : '******';
 
     document.getElementById('tenant-modal').classList.add('active');
+}
+
+function renderTenantProfilePreview() {
+    const type = document.getElementById('tm-establishment-type')?.value || 'RESTAURANT';
+    const target = document.getElementById('tm-profile-preview');
+    if (!target) return;
+    const retail = ['MARKET', 'PHARMACY'].includes(type);
+    target.innerHTML = retail
+        ? `<div><span>▦</span><section><strong>Perfil operacional de loja</strong><p>Produtos, estoque, separação, pagamentos e Delivery. Mesas, comandas e cozinha ficam fora deste perfil.</p><div><b>Produtos</b><b>Estoque</b><b>Separação</b><b>Delivery opcional</b></div></section></div>${runtimeConfig.retailProfileApiEnabled ? '' : '<small>Frontend preparado. A seleção ficará como rascunho local até o módulo Loja ser ativado.</small>'}`
+        : '<div><span>🍽</span><section><strong>Perfil FOOD SERVICE</strong><p>Cardápio, atendimento, mesas, comandas e produção em cozinha/bar.</p></section></div>';
 }
 
 function closeTenantModal() {
@@ -1049,6 +1087,8 @@ async function saveTenant(event) {
         admin_email: document.getElementById('tm-email').value.trim().toLowerCase(),
         admin_password: document.getElementById('tm-password').value,
     };
+    const establishmentType = document.getElementById('tm-establishment-type').value;
+    if (runtimeConfig.retailProfileApiEnabled) payload.establishment_type = establishmentType;
 
     if (!payload.name || !payload.slug || !payload.waba_id || !payload.whatsapp_number || !payload.admin_email) {
         alert('Preencha os campos obrigatórios.');
@@ -1067,6 +1107,12 @@ async function saveTenant(event) {
             await api.updateTenant(tenantId, payload);
         } else {
             await api.createTenant(payload);
+        }
+
+        if (!runtimeConfig.retailProfileApiEnabled && tenantId) {
+            const drafts = readRetailProfileDrafts();
+            drafts[tenantId] = establishmentType;
+            localStorage.setItem(RETAIL_PROFILE_DRAFT_KEY, JSON.stringify(drafts));
         }
 
         closeTenantModal();
@@ -1110,6 +1156,10 @@ function closeAttendanceModuleModal() {
     document.getElementById('attendance-module-modal')?.classList.remove('active');
 }
 
+function closeRetailModuleModal() {
+    document.getElementById('retail-module-modal')?.classList.remove('active');
+}
+
 function openAttendanceModuleModal(tenantId) {
     const tenant = state.tenants.find((item) => item.id === tenantId);
     if (!tenant) return;
@@ -1140,6 +1190,39 @@ async function setTenantAttendance(tenantId, enabled) {
         alert(`Módulo Atendimento ${enabled ? 'ativado' : 'desativado'} com sucesso.`);
     } catch (error) {
         alert(`Falha ao ${action} o módulo Atendimento: ${error.message}`);
+    }
+}
+
+function openRetailModuleModal(tenantId) {
+    const tenant = state.tenants.find((item) => item.id === tenantId);
+    if (!tenant) return;
+    const enabled = tenant.retailEnabled === true;
+    document.getElementById('rm-title').textContent = `${RETAIL_DISPLAY_NAME} · ${enabled ? 'Ativo' : 'Desativado'}`;
+    document.getElementById('rm-body').innerHTML = `<div class="card" style="margin:0;border-color:${enabled ? 'rgba(16,185,129,.35)' : 'rgba(96,165,250,.35)'}">
+        <div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">Tenant</div>
+        <h3 style="margin-bottom:10px">${escapeHtml(tenant.name)}</h3>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px"><span class="badge ${enabled ? 'active' : 'inactive'}">${enabled ? 'ATIVO' : 'DESATIVADO'}</span><strong>${RETAIL_DISPLAY_NAME}</strong></div>
+        <p class="page-sub" style="margin:0">${enabled ? 'Produtos, estoque e separação ficam disponíveis junto dos módulos já ativos. Atendimento e Delivery não são alterados.' : 'Ative para operar catálogo de produtos, estoque e Central de Separação sem remover os fluxos de restaurante.'}</p>
+        <div style="margin-top:18px;padding:14px 16px;border-radius:12px;background:var(--surface-2);border:1px solid var(--border)"><strong style="display:block;font-size:13px;margin-bottom:8px">O que o módulo Loja libera</strong><ul style="margin:0;padding-left:18px;color:var(--text-muted);font-size:12px;line-height:1.7"><li>Produtos, SKU e categorias próprias</li><li>Estoque, saldos e lotes</li><li>Central de Separação, sem criar pedido na cozinha</li></ul></div>
+    </div>`;
+    document.getElementById('rm-footer').innerHTML = enabled
+        ? `<button class="btn" style="background:rgba(239,68,68,.18);color:#fca5a5" onclick="setTenantRetail('${escapeHtml(tenant.id)}', false)">Desativar ${RETAIL_DISPLAY_NAME}</button><button class="btn" onclick="closeRetailModuleModal()">Fechar</button>`
+        : `<button class="btn" onclick="setTenantRetail('${escapeHtml(tenant.id)}', true)">Ativar ${RETAIL_DISPLAY_NAME}</button><button class="btn" style="background:transparent;border:1px solid var(--border);color:var(--text-main)" onclick="closeRetailModuleModal()">Cancelar</button>`;
+    document.getElementById('retail-module-modal').classList.add('active');
+}
+
+async function setTenantRetail(tenantId, enabled) {
+    const tenant = state.tenants.find((item) => item.id === tenantId);
+    if (!tenant) return;
+    const action = enabled ? 'ativar' : 'desativar';
+    if (!confirm(`Deseja ${action} o módulo ${RETAIL_DISPLAY_NAME} de ${tenant.name}?`)) return;
+    try {
+        await api.setTenantRetailEnabled(tenantId, enabled);
+        await loadTenants();
+        closeRetailModuleModal();
+        alert(`Módulo ${RETAIL_DISPLAY_NAME} ${enabled ? 'ativado' : 'desativado'} com sucesso.`);
+    } catch (error) {
+        alert(`Falha ao ${action} o módulo ${RETAIL_DISPLAY_NAME}: ${error.message}`);
     }
 }
 

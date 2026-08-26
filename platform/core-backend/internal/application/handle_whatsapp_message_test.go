@@ -261,8 +261,8 @@ func TestHandleWhatsAppMessageFirstContactShowsWelcomeMenu(t *testing.T) {
 
 type fakeDigitalMenuAccessGateway struct{}
 
-func (fakeDigitalMenuAccessGateway) Create(context.Context, uuid.UUID, string) (string, string, error) {
-	return "anderson-restaurant-qa", "opaque-capability", nil
+func (fakeDigitalMenuAccessGateway) Create(context.Context, uuid.UUID, string) (string, string, string, error) {
+	return "anderson-restaurant-qa", "opaque-capability", "MENU", nil
 }
 
 func TestDigitalMenuStaysBehindWelcomeChannelChoice(t *testing.T) {

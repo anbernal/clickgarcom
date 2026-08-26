@@ -11,7 +11,7 @@ import { DataSource, EntityManager, Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import axios from 'axios';
 import { createCipheriv, createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'crypto';
-import { PaymentGatewaySettings, Tenant, TenantSettings } from '../../entities/tenant.entity';
+import { EstablishmentType, PaymentGatewaySettings, Tenant, TenantSettings } from '../../entities/tenant.entity';
 import { User } from '../../entities/user.entity';
 
 type TenantPayload = {
@@ -23,6 +23,7 @@ type TenantPayload = {
     message_price?: number;
     admin_email?: string;
     admin_password?: string;
+    establishment_type?: EstablishmentType;
 };
 
 type PaymentGatewayPayload = {
@@ -344,6 +345,7 @@ export class SuperAdminService {
                     t.billing_plan,
                     t.message_price,
                     t.settings,
+                    t.establishment_type,
                     t.created_at,
                     admin_user.email AS admin_email,
                     COALESCE(SUM(CASE WHEN ml.direction = 'IN' THEN 1 ELSE 0 END), 0)::int AS msg_in,
@@ -358,7 +360,7 @@ export class SuperAdminService {
                  ) admin_user ON true
                  LEFT JOIN message_logs ml ON ml.tenant_id = t.id
                  GROUP BY
-                    t.id, t.name, t.slug, t.whatsapp_number, t.waba_id, t.active, t.is_open, t.wallet_balance, t.billing_plan, t.message_price, t.settings, t.created_at, admin_user.email
+                    t.id, t.name, t.slug, t.whatsapp_number, t.waba_id, t.active, t.is_open, t.wallet_balance, t.billing_plan, t.message_price, t.settings, t.establishment_type, t.created_at, admin_user.email
                  ORDER BY t.created_at DESC`,
             )
             : await this.dataSource.query(
@@ -374,6 +376,7 @@ export class SuperAdminService {
                     t.billing_plan,
                     t.message_price,
                     t.settings,
+                    t.establishment_type,
                     t.created_at,
                     admin_user.email AS admin_email,
                     0::int AS msg_in,
@@ -411,6 +414,8 @@ export class SuperAdminService {
                 deliveryExpiresAt: this.parseTenantSettings(row.settings).delivery?.expires_at || null,
                 deliveryPermanent: this.parseTenantSettings(row.settings).delivery?.permanent === true,
                 attendanceEnabled: this.parseTenantSettings(row.settings).attendance?.enabled !== false,
+                retailEnabled: this.isRetailEnabledNow(this.parseTenantSettings(row.settings), row.establishment_type),
+                establishmentType: row.establishment_type || 'RESTAURANT',
                 webhook: webhookUrl,
                 msgsIn: msgIn,
                 msgsOut: msgOut,
@@ -1851,6 +1856,7 @@ export class SuperAdminService {
         const metaToken = String(payload.meta_token || '').trim();
         const adminEmail = String(payload.admin_email || '').trim().toLowerCase();
         const adminPassword = String(payload.admin_password || '');
+        const establishmentType = this.normalizeEstablishmentType(payload.establishment_type);
 
         if (!name || !slug || !whatsappNumber || !wabaId || !adminEmail || !adminPassword) {
             throw new BadRequestException('Preencha nome, slug, WhatsApp, Phone-Number-ID, email e senha.');
@@ -1869,6 +1875,8 @@ export class SuperAdminService {
                 whatsapp_order_enabled: false,
                 whatsapp_order_mode: 'HYBRID',
             },
+            attendance: establishmentType === 'RESTAURANT' ? { enabled: true } : { enabled: false },
+            retail: { enabled: establishmentType === 'MARKET' || establishmentType === 'PHARMACY' },
         };
 
         const tenant = this.tenantRepo.create({
@@ -1880,6 +1888,7 @@ export class SuperAdminService {
             messagePrice: payload.message_price !== undefined ? payload.message_price : 0.02,
             active: true,
             isOpen: false,
+            establishmentType,
             settings: defaults,
         });
         const savedTenant = await this.tenantRepo.save(tenant);
@@ -1912,6 +1921,7 @@ export class SuperAdminService {
                 waba_id: savedTenant.wabaId || null,
                 billing_plan: savedTenant.billingPlan,
                 message_price: Number(savedTenant.messagePrice || 0),
+                establishment_type: savedTenant.establishmentType,
             },
         });
 
@@ -1921,6 +1931,7 @@ export class SuperAdminService {
             slug: savedTenant.slug,
             whatsappNumber: savedTenant.whatsappNumber,
             wabaId: savedTenant.wabaId || '',
+            establishmentType: savedTenant.establishmentType,
             adminEmail,
             webhook: await this.getWebhookUrl(),
         };
@@ -1938,6 +1949,9 @@ export class SuperAdminService {
         const metaToken = String(payload.meta_token || '').trim();
         const adminEmail = String(payload.admin_email || '').trim().toLowerCase();
         const adminPassword = String(payload.admin_password || '');
+        const establishmentType = payload.establishment_type === undefined
+            ? tenant.establishmentType
+            : this.normalizeEstablishmentType(payload.establishment_type);
 
         await this.ensureTenantUniqueness(id, slug || tenant.slug, whatsappNumber || tenant.whatsappNumber, wabaId || tenant.wabaId || '');
 
@@ -1964,6 +1978,10 @@ export class SuperAdminService {
         if (payload.message_price !== undefined && tenant.messagePrice !== payload.message_price) {
             tenant.messagePrice = payload.message_price;
             changedFields.push('message_price');
+        }
+        if (tenant.establishmentType !== establishmentType) {
+            tenant.establishmentType = establishmentType;
+            changedFields.push('establishment_type');
         }
 
         await this.tenantRepo.save(tenant);
@@ -2026,6 +2044,7 @@ export class SuperAdminService {
             slug: tenant.slug,
             whatsappNumber: tenant.whatsappNumber,
             wabaId: tenant.wabaId || '',
+            establishmentType: tenant.establishmentType,
             webhook: await this.getWebhookUrl(),
             updated: true,
         };
@@ -2111,6 +2130,48 @@ export class SuperAdminService {
         if (delivery.permanent === true || !delivery.expires_at) return true;
         const expiresAt = new Date(delivery.expires_at);
         return !Number.isNaN(expiresAt.getTime()) && expiresAt.getTime() > now.getTime();
+    }
+
+    private isRetailEnabledNow(settings: TenantSettings, establishmentType: unknown) {
+        if (typeof settings?.retail?.enabled === 'boolean') return settings.retail.enabled;
+        // Backwards compatible default for the first standalone RETAIL tenants.
+        return ['MARKET', 'PHARMACY'].includes(String(establishmentType || '').toUpperCase());
+    }
+
+    async setTenantRetailEnabled(id: string, enabled: boolean, actor: SuperAdminActorContext) {
+        const tenant = await this.tenantRepo.findOne({ where: { id } });
+        if (!tenant) throw new NotFoundException('Tenant nao encontrado.');
+
+        const settings = this.parseTenantSettings(tenant.settings);
+        const previousEnabled = this.isRetailEnabledNow(settings, tenant.establishmentType);
+        const now = new Date().toISOString();
+        const nextSettings: TenantSettings = {
+            ...settings,
+            retail: {
+                ...(settings.retail || {}),
+                enabled: !!enabled,
+                enabled_at: enabled ? (previousEnabled && settings.retail?.enabled_at ? settings.retail.enabled_at : now) : (settings.retail?.enabled_at || null),
+                disabled_at: enabled ? null : now,
+            },
+        };
+
+        tenant.settings = nextSettings;
+        await this.tenantRepo.save(tenant);
+        await this.recordAuditLog({
+            action: 'TENANT_RETAIL_STATUS_CHANGED',
+            entityType: 'TENANT',
+            entityId: tenant.id,
+            tenantId: tenant.id,
+            actor,
+            details: {
+                summary: `RETAIL de ${tenant.name} foi ${enabled ? 'ativado' : 'desativado'} pelo Super Admin.`,
+                before_enabled: previousEnabled,
+                after_enabled: !!enabled,
+                enabled_at: nextSettings.retail?.enabled_at || null,
+            },
+        });
+
+        return { id: tenant.id, enabled: !!enabled, updatedAt: tenant.updatedAt };
     }
 
     async setTenantAttendanceEnabled(id: string, enabled: boolean, actor: SuperAdminActorContext) {
@@ -2836,6 +2897,14 @@ export class SuperAdminService {
             return raw as TenantSettings;
         }
         return {};
+    }
+
+    private normalizeEstablishmentType(value: unknown): EstablishmentType {
+        const normalized = String(value || 'RESTAURANT').trim().toUpperCase();
+        if (normalized === 'RESTAURANT' || normalized === 'MARKET' || normalized === 'PHARMACY') {
+            return normalized;
+        }
+        throw new BadRequestException('Tipo de estabelecimento inválido.');
     }
 
     private summarizePaymentGateway(settings: TenantSettings) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -31,7 +32,7 @@ type PortalAccessIssuer interface {
 // DigitalMenuAccessGateway mints a one-time authenticated cardápio link for
 // the WhatsApp number already present in the Core session.
 type DigitalMenuAccessGateway interface {
-	Create(ctx context.Context, tenantID uuid.UUID, phone string) (slug string, capability string, err error)
+	Create(ctx context.Context, tenantID uuid.UUID, phone string) (slug string, capability string, experience string, err error)
 }
 
 type HandleWhatsAppMessageUseCase struct {
@@ -1520,7 +1521,7 @@ func (uc *HandleWhatsAppMessageUseCase) sendDigitalMenuLink(ctx context.Context,
 	if !ok {
 		return false, nil
 	}
-	slug, capability, err := uc.digitalMenuAccess.Create(ctx, tenantObj.ID, to)
+	slug, capability, experience, err := uc.digitalMenuAccess.Create(ctx, tenantObj.ID, to)
 	if err != nil {
 		// A closed tenant must return to the normal WhatsApp entry flow. Other
 		// failures use the legacy menu as a safe operational fallback.
@@ -1530,13 +1531,20 @@ func (uc *HandleWhatsAppMessageUseCase) sendDigitalMenuLink(ctx context.Context,
 	if base == "" || strings.TrimSpace(slug) == "" || strings.TrimSpace(capability) == "" {
 		return false, nil
 	}
+	isStore := strings.EqualFold(strings.TrimSpace(experience), "STORE")
 	targetURL := base + "/cardapio/" + strings.TrimSpace(slug) + "#whatsapp_access=" + strings.TrimSpace(capability)
 	body := fmt.Sprintf("Olá! 😊\n\nO cardápio de *%s* está aberto. Toque no botão abaixo para escolher seus itens, cadastrar o endereço e acompanhar o pedido.", tenantObj.Name)
+	buttonLabel := "Abrir cardápio"
+	if isStore {
+		targetURL = base + "/loja/" + strings.TrimSpace(slug) + "?access=" + url.QueryEscape(strings.TrimSpace(capability))
+		body = fmt.Sprintf("Olá! 😊\n\nA loja de *%s* está aberta. Toque no botão abaixo para escolher produtos, pagar e acompanhar a entrega.", tenantObj.Name)
+		buttonLabel = "Abrir loja"
+	}
 	_, err = sender.SendInteractiveURLButton(
 		whatsapp.WithTenantID(ctx, tenantObj.ID),
 		to,
 		whatsapp.WithRestaurantHeader(tenantObj.Name, body),
-		"Abrir cardápio",
+		buttonLabel,
 		targetURL,
 	)
 	return true, err

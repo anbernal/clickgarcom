@@ -21,6 +21,7 @@ type DigitalMenuAccess struct {
 	RestaurantName string    `json:"restaurant_name"`
 	Capability     string    `json:"capability"`
 	ExpiresAt      time.Time `json:"expires_at"`
+	Experience     string    `json:"experience"`
 }
 
 type DigitalMenuAccessError struct {
