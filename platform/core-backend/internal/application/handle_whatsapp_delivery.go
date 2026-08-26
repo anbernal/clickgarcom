@@ -980,7 +980,7 @@ func (uc *HandleWhatsAppMessageUseCase) handleDeliveryMenu(
 			return "", session.StateDeliveryMenu, tenantErr
 		}
 		if uc.shouldSendDigitalMenuLink(tenantObj) {
-			if handled, sendErr := uc.sendDigitalMenuLink(ctx, sess.UserPhone, tenantObj); handled {
+			if handled, sendErr := uc.sendDigitalMenuLink(ctx, sess.UserPhone, tenantObj, "MENU"); handled {
 				return "", session.StateDeliveryMenu, sendErr
 			}
 		}

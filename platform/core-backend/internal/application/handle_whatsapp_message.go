@@ -32,7 +32,7 @@ type PortalAccessIssuer interface {
 // DigitalMenuAccessGateway mints a one-time authenticated cardápio link for
 // the WhatsApp number already present in the Core session.
 type DigitalMenuAccessGateway interface {
-	Create(ctx context.Context, tenantID uuid.UUID, phone string) (slug string, capability string, experience string, err error)
+	Create(ctx context.Context, tenantID uuid.UUID, phone, requestedExperience string) (slug string, capability string, experience string, err error)
 }
 
 type HandleWhatsAppMessageUseCase struct {
@@ -135,7 +135,9 @@ const (
 	welcomeHasTabActionID              = "btn_has_tab"
 	welcomeRequestTabActionID          = "btn_request_tab"
 	welcomeRestaurantActionID          = "welcome:restaurant"
-	welcomeDeliveryActionID            = "welcome:delivery"
+	welcomeDeliveryActionID            = "welcome:delivery" // legacy generic delivery action
+	welcomeFoodStoreActionID           = "welcome:food-store"
+	welcomeRetailStoreActionID         = "welcome:retail-store"
 	welcomeChannelChoiceKey            = "welcome_channel_choice"
 	mainMenuListButtonText             = "Abrir menu"
 	mainMenuOpenActionID               = "0"
@@ -143,15 +145,20 @@ const (
 	tabSummaryCloseTabID               = "2"
 	tabSummaryBackMenuID               = "0"
 	deliveryStartActionID              = "delivery:start"
+	foodStoreStartActionID             = "storefront:food"
+	retailStoreStartActionID           = "storefront:retail"
 	deliveryPaymentLinkActionID        = "delivery:payment-link"
 	deliveryCancelOrderActionID        = "delivery:cancel-order"
 	deliveryConfirmCancelOrderActionID = "delivery:confirm-cancel-order"
 	deliveryKeepOrderActionID          = "delivery:keep-order"
+	storefrontChoiceRequiredKey        = "storefront_choice_required"
 )
 
 // WhatsApp reply button titles are limited to 20 characters. Keep the full
 // wording in the menu text and use this concise equivalent for the CTA.
 const deliveryActionButtonTitle = "Pedido p/ entrega"
+const foodStoreActionButtonTitle = "🍔 Comidas"
+const retailStoreActionButtonTitle = "🛍️ Produtos"
 
 const mainMenuBackOptionText = "*0* - ◂ Voltar ao menu principal"
 
@@ -534,6 +541,9 @@ func (uc *HandleWhatsAppMessageUseCase) deliveryPromptButtons(state session.Conv
 		// fallback button-driven instead of asking the customer to type "ok".
 		return []whatsapp.InteractiveButton{button(orderingOptionContinueID, "Concluir opções")}
 	case session.StateDeliveryMenu:
+		if sess != nil && uc.getContextString(sess, storefrontChoiceRequiredKey) == "true" {
+			return []whatsapp.InteractiveButton{button(foodStoreStartActionID, foodStoreActionButtonTitle), button(retailStoreStartActionID, retailStoreActionButtonTitle)}
+		}
 		return []whatsapp.InteractiveButton{button(deliveryStartActionID, deliveryActionButtonTitle)}
 	case session.StateDeliveryCustomerName:
 		return nil
@@ -613,16 +623,27 @@ func (uc *HandleWhatsAppMessageUseCase) processMessage(
 	// after the capability or browser session expires. Always reissue the
 	// current cardápio link for an explicit Delivery action before dispatching
 	// any legacy restaurant flow.
-	if sess != nil && isDeliveryStartChoice(text) && uc.tenantRepo != nil {
+	if sess != nil && uc.tenantRepo != nil {
 		tenantObj, tenantErr := uc.tenantRepo.FindByID(ctx, sess.TenantID)
 		if tenantErr != nil {
 			return "", "", tenantErr
 		}
-		if uc.shouldSendDigitalMenuLink(tenantObj) {
-			sess.SetContext(welcomeChannelChoiceKey, "delivery")
-			sess.SetContext(deliveryChannelKey, deliveryChannelValue)
-			if handled, sendErr := uc.sendDigitalMenuLink(ctx, sess.UserPhone, tenantObj); handled {
-				return "", session.StateDeliveryMenu, sendErr
+		value := strings.ToLower(strings.TrimSpace(text))
+		canSelectStorefront := isDeliveryStartChoice(text) || value == foodStoreStartActionID || value == retailStoreStartActionID || value == welcomeFoodStoreActionID || value == welcomeRetailStoreActionID || value == "comidas" || value == "produtos" || ((sess.State == session.StateWelcome || sess.State == session.StateDeliveryMenu) && (value == "1" || value == "2"))
+		if canSelectStorefront {
+			experience, needsChoice := uc.resolveStorefrontChoice(tenantObj, text)
+			if needsChoice {
+				sess.SetContext(storefrontChoiceRequiredKey, "true")
+				return uc.storefrontSelectionMessage(), session.StateDeliveryMenu, nil
+			}
+			if experience != "" && uc.shouldSendDigitalMenuLink(tenantObj) {
+				sess.SetContext(welcomeChannelChoiceKey, "delivery")
+				sess.SetContext(deliveryChannelKey, deliveryChannelValue)
+				sess.SetContext("storefront_experience", experience)
+				sess.SetContext(storefrontChoiceRequiredKey, "")
+				if handled, sendErr := uc.sendDigitalMenuLink(ctx, sess.UserPhone, tenantObj, experience); handled {
+					return "", session.StateDeliveryMenu, sendErr
+				}
 			}
 		}
 	}
@@ -636,9 +657,16 @@ func (uc *HandleWhatsAppMessageUseCase) processMessage(
 			return "", "", tenantErr
 		}
 		if uc.shouldSendDigitalMenuLink(tenantObj) {
+			experience := uc.getContextString(sess, "storefront_experience")
+			if experience == "" {
+				experience, _ = uc.resolveStorefrontChoice(tenantObj, deliveryStartActionID)
+			}
+			if experience == "" {
+				return uc.storefrontSelectionMessage(), session.StateDeliveryMenu, nil
+			}
 			sess.SetContext(welcomeChannelChoiceKey, "delivery")
 			sess.SetContext(deliveryChannelKey, deliveryChannelValue)
-			if handled, sendErr := uc.sendDigitalMenuLink(ctx, sess.UserPhone, tenantObj); handled {
+			if handled, sendErr := uc.sendDigitalMenuLink(ctx, sess.UserPhone, tenantObj, experience); handled {
 				return "", session.StateDeliveryMenu, sendErr
 			}
 		}
@@ -1034,10 +1062,15 @@ func (uc *HandleWhatsAppMessageUseCase) handleWelcomeMenu(
 		// A tenant with only Delivery must never fall through to the presencial
 		// comanda/table handlers, even when the customer sends a legacy option.
 		if !tenantObj.Settings.AttendanceEnabled() {
-			if uc.deliveryWhatsAppOrderMode(tenantObj) != "" && isDeliveryStartChoice(text) {
+			if experience, needsChoice := uc.resolveStorefrontChoice(tenantObj, text); needsChoice {
+				sess.SetContext(storefrontChoiceRequiredKey, "true")
+				return uc.storefrontSelectionMessage(), session.StateDeliveryMenu, nil
+			} else if experience != "" {
 				if uc.shouldSendDigitalMenuLink(tenantObj) {
 					sess.SetContext(welcomeChannelChoiceKey, "delivery")
-					if handled, sendErr := uc.sendDigitalMenuLink(ctx, sess.UserPhone, tenantObj); handled {
+					sess.SetContext("storefront_experience", experience)
+					sess.SetContext(storefrontChoiceRequiredKey, "")
+					if handled, sendErr := uc.sendDigitalMenuLink(ctx, sess.UserPhone, tenantObj, experience); handled {
 						return "", session.StateDeliveryMenu, sendErr
 					}
 				}
@@ -1048,10 +1081,15 @@ func (uc *HandleWhatsAppMessageUseCase) handleWelcomeMenu(
 			}
 			return uc.repeatCurrentPrompt(ctx, sess)
 		}
-		if uc.deliveryWhatsAppOrderMode(tenantObj) != "" && isDeliveryStartChoice(text) {
+		if experience, needsChoice := uc.resolveStorefrontChoice(tenantObj, text); needsChoice {
+			sess.SetContext(storefrontChoiceRequiredKey, "true")
+			return uc.storefrontSelectionMessage(), session.StateDeliveryMenu, nil
+		} else if experience != "" {
 			if uc.shouldSendDigitalMenuLink(tenantObj) {
 				sess.SetContext(welcomeChannelChoiceKey, "delivery")
-				if handled, sendErr := uc.sendDigitalMenuLink(ctx, sess.UserPhone, tenantObj); handled {
+				sess.SetContext("storefront_experience", experience)
+				sess.SetContext(storefrontChoiceRequiredKey, "")
+				if handled, sendErr := uc.sendDigitalMenuLink(ctx, sess.UserPhone, tenantObj, experience); handled {
 					return "", session.StateDeliveryMenu, sendErr
 				}
 			}
@@ -1100,7 +1138,76 @@ func (uc *HandleWhatsAppMessageUseCase) deliveryOnlyWelcomeMessage(tenantObj *te
 	if uc.deliveryWhatsAppOrderMode(tenantObj) == "" {
 		return fmt.Sprintf("🍽️ *%s*\n\nNo momento nenhum canal de pedidos está ativo. Fale com o restaurante para continuar.", name)
 	}
-	return fmt.Sprintf("🛵 *%s*\n\nEscolha uma opção para continuar:\n\n*1* - 🛒 Fazer pedido para entrega", name)
+	food, retail := uc.availableStorefronts(tenantObj)
+	switch {
+	case food && retail:
+		return fmt.Sprintf("🛍️ *%s*\n\nO que você deseja comprar?\n\n*1* - 🍔 Comidas\n*2* - 🛍️ Produtos", name)
+	case food:
+		return fmt.Sprintf("🍽️ *%s*\n\nEscolha uma opção para continuar:\n\n*1* - 🍔 Pedir comidas", name)
+	case retail:
+		return fmt.Sprintf("🛍️ *%s*\n\nEscolha uma opção para continuar:\n\n*1* - 🛍️ Comprar produtos", name)
+	default:
+		return fmt.Sprintf("🛍️ *%s*\n\nNenhuma loja de pedidos está ativa. Fale com o estabelecimento para continuar.", name)
+	}
+}
+
+// availableStorefronts separates customer-facing catalogs from Delivery. A
+// storefront may use Delivery for fulfillment, but Delivery never chooses the
+// catalog on its own.
+func (uc *HandleWhatsAppMessageUseCase) availableStorefronts(tenantObj *tenant.Tenant) (food, retail bool) {
+	if uc.deliveryWhatsAppOrderMode(tenantObj) == "" {
+		return false, false
+	}
+	return tenantObj.FoodStoreEnabled(), tenantObj.RetailStoreEnabled()
+}
+
+func (uc *HandleWhatsAppMessageUseCase) storefrontButtons(tenantObj *tenant.Tenant) []whatsapp.InteractiveButton {
+	food, retail := uc.availableStorefronts(tenantObj)
+	button := func(id, title string) whatsapp.InteractiveButton {
+		return whatsapp.InteractiveButton{Type: "reply", Reply: struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+		}{ID: id, Title: title}}
+	}
+	buttons := make([]whatsapp.InteractiveButton, 0, 2)
+	if food {
+		buttons = append(buttons, button(foodStoreStartActionID, foodStoreActionButtonTitle))
+	}
+	if retail {
+		buttons = append(buttons, button(retailStoreStartActionID, retailStoreActionButtonTitle))
+	}
+	return buttons
+}
+
+func (uc *HandleWhatsAppMessageUseCase) storefrontSelectionMessage() string {
+	return "🛍️ *Escolha sua loja*\n\n🍔 Comidas preparadas\n🛍️ Produtos e mercado"
+}
+
+func (uc *HandleWhatsAppMessageUseCase) resolveStorefrontChoice(tenantObj *tenant.Tenant, text string) (experience string, needsChoice bool) {
+	food, retail := uc.availableStorefronts(tenantObj)
+	value := strings.ToLower(strings.TrimSpace(text))
+	switch value {
+	case foodStoreStartActionID, welcomeFoodStoreActionID, "1", "comidas", "comida", "pedir comidas", "cardapio", "cardápio":
+		if food {
+			return "MENU", false
+		}
+	case retailStoreStartActionID, welcomeRetailStoreActionID, "2", "produtos", "produto", "comprar produtos", "loja":
+		if retail {
+			return "STORE", false
+		}
+	}
+	if isDeliveryStartChoice(text) {
+		if food && retail {
+			return "", true
+		}
+		if food {
+			return "MENU", false
+		}
+		if retail {
+			return "STORE", false
+		}
+	}
+	return "", false
 }
 
 func isDeliveryStartChoice(text string) bool {
@@ -1413,7 +1520,12 @@ func (uc *HandleWhatsAppMessageUseCase) sendWelcomeMenu(
 		return uc.sendDefaultWelcomeMenu(ctx, to, tenantObj, prefix)
 	}
 
-	buttons := buildDefaultWelcomeButtonsForModules(tenantObj.Settings.AttendanceEnabled(), uc.deliveryWhatsAppOrderMode(tenantObj) != "")
+	food, retail := uc.availableStorefronts(tenantObj)
+	if tenantObj.Settings.AttendanceEnabled() {
+		food, retail = false, false
+	}
+	legacyDelivery := uc.deliveryWhatsAppOrderMode(tenantObj) != "" && !uc.shouldSendDigitalMenuLink(tenantObj) && !food && !retail
+	buttons := buildDefaultWelcomeButtonsForModules(tenantObj.Settings.AttendanceEnabled(), food, retail, legacyDelivery)
 
 	body := uc.composeWelcomeMenuBody(tenantObj, definition, prefix)
 	body = uc.deliveryWelcomeBody(body, tenantObj, false)
@@ -1442,9 +1554,13 @@ func (uc *HandleWhatsAppMessageUseCase) sendDefaultWelcomeMenu(
 		return uc.sendWelcomeChannelMenu(ctx, to, tenantObj)
 	}
 	body := strings.TrimSpace(whatsapp.WelcomeMenuMessage(tenantObj.Name, tenantObj.Settings.Messages))
-	deliveryEnabled := uc.deliveryWhatsAppOrderMode(tenantObj) != ""
+	food, retail := uc.availableStorefronts(tenantObj)
+	if tenantObj.Settings.AttendanceEnabled() {
+		food, retail = false, false
+	}
+	legacyDelivery := uc.deliveryWhatsAppOrderMode(tenantObj) != "" && !uc.shouldSendDigitalMenuLink(tenantObj) && !food && !retail
 	body = uc.deliveryWelcomeBody(body, tenantObj, false)
-	buttons := buildDefaultWelcomeButtonsForModules(tenantObj.Settings.AttendanceEnabled(), deliveryEnabled)
+	buttons := buildDefaultWelcomeButtonsForModules(tenantObj.Settings.AttendanceEnabled(), food, retail, legacyDelivery)
 	if strings.TrimSpace(prefix) != "" {
 		body = strings.TrimSpace(prefix) + "\n\n" + body
 	}
@@ -1466,7 +1582,8 @@ func (uc *HandleWhatsAppMessageUseCase) sendDefaultWelcomeMenu(
 }
 
 func (uc *HandleWhatsAppMessageUseCase) shouldShowWelcomeChannelMenu(ctx context.Context, to string, tenantObj *tenant.Tenant) bool {
-	if !uc.shouldSendDigitalMenuLink(tenantObj) || tenantObj == nil || !tenantObj.Settings.AttendanceEnabled() || uc.sessionRepo == nil {
+	food, retail := uc.availableStorefronts(tenantObj)
+	if !uc.shouldSendDigitalMenuLink(tenantObj) || tenantObj == nil || !tenantObj.Settings.AttendanceEnabled() || (!food && !retail) || uc.sessionRepo == nil {
 		return false
 	}
 	sess, err := uc.sessionRepo.Find(ctx, to, tenantObj.ID.String())
@@ -1487,13 +1604,18 @@ func (uc *HandleWhatsAppMessageUseCase) sendWelcomeChannelMenu(ctx context.Conte
 			}{ID: welcomeRestaurantActionID, Title: "🍽️ No restaurante"},
 		})
 	}
-	if uc.deliveryWhatsAppOrderMode(tenantObj) != "" {
-		buttons = append(buttons, whatsapp.InteractiveButton{
-			Type: "reply", Reply: struct {
-				ID    string `json:"id"`
-				Title string `json:"title"`
-			}{ID: welcomeDeliveryActionID, Title: "🛵 Delivery"},
-		})
+	food, retail := uc.availableStorefronts(tenantObj)
+	if food {
+		buttons = append(buttons, whatsapp.InteractiveButton{Type: "reply", Reply: struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+		}{ID: welcomeFoodStoreActionID, Title: foodStoreActionButtonTitle}})
+	}
+	if retail {
+		buttons = append(buttons, whatsapp.InteractiveButton{Type: "reply", Reply: struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+		}{ID: welcomeRetailStoreActionID, Title: retailStoreActionButtonTitle}})
 	}
 	if len(buttons) == 0 {
 		return uc.sender.SendText(whatsapp.WithTenantID(ctx, tenantObj.ID), to, whatsapp.WithRestaurantHeader(tenantObj.Name, "No momento nenhum canal de pedidos está ativo. Fale com o restaurante para continuar."))
@@ -1516,12 +1638,12 @@ func (uc *HandleWhatsAppMessageUseCase) shouldSendDigitalMenuLink(tenantObj *ten
 	return supportsURLButton
 }
 
-func (uc *HandleWhatsAppMessageUseCase) sendDigitalMenuLink(ctx context.Context, to string, tenantObj *tenant.Tenant) (bool, error) {
+func (uc *HandleWhatsAppMessageUseCase) sendDigitalMenuLink(ctx context.Context, to string, tenantObj *tenant.Tenant, requestedExperience string) (bool, error) {
 	sender, ok := uc.sender.(WhatsAppURLButtonSender)
 	if !ok {
 		return false, nil
 	}
-	slug, capability, experience, err := uc.digitalMenuAccess.Create(ctx, tenantObj.ID, to)
+	slug, capability, experience, err := uc.digitalMenuAccess.Create(ctx, tenantObj.ID, to, requestedExperience)
 	if err != nil {
 		// A closed tenant must return to the normal WhatsApp entry flow. Other
 		// failures use the legacy menu as a safe operational fallback.
@@ -1711,10 +1833,10 @@ func (uc *HandleWhatsAppMessageUseCase) buildInteractiveButtons(
 }
 
 func buildDefaultWelcomeButtons(includeDelivery bool) []whatsapp.InteractiveButton {
-	return buildDefaultWelcomeButtonsForModules(true, includeDelivery)
+	return buildDefaultWelcomeButtonsForModules(true, includeDelivery, false, false)
 }
 
-func buildDefaultWelcomeButtonsForModules(includeAttendance, includeDelivery bool) []whatsapp.InteractiveButton {
+func buildDefaultWelcomeButtonsForModules(includeAttendance, includeFoodStore, includeRetailStore, includeLegacyDelivery bool) []whatsapp.InteractiveButton {
 	buttons := make([]whatsapp.InteractiveButton, 0, 3)
 	if includeAttendance {
 		buttons = append(buttons,
@@ -1728,7 +1850,19 @@ func buildDefaultWelcomeButtonsForModules(includeAttendance, includeDelivery boo
 			}{ID: welcomeRequestTabActionID, Title: "🙋 Solicitar comanda"}},
 		)
 	}
-	if includeDelivery {
+	if includeFoodStore {
+		buttons = append(buttons, whatsapp.InteractiveButton{Type: "reply", Reply: struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+		}{ID: foodStoreStartActionID, Title: foodStoreActionButtonTitle}})
+	}
+	if includeRetailStore {
+		buttons = append(buttons, whatsapp.InteractiveButton{Type: "reply", Reply: struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+		}{ID: retailStoreStartActionID, Title: retailStoreActionButtonTitle}})
+	}
+	if includeLegacyDelivery {
 		buttons = append(buttons, whatsapp.InteractiveButton{Type: "reply", Reply: struct {
 			ID    string `json:"id"`
 			Title string `json:"title"`

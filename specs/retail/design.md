@@ -75,21 +75,22 @@ O agregado operacional e a semântica dos estados são próprios de RETAIL.
 tipo do estabelecimento. RETAIL entrega ao domínio Delivery somente quando a
 compra estiver pronta para expedição.
 
-### RET-DA-009 — Roteamento de experiência no WhatsApp
+### RET-DA-009 — Roteamento explícito de loja no WhatsApp
 
-O módulo ativo não altera sozinho a experiência apresentada ao cliente. O
-worker consulta o tipo do tenant e a configuração dos módulos ao gerar o
-acesso autenticado:
+O worker não usa o nome nem o tipo do estabelecimento para escolher o catálogo.
+Ele avalia as capabilities explícitas do tenant:
 
-- `RESTAURANT` + Delivery ativo: link para `/cardapio/:slug`;
-- `MARKET` ou `PHARMACY` + RETAIL e Delivery ativos: link para `/loja/:slug`;
-- Delivery inativo, tenant fechado ou pedidos WhatsApp desabilitados: nenhum
-  link de pedido é enviado.
+- `settings.food_store.enabled`: Loja de comidas, link para `/cardapio/:slug`;
+- `settings.retail.enabled`: Loja de produtos, link para `/loja/:slug`;
+- as duas ativas: botões `Comidas` e `Produtos`, antes de gerar o link;
+- Delivery ativo: libera a entrega no checkout da loja escolhida;
+- Delivery inativo, tenant fechado ou pedidos WhatsApp desabilitados: não há
+  checkout de entrega.
 
-Essa decisão evita que um pedido de mercadoria seja criado na Cozinha/Bar e
-mantém o fluxo legado dos restaurantes. O catálogo Retail e o cardápio usam
-experiências distintas, mas compartilham autenticação, clientes, endereços,
-pagamento e o domínio de entrega quando aplicável.
+Cada capability do WhatsApp persiste o `storefront` (`MENU` ou `STORE`) e só
+pode ser trocada pela rota correspondente. Isso evita que um link de produtos
+abra o Cardápio, que uma compra Retail apareça na Cozinha/Bar e que o nome do
+tenant determine a regra operacional.
 
 ## 3. Modelo de dados
 

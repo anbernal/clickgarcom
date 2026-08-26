@@ -28,7 +28,7 @@ export class RetailPublicController {
 
     @Post(':slug/session/exchange') @Header('Cache-Control', 'no-store')
     async exchangeSession(@Param('slug') slug: string, @Body() body: Record<string, unknown>, @Res({ passthrough: true }) response: Response) {
-        const result = await this.customers.exchangeWhatsAppAccess(slug, String(body?.capability || ''));
+        const result = await this.customers.exchangeWhatsAppAccess(slug, String(body?.capability || ''), 'STORE');
         this.setCookie(response, result.sessionToken, result.expiresInSeconds);
         return { customer: result.customer };
     }

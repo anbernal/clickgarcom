@@ -4,26 +4,28 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 )
 
 type Tenant struct {
-	ID             uuid.UUID      `json:"id" gorm:"type:uuid;primary_key"`
-	Name           string         `json:"name" gorm:"not null"`
-	Slug           string         `json:"slug" gorm:"uniqueIndex;not null"`
-	WhatsAppNumber string         `json:"whatsapp_number" gorm:"uniqueIndex;not null"`
-	WabaID         string         `json:"waba_id" gorm:"column:waba_id;uniqueIndex"`               // WhatsApp Business Account Phone ID
-	MetaToken      string         `json:"meta_token" gorm:"column:meta_token"`                     // Cloud API Bearer Token
-	WalletBalance  float64        `json:"wallet_balance" gorm:"type:numeric(10,2);default:0.00"`   // FASE 13
-	BillingPlan    string         `json:"billing_plan" gorm:"type:varchar(20);default:'pre_paid'"` // FASE 13
-	MessagePrice   float64        `json:"message_price" gorm:"type:numeric(10,2);default:0.02"`    // Custo configurável por msg
-	Settings       TenantSettings `json:"settings" gorm:"type:jsonb"`
-	Active         bool           `json:"active" gorm:"default:true"`
-	IsOpen         bool           `json:"is_open" gorm:"default:false"`
-	CreatedAt      time.Time      `json:"created_at"`
-	UpdatedAt      time.Time      `json:"updated_at"`
+	ID                uuid.UUID      `json:"id" gorm:"type:uuid;primary_key"`
+	Name              string         `json:"name" gorm:"not null"`
+	Slug              string         `json:"slug" gorm:"uniqueIndex;not null"`
+	WhatsAppNumber    string         `json:"whatsapp_number" gorm:"uniqueIndex;not null"`
+	WabaID            string         `json:"waba_id" gorm:"column:waba_id;uniqueIndex"`               // WhatsApp Business Account Phone ID
+	MetaToken         string         `json:"meta_token" gorm:"column:meta_token"`                     // Cloud API Bearer Token
+	WalletBalance     float64        `json:"wallet_balance" gorm:"type:numeric(10,2);default:0.00"`   // FASE 13
+	BillingPlan       string         `json:"billing_plan" gorm:"type:varchar(20);default:'pre_paid'"` // FASE 13
+	MessagePrice      float64        `json:"message_price" gorm:"type:numeric(10,2);default:0.02"`    // Custo configurável por msg
+	EstablishmentType string         `json:"establishment_type" gorm:"column:establishment_type;type:varchar(30);default:'RESTAURANT'"`
+	Settings          TenantSettings `json:"settings" gorm:"type:jsonb"`
+	Active            bool           `json:"active" gorm:"default:true"`
+	IsOpen            bool           `json:"is_open" gorm:"default:false"`
+	CreatedAt         time.Time      `json:"created_at"`
+	UpdatedAt         time.Time      `json:"updated_at"`
 }
 
 const (
@@ -64,7 +66,46 @@ type TenantSettings struct {
 	PaymentGateway    PaymentGatewaySettings `json:"payment_gateway"`
 	Delivery          DeliverySettings       `json:"delivery"`
 	Attendance        AttendanceSettings     `json:"attendance"`
+	FoodStore         StorefrontSettings     `json:"food_store"`
+	Retail            StorefrontSettings     `json:"retail"`
 	Messages          MessageTemplates       `json:"messages"` // FASE 16
+}
+
+// StorefrontSettings activates a customer-facing commercial catalog. Delivery
+// remains a separate fulfillment capability and does not imply a storefront.
+type StorefrontSettings struct {
+	Enabled *bool `json:"enabled,omitempty"`
+}
+
+// FoodStoreEnabled preserves the legacy restaurant cardápio only until the
+// Super Admin makes an explicit choice. Market and pharmacy tenants default to
+// products, not prepared food.
+func (t *Tenant) FoodStoreEnabled() bool {
+	if t != nil && t.Settings.FoodStore.Enabled != nil {
+		return *t.Settings.FoodStore.Enabled
+	}
+	if t == nil {
+		return false
+	}
+	// A product-only tenant historically disables Attendance. Keep that profile
+	// product-only until food is explicitly enabled; hybrid restaurant tenants
+	// preserve their existing cardápio until told otherwise.
+	if t.RetailStoreEnabled() && !t.Settings.AttendanceEnabled() {
+		return false
+	}
+	typeName := strings.ToUpper(strings.TrimSpace(t.EstablishmentType))
+	return typeName == "" || typeName == "RESTAURANT"
+}
+
+func (t *Tenant) RetailStoreEnabled() bool {
+	if t != nil && t.Settings.Retail.Enabled != nil {
+		return *t.Settings.Retail.Enabled
+	}
+	if t == nil {
+		return false
+	}
+	typeName := strings.ToUpper(strings.TrimSpace(t.EstablishmentType))
+	return typeName == "MARKET" || typeName == "PHARMACY"
 }
 
 // AttendanceSettings controls the presencial/restaurant experience. A pointer

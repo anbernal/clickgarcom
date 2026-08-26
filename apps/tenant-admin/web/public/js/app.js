@@ -41,6 +41,7 @@ function getDefaultPageId() {
     const user = getCurrentUser() || {};
     const attendanceEnabled = user.attendance_enabled !== false;
     const retailEnabled = typeof window.isRetailProfile === 'function' && window.isRetailProfile();
+    const foodStoreEnabled = typeof window.isFoodStoreModuleEnabledForNavigation === 'function' && window.isFoodStoreModuleEnabledForNavigation(user);
     const deliveryEnabled = user.delivery_enabled === true;
 
     // A tenant focused on products must open in the store operation, not in a
@@ -48,6 +49,9 @@ function getDefaultPageId() {
     // a Delivery-only account land directly on its dispatch queue.
     if (!attendanceEnabled && retailEnabled && canAccessPage('retailOverview')) {
         return 'retailOverview';
+    }
+    if (!attendanceEnabled && foodStoreEnabled && canAccessPage('cardapio')) {
+        return 'cardapio';
     }
     if (!attendanceEnabled && deliveryEnabled && canAccessPage('delivery')) {
         return 'delivery';
@@ -84,11 +88,12 @@ function applyNavigationPermissions() {
 function configureBusinessProfileNavigation() {
     const retail = typeof window.isRetailProfile === 'function' && window.isRetailProfile();
     const attendance = (getCurrentUser() || {}).attendance_enabled !== false;
+    const foodStore = typeof window.isFoodStoreModuleEnabledForNavigation === 'function' && window.isFoodStoreModuleEnabledForNavigation(getCurrentUser());
     const standaloneRetail = retail && !attendance;
     document.body.classList.toggle('is-retail-profile', standaloneRetail);
     document.querySelectorAll('[data-business-profile]').forEach((item) => {
         const target = item.dataset.businessProfile;
-        const visible = target === 'retail' ? retail : attendance;
+        const visible = target === 'retail' ? retail : target === 'food-store' ? foodStore : attendance;
         item.style.display = visible ? '' : 'none';
     });
 
@@ -103,6 +108,7 @@ function getModuleStatusModel() {
     return {
         tenantName: String(user.tenant_name || 'esta conta').trim(),
         attendanceEnabled: user.attendance_enabled !== false,
+        foodStoreEnabled: typeof window.isFoodStoreModuleEnabledForNavigation === 'function' && window.isFoodStoreModuleEnabledForNavigation(user),
         deliveryEnabled: user.delivery_enabled === true,
         retailEnabled: user.retail_enabled === true,
     };
@@ -111,14 +117,15 @@ function getModuleStatusModel() {
 function renderModuleStatusSidebar() {
     const status = getModuleStatusModel();
     const module = (icon, label, enabled) => `<div class="module-status-item ${enabled ? 'module-status-item--on' : 'module-status-item--off'}"><span><i aria-hidden="true">${icon}</i>${label}</span><strong>${enabled ? 'Ativo' : 'Desativado'}</strong></div>`;
-    return `<div class="module-status-panel"><div class="module-status-panel__title">Módulos da conta</div>${module('⚡', 'Atendimento', status.attendanceEnabled)}${module('▦', 'Retail', status.retailEnabled)}${module('🚚', 'Delivery', status.deliveryEnabled)}</div>`;
+    return `<div class="module-status-panel"><div class="module-status-panel__title">Módulos da conta</div>${module('⚡', 'Atendimento', status.attendanceEnabled)}${module('🍔', 'Loja de comidas', status.foodStoreEnabled)}${module('▦', 'Loja de produtos', status.retailEnabled)}${module('🚚', 'Delivery', status.deliveryEnabled)}</div>`;
 }
 
 function renderModuleStatusDashboard() {
     const status = getModuleStatusModel();
     const disabled = [];
     if (!status.attendanceEnabled) disabled.push('Atendimento presencial');
-    if (!status.retailEnabled) disabled.push('Retail');
+    if (!status.foodStoreEnabled) disabled.push('Loja de comidas');
+    if (!status.retailEnabled) disabled.push('Loja de produtos');
     if (!status.deliveryEnabled) disabled.push('Delivery');
     if (!disabled.length) return '';
     return `<section class="module-status-dashboard" aria-live="polite"><div class="module-status-dashboard__icon">!</div><div><strong>Módulos desabilitados</strong><p>${escapeHTML(disabled.join(' e '))} não está disponível para esta conta. A ativação é feita pelo Super Admin.</p></div></section>`;

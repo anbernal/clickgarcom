@@ -51,7 +51,7 @@ export class PublicMenuController {
         @Body() body: Record<string, unknown>,
         @Res({ passthrough: true }) response: Response,
     ) {
-        const result = await this.customerService.exchangeWhatsAppAccess(slug, String(body?.capability || ''));
+        const result = await this.customerService.exchangeWhatsAppAccess(slug, String(body?.capability || ''), 'MENU');
         response.cookie('clickgarcom_menu_customer', result.sessionToken, {
             httpOnly: true,
             secure: String(process.env.NODE_ENV || '').toLowerCase() === 'production',
@@ -69,7 +69,7 @@ export class PublicMenuController {
         @Body() body: Record<string, unknown>,
     ) {
         this.assertInternalToken(token);
-        return this.customerService.createWhatsAppAccess(String(body?.tenant_id || ''), String(body?.phone || ''));
+        return this.customerService.createWhatsAppAccess(String(body?.tenant_id || ''), String(body?.phone || ''), String(body?.experience || ''));
     }
 
     @Get(':slug/session')

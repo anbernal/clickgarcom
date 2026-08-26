@@ -56,8 +56,8 @@ func NewDigitalMenuAccessClient(baseURL, internalToken string, logger *zap.Logge
 	}
 }
 
-func (c *DigitalMenuAccessClient) Create(ctx context.Context, tenantID uuid.UUID, phone string) (DigitalMenuAccess, error) {
-	payload, err := json.Marshal(map[string]string{"tenant_id": tenantID.String(), "phone": strings.TrimSpace(phone)})
+func (c *DigitalMenuAccessClient) Create(ctx context.Context, tenantID uuid.UUID, phone, experience string) (DigitalMenuAccess, error) {
+	payload, err := json.Marshal(map[string]string{"tenant_id": tenantID.String(), "phone": strings.TrimSpace(phone), "experience": strings.TrimSpace(experience)})
 	if err != nil {
 		return DigitalMenuAccess{}, fmt.Errorf("marshal digital menu access request: %w", err)
 	}

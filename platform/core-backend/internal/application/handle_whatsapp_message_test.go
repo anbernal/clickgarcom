@@ -261,8 +261,11 @@ func TestHandleWhatsAppMessageFirstContactShowsWelcomeMenu(t *testing.T) {
 
 type fakeDigitalMenuAccessGateway struct{}
 
-func (fakeDigitalMenuAccessGateway) Create(context.Context, uuid.UUID, string) (string, string, string, error) {
-	return "anderson-restaurant-qa", "opaque-capability", "MENU", nil
+func (fakeDigitalMenuAccessGateway) Create(_ context.Context, _ uuid.UUID, _ string, experience string) (string, string, string, error) {
+	if experience == "" {
+		experience = "MENU"
+	}
+	return "anderson-restaurant-qa", "opaque-capability", experience, nil
 }
 
 func TestDigitalMenuStaysBehindWelcomeChannelChoice(t *testing.T) {
@@ -288,7 +291,7 @@ func TestDigitalMenuStaysBehindWelcomeChannelChoice(t *testing.T) {
 	if len(sender.interactiveMessages) != 1 || len(sender.interactiveMessages[0].Buttons) != 2 {
 		t.Fatalf("expected the channel choice menu before the cardápio, got %+v", sender.interactiveMessages)
 	}
-	if sender.interactiveMessages[0].Buttons[0].Reply.ID != welcomeRestaurantActionID || sender.interactiveMessages[0].Buttons[1].Reply.ID != welcomeDeliveryActionID {
+	if sender.interactiveMessages[0].Buttons[0].Reply.ID != welcomeRestaurantActionID || sender.interactiveMessages[0].Buttons[1].Reply.ID != welcomeFoodStoreActionID {
 		t.Fatalf("unexpected channel buttons: %+v", sender.interactiveMessages[0].Buttons)
 	}
 	if len(sender.urlMessages) != 0 {
@@ -304,6 +307,39 @@ func TestDigitalMenuStaysBehindWelcomeChannelChoice(t *testing.T) {
 	sess, _ := sessionRepo.Find(ctx, phone, tenantID.String())
 	if sess == nil || sess.State != session.StateDeliveryMenu {
 		t.Fatalf("expected delivery branch after link, session=%+v", sess)
+	}
+}
+
+func TestHybridStorefrontLetsCustomerChooseProductsWithoutUsingTenantType(t *testing.T) {
+	ctx := context.Background()
+	tenantID := uuid.New()
+	phone := "5511988888888"
+	attendanceEnabled := false
+	foodEnabled := true
+	retailEnabled := true
+	tenantObj := testTenant(tenantID)
+	tenantObj.IsOpen = true
+	tenantObj.EstablishmentType = "RESTAURANT" // branding/type must not route commerce.
+	tenantObj.Settings.Attendance.Enabled = &attendanceEnabled
+	tenantObj.Settings.FoodStore.Enabled = &foodEnabled
+	tenantObj.Settings.Retail.Enabled = &retailEnabled
+	tenantObj.Settings.Delivery = tenant.DeliverySettings{Enabled: true, WhatsAppOrderEnabled: true, WhatsAppOrderMode: "DELIVERY_ONLY"}
+	sessionRepo := newTestSessionRepo()
+	sender := &testExternalURLSender{}
+	uc := NewHandleWhatsAppMessageUseCase(sessionRepo, &testTenantRepo{tenant: tenantObj}, nil, nil, nil, nil, nil, nil, nil, sender, "https://example.test", zap.NewNop())
+	uc.SetDigitalMenuAccessGateway(fakeDigitalMenuAccessGateway{})
+
+	if err := uc.Execute(ctx, HandleMessageInput{From: phone, Text: "oi", TenantID: tenantID}); err != nil {
+		t.Fatalf("hybrid welcome failed: %v", err)
+	}
+	if got := sender.interactiveMessages[0].Buttons; len(got) != 2 || got[0].Reply.ID != foodStoreStartActionID || got[1].Reply.ID != retailStoreStartActionID {
+		t.Fatalf("expected food and products storefront choices, got %+v", got)
+	}
+	if err := uc.Execute(ctx, HandleMessageInput{From: phone, Text: retailStoreStartActionID, TenantID: tenantID}); err != nil {
+		t.Fatalf("products storefront choice failed: %v", err)
+	}
+	if len(sender.urlMessages) != 1 || !strings.Contains(sender.urlMessages[0].URL, "/loja/anderson-restaurant-qa?access=") {
+		t.Fatalf("expected products link, got %+v", sender.urlMessages)
 	}
 }
 
@@ -330,8 +366,8 @@ func TestDeliveryOnlyTenantDoesNotExposeAttendanceMenu(t *testing.T) {
 	if len(sender.interactiveMessages) != 1 || len(sender.interactiveMessages[0].Buttons) != 1 {
 		t.Fatalf("expected only the Delivery action, got %+v", sender.interactiveMessages)
 	}
-	if sender.interactiveMessages[0].Buttons[0].Reply.ID != deliveryStartActionID {
-		t.Fatalf("unexpected Delivery action: %+v", sender.interactiveMessages[0].Buttons)
+	if sender.interactiveMessages[0].Buttons[0].Reply.ID != foodStoreStartActionID {
+		t.Fatalf("unexpected food-store action: %+v", sender.interactiveMessages[0].Buttons)
 	}
 	if strings.Contains(sender.interactiveMessages[0].Body, "comanda") || strings.Contains(sender.interactiveMessages[0].Body, "No restaurante") {
 		t.Fatalf("delivery-only welcome exposed attendance content: %q", sender.interactiveMessages[0].Body)

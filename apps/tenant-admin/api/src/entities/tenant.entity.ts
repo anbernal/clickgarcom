@@ -48,6 +48,12 @@ export interface TenantSettings {
         enabled_at?: string | null;
         disabled_at?: string | null;
     };
+    /** Storefront for prepared food. Delivery is logistics and stays independent. */
+    food_store?: {
+        enabled?: boolean;
+        enabled_at?: string | null;
+        disabled_at?: string | null;
+    };
     service_mode?: 'COM_MESA' | 'SEM_MESA';
     service_fee_percent?: number;
     split_enabled?: boolean;

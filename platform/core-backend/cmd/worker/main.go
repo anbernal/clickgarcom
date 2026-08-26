@@ -377,8 +377,8 @@ type digitalMenuAccessGatewayAdapter struct {
 	client *adminclient.DigitalMenuAccessClient
 }
 
-func (a digitalMenuAccessGatewayAdapter) Create(ctx context.Context, tenantID uuid.UUID, phone string) (string, string, string, error) {
-	access, err := a.client.Create(ctx, tenantID, phone)
+func (a digitalMenuAccessGatewayAdapter) Create(ctx context.Context, tenantID uuid.UUID, phone, experience string) (string, string, string, error) {
+	access, err := a.client.Create(ctx, tenantID, phone, experience)
 	if err != nil {
 		return "", "", "", err
 	}

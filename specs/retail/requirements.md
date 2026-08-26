@@ -139,20 +139,23 @@ Os módulos são independentes e devem ser avaliados separadamente no tenant:
 | Configuração | Experiência no WhatsApp | Pode concluir pedido? |
 | --- | --- | --- |
 | Atendimento ativo | Fluxo presencial/comanda | Conforme regras do Atendimento |
-| Delivery ativo + `RESTAURANT` | Link autenticado para o Cardápio | Sim, pelo checkout Delivery |
-| RETAIL ativo + Delivery ativo + `MARKET` ou `PHARMACY` | Link autenticado para a Loja/Catálogo | Sim, pelo checkout Retail + Delivery |
-| RETAIL ativo sem Delivery | Catálogo administrativo/loja, sem expedição Delivery | Não para entrega |
-| Atendimento e Delivery inativos | Mensagem de canal indisponível | Não |
+| Loja de comidas ativa | Link autenticado para o Cardápio | Sim, se Delivery estiver ativo |
+| Loja de produtos ativa | Link autenticado para a Loja/Catálogo | Sim, se Delivery estiver ativo |
+| Loja de comidas e Loja de produtos ativas | Cliente escolhe `Comidas` ou `Produtos` antes do link | Sim, no fluxo escolhido |
+| Delivery ativo sem loja ativa | Sem catálogo para iniciar um pedido | Não |
+| Atendimento e lojas inativos | Mensagem de canal indisponível | Não |
 
 Delivery é o domínio de logística, capacidade, endereço, pagamento e
-rastreamento. Ele não define se o tenant vende refeições ou mercadorias. O
-tipo `establishment_type` seleciona a experiência (`Cardápio` para restaurante
-e `Loja` para mercado/farmácia), enquanto RETAIL controla catálogo e estoque.
+rastreamento. Ele não define se o tenant vende refeições ou mercadorias. A
+Loja de comidas controla o Cardápio e a Loja de produtos controla RETAIL,
+catálogo e estoque. `establishment_type` fornece apenas defaults e linguagem;
+não escolhe a rota comercial.
 
 Assim, ativar Delivery em um mercado não coloca produtos na Cozinha, e ativar
 RETAIL não cria um canal presencial nem altera Atendimento. Um tenant pode ter
-os módulos ativos de forma híbrida, mas cada pedido deve seguir apenas a
-experiência correspondente ao seu tipo e ao seu `service_type`.
+os módulos ativos de forma híbrida, mas cada pedido deve seguir apenas a loja
+escolhida e o respectivo `service_type`. Carrinhos de comidas e produtos não
+se misturam no MVP.
 
 No WhatsApp, o link é sempre autenticado e de uso controlado. A opção de
 entrega só é exibida quando o tenant está aberto, Delivery está ativo e

@@ -97,14 +97,15 @@
                             <th>Acesso Admin</th>
                             <th>Métricas</th>
                             <th>Módulo Atendimento</th>
-                            <th>Módulo Loja</th>
+                            <th>Loja de comidas</th>
+                            <th>Loja de produtos</th>
                             <th>Módulo Delivery</th>
                             <th>Ações</th>
                         </tr>
                     </thead>
                     <tbody>
                         <tr>
-                            <td colspan="9" style="text-align:center">Carregando estabelecimentos...</td>
+                            <td colspan="10" style="text-align:center">Carregando estabelecimentos...</td>
                         </tr>
                     </tbody>
                 </table>
@@ -540,6 +541,18 @@
             </div>
             <div class="modal-body" id="rm-body"></div>
             <div class="modal-footer" id="rm-footer"></div>
+        </div>
+    </div>
+
+    <!-- MODAL: Loja de comidas / Cardápio -->
+    <div class="modal-overlay" id="food-store-module-modal">
+        <div class="modal-content" style="max-width:720px">
+            <div class="modal-header">
+                <h3 id="fsm-title">Loja de comidas</h3>
+                <button onclick="closeFoodStoreModuleModal()" style="background:transparent;border:none;color:var(--text-muted);cursor:pointer;font-size:20px">✕</button>
+            </div>
+            <div class="modal-body" id="fsm-body"></div>
+            <div class="modal-footer" id="fsm-footer"></div>
         </div>
     </div>
 

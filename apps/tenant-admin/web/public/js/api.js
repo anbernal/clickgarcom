@@ -104,7 +104,8 @@ const TENANT_PAGE_ACCESS = {
 // Visibility is not enough: an old browser tab, bookmark or cached session may
 // still call navigate('comandas'). Keep the module boundary at the client API
 // layer as well, while the backend remains the authorization source of truth.
-const FOOD_SERVICE_PAGES = new Set(['dashboard', 'pedidos', 'cardapio', 'categorias', 'comandas', 'mesas']);
+const ATTENDANCE_PAGES = new Set(['dashboard', 'pedidos', 'comandas', 'mesas']);
+const FOOD_STORE_PAGES = new Set(['cardapio', 'categorias']);
 const RETAIL_PAGES = new Set(['retailOverview', 'retailProducts', 'retailInventory', 'retailPicking', 'retailOrders']);
 const DELIVERY_PAGES = new Set(['delivery', 'fleet']);
 
@@ -144,6 +145,7 @@ function buildFallbackPermissions(role) {
         .map(([pageId]) => pageId);
     const deliveryActionEnabled = getCurrentUser()?.delivery_enabled === true;
     const attendanceActionEnabled = getCurrentUser()?.attendance_enabled !== false;
+    const foodStoreActionEnabled = isFoodStoreModuleEnabledForNavigation(getCurrentUser());
 
     return {
         pages,
@@ -152,7 +154,7 @@ function buildFallbackPermissions(role) {
             manageUsers: routeGroups.includes('full_access'),
             manageSettings: routeGroups.includes('full_access'),
             toggleTenantStatus: routeGroups.includes('full_access'),
-            manageMenu: routeGroups.includes('menu_write'),
+            manageMenu: foodStoreActionEnabled && routeGroups.includes('menu_write'),
             manageOrders: routeGroups.includes('order_read_write'),
             cancelOrders: routeGroups.includes('order_cancel'),
             manageTables: attendanceActionEnabled && routeGroups.includes('table_write'),
@@ -219,6 +221,11 @@ function getCurrentUserPermissions() {
                 .filter((key) => ['attendance', 'table', 'tab'].some((token) => key.toLowerCase().includes(token)))
                 .forEach((key) => { merged.actions[key] = false; });
         }
+        if (!isFoodStoreModuleEnabledForNavigation(getCurrentUser())) {
+            Object.keys(merged.actions || {})
+                .filter((key) => key.toLowerCase().includes('menu'))
+                .forEach((key) => { merged.actions[key] = false; });
+        }
         return merged;
     }
 
@@ -231,7 +238,10 @@ function canAccessRouteGroup(routeGroup) {
 
 function canAccessPage(pageId) {
     const user = getCurrentUser() || {};
-    if (FOOD_SERVICE_PAGES.has(pageId) && user.attendance_enabled === false) {
+    if (ATTENDANCE_PAGES.has(pageId) && user.attendance_enabled === false) {
+        return false;
+    }
+    if (FOOD_STORE_PAGES.has(pageId) && !isFoodStoreModuleEnabledForNavigation(user)) {
         return false;
     }
     if (RETAIL_PAGES.has(pageId) && !isRetailModuleEnabledForNavigation(user)) {
@@ -256,6 +266,14 @@ function isRetailModuleEnabledForNavigation(user) {
         return true;
     }
     return ['MARKET', 'PHARMACY'].includes(String(user?.establishment_type || user?.establishmentType || '').toUpperCase());
+}
+
+function isFoodStoreModuleEnabledForNavigation(user) {
+    if (typeof user?.food_store_enabled === 'boolean') return user.food_store_enabled;
+    // Existing product-focused tenants predate the explicit food-store flag.
+    // Keep their current Retail-only navigation until an administrator enables
+    // the food storefront deliberately.
+    return !isRetailModuleEnabledForNavigation(user) || user?.attendance_enabled !== false;
 }
 
 function canPerformAction(actionKey) {

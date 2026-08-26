@@ -414,6 +414,7 @@ export class SuperAdminService {
                 deliveryExpiresAt: this.parseTenantSettings(row.settings).delivery?.expires_at || null,
                 deliveryPermanent: this.parseTenantSettings(row.settings).delivery?.permanent === true,
                 attendanceEnabled: this.parseTenantSettings(row.settings).attendance?.enabled !== false,
+                foodStoreEnabled: this.isFoodStoreEnabled(this.parseTenantSettings(row.settings), row.establishment_type),
                 retailEnabled: this.isRetailEnabledNow(this.parseTenantSettings(row.settings), row.establishment_type),
                 establishmentType: row.establishment_type || 'RESTAURANT',
                 webhook: webhookUrl,
@@ -1876,6 +1877,7 @@ export class SuperAdminService {
                 whatsapp_order_mode: 'HYBRID',
             },
             attendance: establishmentType === 'RESTAURANT' ? { enabled: true } : { enabled: false },
+            food_store: { enabled: establishmentType === 'RESTAURANT' },
             retail: { enabled: establishmentType === 'MARKET' || establishmentType === 'PHARMACY' },
         };
 
@@ -2136,6 +2138,52 @@ export class SuperAdminService {
         if (typeof settings?.retail?.enabled === 'boolean') return settings.retail.enabled;
         // Backwards compatible default for the first standalone RETAIL tenants.
         return ['MARKET', 'PHARMACY'].includes(String(establishmentType || '').toUpperCase());
+    }
+
+    private isFoodStoreEnabled(settings: TenantSettings, establishmentType: unknown) {
+        if (typeof settings?.food_store?.enabled === 'boolean') return settings.food_store.enabled;
+        // Preserve the existing cardápio for restaurants until the Super Admin
+        // explicitly disables the food storefront. Market/pharmacy default to
+        // the products storefront instead.
+        const type = String(establishmentType || '').toUpperCase();
+        if (this.isRetailEnabledNow(settings, establishmentType) && settings.attendance?.enabled === false) return false;
+        return type === '' || type === 'RESTAURANT';
+    }
+
+    async setTenantFoodStoreEnabled(id: string, enabled: boolean, actor: SuperAdminActorContext) {
+        const tenant = await this.tenantRepo.findOne({ where: { id } });
+        if (!tenant) throw new NotFoundException('Tenant nao encontrado.');
+
+        const settings = this.parseTenantSettings(tenant.settings);
+        const previousEnabled = this.isFoodStoreEnabled(settings, tenant.establishmentType);
+        const now = new Date().toISOString();
+        const nextSettings: TenantSettings = {
+            ...settings,
+            food_store: {
+                ...(settings.food_store || {}),
+                enabled: !!enabled,
+                enabled_at: enabled ? (previousEnabled && settings.food_store?.enabled_at ? settings.food_store.enabled_at : now) : (settings.food_store?.enabled_at || null),
+                disabled_at: enabled ? null : now,
+            },
+        };
+
+        tenant.settings = nextSettings;
+        await this.tenantRepo.save(tenant);
+        await this.recordAuditLog({
+            action: 'TENANT_FOOD_STORE_STATUS_CHANGED',
+            entityType: 'TENANT',
+            entityId: tenant.id,
+            tenantId: tenant.id,
+            actor,
+            details: {
+                summary: `Loja de comidas de ${tenant.name} foi ${enabled ? 'ativada' : 'desativada'} pelo Super Admin.`,
+                before_enabled: previousEnabled,
+                after_enabled: !!enabled,
+                enabled_at: nextSettings.food_store?.enabled_at || null,
+            },
+        });
+
+        return { id: tenant.id, enabled: !!enabled, updatedAt: tenant.updatedAt };
     }
 
     async setTenantRetailEnabled(id: string, enabled: boolean, actor: SuperAdminActorContext) {

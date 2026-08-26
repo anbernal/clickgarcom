@@ -47,6 +47,12 @@ export interface TenantSettings {
         enabled_at?: string | null;
         disabled_at?: string | null;
     };
+    /** Digital storefront for prepared food/cardápio. */
+    food_store?: {
+        enabled?: boolean;
+        enabled_at?: string | null;
+        disabled_at?: string | null;
+    };
 }
 
 export interface PaymentGatewaySettings {

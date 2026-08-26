@@ -69,7 +69,7 @@ export class PublicMenuCustomerService {
         const code = String(randomInt(100000, 1_000_000));
         const codeHash = this.hashLoginCode(challengeId, phone, code);
         const expiresAt = new Date(Date.now() + this.challengeMinutes * 60_000);
-        const message = `🔐 *${tenant.name}*\n\nSeu código para entrar no cardápio é *${code}*.\n\nEle vale por ${this.challengeMinutes} minutos. Não compartilhe este código.`;
+        const message = `🔐 *${tenant.name}*\n\nSeu código para entrar na loja é *${code}*.\n\nEle vale por ${this.challengeMinutes} minutos. Não compartilhe este código.`;
 
         await this.dataSource.transaction(async (manager) => {
             await manager.query(
@@ -157,7 +157,7 @@ export class PublicMenuCustomerService {
         };
     }
 
-    async createWhatsAppAccess(rawTenantId: string, rawPhone: string) {
+    async createWhatsAppAccess(rawTenantId: string, rawPhone: string, rawExperience = '') {
         const tenantId = String(rawTenantId || '').trim();
         if (!this.isUuid(tenantId)) throw new BadRequestException('tenant_id inválido.');
         const rows = await this.dataSource.query(
@@ -168,6 +168,8 @@ export class PublicMenuCustomerService {
         if (!tenant || tenant.active !== true) throw new NotFoundException('Restaurante não encontrado.');
         if (tenant.is_open !== true) throw new ConflictException('O restaurante está fechado para novos pedidos agora.');
 
+        const settings = this.parseSettings(tenant.settings);
+        const experience = this.resolveStorefrontExperience(settings, tenant.establishment_type, rawExperience);
         const phone = this.customerService.normalizePhone(rawPhone);
         if (!phone) throw new BadRequestException('Telefone do WhatsApp inválido.');
         const customer = await this.customerService.resolveCustomer(tenant.id, phone);
@@ -184,21 +186,16 @@ export class PublicMenuCustomerService {
             );
             await manager.query(
                 `INSERT INTO digital_menu_access_credentials
-                    (id, tenant_id, customer_id, phone_normalized, token_hash, expires_at)
-                 VALUES ($1, $2, $3, $4, $5, $6)`,
-                [uuidv4(), tenant.id, customer.id, phone, tokenHash, expiresAt],
+                    (id, tenant_id, customer_id, phone_normalized, token_hash, expires_at, storefront)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                [uuidv4(), tenant.id, customer.id, phone, tokenHash, expiresAt, experience],
             );
         });
 
-        const settings = this.parseSettings(tenant.settings);
-        const establishmentType = String(tenant.establishment_type || '').toUpperCase();
-        const experience = ['MARKET', 'PHARMACY'].includes(establishmentType) && settings?.retail?.enabled !== false
-            ? 'STORE'
-            : 'MENU';
         return { slug: tenant.slug, restaurant_name: tenant.name, capability, expires_at: expiresAt, experience };
     }
 
-    async exchangeWhatsAppAccess(rawSlug: string, rawCapability: string) {
+    async exchangeWhatsAppAccess(rawSlug: string, rawCapability: string, expectedExperience = '') {
         const tenant = await this.findTenant(rawSlug);
         if (tenant.is_open !== true) throw new ConflictException('O restaurante está fechado para novos pedidos agora.');
         const capability = String(rawCapability || '').trim();
@@ -208,7 +205,7 @@ export class PublicMenuCustomerService {
         const tokenHash = this.hashAccessCapability(capability);
         const credential = await this.dataSource.transaction(async (manager) => {
             const rows = await manager.query(
-                `SELECT id, customer_id, phone_normalized, expires_at, used_at
+                `SELECT id, customer_id, phone_normalized, expires_at, used_at, storefront
                    FROM digital_menu_access_credentials
                   WHERE tenant_id = $1 AND token_hash = $2
                   LIMIT 1 FOR UPDATE`,
@@ -221,6 +218,10 @@ export class PublicMenuCustomerService {
             // cannot consume the customer's access attempt.
             if (!current || new Date(current.expires_at) <= new Date()) {
                 throw new UnauthorizedException('Link do cardápio inválido ou expirado.');
+            }
+            const expected = String(expectedExperience || '').trim().toUpperCase();
+            if (expected && String(current.storefront || 'MENU').toUpperCase() !== expected) {
+                throw new UnauthorizedException('Este link não corresponde à loja selecionada. Solicite um novo link pelo WhatsApp.');
             }
             await manager.query(`UPDATE digital_menu_access_credentials SET used_at = COALESCE(used_at, NOW()) WHERE id = $1`, [current.id]);
             return current;
@@ -239,6 +240,8 @@ export class PublicMenuCustomerService {
 
     async getAuthenticatedMenu(rawSlug: string, sessionToken: string) {
         await this.resolveSession(rawSlug, sessionToken);
+        const tenant = await this.findTenant(rawSlug);
+        this.assertFoodStoreAvailable(tenant);
         const menu = await this.menuService.findPublicMenuBySlug(rawSlug);
         if (menu?.restaurant?.is_open !== true) {
             throw new ConflictException('O restaurante está fechado para novos pedidos agora.');
@@ -356,6 +359,7 @@ export class PublicMenuCustomerService {
         const session = await this.resolveSession(rawSlug, sessionToken);
         await this.requireCustomerName(session);
         const tenant = await this.findTenant(rawSlug);
+        this.assertFoodStoreAvailable(tenant);
         if (!tenant.is_open) throw new ConflictException('O restaurante está fechado para novos pedidos agora.');
         const deliverySettings = this.parseSettings(tenant.settings).delivery || {};
         if (deliverySettings.enabled !== true) throw new ConflictException('A entrega não está disponível neste restaurante.');
@@ -552,7 +556,7 @@ export class PublicMenuCustomerService {
     private async findTenant(rawSlug: string) {
         const slug = this.normalizeSlug(rawSlug);
         const rows = await this.dataSource.query(
-            `SELECT id, name, slug, active, is_open, settings FROM tenants WHERE slug = $1 AND active = TRUE LIMIT 1`,
+            `SELECT id, name, slug, active, is_open, establishment_type, settings FROM tenants WHERE slug = $1 AND active = TRUE LIMIT 1`,
             [slug],
         );
         if (!rows?.[0]) throw new NotFoundException('Cardápio não encontrado.');
@@ -793,5 +797,40 @@ export class PublicMenuCustomerService {
     private parseSettings(raw: unknown): any {
         if (raw && typeof raw === 'object') return raw;
         try { return JSON.parse(String(raw || '{}')); } catch { return {}; }
+    }
+
+    private resolveStorefrontExperience(settings: any, establishmentType: unknown, rawExperience: string) {
+        const type = String(establishmentType || '').trim().toUpperCase();
+        const retailEnabled = typeof settings?.retail?.enabled === 'boolean'
+            ? settings.retail.enabled
+            : ['MARKET', 'PHARMACY'].includes(type);
+        const foodEnabled = typeof settings?.food_store?.enabled === 'boolean'
+            ? settings.food_store.enabled
+            : (type === '' || type === 'RESTAURANT') && (!retailEnabled || settings?.attendance?.enabled !== false);
+        const requested = String(rawExperience || '').trim().toUpperCase();
+        if (requested === 'MENU') {
+            if (!foodEnabled) throw new ConflictException('A loja de comidas não está ativa para esta conta.');
+            return 'MENU';
+        }
+        if (requested === 'STORE') {
+            if (!retailEnabled) throw new ConflictException('A loja de produtos não está ativa para esta conta.');
+            return 'STORE';
+        }
+        if (foodEnabled && !retailEnabled) return 'MENU';
+        if (retailEnabled && !foodEnabled) return 'STORE';
+        if (foodEnabled) return 'MENU';
+        throw new ConflictException('Nenhuma loja de pedidos está ativa para esta conta.');
+    }
+
+    private assertFoodStoreAvailable(tenant: any) {
+        const settings = this.parseSettings(tenant?.settings);
+        const type = String(tenant?.establishment_type || '').trim().toUpperCase();
+        const retailEnabled = typeof settings?.retail?.enabled === 'boolean'
+            ? settings.retail.enabled
+            : ['MARKET', 'PHARMACY'].includes(type);
+        const enabled = typeof settings?.food_store?.enabled === 'boolean'
+            ? settings.food_store.enabled
+            : (type === '' || type === 'RESTAURANT') && (!retailEnabled || settings?.attendance?.enabled !== false);
+        if (!enabled) throw new ConflictException('A loja de comidas não está disponível para esta conta.');
     }
 }

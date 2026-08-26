@@ -723,6 +723,7 @@ export class AuthService {
         const settings = user.tenant?.settings || {};
         const establishmentType = user.tenant?.establishmentType || 'RESTAURANT';
         const retailEnabled = this.isRetailEnabled(settings, establishmentType);
+        const foodStoreEnabled = this.isFoodStoreEnabled(settings, establishmentType);
 
         return {
             id: user.id,
@@ -739,6 +740,7 @@ export class AuthService {
             establishment_type: establishmentType,
             delivery_enabled: this.isDeliveryEnabledNow(settings),
             retail_enabled: retailEnabled,
+            food_store_enabled: foodStoreEnabled,
             // Existing tenants do not have this key yet; preserve their
             // current presencial behavior until the Super Admin explicitly
             // disables the module.
@@ -755,6 +757,7 @@ export class AuthService {
                 this.isDeliveryEnabledNow(settings),
                 settings.attendance?.enabled !== false,
                 retailEnabled,
+                foodStoreEnabled,
             ),
         };
     }
@@ -795,7 +798,7 @@ export class AuthService {
         }));
     }
 
-    private buildFrontendPermissions(role: string, deliveryEnabled = false, attendanceEnabled = true, retailEnabled = false) {
+    private buildFrontendPermissions(role: string, deliveryEnabled = false, attendanceEnabled = true, retailEnabled = false, foodStoreEnabled = true) {
         const normalizedRole = normalizeTenantRole(role);
         const routeGroupAccessors = [
             { key: 'full_access', roles: TENANT_FULL_ACCESS_ROLES },
@@ -833,7 +836,7 @@ export class AuthService {
 
         if (routeGroups.includes('wallet')) pages.push('wallet', 'extratoMensagens');
         if (attendanceEnabled && routeGroups.includes('order_read_write')) pages.push('pedidos');
-        if (attendanceEnabled && routeGroups.includes('menu_read')) pages.push('cardapio', 'categorias');
+        if (foodStoreEnabled && routeGroups.includes('menu_read')) pages.push('cardapio', 'categorias');
         if (attendanceEnabled && routeGroups.includes('table_read')) pages.push('comandas', 'mesas');
         if (routeGroups.includes('settlement')) pages.push('pagamentos');
         if (routeGroups.includes('reports')) pages.push('vendas');
@@ -851,7 +854,7 @@ export class AuthService {
                 manageUsers: this.isRoleAllowed(normalizedRole, TENANT_FULL_ACCESS_ROLES),
                 manageSettings: this.isRoleAllowed(normalizedRole, TENANT_FULL_ACCESS_ROLES),
                 toggleTenantStatus: this.isRoleAllowed(normalizedRole, TENANT_FULL_ACCESS_ROLES),
-                manageMenu: this.isRoleAllowed(normalizedRole, TENANT_MENU_WRITE_ROLES),
+                manageMenu: foodStoreEnabled && this.isRoleAllowed(normalizedRole, TENANT_MENU_WRITE_ROLES),
                 manageOrders: this.isRoleAllowed(normalizedRole, TENANT_ORDER_WRITE_ROLES),
                 cancelOrders: this.isRoleAllowed(normalizedRole, TENANT_ORDER_CANCEL_ROLES),
                 manageTables: attendanceEnabled && this.isRoleAllowed(normalizedRole, TENANT_TABLE_WRITE_ROLES),
@@ -889,6 +892,13 @@ export class AuthService {
         // Existing MARKET/PHARMACY tenants were introduced before module flags.
         // Keep them functional until an explicit Super Admin deactivation.
         return ['MARKET', 'PHARMACY'].includes(String(establishmentType || '').toUpperCase());
+    }
+
+    private isFoodStoreEnabled(settings: TenantSettings, establishmentType: string) {
+        if (typeof settings?.food_store?.enabled === 'boolean') return settings.food_store.enabled;
+        if (this.isRetailEnabled(settings, establishmentType) && settings.attendance?.enabled === false) return false;
+        const type = String(establishmentType || '').toUpperCase();
+        return type === '' || type === 'RESTAURANT';
     }
 
     private getRoleLabel(role: string) {

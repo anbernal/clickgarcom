@@ -16,7 +16,7 @@ const state = {
 };
 const RETAIL_PROFILE_DRAFT_KEY = 'clickgarcom_super_admin_retail_profiles_v1';
 // Nome amigável exibido no Super Admin. RETAIL continua sendo o identificador técnico.
-const RETAIL_DISPLAY_NAME = 'Loja';
+const RETAIL_DISPLAY_NAME = 'Loja de produtos';
 
 function readRetailProfileDrafts() {
     try { return JSON.parse(localStorage.getItem(RETAIL_PROFILE_DRAFT_KEY) || '{}') || {}; } catch (_) { return {}; }
@@ -154,6 +154,12 @@ const api = {
     },
     setTenantRetailEnabled(id, enabled) {
         return request(`/tenants/${encodeURIComponent(String(id))}/retail`, {
+            method: 'PATCH',
+            body: JSON.stringify({ enabled: !!enabled }),
+        });
+    },
+    setTenantFoodStoreEnabled(id, enabled) {
+        return request(`/tenants/${encodeURIComponent(String(id))}/food-store`, {
             method: 'PATCH',
             body: JSON.stringify({ enabled: !!enabled }),
         });
@@ -446,13 +452,13 @@ async function loadDashboard() {
 
 async function loadTenants() {
     try {
-        setTableLoading('#tenants-table tbody', 9, 'Carregando estabelecimentos...');
+        setTableLoading('#tenants-table tbody', 10, 'Carregando estabelecimentos...');
         const tenants = await api.getTenants();
         state.tenants = Array.isArray(tenants) ? tenants : [];
 
         const tbody = document.querySelector('#tenants-table tbody');
         if (!state.tenants.length) {
-            tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:var(--text-muted)">Nenhum estabelecimento cadastrado.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; color:var(--text-muted)">Nenhum estabelecimento cadastrado.</td></tr>';
             return;
         }
 
@@ -468,11 +474,13 @@ async function loadTenants() {
                 <td>${escapeHtml(t.adminEmail || '-')}</td>
                 <td>${formatNumber(t.msgs)} msgs</td>
                 <td><span class="badge ${t.attendanceEnabled !== false ? 'active' : 'inactive'}">${t.attendanceEnabled !== false ? 'Ativo' : 'Desativado'}</span></td>
+                <td><span class="badge ${t.foodStoreEnabled ? 'active' : 'inactive'}">${t.foodStoreEnabled ? 'Ativo' : 'Desativado'}</span></td>
                 <td><span class="badge ${t.retailEnabled ? 'active' : 'inactive'}">${t.retailEnabled ? 'Ativo' : 'Desativado'}</span></td>
                 <td><span class="badge ${t.deliveryEnabled ? 'active' : 'inactive'}">${t.deliveryEnabled ? 'Ativo' : 'Desativado'}</span></td>
                 <td>
                     <button class="btn" style="padding:6px 12px; background:var(--border)" onclick="openTenantModal('${escapeHtml(t.id)}')">Editar</button>
                     <button class="btn" style="padding:6px 12px; background:${t.attendanceEnabled !== false ? 'rgba(239,68,68,.16)' : 'rgba(59,130,246,.2)'}; color:${t.attendanceEnabled !== false ? '#fca5a5' : '#93c5fd'}" onclick="openAttendanceModuleModal('${escapeHtml(t.id)}')">${t.attendanceEnabled !== false ? 'Desativar Atendimento' : 'Ativar Atendimento'}</button>
+                    <button class="btn" style="padding:6px 12px; background:${t.foodStoreEnabled ? 'rgba(239,68,68,.16)' : 'rgba(59,130,246,.2)'}; color:${t.foodStoreEnabled ? '#fca5a5' : '#93c5fd'}" onclick="openFoodStoreModuleModal('${escapeHtml(t.id)}')">${t.foodStoreEnabled ? 'Desativar Loja de comidas' : 'Ativar Loja de comidas'}</button>
                     <button class="btn" style="padding:6px 12px; background:${t.retailEnabled ? 'rgba(239,68,68,.16)' : 'rgba(59,130,246,.2)'}; color:${t.retailEnabled ? '#fca5a5' : '#93c5fd'}" onclick="openRetailModuleModal('${escapeHtml(t.id)}')">${t.retailEnabled ? `Desativar ${RETAIL_DISPLAY_NAME}` : `Ativar ${RETAIL_DISPLAY_NAME}`}</button>
                     <button class="btn" style="padding:6px 12px; background:${t.deliveryEnabled ? 'rgba(239,68,68,.16)' : 'rgba(59,130,246,.2)'}; color:${t.deliveryEnabled ? '#fca5a5' : '#93c5fd'}" onclick="openDeliveryModuleModal('${escapeHtml(t.id)}')">${t.deliveryEnabled ? 'Desativar Delivery' : 'Ativar Delivery'}</button>
                     <button class="btn" style="padding:6px 12px; background:rgba(59, 130, 246, 0.2); color:#93c5fd" onclick="openPaymentGatewayModal('${escapeHtml(t.id)}')">Pagamento</button>
@@ -482,7 +490,7 @@ async function loadTenants() {
         `).join('');
     } catch (error) {
         console.error(error);
-        setTableLoading('#tenants-table tbody', 9, `Falha ao carregar estabelecimentos: ${error.message}`);
+        setTableLoading('#tenants-table tbody', 10, `Falha ao carregar estabelecimentos: ${error.message}`);
     }
 }
 
@@ -1160,6 +1168,10 @@ function closeRetailModuleModal() {
     document.getElementById('retail-module-modal')?.classList.remove('active');
 }
 
+function closeFoodStoreModuleModal() {
+    document.getElementById('food-store-module-modal')?.classList.remove('active');
+}
+
 function openAttendanceModuleModal(tenantId) {
     const tenant = state.tenants.find((item) => item.id === tenantId);
     if (!tenant) return;
@@ -1190,6 +1202,33 @@ async function setTenantAttendance(tenantId, enabled) {
         alert(`Módulo Atendimento ${enabled ? 'ativado' : 'desativado'} com sucesso.`);
     } catch (error) {
         alert(`Falha ao ${action} o módulo Atendimento: ${error.message}`);
+    }
+}
+
+function openFoodStoreModuleModal(tenantId) {
+    const tenant = state.tenants.find((item) => item.id === tenantId);
+    if (!tenant) return;
+    const enabled = tenant.foodStoreEnabled === true;
+    document.getElementById('fsm-title').textContent = `Loja de comidas · ${enabled ? 'Ativa' : 'Desativada'}`;
+    document.getElementById('fsm-body').innerHTML = `<div class="card" style="margin:0;border-color:${enabled ? 'rgba(16,185,129,.35)' : 'rgba(245,158,11,.35)'}"><div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">Tenant</div><h3 style="margin-bottom:10px">${escapeHtml(tenant.name)}</h3><div style="display:flex;align-items:center;gap:10px;margin-bottom:16px"><span class="badge ${enabled ? 'active' : 'inactive'}">${enabled ? 'ATIVA' : 'DESATIVADA'}</span><strong>Cardápio e pedidos de comida</strong></div><p class="page-sub" style="margin:0">${enabled ? 'O cardápio autenticado, adicionais e pedidos de comida ficam disponíveis. Delivery continua sendo apenas a forma de entrega.' : 'Ative para vender comidas preparadas pelo cardápio. Produtos, estoque e Central de Separação continuam no módulo Loja de produtos.'}</p><div style="margin-top:18px;padding:14px 16px;border-radius:12px;background:var(--surface-2);border:1px solid var(--border)"><strong style="display:block;font-size:13px;margin-bottom:8px">O que este módulo libera</strong><ul style="margin:0;padding-left:18px;color:var(--text-muted);font-size:12px;line-height:1.7"><li>Cardápio, categorias e complementos</li><li>Pedidos para Cozinha e KDS</li><li>Link “Comidas” no WhatsApp</li></ul></div></div>`;
+    document.getElementById('fsm-footer').innerHTML = enabled
+        ? `<button class="btn" style="background:rgba(239,68,68,.18);color:#fca5a5" onclick="setTenantFoodStore('${escapeHtml(tenant.id)}', false)">Desativar Loja de comidas</button><button class="btn" onclick="closeFoodStoreModuleModal()">Fechar</button>`
+        : `<button class="btn" onclick="setTenantFoodStore('${escapeHtml(tenant.id)}', true)">Ativar Loja de comidas</button><button class="btn" style="background:transparent;border:1px solid var(--border);color:var(--text-main)" onclick="closeFoodStoreModuleModal()">Cancelar</button>`;
+    document.getElementById('food-store-module-modal').classList.add('active');
+}
+
+async function setTenantFoodStore(tenantId, enabled) {
+    const tenant = state.tenants.find((item) => item.id === tenantId);
+    if (!tenant) return;
+    const action = enabled ? 'ativar' : 'desativar';
+    if (!confirm(`Deseja ${action} a Loja de comidas de ${tenant.name}?`)) return;
+    try {
+        await api.setTenantFoodStoreEnabled(tenantId, enabled);
+        await loadTenants();
+        closeFoodStoreModuleModal();
+        alert(`Loja de comidas ${enabled ? 'ativada' : 'desativada'} com sucesso.`);
+    } catch (error) {
+        alert(`Falha ao ${action} a Loja de comidas: ${error.message}`);
     }
 }
 
