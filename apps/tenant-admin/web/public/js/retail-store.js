@@ -169,6 +169,15 @@ function renderStore() {
     renderStoreProductRails();
     renderStoreCatalog();
     renderStoreCartCounters();
+    refreshStoreOrderCounter();
+}
+
+function refreshStoreOrderCounter() {
+    const counter = document.getElementById('store-order-count');
+    if (!counter) return;
+    const activeOrders = (storeState.orders || []).filter((order) => storeOrderStage(order).step < 5).length;
+    counter.textContent = String(activeOrders);
+    counter.hidden = activeOrders === 0;
 }
 
 function renderStoreCategories() {
@@ -548,6 +557,7 @@ async function initializeStore() {
             try {
                 const history = await storeFetch('/orders');
                 storeState.orders = Array.isArray(history) ? history.filter((order) => String(order?.storefront || '').toUpperCase() === 'RETAIL') : [];
+                refreshStoreOrderCounter();
             } catch (_) {
                 // The purchase history must never prevent the customer from
                 // browsing products or reaching the cart.
