@@ -145,7 +145,7 @@ export class RetailCheckoutService {
                         balance.on_hand, balance.reserved
                    FROM menu_items item
               LEFT JOIN inventory_balances balance ON balance.tenant_id = item.tenant_id AND balance.menu_item_id = item.id
-                  WHERE item.tenant_id = $1 AND item.id = ANY($2::uuid[]) FOR UPDATE`,
+                  WHERE item.tenant_id = $1 AND item.id = ANY($2::uuid[]) FOR UPDATE OF item`,
                 [session.tenantId, items.map((item) => item.menuItemId)],
             );
             const products = new Map<string, any>(productRows.map((item: any) => [String(item.id), item]));
@@ -188,11 +188,13 @@ export class RetailCheckoutService {
                      VALUES ($1, $2, $3, $4, $5, '[]'::jsonb, $6, NOW())`,
                     [uuidv4(), orderId, requested.menuItemId, requested.quantity, Number(product.price || 0), product.name],
                 );
-                await manager.query(
+                const reservation = await manager.query(
                     `UPDATE inventory_balances SET reserved = reserved + $3, version = version + 1, updated_at = NOW()
-                      WHERE tenant_id = $1 AND menu_item_id = $2 AND on_hand - reserved >= $3`,
+                      WHERE tenant_id = $1 AND menu_item_id = $2 AND on_hand - reserved >= $3
+                  RETURNING menu_item_id`,
                     [session.tenantId, requested.menuItemId, requested.quantity],
                 );
+                if (!reservation?.length) throw new ConflictException('Um produto ficou indisponível. Atualize sua sacola.');
             }
             return { requestId, tabId, batchId, subtotal, snapshot };
         });
