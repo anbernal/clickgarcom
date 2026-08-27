@@ -165,7 +165,7 @@ function sendFile(req, res, filename, headOnly, requestBasePath) {
       responseHeaders['Referrer-Policy'] = 'strict-origin-when-cross-origin';
       responseHeaders['X-Content-Type-Options'] = 'nosniff';
       responseHeaders['X-Frame-Options'] = 'SAMEORIGIN';
-      responseHeaders['Content-Security-Policy'] = "default-src 'self'; connect-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; script-src 'self' 'unsafe-inline'; base-uri 'none'; frame-ancestors 'self'; form-action 'none'; object-src 'none'";
+      responseHeaders['Content-Security-Policy'] = "default-src 'self'; connect-src 'self' https://api.mercadopago.com https://*.mercadopago.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; script-src 'self' 'unsafe-inline' https://sdk.mercadopago.com; frame-src https://*.mercadopago.com; base-uri 'none'; frame-ancestors 'self'; form-action 'none'; object-src 'none'";
     }
     if (path.basename(filename) === 'driver.html') {
       responseHeaders['Referrer-Policy'] = 'no-referrer';

@@ -39,6 +39,10 @@ const storeState = {
     loginChallengeId: '',
     cart: {},
     orders: [],
+    checkout: null,
+    paymentContext: null,
+    payment: null,
+    paymentTimer: null,
     query: '',
     category: 'all',
     sort: 'relevance',
@@ -99,6 +103,22 @@ async function storeFetch(path, options = {}) {
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload?.message || 'Não foi possível concluir agora.');
+    return payload;
+}
+
+async function storeApiFetch(path, options = {}) {
+    const response = await fetch(`${STORE_API_BASE}${path}`, {
+        credentials: 'same-origin',
+        headers: { Accept: 'application/json', ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(options.headers || {}) },
+        ...options,
+    });
+    const raw = await response.json().catch(() => ({}));
+    const payload = raw && Object.prototype.hasOwnProperty.call(raw, 'data') ? raw.data : raw;
+    if (!response.ok) {
+        const error = new Error(String(payload?.message || raw?.message || 'Não foi possível concluir agora.'));
+        error.status = response.status;
+        throw error;
+    }
     return payload;
 }
 
@@ -263,6 +283,7 @@ function openStoreLayer(html, className = '') {
 }
 
 function closeStoreLayer() {
+    stopStorePaymentPolling();
     document.getElementById('store-layer').hidden = true;
     document.getElementById('store-sheet').innerHTML = '';
     document.body.classList.remove('store-no-scroll');
@@ -322,12 +343,112 @@ async function openStoreCheckoutPayment(button) {
     if (!addressId) return showStoreToast('Escolha um endereço para continuar.');
     try {
         if (button) { button.disabled = true; button.textContent = 'Calculando entrega…'; }
-        const checkout = await storeFetch('/checkout', { method: 'POST', body: JSON.stringify({ address_id: addressId, idempotency_key: crypto.randomUUID(), items: Object.entries(storeState.cart).map(([menu_item_id, quantity]) => ({ menu_item_id, quantity })) }) });
-        // checkout.html already implements PIX/card, polling and the payment
-        // confirmation safeguards used by the restaurant flow.
-        window.location.assign(`/checkout.html?delivery_checkout=${encodeURIComponent(checkout.checkout_capability)}`);
+        storeState.checkout = await storeFetch('/checkout', { method: 'POST', body: JSON.stringify({ address_id: addressId, idempotency_key: crypto.randomUUID(), items: Object.entries(storeState.cart).map(([menu_item_id, quantity]) => ({ menu_item_id, quantity })) }) });
+        storeState.paymentContext = null;
+        renderStorePayment();
     } catch (error) { if (button) { button.disabled = false; button.textContent = 'Continuar para pagamento'; } showStoreToast(error.message); }
 }
+
+function renderStorePayment() {
+    const checkout = storeState.checkout;
+    if (!checkout) return openStoreCheckoutAddress();
+    openStoreLayer(`${storeSheetHead('Pagamento', 'Escolha como deseja pagar com segurança')}<div class="store-checkout-progress"><i class="is-done"></i><i class="is-done"></i><i class="is-active"></i></div><div class="store-checkout-total"><span><small>Produtos</small><b>${storeMoney(checkout.subtotal)}</b></span><span><small>Entrega</small><b>${storeMoney(checkout.delivery_fee)}</b></span><span class="is-total"><small>Total</small><b>${storeMoney(checkout.total)}</b></span></div><div class="store-payment-tabs" role="tablist"><button class="is-active" type="button" onclick="selectStorePayment('pix')">⚡ PIX</button><button type="button" onclick="selectStorePayment('card')">💳 Cartão</button></div><div id="store-payment-content" class="store-payment-content"><div class="store-payment-intro"><span>⚡</span><h3>Pagamento rápido e seguro</h3><p>Seu pedido só entra em separação após a confirmação do pagamento.</p></div><div class="store-form-error" id="store-payment-error" hidden></div><button class="store-primary-button" type="button" onclick="generateStorePix(this)">Gerar QR Code PIX</button></div><p class="store-secure-copy">🔒 Seus dados de pagamento são protegidos. Você continua nesta mesma tela.</p>`, 'store-sheet--checkout');
+}
+
+function selectStorePayment(method) {
+    if (method === 'card') return openStoreCardForm();
+    renderStorePayment();
+}
+
+async function loadStorePaymentContext() {
+    if (storeState.paymentContext) return storeState.paymentContext;
+    const checkout = storeState.checkout;
+    const access = await storeApiFetch(`/public/tables/delivery-checkouts/${encodeURIComponent(checkout.checkout_capability)}/access`);
+    const tab = await storeApiFetch(`/public/tables/tabs/${encodeURIComponent(access.tab_id)}?delivery_checkout_key=${encodeURIComponent(checkout.checkout_key)}`, { headers: { Authorization: `Bearer ${access.access_token}` } });
+    storeState.paymentContext = { ...access, tab };
+    return storeState.paymentContext;
+}
+
+async function generateStorePix(button) {
+    setStoreButtonBusy(button, 'Gerando PIX…');
+    try {
+        const context = await loadStorePaymentContext();
+        const isTestPayment = String(context.tab?.mpEnvironment || '').toUpperCase() === 'TEST' || String(context.tab?.mpPublicKey || '').startsWith('TEST-');
+        const payment = await storeApiFetch(`/public/tables/tabs/${encodeURIComponent(context.tab_id)}/payments/pix`, { method: 'POST', headers: { Authorization: `Bearer ${context.access_token}` }, body: JSON.stringify({ payer_name: isTestPayment ? 'APRO' : (storeState.profile?.customer?.name || 'Cliente'), payer_email: isTestPayment ? 'test_user_br@testuser.com' : 'cliente@email.com', payer_cpf: '19119119100', delivery_checkout_key: storeState.checkout.checkout_key }) });
+        storeState.payment = { ...payment, token: context.access_token, tabId: context.tab_id, method: 'pix' };
+        if (payment.approved || String(payment.status || '').toLowerCase() === 'approved') return renderStorePaymentApproved(payment);
+        renderStorePixCode(payment);
+        if (payment.payment_id) startStorePaymentPolling(String(payment.payment_id));
+    } catch (error) { showStoreFormError('store-payment-error', error.message); resetStoreButton(button); }
+}
+
+async function openStoreCardForm() {
+    try {
+        const context = await loadStorePaymentContext();
+        if (!context.tab?.cardEnabled) return showStoreToast(context.tab?.cardUnavailableReason || 'Pagamento com cartão indisponível nesta loja.');
+        document.querySelectorAll('.store-payment-tabs button').forEach((button) => button.classList.toggle('is-active', button.textContent.includes('Cartão')));
+        const content = document.getElementById('store-payment-content');
+        content.innerHTML = `<div class="store-payment-intro"><span>💳</span><h3>Cartão de crédito</h3><p>Preencha os dados abaixo para concluir sua compra.</p></div><form id="store-card-form" class="store-card-form"><label>Número do cartão<div id="store-card-number" class="store-mp-field"></div></label><div class="store-card-grid"><label>Validade<div id="store-card-expiration" class="store-mp-field"></div></label><label>CVV<div id="store-card-security" class="store-mp-field"></div></label></div><label>Nome do titular<input id="store-card-name" required autocomplete="cc-name" placeholder="Nome impresso no cartão"></label><label>E-mail<input id="store-card-email" type="email" required autocomplete="email" value="${storeEscape(storeState.profile?.customer?.email || '')}" placeholder="voce@email.com"></label><label>CPF<input id="store-card-cpf" required inputmode="numeric" autocomplete="off" placeholder="000.000.000-00"></label><label>Parcelas<select id="store-card-installments"><option value="1">1x sem juros</option><option value="2">2x</option><option value="3">3x</option><option value="4">4x</option><option value="5">5x</option><option value="6">6x</option></select></label><div class="store-form-error" id="store-card-error" hidden></div><button id="store-card-submit" class="store-primary-button" type="submit">Pagar ${storeMoney(storeState.checkout.total)} com cartão</button></form>`;
+        if (!window.MercadoPago) throw new Error('Pagamento com cartão indisponível neste navegador.');
+        const mp = new window.MercadoPago(String(context.tab.mpPublicKey), { locale: 'pt-BR' });
+        const number = mp.fields.create('cardNumber', { placeholder: 'Número do cartão' });
+        const expiration = mp.fields.create('expirationDate', { placeholder: 'MM/AA' });
+        const security = mp.fields.create('securityCode', { placeholder: 'CVV' });
+        number.mount('store-card-number'); expiration.mount('store-card-expiration'); security.mount('store-card-security');
+        document.getElementById('store-card-form').addEventListener('submit', (event) => submitStoreCardPayment(event, mp, context));
+    } catch (error) { showStoreToast(error.message || 'Não foi possível abrir o pagamento com cartão.'); }
+}
+
+async function submitStoreCardPayment(event, mp, context) {
+    event.preventDefault();
+    const button = document.getElementById('store-card-submit');
+    setStoreButtonBusy(button, 'Processando cartão…');
+    try {
+        const token = await mp.fields.createCardToken({ cardholderName: document.getElementById('store-card-name').value, identificationType: 'CPF', identificationNumber: document.getElementById('store-card-cpf').value });
+        const metadata = await resolveStoreCardMetadata(mp, token);
+        const isTestPayment = String(context.tab?.mpEnvironment || '').toUpperCase() === 'TEST' || String(context.tab?.mpPublicKey || '').startsWith('TEST-');
+        const payload = { token: token.id, payment_method_id: metadata.paymentMethodId, installments: Number(document.getElementById('store-card-installments').value || 1), payer_email: document.getElementById('store-card-email').value, payer_cpf: document.getElementById('store-card-cpf').value, delivery_checkout_key: storeState.checkout.checkout_key };
+        if (!isTestPayment && metadata.issuerId) payload.issuer_id = metadata.issuerId;
+        const payment = await storeApiFetch(`/public/tables/tabs/${encodeURIComponent(context.tab_id)}/payments/card`, { method: 'POST', headers: { Authorization: `Bearer ${context.access_token}` }, body: JSON.stringify(payload) });
+        storeState.payment = { ...payment, token: context.access_token, tabId: context.tab_id, method: 'card' };
+        if (payment.approved || String(payment.status || '').toLowerCase() === 'approved') return renderStorePaymentApproved(payment);
+        if (payment.payment_id) { renderStoreCardPending(payment); startStorePaymentPolling(String(payment.payment_id)); return; }
+        throw new Error('Não foi possível concluir o pagamento com cartão agora. Confira os dados e tente novamente. Se preferir, escolha outra forma de pagamento.');
+    } catch (error) { showStoreFormError('store-card-error', error.message || 'Não foi possível processar o cartão.'); resetStoreButton(button); }
+}
+
+async function resolveStoreCardMetadata(mp, token) {
+    const text = (value) => value === null || value === undefined ? '' : String(value).trim();
+    const results = (payload) => Array.isArray(payload) ? payload : (Array.isArray(payload?.results) ? payload.results : (Array.isArray(payload?.payment_methods) ? payload.payment_methods : []));
+    const issuer = (value) => /^\d+$/.test(text(value)) ? text(value) : '';
+    let paymentMethodId = text(token?.payment_method_id || token?.paymentMethodId || token?.payment_method?.id || token?.paymentMethod?.id);
+    let issuerId = issuer(token?.issuer_id || token?.issuerId || token?.issuer?.id || token?.card?.issuer?.id);
+    const bin = text(token?.first_six_digits || token?.card?.first_six_digits || token?.firstSixDigits).replace(/\D/g, '');
+    if (!paymentMethodId && bin && typeof mp.getPaymentMethods === 'function') {
+        const methods = results(await mp.getPaymentMethods({ bin }));
+        const selected = methods.find((method) => ['credit_card', 'debit_card'].includes(text(method?.payment_type_id).toLowerCase())) || methods[0];
+        paymentMethodId = text(selected?.id); issuerId = issuerId || issuer(selected?.issuer?.id);
+    }
+    if (!paymentMethodId) throw new Error('Não foi possível identificar a bandeira do cartão. Confira os dados e tente novamente.');
+    if (!issuerId && bin && typeof mp.getIssuers === 'function') {
+        try { issuerId = issuer(results(await mp.getIssuers({ paymentMethodId, bin }))[0]?.id); } catch (_) { }
+    }
+    return { paymentMethodId, issuerId };
+}
+
+function renderStorePixCode(payment) {
+    const qrBase64 = String(payment.qr_code_base64 || '').trim(); const qrCode = String(payment.qr_code || '').trim();
+    document.getElementById('store-payment-content').innerHTML = `<div class="store-pix-box">${qrBase64 ? `<img src="data:image/jpeg;base64,${storeEscape(qrBase64)}" alt="QR Code PIX">` : '<div class="store-pix-placeholder">Gerando QR Code…</div>'}<h3>Escaneie ou copie o código</h3><p>Abra o app do seu banco e escolha pagar com PIX.</p>${qrCode ? `<textarea id="store-pix-copy" readonly>${storeEscape(qrCode)}</textarea><button class="store-copy-button" type="button" onclick="copyStorePix()">Copiar código PIX</button>` : ''}<div class="store-payment-wait"><i></i><span>Aguardando confirmação do pagamento…</span></div></div>`;
+}
+
+async function copyStorePix() { const value = document.getElementById('store-pix-copy')?.value || ''; try { await navigator.clipboard.writeText(value); showStoreToast('Código PIX copiado'); } catch (_) { document.getElementById('store-pix-copy')?.select(); } }
+function renderStoreCardPending() { document.getElementById('store-payment-content').innerHTML = '<div class="store-payment-intro"><span>⏳</span><h3>Confirmando seu pagamento</h3><p>Assim que for confirmado, sua compra será enviada para separação.</p></div>'; }
+function startStorePaymentPolling(paymentId) { stopStorePaymentPolling(); storeState.paymentTimer = window.setInterval(async () => { try { const payment = storeState.payment; const status = await storeApiFetch(`/public/tables/tabs/${encodeURIComponent(payment.tabId)}/payments/${encodeURIComponent(paymentId)}/status?delivery_checkout_key=${encodeURIComponent(storeState.checkout.checkout_key)}`, { headers: { Authorization: `Bearer ${payment.token}` } }); if (payment.method === 'pix' && (status.qr_code || status.qr_code_base64)) renderStorePixCode({ ...payment, ...status }); if (status.approved || String(status.status || '').toLowerCase() === 'approved') renderStorePaymentApproved(status); if (['rejected', 'cancelled', 'canceled'].includes(String(status.status || '').toLowerCase())) { stopStorePaymentPolling(); showStoreToast(payment.method === 'card' ? 'O cartão não foi aprovado. Confira os dados ou escolha outra forma de pagamento.' : 'O PIX não foi concluído.'); } } catch (_) { } }, 4000); }
+function stopStorePaymentPolling() { if (storeState.paymentTimer) window.clearInterval(storeState.paymentTimer); storeState.paymentTimer = null; }
+function renderStorePaymentApproved() { stopStorePaymentPolling(); storeState.cart = {}; saveStoreCart(); storeState.checkout = null; storeState.paymentContext = null; void storeFetch('/orders').then((orders) => { storeState.orders = Array.isArray(orders) ? orders.filter((order) => String(order?.storefront || '').toUpperCase() === 'RETAIL') : []; }).catch(() => {}); openStoreLayer(`<div class="store-success"><span>✓</span><small>PAGAMENTO CONFIRMADO</small><h2>Compra recebida!</h2><p>Os produtos agora seguirão para separação. Você acompanha cada etapa por aqui e também recebe atualizações no WhatsApp.</p><div><b>Próxima etapa</b><strong>Em separação</strong></div><button class="store-primary-button" onclick="closeStoreLayer();openStoreOrders()">Acompanhar compra</button><button class="store-secondary-button" onclick="closeStoreLayer()">Voltar à loja</button></div>`, 'store-sheet--success'); }
+function setStoreButtonBusy(button, label) { if (!button) return; button.dataset.label = button.textContent; button.textContent = label; button.disabled = true; }
+function resetStoreButton(button) { if (!button) return; button.textContent = button.dataset.label || 'Tentar novamente'; button.disabled = false; }
+function showStoreFormError(id, message) { const target = document.getElementById(id); if (!target) return showStoreToast(message); target.textContent = message; target.hidden = false; }
 
 function openStoreAddressForm() {
     openStoreLayer(`${storeSheetHead('Novo endereço', 'Preencha os dados para calcular a área de entrega')}<form class="store-address-form" onsubmit="saveStoreAddress(event)"><label>Nome do endereço<input name="label" value="Casa" required></label><label>CEP<input name="postal_code" inputmode="numeric" maxlength="9" required onblur="lookupStorePostalCode(this.form)"></label><label>Rua<input name="street" required></label><label>Número<input name="address_number" required></label><label>Bairro<input name="neighborhood" required></label><label>Cidade<input name="city" required></label><label>UF<input name="state" maxlength="2" required></label><label>Complemento<input name="address_complement"></label><div id="store-address-error" class="store-form-error" hidden></div><button class="store-primary-button" type="submit">Salvar endereço</button></form>`, 'store-sheet--checkout');
