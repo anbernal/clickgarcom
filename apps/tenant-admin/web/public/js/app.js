@@ -8,14 +8,14 @@ const pages = {
         loader: loadExtratoMensagens,
     },
     appointments: { title: 'Agenda & Serviços', sub: 'Horários, equipe e experiência do cliente', loader: loadAppointmentsPage },
-    retailOverview: { title: 'Painel da loja', sub: 'Vendas, pedidos e estoque em um único lugar', loader: loadRetailOverview },
-    retailProducts: { title: 'Produtos', sub: 'Catálogo, preços e disponibilidade para venda', loader: loadRetailProductsPage },
-    retailInventory: { title: 'Estoque', sub: 'Saldo físico, reservas e movimentações', loader: loadRetailInventoryPage },
-    retailPicking: { title: 'Central de Separação', sub: 'Separe, confira e libere compras pagas', loader: loadRetailPickingPage },
-    retailOrders: { title: 'Compras online', sub: 'Acompanhe compras atuais e histórico de conclusão', loader: loadRetailOrdersPage },
+    retailOverview: { title: 'Painel da loja', sub: 'Vendas, pedidos e estoque em um único lugar', loader: () => runOptionalPageLoader('loadRetailOverview', 'retailOverview') },
+    retailProducts: { title: 'Produtos', sub: 'Catálogo, preços e disponibilidade para venda', loader: () => runOptionalPageLoader('loadRetailProductsPage', 'retailProducts') },
+    retailInventory: { title: 'Estoque', sub: 'Saldo físico, reservas e movimentações', loader: () => runOptionalPageLoader('loadRetailInventoryPage', 'retailInventory') },
+    retailPicking: { title: 'Central de Separação', sub: 'Separe, confira e libere compras pagas', loader: () => runOptionalPageLoader('loadRetailPickingPage', 'retailPicking') },
+    retailOrders: { title: 'Compras online', sub: 'Acompanhe compras atuais e histórico de conclusão', loader: () => runOptionalPageLoader('loadRetailOrdersPage', 'retailOrders') },
     pedidos: { title: 'Pedidos', sub: 'Fila de pedidos recebidos', loader: loadPedidos },
     delivery: { title: 'Entregas', sub: 'Despacho, acompanhamento e experiência do cliente', loader: loadDeliveryPage },
-    fleet: { title: 'Frota própria', sub: 'Motoboys, acessos, capacidade e desempenho', loader: loadFleetPage },
+    fleet: { title: 'Frota própria', sub: 'Motoboys, acessos, capacidade e desempenho', loader: () => runOptionalPageLoader('loadFleetPage', 'fleet') },
     cardapio: { title: 'Cardápio', sub: 'Gerencie os itens do seu menu', loader: loadCardapio },
     categorias: { title: 'Categorias', sub: 'Organize o cardápio em categorias', loader: loadCategorias },
     comandas: { title: 'Comandas', sub: 'Abra e acompanhe as comandas do restaurante', loader: loadComandas },
@@ -36,6 +36,19 @@ function buildAppPath(pathname) {
     if (!APP_BASE_PATH) return normalized;
     if (normalized === '/') return `${APP_BASE_PATH}/`;
     return `${APP_BASE_PATH}${normalized}`;
+}
+
+function runOptionalPageLoader(loaderName, pageId) {
+    const loader = window[loaderName];
+    if (typeof loader === 'function') return loader();
+
+    // Never allow a missing optional asset to interrupt the entire Admin
+    // application. This protects the Dashboard while a new web version is
+    // propagating and gives an actionable recovery state for the requested page.
+    const container = document.getElementById(`page-${pageId}`);
+    if (container) {
+        container.innerHTML = `<section class="module-unavailable-page"><div class="module-unavailable-page__icon">↻</div><span class="module-unavailable-page__eyebrow">ATUALIZAÇÃO DO PAINEL</span><h2>Esta tela está sendo atualizada.</h2><p>Recarregue a página em alguns segundos. As demais áreas do painel continuam disponíveis.</p><button class="btn-sm btn-primary" type="button" onclick="window.location.reload()">Recarregar página</button></section>`;
+    }
 }
 
 function getDefaultPageId() {
@@ -91,15 +104,21 @@ function applyNavigationPermissions() {
 }
 
 function configureBusinessProfileNavigation() {
-    const retail = typeof window.isRetailProfile === 'function' && window.isRetailProfile();
-    const attendance = (getCurrentUser() || {}).attendance_enabled !== false;
-    const foodStore = typeof window.isFoodStoreModuleEnabledForNavigation === 'function' && window.isFoodStoreModuleEnabledForNavigation(getCurrentUser());
+    const user = getCurrentUser() || {};
+    const retail = typeof window.isRetailProfile === 'function' && window.isRetailProfile() && user.retail_enabled === true;
+    const attendance = user.attendance_enabled !== false;
+    const foodStore = typeof window.isFoodStoreModuleEnabledForNavigation === 'function' && window.isFoodStoreModuleEnabledForNavigation(user);
     const standaloneRetail = retail && !attendance;
     document.body.classList.toggle('is-retail-profile', standaloneRetail);
     document.querySelectorAll('[data-business-profile]').forEach((item) => {
         const target = item.dataset.businessProfile;
-        const visible = target === 'retail' ? retail : target === 'food-store' ? foodStore : attendance;
-        item.style.display = visible ? '' : 'none';
+        const profileMatches = target === 'retail' ? retail : target === 'food-store' ? foodStore : attendance;
+        const pageId = item.dataset.page;
+        // Profile labels define the visual context, but access is always driven
+        // by the enabled module. Without this second check, a market profile
+        // could re-show Retail links after the module had been disabled.
+        const pageAllowed = !pageId || canAccessPage(pageId);
+        item.style.display = profileMatches && pageAllowed ? '' : 'none';
     });
 
     const establishmentLabel = document.getElementById('nav-establishment-label');
