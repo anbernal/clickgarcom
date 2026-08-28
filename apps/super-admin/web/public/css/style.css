@@ -368,6 +368,7 @@ tr:hover td {
     display: flex;
     align-items: center;
     justify-content: center;
+    padding: 20px;
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.25s ease;
@@ -381,8 +382,11 @@ tr:hover td {
 
 .modal-content {
     background: var(--panel-bg-elevated);
-    width: 90%;
-    max-width: 520px;
+    width: min(100%, 560px);
+    max-width: 560px;
+    max-height: min(88vh, 760px);
+    display: flex;
+    flex-direction: column;
     border-radius: var(--radius);
     border: 1px solid var(--border);
     box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
@@ -396,6 +400,7 @@ tr:hover td {
 }
 
 .modal-header {
+    flex: 0 0 auto;
     padding: 20px 24px;
     border-bottom: 1px solid var(--border);
     display: flex;
@@ -404,16 +409,106 @@ tr:hover td {
 }
 
 .modal-body {
+    min-height: 0;
     padding: 24px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    overflow-wrap: anywhere;
 }
 
 .modal-footer {
+    flex: 0 0 auto;
     padding: 18px 24px;
     background: rgba(0, 0, 0, 0.15);
     border-top: 1px solid var(--border);
     display: flex;
     justify-content: flex-end;
     gap: 12px;
+}
+
+.modal-content--form { width: min(100%, 540px); max-width: 540px; }
+.modal-content--module { width: min(100%, 600px); max-width: 600px; }
+.modal-content--payment { width: min(100%, 590px); max-width: 590px; }
+.modal-content--compact { width: min(100%, 420px); max-width: 420px; }
+
+.app-dialog-overlay {
+    z-index: 90;
+    background: rgba(3, 9, 16, 0.78);
+}
+
+.modal-content--dialog {
+    width: min(100%, 430px);
+    max-width: 430px;
+    border-color: rgba(92, 126, 151, 0.48);
+}
+
+.app-dialog-body {
+    display: grid;
+    grid-template-columns: 46px minmax(0, 1fr);
+    gap: 15px;
+    padding: 24px;
+}
+
+.app-dialog-icon {
+    width: 46px;
+    height: 46px;
+    display: grid;
+    place-items: center;
+    border-radius: 14px;
+    color: #9fd8ff;
+    background: rgba(56, 189, 248, 0.12);
+    font: 800 20px var(--font-display);
+}
+
+.app-dialog-eyebrow {
+    display: block;
+    margin: 1px 0 6px;
+    color: #78cceb;
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+}
+
+.app-dialog-body h3 {
+    margin: 0;
+    color: var(--text-main);
+    font-size: 17px;
+    line-height: 1.35;
+}
+
+.app-dialog-body p {
+    margin: 8px 0 0;
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.58;
+    overflow-wrap: anywhere;
+}
+
+.modal-content--dialog.is-success .app-dialog-icon {
+    color: #8bf0da;
+    background: rgba(32, 199, 167, 0.13);
+}
+
+.modal-content--dialog.is-success .app-dialog-eyebrow { color: #65dfc5; }
+.modal-content--dialog.is-warning .app-dialog-icon { color: #fbd38d; background: rgba(245, 158, 11, 0.14); }
+.modal-content--dialog.is-warning .app-dialog-eyebrow { color: #fbbf72; }
+.modal-content--dialog.is-error .app-dialog-icon { color: #fda4af; background: rgba(239, 68, 68, 0.13); }
+.modal-content--dialog.is-error .app-dialog-eyebrow { color: #fda4af; }
+
+.app-dialog-footer .btn {
+    min-width: 104px;
+    justify-content: center;
+}
+
+#app-dialog-confirm.is-danger {
+    background: linear-gradient(135deg, #ef4444, #c73737);
+}
+
+body.has-open-dialog {
+    overflow: hidden;
 }
 
 /* ── Forms ── */
@@ -1149,6 +1244,22 @@ a:focus-visible {
     .tenant-card-footer { align-items: stretch; flex-direction: column; }
     .tenant-footer-hint { display: none; }
     .tenant-actions .btn { flex: 1; justify-content: center; }
+    .modal-overlay { align-items: flex-end; padding: 10px; }
+    .modal-content {
+        width: 100% !important;
+        max-width: none !important;
+        max-height: calc(100dvh - 20px);
+        border-radius: 17px;
+    }
+    .modal-header { padding: 17px 18px; }
+    .modal-body { padding: 18px; }
+    .modal-footer {
+        padding: 13px 18px calc(13px + env(safe-area-inset-bottom));
+        flex-wrap: wrap-reverse;
+    }
+    .modal-footer .btn { flex: 1 1 130px; justify-content: center; }
+    .modal-content--dialog { margin: auto 0; }
+    .app-dialog-body { padding: 22px 18px; }
 }
 
 @media (max-width: 460px) {

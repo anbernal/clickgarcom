@@ -470,7 +470,7 @@
 
     <!-- MODAL: Novo Tenant / Editar -->
     <div class="modal-overlay" id="tenant-modal">
-        <div class="modal-content">
+        <div class="modal-content modal-content--form">
             <div class="modal-header">
                 <h3 id="tm-title">Novo estabelecimento</h3>
                 <button onclick="closeTenantModal()"
@@ -549,7 +549,7 @@
 
     <!-- MODAL: Módulo Delivery -->
     <div class="modal-overlay" id="delivery-module-modal">
-        <div class="modal-content" style="max-width:720px">
+        <div class="modal-content modal-content--module">
             <div class="modal-header">
                 <h3 id="dm-title">Módulo Delivery</h3>
                 <button onclick="closeDeliveryModuleModal()" style="background:transparent;border:none;color:var(--text-muted);cursor:pointer;font-size:20px">✕</button>
@@ -561,7 +561,7 @@
 
     <!-- MODAL: Módulo Atendimento -->
     <div class="modal-overlay" id="attendance-module-modal">
-        <div class="modal-content" style="max-width:720px">
+        <div class="modal-content modal-content--module">
             <div class="modal-header">
                 <h3 id="am-title">Módulo Atendimento</h3>
                 <button onclick="closeAttendanceModuleModal()" style="background:transparent;border:none;color:var(--text-muted);cursor:pointer;font-size:20px">✕</button>
@@ -573,7 +573,7 @@
 
     <!-- MODAL: Agenda & Serviços -->
     <div class="modal-overlay" id="appointments-module-modal">
-        <div class="modal-content" style="max-width:720px">
+        <div class="modal-content modal-content--module">
             <div class="modal-header">
                 <h3 id="agm-title">Agenda & Serviços</h3>
                 <button onclick="closeAppointmentsModuleModal()" style="background:transparent;border:none;color:var(--text-muted);cursor:pointer;font-size:20px">✕</button>
@@ -585,7 +585,7 @@
 
     <!-- MODAL: Módulo Loja (identificador técnico: RETAIL) -->
     <div class="modal-overlay" id="retail-module-modal">
-        <div class="modal-content" style="max-width:720px">
+        <div class="modal-content modal-content--module">
             <div class="modal-header">
                 <h3 id="rm-title">Módulo Loja</h3>
                 <button onclick="closeRetailModuleModal()" style="background:transparent;border:none;color:var(--text-muted);cursor:pointer;font-size:20px">✕</button>
@@ -597,7 +597,7 @@
 
     <!-- MODAL: Loja de comidas / Cardápio -->
     <div class="modal-overlay" id="food-store-module-modal">
-        <div class="modal-content" style="max-width:720px">
+        <div class="modal-content modal-content--module">
             <div class="modal-header">
                 <h3 id="fsm-title">Loja de comidas</h3>
                 <button onclick="closeFoodStoreModuleModal()" style="background:transparent;border:none;color:var(--text-muted);cursor:pointer;font-size:20px">✕</button>
@@ -609,7 +609,7 @@
 
     <!-- MODAL: Gateway de Pagamento -->
     <div class="modal-overlay" id="payment-gateway-modal">
-        <div class="modal-content" style="max-width: 680px;">
+        <div class="modal-content modal-content--payment">
             <div class="modal-header">
                 <h3>Gateway de Pagamento</h3>
                 <button onclick="closePaymentGatewayModal()" style="background:transparent;border:none;color:var(--text-muted);cursor:pointer;font-size:20px">✕</button>
@@ -662,7 +662,7 @@
 
     <!-- MODAL: Carteira & PLano -->
     <div class="modal-overlay" id="wallet-modal">
-        <div class="modal-content" style="max-width: 400px;">
+        <div class="modal-content modal-content--compact">
             <div class="modal-header">
                 <h3>Gerenciar Créditos</h3>
                 <button onclick="closeWalletModal()"
@@ -697,6 +697,24 @@
                     style="background:transparent;border:1px solid var(--border);color:white"
                     onclick="closeWalletModal()">Cancelar</button>
                 <button type="submit" form="wallet-form" class="btn">Aplicar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- STANDARD FEEDBACK / CONFIRMATION DIALOG -->
+    <div class="modal-overlay app-dialog-overlay" id="app-dialog-overlay" aria-hidden="true">
+        <div class="modal-content modal-content--dialog" id="app-dialog" role="alertdialog" aria-modal="true" aria-labelledby="app-dialog-title" aria-describedby="app-dialog-message" tabindex="-1">
+            <div class="app-dialog-body">
+                <div class="app-dialog-icon" id="app-dialog-icon" aria-hidden="true">!</div>
+                <div>
+                    <span class="app-dialog-eyebrow" id="app-dialog-eyebrow">Confirmação</span>
+                    <h3 id="app-dialog-title">Confirmar ação</h3>
+                    <p id="app-dialog-message"></p>
+                </div>
+            </div>
+            <div class="modal-footer app-dialog-footer">
+                <button type="button" class="btn btn-secondary" id="app-dialog-cancel">Cancelar</button>
+                <button type="button" class="btn" id="app-dialog-confirm">Confirmar</button>
             </div>
         </div>
     </div>

@@ -646,6 +646,85 @@ function showAppToast(message) {
     toastTimer = window.setTimeout(() => toast.classList.remove('is-visible'), 2400);
 }
 
+let appDialogResolver = null;
+let appDialogPreviousFocus = null;
+
+function settleAppDialog(result) {
+    const overlay = document.getElementById('app-dialog-overlay');
+    if (!overlay) return;
+    overlay.classList.remove('active');
+    overlay.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('has-open-dialog');
+    const resolver = appDialogResolver;
+    appDialogResolver = null;
+    if (typeof resolver === 'function') resolver(!!result);
+    if (appDialogPreviousFocus?.isConnected) appDialogPreviousFocus.focus();
+    appDialogPreviousFocus = null;
+}
+
+function openAppDialog({
+    title = 'Aviso',
+    message = '',
+    tone = 'info',
+    eyebrow = 'ClickGarçom',
+    confirmLabel = 'Entendi',
+    cancelLabel = '',
+    danger = false,
+} = {}) {
+    const overlay = document.getElementById('app-dialog-overlay');
+    const dialog = document.getElementById('app-dialog');
+    const confirmButton = document.getElementById('app-dialog-confirm');
+    const cancelButton = document.getElementById('app-dialog-cancel');
+    if (!overlay || !dialog || !confirmButton || !cancelButton) return Promise.resolve(false);
+
+    if (appDialogResolver) settleAppDialog(false);
+    const tones = {
+        success: { icon: '✓', defaultTitle: 'Tudo certo' },
+        warning: { icon: '!', defaultTitle: 'Atenção' },
+        error: { icon: '×', defaultTitle: 'Não foi possível concluir' },
+        info: { icon: 'i', defaultTitle: 'Aviso' },
+    };
+    const selectedTone = tones[tone] || tones.info;
+    appDialogPreviousFocus = document.activeElement;
+    dialog.className = `modal-content modal-content--dialog is-${tones[tone] ? tone : 'info'}`;
+    document.getElementById('app-dialog-icon').textContent = selectedTone.icon;
+    document.getElementById('app-dialog-eyebrow').textContent = eyebrow;
+    document.getElementById('app-dialog-title').textContent = title || selectedTone.defaultTitle;
+    document.getElementById('app-dialog-message').textContent = String(message || '');
+    confirmButton.textContent = confirmLabel;
+    confirmButton.classList.toggle('is-danger', !!danger);
+    cancelButton.textContent = cancelLabel || 'Cancelar';
+    cancelButton.hidden = !cancelLabel;
+    overlay.classList.add('active');
+    overlay.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('has-open-dialog');
+    window.setTimeout(() => (cancelLabel ? cancelButton : confirmButton).focus(), 0);
+    return new Promise((resolve) => { appDialogResolver = resolve; });
+}
+
+function showConfirmDialog(message, options = {}) {
+    return openAppDialog({
+        title: options.title || 'Confirmar ação',
+        message,
+        tone: options.danger ? 'warning' : (options.tone || 'info'),
+        eyebrow: options.eyebrow || 'Confirmação necessária',
+        confirmLabel: options.confirmLabel || 'Confirmar',
+        cancelLabel: options.cancelLabel || 'Cancelar',
+        danger: !!options.danger,
+    });
+}
+
+function showFeedbackDialog(message, tone = 'info', title = '') {
+    const titles = { success: 'Tudo certo', warning: 'Revise as informações', error: 'Não foi possível concluir', info: 'Aviso' };
+    return openAppDialog({
+        title: title || titles[tone] || titles.info,
+        message,
+        tone,
+        eyebrow: tone === 'error' ? 'Ocorreu um problema' : 'ClickGarçom',
+        confirmLabel: 'Entendi',
+    });
+}
+
 async function copyTenantValue(value, label) {
     try {
         await navigator.clipboard.writeText(String(value || ''));
@@ -1060,33 +1139,39 @@ async function searchReliabilityCorrelation(event) {
 
 async function retryReliabilityOutbox(outboxId) {
     if (!outboxId) return;
-    const confirmed = window.confirm('Solicitar nova tentativa para esta mensagem da outbox?');
+    const confirmed = await showConfirmDialog('Solicitar nova tentativa para esta mensagem da outbox?', {
+        title: 'Reenviar mensagem',
+        confirmLabel: 'Solicitar tentativa',
+    });
     if (!confirmed) return;
 
     try {
         const response = await api.retryReliabilityOutbox(outboxId);
         const target = response?.outbox || {};
-        alert(`Retentativa agendada para ${target.recipient || outboxId}.`);
+        showFeedbackDialog(`Retentativa agendada para ${target.recipient || outboxId}.`, 'success');
         await loadReliability();
     } catch (error) {
         console.error(error);
-        alert(`Falha ao solicitar retentativa: ${error.message}`);
+        showFeedbackDialog(`Falha ao solicitar retentativa: ${error.message}`, 'error');
     }
 }
 
 async function retryReliabilityInbox(inboxId) {
     if (!inboxId) return;
-    const confirmed = window.confirm('Solicitar reprocessamento manual deste evento de inbox?');
+    const confirmed = await showConfirmDialog('Solicitar reprocessamento manual deste evento de inbox?', {
+        title: 'Reprocessar evento',
+        confirmLabel: 'Solicitar reprocessamento',
+    });
     if (!confirmed) return;
 
     try {
         const response = await api.retryReliabilityInbox(inboxId);
         const target = response?.inbox || {};
-        alert(`Reprocessamento agendado para ${target.providerMessageId || inboxId}.`);
+        showFeedbackDialog(`Reprocessamento agendado para ${target.providerMessageId || inboxId}.`, 'success');
         await loadReliability();
     } catch (error) {
         console.error(error);
-        alert(`Falha ao solicitar retry da inbox: ${error.message}`);
+        showFeedbackDialog(`Falha ao solicitar retry da inbox: ${error.message}`, 'error');
     }
 }
 
@@ -1142,7 +1227,7 @@ async function openPaymentGatewayModal(tenantId) {
         document.getElementById('payment-gateway-modal').classList.add('active');
     } catch (error) {
         console.error(error);
-        alert(`Falha ao abrir gateway: ${error.message}`);
+        showFeedbackDialog(`Falha ao abrir gateway: ${error.message}`, 'error');
     }
 }
 
@@ -1202,16 +1287,20 @@ async function activatePaymentGatewayProfile(profileId) {
         await api.activatePaymentGatewayProfile(tenantId, profileId);
         await refreshPaymentGatewayProfiles();
         await loadTenants();
-    } catch (error) { alert(`Falha ao ativar credencial: ${error.message}`); }
+    } catch (error) { showFeedbackDialog(`Falha ao ativar credencial: ${error.message}`, 'error'); }
 }
 
 async function deletePaymentGatewayProfile(profileId) {
-    if (!confirm('Excluir esta credencial? A credencial ativa não pode ser excluída.')) return;
+    if (!await showConfirmDialog('A credencial será excluída permanentemente. A credencial ativa não pode ser excluída.', {
+        title: 'Excluir credencial?',
+        confirmLabel: 'Excluir credencial',
+        danger: true,
+    })) return;
     const tenantId = document.getElementById('pgm-tenant-id').value.trim();
     try {
         await api.deletePaymentGatewayProfile(tenantId, profileId);
         await refreshPaymentGatewayProfiles();
-    } catch (error) { alert(`Falha ao excluir credencial: ${error.message}`); }
+    } catch (error) { showFeedbackDialog(`Falha ao excluir credencial: ${error.message}`, 'error'); }
 }
 
 function closePaymentGatewayModal() {
@@ -1236,10 +1325,10 @@ async function savePaymentGateway(event) {
         await refreshPaymentGatewayProfiles();
         resetPaymentGatewayProfileForm();
         await loadTenants();
-        alert('Credencial de pagamento salva.');
+        showFeedbackDialog('Credencial de pagamento salva.', 'success');
     } catch (error) {
         console.error(error);
-        alert(`Falha ao salvar gateway: ${error.message}`);
+        showFeedbackDialog(`Falha ao salvar gateway: ${error.message}`, 'error');
     }
 }
 
@@ -1260,12 +1349,12 @@ async function saveTenant(event) {
     if (runtimeConfig.retailProfileApiEnabled) payload.establishment_type = establishmentType;
 
     if (!payload.name || !payload.slug || !payload.waba_id || !payload.whatsapp_number || !payload.admin_email) {
-        alert('Preencha os campos obrigatórios.');
+        showFeedbackDialog('Preencha os campos obrigatórios antes de salvar.', 'warning');
         return;
     }
 
     if (!tenantId && !payload.admin_password) {
-        alert('Senha provisória é obrigatória para novo cadastro.');
+        showFeedbackDialog('Senha provisória é obrigatória para um novo cadastro.', 'warning');
         return;
     }
 
@@ -1294,13 +1383,18 @@ async function saveTenant(event) {
         }
     } catch (error) {
         console.error(error);
-        alert(`Falha ao salvar restaurante: ${error.message}`);
+        showFeedbackDialog(`Falha ao salvar estabelecimento: ${error.message}`, 'error');
     }
 }
 
 async function toggleTenantActive(tenantId, active) {
     const action = active ? 'ativar' : 'pausar';
-    if (!confirm(`Deseja ${action} este restaurante?`)) return;
+    const tenant = state.tenants.find((item) => item.id === tenantId);
+    if (!await showConfirmDialog(`Deseja ${action} ${tenant?.name || 'este estabelecimento'}?`, {
+        title: active ? 'Reativar conta?' : 'Pausar conta?',
+        confirmLabel: active ? 'Reativar conta' : 'Pausar conta',
+        danger: !active,
+    })) return;
 
     try {
         await api.setTenantActive(tenantId, active);
@@ -1313,7 +1407,7 @@ async function toggleTenantActive(tenantId, active) {
         }
     } catch (error) {
         console.error(error);
-        alert(`Falha ao atualizar status: ${error.message}`);
+        showFeedbackDialog(`Falha ao atualizar status: ${error.message}`, 'error');
     }
 }
 
@@ -1365,10 +1459,17 @@ async function setTenantAppointments(tenantId, enabled) {
     const payload = { enabled: !!enabled, industry_profile: document.getElementById('agm-profile')?.value || 'GENERIC', permanent, expires_at: null };
     if (enabled && !permanent) {
         const expiry = expiryValue ? new Date(expiryValue) : null;
-        if (!expiry || Number.isNaN(expiry.getTime()) || expiry.getTime() <= Date.now()) { alert('Informe uma data limite futura ou marque a ativação como permanente.'); return; }
+        if (!expiry || Number.isNaN(expiry.getTime()) || expiry.getTime() <= Date.now()) {
+            showFeedbackDialog('Informe uma data limite futura ou marque a ativação como permanente.', 'warning');
+            return;
+        }
         payload.expires_at = expiry.toISOString();
     }
-    if (!confirm(`Deseja ${enabled ? 'ativar/salvar' : 'desativar'} Agenda & Serviços de ${tenant.name}?`)) return;
+    if (!await showConfirmDialog(`Deseja ${enabled ? 'ativar ou salvar' : 'desativar'} Agenda & Serviços de ${tenant.name}?`, {
+        title: enabled ? 'Confirmar Agenda & Serviços' : 'Desativar Agenda & Serviços?',
+        confirmLabel: enabled ? 'Salvar configuração' : 'Desativar módulo',
+        danger: !enabled,
+    })) return;
     try {
         if (new URLSearchParams(window.location.search).has('appointments-preview')) {
             const drafts = readAppointmentsDrafts();
@@ -1380,8 +1481,8 @@ async function setTenantAppointments(tenantId, enabled) {
             await loadTenants();
         }
         closeAppointmentsModuleModal();
-        alert(`Agenda & Serviços ${enabled ? 'configurado' : 'desativado'} com sucesso.`);
-    } catch (error) { alert(`Não foi possível atualizar Agenda & Serviços: ${error.message}`); }
+        showFeedbackDialog(`Agenda & Serviços ${enabled ? 'configurado' : 'desativado'} com sucesso.`, 'success');
+    } catch (error) { showFeedbackDialog(`Não foi possível atualizar Agenda & Serviços: ${error.message}`, 'error'); }
 }
 
 function closeRetailModuleModal() {
@@ -1414,14 +1515,18 @@ async function setTenantAttendance(tenantId, enabled) {
     const tenant = state.tenants.find((item) => item.id === tenantId);
     if (!tenant) return;
     const action = enabled ? 'ativar' : 'desativar';
-    if (!confirm(`Deseja ${action} o módulo Atendimento de ${tenant.name}?`)) return;
+    if (!await showConfirmDialog(`Deseja ${action} o módulo Atendimento de ${tenant.name}?`, {
+        title: enabled ? 'Ativar Atendimento?' : 'Desativar Atendimento?',
+        confirmLabel: enabled ? 'Ativar módulo' : 'Desativar módulo',
+        danger: !enabled,
+    })) return;
     try {
         await api.setTenantAttendanceEnabled(tenantId, enabled);
         await loadTenants();
         closeAttendanceModuleModal();
-        alert(`Módulo Atendimento ${enabled ? 'ativado' : 'desativado'} com sucesso.`);
+        showFeedbackDialog(`Módulo Atendimento ${enabled ? 'ativado' : 'desativado'} com sucesso.`, 'success');
     } catch (error) {
-        alert(`Falha ao ${action} o módulo Atendimento: ${error.message}`);
+        showFeedbackDialog(`Falha ao ${action} o módulo Atendimento: ${error.message}`, 'error');
     }
 }
 
@@ -1441,14 +1546,18 @@ async function setTenantFoodStore(tenantId, enabled) {
     const tenant = state.tenants.find((item) => item.id === tenantId);
     if (!tenant) return;
     const action = enabled ? 'ativar' : 'desativar';
-    if (!confirm(`Deseja ${action} a Loja de comidas de ${tenant.name}?`)) return;
+    if (!await showConfirmDialog(`Deseja ${action} a Loja de comidas de ${tenant.name}?`, {
+        title: enabled ? 'Ativar Loja de comidas?' : 'Desativar Loja de comidas?',
+        confirmLabel: enabled ? 'Ativar módulo' : 'Desativar módulo',
+        danger: !enabled,
+    })) return;
     try {
         await api.setTenantFoodStoreEnabled(tenantId, enabled);
         await loadTenants();
         closeFoodStoreModuleModal();
-        alert(`Loja de comidas ${enabled ? 'ativada' : 'desativada'} com sucesso.`);
+        showFeedbackDialog(`Loja de comidas ${enabled ? 'ativada' : 'desativada'} com sucesso.`, 'success');
     } catch (error) {
-        alert(`Falha ao ${action} a Loja de comidas: ${error.message}`);
+        showFeedbackDialog(`Falha ao ${action} a Loja de comidas: ${error.message}`, 'error');
     }
 }
 
@@ -1474,14 +1583,18 @@ async function setTenantRetail(tenantId, enabled) {
     const tenant = state.tenants.find((item) => item.id === tenantId);
     if (!tenant) return;
     const action = enabled ? 'ativar' : 'desativar';
-    if (!confirm(`Deseja ${action} o módulo ${RETAIL_DISPLAY_NAME} de ${tenant.name}?`)) return;
+    if (!await showConfirmDialog(`Deseja ${action} o módulo ${RETAIL_DISPLAY_NAME} de ${tenant.name}?`, {
+        title: enabled ? `Ativar ${RETAIL_DISPLAY_NAME}?` : `Desativar ${RETAIL_DISPLAY_NAME}?`,
+        confirmLabel: enabled ? 'Ativar módulo' : 'Desativar módulo',
+        danger: !enabled,
+    })) return;
     try {
         await api.setTenantRetailEnabled(tenantId, enabled);
         await loadTenants();
         closeRetailModuleModal();
-        alert(`Módulo ${RETAIL_DISPLAY_NAME} ${enabled ? 'ativado' : 'desativado'} com sucesso.`);
+        showFeedbackDialog(`Módulo ${RETAIL_DISPLAY_NAME} ${enabled ? 'ativado' : 'desativado'} com sucesso.`, 'success');
     } catch (error) {
-        alert(`Falha ao ${action} o módulo ${RETAIL_DISPLAY_NAME}: ${error.message}`);
+        showFeedbackDialog(`Falha ao ${action} o módulo ${RETAIL_DISPLAY_NAME}: ${error.message}`, 'error');
     }
 }
 
@@ -1544,7 +1657,7 @@ async function setTenantDelivery(tenantId, enabled) {
         if (!permanent) {
             const expiry = rawExpiry ? new Date(rawExpiry) : null;
             if (!expiry || Number.isNaN(expiry.getTime()) || expiry.getTime() <= Date.now()) {
-                alert('Informe uma data limite futura ou marque a ativação como permanente.');
+                showFeedbackDialog('Informe uma data limite futura ou marque a ativação como permanente.', 'warning');
                 return;
             }
             payload.expires_at = expiry.toISOString();
@@ -1554,14 +1667,18 @@ async function setTenantDelivery(tenantId, enabled) {
             payload.permanent = true;
         }
     }
-    if (!confirm(`Deseja ${action} o módulo Delivery de ${tenant.name}?`)) return;
+    if (!await showConfirmDialog(`Deseja ${action} o módulo Delivery de ${tenant.name}?`, {
+        title: enabled ? 'Ativar ou atualizar Delivery?' : 'Desativar Delivery?',
+        confirmLabel: enabled ? 'Confirmar configuração' : 'Desativar módulo',
+        danger: !enabled,
+    })) return;
     try {
         await api.setTenantDeliveryEnabled(tenantId, payload);
         await loadTenants();
         closeDeliveryModuleModal();
-        alert(`Módulo Delivery ${enabled ? 'ativado' : 'desativado'} com sucesso.`);
+        showFeedbackDialog(`Módulo Delivery ${enabled ? 'ativado' : 'desativado'} com sucesso.`, 'success');
     } catch (error) {
-        alert(`Falha ao ${action} o módulo Delivery: ${error.message}`);
+        showFeedbackDialog(`Falha ao ${action} o módulo Delivery: ${error.message}`, 'error');
     }
 }
 
@@ -1605,10 +1722,10 @@ async function saveWallet(event) {
         if (state.activePage === 'operations') {
             await loadOperations();
         }
-        alert('Carteira atualizada com sucesso!');
+        showFeedbackDialog('Carteira atualizada com sucesso.', 'success');
     } catch (error) {
         console.error(error);
-        alert(`Falha ao atualizar carteira: ${error.message}`);
+        showFeedbackDialog(`Falha ao atualizar carteira: ${error.message}`, 'error');
     }
 }
 
@@ -1637,5 +1754,24 @@ async function bootstrap() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('app-dialog-confirm')?.addEventListener('click', () => settleAppDialog(true));
+    document.getElementById('app-dialog-cancel')?.addEventListener('click', () => settleAppDialog(false));
+    document.getElementById('app-dialog-overlay')?.addEventListener('click', (event) => {
+        if (event.target === event.currentTarget) settleAppDialog(false);
+    });
+    document.querySelectorAll('.modal-overlay:not(#app-dialog-overlay)').forEach((overlay) => {
+        overlay.addEventListener('click', (event) => {
+            if (event.target === event.currentTarget) overlay.classList.remove('active');
+        });
+    });
+    document.addEventListener('keydown', (event) => {
+        if (event.key !== 'Escape') return;
+        if (document.getElementById('app-dialog-overlay')?.classList.contains('active')) {
+            settleAppDialog(false);
+            return;
+        }
+        const activeModal = Array.from(document.querySelectorAll('.modal-overlay.active')).pop();
+        activeModal?.classList.remove('active');
+    });
     bootstrap();
 });
