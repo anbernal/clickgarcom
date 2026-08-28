@@ -164,6 +164,7 @@ const (
 	deliveryConfirmCancelOrderActionID = "delivery:confirm-cancel-order"
 	deliveryKeepOrderActionID          = "delivery:keep-order"
 	storefrontChoiceRequiredKey        = "storefront_choice_required"
+	appointmentLinkSentKey             = "appointment_link_sent"
 )
 
 // WhatsApp reply button titles are limited to 20 characters. Keep the full
@@ -330,6 +331,14 @@ func (uc *HandleWhatsAppMessageUseCase) Execute(ctx context.Context, input Handl
 	if err != nil {
 		return fmt.Errorf("failed to process message: %w", err)
 	}
+	// Opening an authenticated appointment URL is already a complete WhatsApp
+	// response. Do not let the generic Welcome fallback send a second menu for
+	// the same button reply. The marker is intentionally one-shot: the next
+	// customer message can still obtain a fresh link normally.
+	appointmentLinkWasSent := uc.getContextString(sess, appointmentLinkSentKey) == "true"
+	if appointmentLinkWasSent {
+		sess.SetContext(appointmentLinkSentKey, "")
+	}
 
 	// 3. Enviar resposta
 	// A completed Delivery conversation is reset before rendering the next
@@ -347,7 +356,7 @@ func (uc *HandleWhatsAppMessageUseCase) Execute(ctx context.Context, input Handl
 			return fmt.Errorf("failed to send welcome menu response: %w", err)
 		}
 	}
-	if response == "" && sess.State == session.StateWelcome && (newState == "" || newState == session.StateWelcome) {
+	if !appointmentLinkWasSent && response == "" && sess.State == session.StateWelcome && (newState == "" || newState == session.StateWelcome) {
 		t, tenantErr := uc.tenantRepo.FindByID(ctx, input.TenantID)
 		if tenantErr != nil {
 			return fmt.Errorf("failed to find tenant: %w", tenantErr)
@@ -653,7 +662,9 @@ func (uc *HandleWhatsAppMessageUseCase) processMessage(
 						zap.String("tenant_id", tenantObj.ID.String()),
 						zap.String("to", sess.UserPhone),
 					)
+					return "", session.StateWelcome, nil
 				}
+				sess.SetContext(appointmentLinkSentKey, "true")
 				return "", session.StateWelcome, nil
 			}
 		}
