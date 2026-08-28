@@ -151,7 +151,19 @@ export class AppointmentsService {
     async publicBootstrap(slug: string, token: string) {
         const credential = await this.credential(slug, token, 'BOOKING');
         const data = await this.workspace(credential.tenant_id);
-        return { ...data, customer: credential.customer_id ? await this.customers.findOne({ where: { id: credential.customer_id, tenantId: credential.tenant_id } }) : null };
+        const customer = credential.customer_id
+            ? await this.customers.findOne({ where: { id: credential.customer_id, tenantId: credential.tenant_id } })
+            : await this.customers.findOne({ where: { tenantId: credential.tenant_id, phoneNormalized: credential.phone_normalized } });
+        // The access link is already bound to the WhatsApp conversation. The
+        // public page may safely use that contact as a starting point, while
+        // still allowing the client to replace either field before confirming.
+        return {
+            ...data,
+            contact: {
+                name: customer?.name || null,
+                phone: credential.phone_normalized || customer?.phoneNormalized || null,
+            },
+        };
     }
 
     async publicBooking(slug: string, token: string, body: any) {

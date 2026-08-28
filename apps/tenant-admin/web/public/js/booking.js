@@ -52,6 +52,7 @@
 
     function isPreview() { return query.has('preview'); }
     function accessCredential() { return query.get('token') || query.get('access_token') || new URLSearchParams(location.hash.replace(/^#/, '')).get('access') || ''; }
+    function formatPhone(value) { const digits=String(value||'').replace(/\D/g,'').replace(/^55(?=\d{10,11}$)/,'').slice(0,11); return digits.length>10?`(${digits.slice(0,2)}) ${digits.slice(2,7)}-${digits.slice(7)}`:digits.length>6?`(${digits.slice(0,2)}) ${digits.slice(2,6)}-${digits.slice(6)}`:digits.length>2?`(${digits.slice(0,2)}) ${digits.slice(2)}`:digits; }
     function money(value) { return Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }); }
     function dateKey(date) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`; }
     function addDays(date, amount) { const result = new Date(date); result.setDate(result.getDate() + amount); result.setHours(12, 0, 0, 0); return result; }
@@ -205,7 +206,9 @@
 
     function reviewStep() {
         const chosenService=service(),chosenProfessional=professional();
-        return `<div class="booking-review"><section class="booking-form-card"><h3>Seus dados de contato</h3><p>${state.workspace.tenant.profile==='CLINIC'?'Usaremos estes dados somente para identificar e confirmar o agendamento. Informações clínicas ficam fora desta etapa.':'Você receberá somente a confirmação e avisos importantes sobre este horário.'}</p><label class="booking-field"><span>${escapeHtml(profileCopy().client)} *</span><input id="booking-customer" autocomplete="name" value="${escapeHtml(state.customer)}" placeholder="Como podemos chamar você?" oninput="bookingUpdateField('customer',this.value)"></label><label class="booking-field"><span>WhatsApp *</span><input id="booking-phone" autocomplete="tel" inputmode="tel" value="${escapeHtml(state.phone)}" placeholder="(11) 99999-9999" oninput="bookingPhone(this)"></label><label class="booking-consent"><input type="checkbox" ${state.consent?'checked':''} onchange="bookingUpdateField('consent',this.checked)"><span>Concordo em receber mensagens relacionadas a este agendamento. Sem promoções ou conversas desnecessárias.</span></label></section><aside class="booking-review-card"><h3>Resumo</h3><p>Confira antes de confirmar.</p><div class="booking-review-line"><span>✦</span><div><strong>${escapeHtml(chosenService.name)}</strong><small>${chosenService.durationMinutes} min · ${money(chosenService.price)}</small></div></div><div class="booking-review-line"><span>♙</span><div><strong>${escapeHtml(chosenProfessional?.name || `Qualquer ${profileCopy().professional}`)}</strong><small>${escapeHtml(chosenProfessional?.role || 'Primeiro disponível')}</small></div></div><div class="booking-review-line"><span>◷</span><div><strong>${escapeHtml(dateLabel(state.date))}</strong><small>às ${escapeHtml(state.time)}</small></div></div><div class="booking-review-total"><span>Total</span><strong>${money(chosenService.price)}</strong></div></aside></div>`;
+        const remembered=state.workspace?.contact;
+        const contactHint=remembered?.phone?`<div class="booking-contact-hint"><span>✓</span><p>Preenchemos com o WhatsApp deste atendimento${remembered.name?' e seus dados já cadastrados':''}. <strong>Você pode editar e usar outro número.</strong></p></div>`:'';
+        return `<div class="booking-review"><section class="booking-form-card"><h3>Seus dados de contato</h3><p>${state.workspace.tenant.profile==='CLINIC'?'Usaremos estes dados somente para identificar e confirmar o agendamento. Informações clínicas ficam fora desta etapa.':'Você receberá somente a confirmação e avisos importantes sobre este horário.'}</p>${contactHint}<label class="booking-field"><span>${escapeHtml(profileCopy().client)} *</span><input id="booking-customer" autocomplete="name" value="${escapeHtml(state.customer)}" placeholder="Como podemos chamar você?" oninput="bookingUpdateField('customer',this.value)"></label><label class="booking-field"><span>WhatsApp *</span><input id="booking-phone" autocomplete="tel" inputmode="tel" value="${escapeHtml(state.phone)}" placeholder="(11) 99999-9999" oninput="bookingPhone(this)"></label><label class="booking-consent"><input type="checkbox" ${state.consent?'checked':''} onchange="bookingUpdateField('consent',this.checked)"><span>Concordo em receber mensagens relacionadas a este agendamento. Sem promoções ou conversas desnecessárias.</span></label></section><aside class="booking-review-card"><h3>Resumo</h3><p>Confira antes de confirmar.</p><div class="booking-review-line"><span>✦</span><div><strong>${escapeHtml(chosenService.name)}</strong><small>${chosenService.durationMinutes} min · ${money(chosenService.price)}</small></div></div><div class="booking-review-line"><span>♙</span><div><strong>${escapeHtml(chosenProfessional?.name || `Qualquer ${profileCopy().professional}`)}</strong><small>${escapeHtml(chosenProfessional?.role || 'Primeiro disponível')}</small></div></div><div class="booking-review-line"><span>◷</span><div><strong>${escapeHtml(dateLabel(state.date))}</strong><small>às ${escapeHtml(state.time)}</small></div></div><div class="booking-review-total"><span>Total</span><strong>${money(chosenService.price)}</strong></div></aside></div>`;
     }
 
     function footerMarkup() {
@@ -271,7 +274,7 @@
         }else confirmBooking();
     };
     window.bookingUpdateField=(field,value)=>{state[field]=value;saveDraft();};
-    window.bookingPhone=(input)=>{let digits=input.value.replace(/\D/g,'').slice(0,11);input.value=digits.length>10?`(${digits.slice(0,2)}) ${digits.slice(2,7)}-${digits.slice(7)}`:digits.length>6?`(${digits.slice(0,2)}) ${digits.slice(2,6)}-${digits.slice(6)}`:digits.length>2?`(${digits.slice(0,2)}) ${digits.slice(2)}`:digits;state.phone=input.value;saveDraft();};
+    window.bookingPhone=(input)=>{input.value=formatPhone(input.value);state.phone=input.value;saveDraft();};
     window.bookingOpenManage=()=>{document.getElementById('booking-modal-root').innerHTML=manageMarkup();document.body.style.overflow='hidden';};
     window.bookingCloseManage=()=>{document.getElementById('booking-modal-root').innerHTML='';document.body.style.overflow='';};
     window.bookingCancel=(id)=>{if(!confirm('Cancelar este agendamento? O horário será liberado para outra pessoa.'))return;updateCustomerBooking(id,{status:'CANCELED_BY_CUSTOMER',canceledAt:new Date().toISOString()});bookingOpenManage();toast('Agendamento cancelado.');renderHeaderCount();};
@@ -299,7 +302,12 @@
             if(!state.workspace?.tenant?.open) throw new Error('A agenda está fechada no momento. Tente novamente mais tarde.');
             if (/^#[0-9a-f]{6}$/i.test(String(state.workspace.tenant.brandColor || ''))) document.documentElement.style.setProperty('--book-brand', state.workspace.tenant.brandColor);
             state.workspace.copy={...copyByProfile[state.workspace.tenant.profile||profileFromQuery()],...(state.workspace.copy||{})};
-            loadDraft(); renderShell();
+            loadDraft();
+            // A draft always wins. Otherwise, reuse the contact bound to the
+            // authenticated WhatsApp link so returning customers type less.
+            if(!state.customer && state.workspace.contact?.name) state.customer=String(state.workspace.contact.name).trim();
+            if(!state.phone && state.workspace.contact?.phone) state.phone=formatPhone(state.workspace.contact.phone);
+            renderShell();
         } catch(error){ app.innerHTML=`<section class="booking-error"><span>!</span><h1>Agenda indisponível</h1><p>${escapeHtml(error.message||'Este link expirou ou a agenda está fechada no momento.')}</p></section>`; }
     })();
 })();
