@@ -26,7 +26,11 @@ export class AppointmentsController {
     private actor(req: any) { return { userId: req.user?.id, userName: req.user?.name, userRole: req.user?.role }; }
 }
 
-@Controller('api/appointments/public')
+// Public booking access still goes through the same `/admin/api` gateway as
+// the other public tenant surfaces (menu, store and delivery tracking).  The
+// web application only proxies that namespace in production, so keeping this
+// route under it prevents a booking link from falling back to booking.html.
+@Controller('admin/api/appointments/public')
 export class AppointmentsPublicController {
     constructor(private readonly service: AppointmentsService) {}
     @Get(':slug/bootstrap') bootstrap(@Param('slug') slug: string, @Query('token') token: string) { return this.service.publicBootstrap(slug, token); }

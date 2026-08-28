@@ -4,6 +4,10 @@
     const ADMIN_PREVIEW_STORAGE = 'clickgarcom_appointments_preview_v1';
     const CUSTOMER_BOOKINGS_STORAGE = 'clickgarcom_customer_bookings_v1';
     const DRAFT_STORAGE = 'clickgarcom_booking_draft_v1';
+    // Public appointment endpoints deliberately share the existing public
+    // admin gateway. This keeps a secure WhatsApp link on the same origin and
+    // avoids the web shell returning HTML for an unproxied `/api/...` request.
+    const PUBLIC_APPOINTMENTS_API_BASE = '/admin/api/appointments/public';
     const app = document.getElementById('booking-app');
     const query = new URLSearchParams(location.search);
     const slug = decodeURIComponent(location.pathname.split('/').filter(Boolean).pop() || 'agenda');
@@ -106,12 +110,12 @@
                 return seedWorkspace();
             }
             const token = accessCredential();
-            return request(`/api/appointments/public/${encodeURIComponent(slug)}/bootstrap?token=${encodeURIComponent(token)}`);
+            return request(`${PUBLIC_APPOINTMENTS_API_BASE}/${encodeURIComponent(slug)}/bootstrap?token=${encodeURIComponent(token)}`);
         },
         async create(payload) {
             if (!isPreview()) {
                 const token = accessCredential();
-                return request(`/api/appointments/public/${encodeURIComponent(slug)}/bookings?token=${encodeURIComponent(token)}`, { method:'POST',body:JSON.stringify(payload) });
+                return request(`${PUBLIC_APPOINTMENTS_API_BASE}/${encodeURIComponent(slug)}/bookings?token=${encodeURIComponent(token)}`, { method:'POST',body:JSON.stringify(payload) });
             }
             const item = { ...payload,id:`apt-${Date.now()}`,code:Math.random().toString(16).slice(2,8).toUpperCase(),version:1,createdAt:new Date().toISOString() };
             try {
@@ -123,7 +127,7 @@
         async slots(serviceId, date, professionalId) {
             if (isPreview()) return null;
             const token = accessCredential();
-            return request(`/api/appointments/public/${encodeURIComponent(slug)}/slots?token=${encodeURIComponent(token)}&service_id=${encodeURIComponent(serviceId)}&date=${encodeURIComponent(date)}&professional_id=${encodeURIComponent(professionalId || 'ANY')}`);
+            return request(`${PUBLIC_APPOINTMENTS_API_BASE}/${encodeURIComponent(slug)}/slots?token=${encodeURIComponent(token)}&service_id=${encodeURIComponent(serviceId)}&date=${encodeURIComponent(date)}&professional_id=${encodeURIComponent(professionalId || 'ANY')}`);
         },
     };
 
