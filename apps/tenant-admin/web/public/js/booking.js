@@ -26,6 +26,10 @@
         success: null,
         slots: {},
     };
+    // A consulta de horários é assíncrona e pode redesenhar a etapa enquanto
+    // o cliente está interagindo. Mantemos uma versão da requisição para que
+    // respostas antigas nunca substituam a seleção atual.
+    let slotsRequestVersion = 0;
 
     const copyByProfile = {
         SALON: { mark: 'SA', business: 'Studio Aurora', eyebrow: 'BELEZA NO SEU TEMPO', title: 'Escolha seu momento', subtitle: 'Serviço, profissional e horário em poucos passos.', client: 'Seu nome', professional: 'profissional', service: 'serviço' },
@@ -195,9 +199,9 @@
     function dateStep() {
         const dates = availableDates(); if(!state.date) state.date=dateKey(dates[0]);
         const slots = slotsForDate(state.date); const morning=slots.filter((item)=>item.time<'12:00'); const afternoon=slots.filter((item)=>item.time>='12:00'&&item.time<'18:00'); const evening=slots.filter((item)=>item.time>='18:00');
-        return `<div class="booking-date-strip">${dates.map((date)=>{const key=dateKey(date);return `<button class="booking-date ${state.date===key?'is-selected':''}" onclick="bookingSelectDate('${key}')"><span>${date.toLocaleDateString('pt-BR',{weekday:'short'}).replace('.','')}</span><strong>${date.getDate()}</strong><small>${date.toLocaleDateString('pt-BR',{month:'short'}).replace('.','')}</small></button>`}).join('')}</div>${slotGroup('Manhã',morning)}${slotGroup('Tarde',afternoon)}${evening.length?slotGroup('Noite',evening):''}<div class="booking-helper"><span>◷</span><div><strong>Horário reservado só depois da confirmação</strong><small>Se outro cliente confirmar antes, mostraremos imediatamente novas opções.</small></div></div>`;
+        return `<div class="booking-date-strip">${dates.map((date)=>{const key=dateKey(date);return `<button type="button" class="booking-date ${state.date===key?'is-selected':''}" onclick="bookingSelectDate('${key}')"><span>${date.toLocaleDateString('pt-BR',{weekday:'short'}).replace('.','')}</span><strong>${date.getDate()}</strong><small>${date.toLocaleDateString('pt-BR',{month:'short'}).replace('.','')}</small></button>`}).join('')}</div>${slotGroup('Manhã',morning)}${slotGroup('Tarde',afternoon)}${evening.length?slotGroup('Noite',evening):''}<div class="booking-helper"><span>◷</span><div><strong>Horário reservado só depois da confirmação</strong><small>Se outro cliente confirmar antes, mostraremos imediatamente novas opções.</small></div></div>`;
     }
-    function slotGroup(label,items) { return `<section class="booking-slot-group"><h3>${label}</h3><div class="booking-slots">${items.map((item)=>`<button class="booking-slot ${state.time===item.time?'is-selected':''}" ${item.disabled?'disabled':''} onclick="bookingSelectTime('${item.time}')">${item.time}</button>`).join('')}</div></section>`; }
+    function slotGroup(label,items) { return `<section class="booking-slot-group"><h3>${label}</h3><div class="booking-slots">${items.map((item)=>`<button type="button" data-time="${escapeHtml(item.time)}" class="booking-slot ${state.time===item.time?'is-selected':''}" ${item.disabled?'disabled':''} onclick="bookingSelectTime(this.dataset.time)">${item.time}</button>`).join('')}</div></section>`; }
 
     function reviewStep() {
         const chosenService=service(),chosenProfessional=professional();
@@ -216,6 +220,12 @@
     }
 
     async function confirmBooking() {
+        // Revalida a seleção no momento do envio. Isso cobre redesenhos
+        // provocados pela atualização de horários e evita enviar um payload
+        // sem `time` para a API quando o cliente já escolheu visualmente.
+        const selectedSlot=document.querySelector('.booking-slot.is-selected:not([disabled])');
+        if(!state.time && selectedSlot?.dataset.time){ state.time=selectedSlot.dataset.time; saveDraft(); }
+        if(!state.date || !state.time){ state.step=3; syncAndRender(); toast('Escolha a data e o horário para continuar.'); return; }
         state.customer=document.getElementById('booking-customer')?.value.trim()||state.customer;
         state.phone=document.getElementById('booking-phone')?.value.trim()||state.phone;
         if(state.customer.length<2){ toast('Informe seu nome para continuar.'); document.getElementById('booking-customer')?.focus(); return; }
@@ -244,10 +254,22 @@
     window.bookingCategory=(category)=>{state.category=category;renderShell();};
     window.bookingSelectService=(id)=>{state.serviceId=id;state.professionalId='ANY';state.date='';state.time='';syncAndRender();};
     window.bookingSelectProfessional=(id)=>{state.professionalId=id;state.time='';syncAndRender(); if(state.date) loadLiveSlots(state.date);};
-    window.bookingSelectDate=(date)=>{state.date=date;state.time='';syncAndRender();loadLiveSlots(date);};
-    window.bookingSelectTime=(time)=>{state.time=time;syncAndRender();};
+    window.bookingSelectDate=(date)=>{if(state.date!==date)state.time='';state.date=date;syncAndRender();loadLiveSlots(date);};
+    window.bookingSelectTime=(time)=>{const selected=String(time||'').trim();if(!selected)return;state.time=selected;saveDraft();syncAndRender();};
     window.bookingBack=()=>{state.step=Math.max(1,state.step-1);syncAndRender();};
-    window.bookingContinue=()=>{if(state.step<4){state.step+=1;syncAndRender();if(state.step===3) loadLiveSlots(state.date || dateKey(new Date()));window.scrollTo({top:0,behavior:'smooth'});}else confirmBooking();};
+    window.bookingContinue=()=>{
+        if(state.step<4){
+            // Capture o botão selecionado antes de trocar de etapa. Além de
+            // deixar o fluxo mais resiliente a redesenhos, isso garante que o
+            // clique em “Revisar agendamento” nunca avance sem horário.
+            if(state.step===3){
+                const selectedSlot=document.querySelector('.booking-slot.is-selected:not([disabled])');
+                if(!state.time && selectedSlot?.dataset.time){state.time=selectedSlot.dataset.time;saveDraft();}
+                if(!state.date || !state.time){toast('Escolha a data e o horário para continuar.');return;}
+            }
+            state.step+=1;syncAndRender();if(state.step===3) loadLiveSlots(state.date || dateKey(new Date()));window.scrollTo({top:0,behavior:'smooth'});
+        }else confirmBooking();
+    };
     window.bookingUpdateField=(field,value)=>{state[field]=value;saveDraft();};
     window.bookingPhone=(input)=>{let digits=input.value.replace(/\D/g,'').slice(0,11);input.value=digits.length>10?`(${digits.slice(0,2)}) ${digits.slice(2,7)}-${digits.slice(7)}`:digits.length>6?`(${digits.slice(0,2)}) ${digits.slice(2,6)}-${digits.slice(6)}`:digits.length>2?`(${digits.slice(0,2)}) ${digits.slice(2)}`:digits;state.phone=input.value;saveDraft();};
     window.bookingOpenManage=()=>{document.getElementById('booking-modal-root').innerHTML=manageMarkup();document.body.style.overflow='hidden';};
@@ -258,7 +280,15 @@
     window.bookingNew=()=>{state.success=null;state.step=1;state.serviceId='';state.professionalId='ANY';state.date='';state.time='';renderShell();};
     async function loadLiveSlots(date) {
         if (isPreview() || !state.serviceId || !date) return;
-        try { const result=await gateway.slots(state.serviceId,date,state.professionalId); state.slots[`${date}:${state.professionalId}`]=result.slots||[]; renderShell(); }
+        const requestVersion=++slotsRequestVersion; const requestedProfessional=state.professionalId; const requestedService=state.serviceId;
+        try {
+            const result=await gateway.slots(requestedService,date,requestedProfessional);
+            // Ignore a response for a date/professional the user has already
+            // changed. In particular, never clear a newly selected time.
+            if(requestVersion!==slotsRequestVersion || date!==state.date || requestedProfessional!==state.professionalId || requestedService!==state.serviceId)return;
+            state.slots[`${date}:${requestedProfessional}`]=result.slots||[];
+            renderShell();
+        }
         catch(error) { toast(error.message||'Não foi possível atualizar os horários.'); }
     }
     function renderHeaderCount(){const button=document.querySelector('.booking-header__button');if(!button)return;const count=bookingCount();button.innerHTML=`<span>Meus horários</span>${count?`<i>${count}</i>`:'<b>◷</b>'}`;}
