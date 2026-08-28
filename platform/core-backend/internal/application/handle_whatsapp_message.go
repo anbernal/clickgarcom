@@ -643,7 +643,18 @@ func (uc *HandleWhatsAppMessageUseCase) processMessage(
 		value := strings.ToLower(strings.TrimSpace(text))
 		if tenantObj.Settings.Appointments.IsActive(time.Now()) && isAppointmentStartChoice(value) && uc.shouldSendAppointmentLink(tenantObj) {
 			if handled, sendErr := uc.sendAppointmentLink(ctx, sess.UserPhone, tenantObj); handled {
-				return "", session.StateWelcome, sendErr
+				// A failure after a WhatsApp interactive send must not escape the
+				// webhook handler. Meta may retry the inbound reply and create the
+				// apparent loop of welcome messages seen by the customer. Preserve
+				// the session in the entry state and offer a clean retry instead.
+				if sendErr != nil {
+					uc.logger.Warn("failed to send appointment link; returning to appointment entry menu",
+						zap.Error(sendErr),
+						zap.String("tenant_id", tenantObj.ID.String()),
+						zap.String("to", sess.UserPhone),
+					)
+				}
+				return "", session.StateWelcome, nil
 			}
 		}
 		canSelectStorefront := isDeliveryStartChoice(text) || value == foodStoreStartActionID || value == retailStoreStartActionID || value == welcomeFoodStoreActionID || value == welcomeRetailStoreActionID || value == "comidas" || value == "produtos" || ((sess.State == session.StateWelcome || sess.State == session.StateDeliveryMenu) && (value == "1" || value == "2"))
@@ -1519,6 +1530,9 @@ func (uc *HandleWhatsAppMessageUseCase) sendWelcomeMenu(
 	tenantObj *tenant.Tenant,
 	prefix string,
 ) error {
+	if uc.isAppointmentsOnlyTenant(tenantObj) {
+		return uc.sendAppointmentsOnlyWelcome(ctx, to, tenantObj, prefix)
+	}
 	if uc.shouldShowWelcomeChannelMenu(ctx, to, tenantObj) {
 		return uc.sendWelcomeChannelMenu(ctx, to, tenantObj)
 	}
@@ -1608,6 +1622,45 @@ func (uc *HandleWhatsAppMessageUseCase) sendDefaultWelcomeMenu(
 	}
 
 	return nil
+}
+
+// isAppointmentsOnlyTenant detects the case where scheduling is the only
+// customer-facing capability. Reusing the Delivery-only fallback in this
+// state produced the contradictory text “nenhum canal de pedidos está ativo”
+// above the scheduling button.
+func (uc *HandleWhatsAppMessageUseCase) isAppointmentsOnlyTenant(tenantObj *tenant.Tenant) bool {
+	if tenantObj == nil || !tenantObj.Settings.Appointments.IsActive(time.Now()) {
+		return false
+	}
+	food, retail := uc.availableStorefronts(tenantObj)
+	return !tenantObj.Settings.AttendanceEnabled() && !food && !retail && uc.deliveryWhatsAppOrderMode(tenantObj) == ""
+}
+
+func (uc *HandleWhatsAppMessageUseCase) sendAppointmentsOnlyWelcome(
+	ctx context.Context,
+	to string,
+	tenantObj *tenant.Tenant,
+	prefix string,
+) error {
+	body := fmt.Sprintf("📅 *%s*\n\nAgendamento online\n\nEscolha uma opção abaixo para ver serviços, profissionais e horários disponíveis.", tenantObj.Name)
+	if strings.TrimSpace(prefix) != "" {
+		body = strings.TrimSpace(prefix) + "\n\n" + body
+	}
+	body = whatsapp.WithRestaurantHeader(tenantObj.Name, body)
+	if _, err := sendInteractiveButtonsWithoutBack(
+		uc.sender,
+		whatsapp.WithTenantID(ctx, tenantObj.ID),
+		to,
+		body,
+		[]whatsapp.InteractiveButton{appointmentWelcomeButton()},
+	); err == nil {
+		return nil
+	}
+	return uc.sender.SendText(
+		whatsapp.WithTenantID(ctx, tenantObj.ID),
+		to,
+		body+"\n\nEnvie *AGENDAR* para abrir a agenda.",
+	)
 }
 
 func (uc *HandleWhatsAppMessageUseCase) shouldShowWelcomeChannelMenu(ctx context.Context, to string, tenantObj *tenant.Tenant) bool {
@@ -1708,7 +1761,11 @@ func (uc *HandleWhatsAppMessageUseCase) sendDigitalMenuLink(ctx context.Context,
 }
 
 func isAppointmentStartChoice(value string) bool {
-	value = strings.ToLower(strings.TrimSpace(value))
+	// Some WhatsApp clients return the visible reply title instead of its
+	// stable reply ID. Remove its calendar icon so both `agenda:start` and
+	// `📅 Agendar horário` take the exact same secure-link path.
+	value = strings.NewReplacer("📅", "", "🗓", "", "🗓️", "").Replace(value)
+	value = strings.ToLower(strings.Join(strings.Fields(value), " "))
 	return value == "agenda:start" || value == "agendar" || value == "agendamento" || value == "agenda" || value == "marcar horario" || value == "marcar horário" || value == "quero agendar" || value == "agendar horário" || value == "agendar horario"
 }
 
