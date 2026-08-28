@@ -16,6 +16,7 @@
     "seed:qa": "node seed-qa-demo.js",
     "seed:retail-demo": "node seed-retail-demo.js",
     "seed:visual-menu-demo": "node seed-visual-menu-demo.js",
+    "seed:salon-appointments-demo": "node seed-salon-appointments-demo.js",
     "benchmark:critical": "node scripts/benchmark-critical-queries.js"
   },
   "dependencies": {

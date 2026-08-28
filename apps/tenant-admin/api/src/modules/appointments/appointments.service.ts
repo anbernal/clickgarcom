@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { createHash, randomBytes, randomUUID } from 'crypto';
+import { v5 as uuidv5 } from 'uuid';
 
 import { AppointmentService } from '../../entities/appointment-service.entity';
 import { AppointmentProfessional } from '../../entities/appointment-professional.entity';
@@ -9,10 +10,12 @@ import { Appointment } from '../../entities/appointment.entity';
 import { AppointmentAutomationVersion } from '../../entities/appointment-automation-version.entity';
 import { Customer } from '../../entities/customer.entity';
 import { Tenant, TenantSettings } from '../../entities/tenant.entity';
-import { DomainOutboxEvent } from '../../entities/domain-outbox-event.entity';
 
 type Actor = { userId?: string; userName?: string; userRole?: string };
 const ACTIVE = ['PENDING_APPROVAL', 'CONFIRMED', 'CHECKED_IN', 'IN_SERVICE'];
+// Stable ids make appointment messages idempotent in the existing WhatsApp
+// outbox. Retrying an API request therefore never thanks the client twice.
+const APPOINTMENT_NOTIFICATION_NAMESPACE = 'db78c6ee-d8d1-5935-9d75-9958fa9fc245';
 const ALLOWED_TRANSITIONS: Record<string, string[]> = {
     PENDING_APPROVAL: ['CONFIRMED', 'CANCELED_BY_TENANT'],
     CONFIRMED: ['CHECKED_IN', 'IN_SERVICE', 'CANCELED_BY_TENANT', 'NO_SHOW'],
@@ -30,7 +33,6 @@ export class AppointmentsService {
         @InjectRepository(AppointmentAutomationVersion) private readonly automations: Repository<AppointmentAutomationVersion>,
         @InjectRepository(Customer) private readonly customers: Repository<Customer>,
         @InjectRepository(Tenant) private readonly tenants: Repository<Tenant>,
-        @InjectRepository(DomainOutboxEvent) private readonly outbox: Repository<DomainOutboxEvent>,
     ) {}
 
     async workspace(tenantId: string) {
@@ -248,7 +250,70 @@ export class AppointmentsService {
     private async credential(slug: string, raw: string, purpose: string) { if (!raw) throw new ForbiddenException('Abra o link enviado pelo estabelecimento para continuar.'); const rows = await this.dataSource.query(`SELECT c.* FROM appointment_access_credentials c JOIN tenants t ON t.id=c.tenant_id WHERE t.slug=$1 AND c.token_hash=$2 AND c.purpose=$3 AND c.revoked_at IS NULL AND c.expires_at>now() LIMIT 1`, [slug, createHash('sha256').update(raw).digest('hex'), purpose]); if (!rows.length) throw new ForbiddenException('Este link expirou ou não está mais disponível. Peça um novo acesso pelo WhatsApp.'); await this.dataSource.query(`UPDATE appointment_access_credentials SET last_used_at=now() WHERE id=$1`, [rows[0].id]); return rows[0]; }
     private async nextCode(manager: any, tenantId: string) { for (let i = 0; i < 4; i += 1) { const code = randomBytes(3).toString('hex').toUpperCase(); const found = await manager.findOne(Appointment, { where: { tenantId, displayCode: code } }); if (!found) return code; } return randomUUID().replace(/-/g, '').slice(0, 8).toUpperCase(); }
     private async event(tenantId: string, appointmentId: string, type: string, actor: Actor, reason: string | null, payload: Record<string, unknown>) { await this.dataSource.query(`INSERT INTO appointment_events (tenant_id,appointment_id,event_type,actor_type,actor_id,reason,payload) VALUES($1,$2,$3,$4,$5,$6,$7)`, [tenantId, appointmentId, type, actor?.userId ? 'USER' : 'SYSTEM', actor?.userId || null, reason, JSON.stringify(payload)]); }
-    private async enqueueNotification(appointment: Appointment, eventType: string) { if (!appointment.customerPhone) return; await this.outbox.save(this.outbox.create({ eventId: randomUUID(), tenantId: appointment.tenantId, aggregateType: 'APPOINTMENT', aggregateId: appointment.id, eventType: 'notifications.send', payload: { channel: 'whatsapp', template: 'appointment', event_type: eventType, appointment_id: appointment.id, recipient: appointment.customerPhone, customer_name: appointment.customerName, service: appointment.serviceNameSnapshot, professional: appointment.professionalNameSnapshot, start_at: appointment.startAt.toISOString() } })); }
+    private async enqueueNotification(appointment: Appointment, eventType: string) {
+        if (!appointment.customerPhone) return;
+        const trigger = this.notificationTrigger(eventType);
+        if (!trigger) return;
+        const tenant = await this.tenants.findOne({ where: { id: appointment.tenantId } });
+        if (!tenant) return;
+
+        const published = await this.automations.findOne({
+            where: { tenantId: appointment.tenantId, status: 'PUBLISHED' },
+            order: { version: 'DESC' },
+        });
+        const nodes = Array.isArray(published?.definition?.triggers?.[trigger])
+            ? published!.definition.triggers[trigger]
+            : [];
+        // One notification per milestone is intentional: this module was
+        // designed to replace long WhatsApp conversations, not recreate them.
+        const configured = nodes.find((node: any) => node?.type === 'MESSAGE' && node?.enabled !== false && String(node?.text || '').trim());
+        const body = this.expandAppointmentMessage(
+            configured?.text || this.defaultAppointmentMessage(trigger),
+            appointment,
+            tenant.name,
+        );
+        if (!body) return;
+
+        const notificationId = uuidv5(`${appointment.tenantId}:${appointment.id}:${trigger}:v1`, APPOINTMENT_NOTIFICATION_NAMESPACE);
+        await this.dataSource.query(
+            `INSERT INTO outbox_messages
+                (id, tenant_id, destination, recipient, payload, template_id, sent, attempts, max_attempts, created_at)
+             VALUES ($1, $2, 'whatsapp', $3, $4, $5, false, 0, 3, NOW())
+             ON CONFLICT (id) DO NOTHING`,
+            [notificationId, appointment.tenantId, String(appointment.customerPhone).replace(/\D/g, ''), body, `appointment_${trigger.toLowerCase()}`],
+        );
+    }
+
+    private notificationTrigger(eventType: string): string | null {
+        const value = String(eventType || '').toUpperCase();
+        if (value === 'CONFIRMED' || value === 'BOOKING_CONFIRMED') return 'BOOKING_CONFIRMED';
+        if (value === 'PENDING_APPROVAL' || value === 'BOOKING_REQUESTED') return 'BOOKING_REQUESTED';
+        if (value === 'CANCELED_BY_TENANT' || value === 'CANCELED_BY_CUSTOMER' || value === 'BOOKING_CANCELED') return 'BOOKING_CANCELED';
+        return null;
+    }
+
+    private defaultAppointmentMessage(trigger: string): string {
+        if (trigger === 'BOOKING_REQUESTED') return 'Olá, {cliente}! ✂️\n\nRecebemos seu pedido de horário para {serviço}, em {data}, às {hora}. A equipe vai conferir a agenda e avisar você por aqui.\n\nObrigada pelo contato e pela preferência.';
+        if (trigger === 'BOOKING_CANCELED') return 'Olá, {cliente}. Seu agendamento de {serviço}, previsto para {data}, foi cancelado. Quando quiser, você pode escolher um novo horário.';
+        return 'Olá, {cliente}! ✂️\n\nSeu agendamento de {serviço} está confirmado para {data}, às {hora}, com {profissional}.\n\nObrigada pelo contato e pela preferência. Será um prazer receber você no {estabelecimento}!';
+    }
+
+    private expandAppointmentMessage(template: unknown, appointment: Appointment, tenantName: string): string {
+        const date = this.localDate(appointment.startAt).split('-').reverse().join('/');
+        const time = this.localTime(appointment.startAt);
+        const replacements: Record<string, string> = {
+            '{cliente}': String(appointment.customerName || 'Cliente').trim() || 'Cliente',
+            '{serviço}': String(appointment.serviceNameSnapshot || 'serviço').trim() || 'serviço',
+            '{servico}': String(appointment.serviceNameSnapshot || 'serviço').trim() || 'serviço',
+            '{data}': date,
+            '{hora}': time,
+            '{profissional}': String(appointment.professionalNameSnapshot || 'nossa equipe').trim() || 'nossa equipe',
+            '{estabelecimento}': String(tenantName || 'nosso espaço').trim() || 'nosso espaço',
+        };
+        let body = String(template || '').trim();
+        for (const [token, value] of Object.entries(replacements)) body = body.split(token).join(value);
+        return body.slice(0, 1200).trim();
+    }
     private defaultAutomation() { return { status: 'DRAFT', version: 0, triggers: { BOOKING_CONFIRMED: [], BOOKING_REQUESTED: [], BOOKING_CANCELED: [], BOOKING_REMINDER_DUE: [] } }; }
     private asDate(date: unknown, time: unknown) { const value = `${String(date)}T${String(time)}:00-03:00`; const parsed = new Date(value); if (Number.isNaN(parsed.getTime())) throw new BadRequestException('Data ou horário inválido.'); return parsed; }
     private localDate(value: any) { return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(value)); }
