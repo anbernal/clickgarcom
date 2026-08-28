@@ -477,50 +477,181 @@ async function loadDashboard() {
 }
 
 async function loadTenants() {
+    const list = document.getElementById('tenants-list');
+    if (list) {
+        list.innerHTML = `<div class="tenant-loading"><span class="loading-spinner" aria-hidden="true"></span><strong>Carregando estabelecimentos…</strong><small>Buscando módulos e dados operacionais</small></div>`;
+    }
     try {
-        setTableLoading('#tenants-table tbody', 10, 'Carregando estabelecimentos...');
         const tenants = await api.getTenants();
         state.tenants = Array.isArray(tenants) ? tenants : [];
-
-        const tbody = document.querySelector('#tenants-table tbody');
-        if (!state.tenants.length) {
-            tbody.innerHTML = '<tr><td colspan="11" style="text-align:center; color:var(--text-muted)">Nenhum estabelecimento cadastrado.</td></tr>';
-            return;
-        }
-
-        tbody.innerHTML = state.tenants.map((t) => {
-            const appointments = getTenantAppointmentsModule(t);
-            return `
-            <tr>
-                <td style="font-family:monospace; color:var(--text-muted)">${escapeHtml(t.id)}</td>
-                <td>
-                    <strong>${escapeHtml(t.name)}</strong><br>
-                    <small style="color:var(--text-muted)">Meta Phone-Number-ID: ${escapeHtml(t.wabaId || '-')}</small><br>
-                    <small style="color:var(--text-muted)">WhatsApp: ${escapeHtml(t.whatsappNumber || '-')}</small>
-                </td>
-                <td><span class="badge ${getTenantEstablishmentType(t) === 'RESTAURANT' ? '' : 'active'}">${escapeHtml(establishmentTypeLabel(getTenantEstablishmentType(t)))}</span><br><small style="color:var(--text-muted)">${getTenantEstablishmentType(t) === 'RESTAURANT' ? 'FOOD SERVICE' : RETAIL_DISPLAY_NAME.toUpperCase()}</small></td>
-                <td>${escapeHtml(t.adminEmail || '-')}</td>
-                <td>${formatNumber(t.msgs)} msgs</td>
-                <td><span class="badge ${t.attendanceEnabled !== false ? 'active' : 'inactive'}">${t.attendanceEnabled !== false ? 'Ativo' : 'Desativado'}</span></td>
-                <td><span class="badge ${appointments.enabled ? 'active' : 'inactive'}">${appointments.enabled ? 'Ativo' : 'Desativado'}</span><br><small style="color:var(--text-muted)">${escapeHtml(appointmentProfileLabel(appointments.profile))}</small></td>
-                <td><span class="badge ${t.foodStoreEnabled ? 'active' : 'inactive'}">${t.foodStoreEnabled ? 'Ativo' : 'Desativado'}</span></td>
-                <td><span class="badge ${t.retailEnabled ? 'active' : 'inactive'}">${t.retailEnabled ? 'Ativo' : 'Desativado'}</span></td>
-                <td><span class="badge ${t.deliveryEnabled ? 'active' : 'inactive'}">${t.deliveryEnabled ? 'Ativo' : 'Desativado'}</span></td>
-                <td>
-                    <button class="btn" style="padding:6px 12px; background:var(--border)" onclick="openTenantModal('${escapeHtml(t.id)}')">Editar</button>
-                    <button class="btn" style="padding:6px 12px; background:${t.attendanceEnabled !== false ? 'rgba(239,68,68,.16)' : 'rgba(59,130,246,.2)'}; color:${t.attendanceEnabled !== false ? '#fca5a5' : '#93c5fd'}" onclick="openAttendanceModuleModal('${escapeHtml(t.id)}')">${t.attendanceEnabled !== false ? 'Desativar Atendimento' : 'Ativar Atendimento'}</button>
-                    <button class="btn" style="padding:6px 12px; background:${appointments.enabled ? 'rgba(239,68,68,.16)' : 'rgba(59,130,246,.2)'}; color:${appointments.enabled ? '#fca5a5' : '#93c5fd'}" onclick="openAppointmentsModuleModal('${escapeHtml(t.id)}')">${appointments.enabled ? 'Configurar Agenda' : 'Ativar Agenda'}</button>
-                    <button class="btn" style="padding:6px 12px; background:${t.foodStoreEnabled ? 'rgba(239,68,68,.16)' : 'rgba(59,130,246,.2)'}; color:${t.foodStoreEnabled ? '#fca5a5' : '#93c5fd'}" onclick="openFoodStoreModuleModal('${escapeHtml(t.id)}')">${t.foodStoreEnabled ? 'Desativar Loja de comidas' : 'Ativar Loja de comidas'}</button>
-                    <button class="btn" style="padding:6px 12px; background:${t.retailEnabled ? 'rgba(239,68,68,.16)' : 'rgba(59,130,246,.2)'}; color:${t.retailEnabled ? '#fca5a5' : '#93c5fd'}" onclick="openRetailModuleModal('${escapeHtml(t.id)}')">${t.retailEnabled ? `Desativar ${RETAIL_DISPLAY_NAME}` : `Ativar ${RETAIL_DISPLAY_NAME}`}</button>
-                    <button class="btn" style="padding:6px 12px; background:${t.deliveryEnabled ? 'rgba(239,68,68,.16)' : 'rgba(59,130,246,.2)'}; color:${t.deliveryEnabled ? '#fca5a5' : '#93c5fd'}" onclick="openDeliveryModuleModal('${escapeHtml(t.id)}')">${t.deliveryEnabled ? 'Desativar Delivery' : 'Ativar Delivery'}</button>
-                    <button class="btn" style="padding:6px 12px; background:rgba(59, 130, 246, 0.2); color:#93c5fd" onclick="openPaymentGatewayModal('${escapeHtml(t.id)}')">Pagamento</button>
-                    <button class="btn" style="padding:6px 12px; background:${t.active ? 'rgba(239, 68, 68, 0.2)' : 'rgba(16, 185, 129, 0.2)'}; color:${t.active ? 'var(--danger)' : '#22c55e'}" onclick="toggleTenantActive('${escapeHtml(t.id)}', ${t.active ? 'false' : 'true'})">${t.active ? 'Pausar' : 'Ativar'}</button>
-                </td>
-            </tr>
-        `; }).join('');
+        renderTenantWorkspace();
     } catch (error) {
         console.error(error);
-        setTableLoading('#tenants-table tbody', 10, `Falha ao carregar estabelecimentos: ${error.message}`);
+        if (list) {
+            list.innerHTML = `<div class="tenant-empty tenant-empty-error"><span aria-hidden="true">!</span><strong>Não foi possível carregar as contas</strong><p>${escapeHtml(error.message)}</p><button class="btn btn-secondary" onclick="loadTenants()">Tentar novamente</button></div>`;
+        }
+        const resultCount = document.getElementById('tenant-result-count');
+        if (resultCount) resultCount.textContent = 'Falha na atualização';
+    }
+}
+
+function getTenantModules(tenant) {
+    const appointments = getTenantAppointmentsModule(tenant);
+    return [
+        { key: 'attendance', label: 'Atendimento', description: 'Mesas e WhatsApp', enabled: tenant.attendanceEnabled !== false, action: 'openAttendanceModuleModal' },
+        { key: 'appointments', label: 'Agenda & Serviços', description: appointmentProfileLabel(appointments.profile), enabled: appointments.enabled, action: 'openAppointmentsModuleModal' },
+        { key: 'foodStore', label: 'Loja de comidas', description: 'Cardápio e KDS', enabled: tenant.foodStoreEnabled === true, action: 'openFoodStoreModuleModal' },
+        { key: 'retail', label: RETAIL_DISPLAY_NAME, description: 'Produtos e estoque', enabled: tenant.retailEnabled === true, action: 'openRetailModuleModal' },
+        { key: 'delivery', label: 'Delivery', description: 'Entregas e rastreio', enabled: tenant.deliveryEnabled === true, action: 'openDeliveryModuleModal' },
+    ];
+}
+
+function getTenantInitials(name) {
+    return String(name || 'CG').trim().split(/\s+/).slice(0, 2).map((part) => part.charAt(0)).join('').toUpperCase() || 'CG';
+}
+
+function formatTenantPhone(value) {
+    const digits = normalizeDigits(value);
+    if (digits.length === 13 && digits.startsWith('55')) return `+55 (${digits.slice(2, 4)}) ${digits.slice(4, 9)}-${digits.slice(9)}`;
+    if (digits.length === 12 && digits.startsWith('55')) return `+55 (${digits.slice(2, 4)}) ${digits.slice(4, 8)}-${digits.slice(8)}`;
+    return value || 'Não informado';
+}
+
+function updateTenantSummary() {
+    const total = state.tenants.length;
+    const active = state.tenants.filter((tenant) => tenant.active).length;
+    const modules = state.tenants.reduce((sum, tenant) => sum + getTenantModules(tenant).filter((module) => module.enabled).length, 0);
+    const values = {
+        'tenant-summary-total': total,
+        'tenant-summary-active': active,
+        'tenant-summary-modules': modules,
+        'tenant-summary-paused': total - active,
+    };
+    Object.entries(values).forEach(([id, value]) => {
+        const element = document.getElementById(id);
+        if (element) element.textContent = formatNumber(value);
+    });
+}
+
+function renderTenantModule(module, tenantId) {
+    return `<button class="tenant-module ${module.enabled ? 'is-enabled' : ''}" type="button" onclick="${module.action}('${escapeHtml(tenantId)}')" aria-label="${module.enabled ? 'Configurar' : 'Ativar'} ${escapeHtml(module.label)}">
+        <span class="tenant-module-indicator" aria-hidden="true">${module.enabled ? '✓' : '＋'}</span>
+        <span class="tenant-module-copy"><strong>${escapeHtml(module.label)}</strong><small>${escapeHtml(module.description)}</small></span>
+        <span class="tenant-module-state">${module.enabled ? 'Ativo' : 'Inativo'}</span>
+    </button>`;
+}
+
+function renderTenantCard(tenant) {
+    const modules = getTenantModules(tenant);
+    const type = getTenantEstablishmentType(tenant);
+    const enabledModules = modules.filter((module) => module.enabled).length;
+    const tenantId = escapeHtml(tenant.id);
+    return `<article class="tenant-card ${tenant.active ? '' : 'is-paused'}">
+        <header class="tenant-card-header">
+            <div class="tenant-identity">
+                <div class="tenant-avatar" aria-hidden="true">${escapeHtml(getTenantInitials(tenant.name))}</div>
+                <div>
+                    <div class="tenant-title-line">
+                        <h3>${escapeHtml(tenant.name)}</h3>
+                        <span class="tenant-account-status ${tenant.active ? 'is-active' : 'is-paused'}"><i></i>${tenant.active ? 'Em operação' : 'Pausado'}</span>
+                    </div>
+                    <div class="tenant-meta-line">
+                        <span>${escapeHtml(establishmentTypeLabel(type))}</span>
+                        <span aria-hidden="true">•</span>
+                        <span>${formatNumber(tenant.msgs)} mensagens</span>
+                        <span aria-hidden="true">•</span>
+                        <span>${enabledModules} de ${modules.length} módulos ativos</span>
+                    </div>
+                </div>
+            </div>
+            <button class="tenant-edit-button" type="button" onclick="openTenantModal('${tenantId}')" aria-label="Editar ${escapeHtml(tenant.name)}">
+                <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                Editar conta
+            </button>
+        </header>
+        <div class="tenant-card-body">
+            <section class="tenant-contact" aria-label="Identificação da conta">
+                <div class="tenant-section-heading"><span>Identificação</span><small>Dados de acesso e integração</small></div>
+                <dl class="tenant-data-list">
+                    <div><dt>Administrador</dt><dd>${escapeHtml(tenant.adminEmail || 'Não informado')}</dd></div>
+                    <div><dt>WhatsApp</dt><dd>${escapeHtml(formatTenantPhone(tenant.whatsappNumber))}</dd></div>
+                    <div><dt>Phone-Number-ID</dt><dd><code>${escapeHtml(tenant.wabaId || 'Não vinculado')}</code>${tenant.wabaId ? `<button class="copy-button" onclick="copyTenantValue('${escapeHtml(tenant.wabaId)}', 'Phone-Number-ID')" aria-label="Copiar Phone-Number-ID">Copiar</button>` : ''}</dd></div>
+                    <div><dt>ID da conta</dt><dd><code title="${tenantId}">${tenantId}</code><button class="copy-button" onclick="copyTenantValue('${tenantId}', 'ID da conta')" aria-label="Copiar ID da conta">Copiar</button></dd></div>
+                </dl>
+            </section>
+            <section class="tenant-modules" aria-label="Módulos da conta">
+                <div class="tenant-section-heading"><span>Módulos contratados</span><small>Clique para ativar ou configurar</small></div>
+                <div class="tenant-modules-grid">${modules.map((module) => renderTenantModule(module, tenant.id)).join('')}</div>
+            </section>
+        </div>
+        <footer class="tenant-card-footer">
+            <span class="tenant-footer-hint">Alterações de módulos são independentes entre si.</span>
+            <div class="tenant-actions">
+                <button class="btn btn-secondary" type="button" onclick="openPaymentGatewayModal('${tenantId}')">Pagamento</button>
+                <button class="btn ${tenant.active ? 'btn-danger-soft' : 'btn-success-soft'}" type="button" onclick="toggleTenantActive('${tenantId}', ${tenant.active ? 'false' : 'true'})">${tenant.active ? 'Pausar conta' : 'Reativar conta'}</button>
+            </div>
+        </footer>
+    </article>`;
+}
+
+function applyTenantFilters() {
+    renderTenantWorkspace();
+}
+
+function renderTenantWorkspace() {
+    const list = document.getElementById('tenants-list');
+    if (!list) return;
+    updateTenantSummary();
+    const query = String(document.getElementById('tenant-search')?.value || '').trim().toLowerCase();
+    const status = document.getElementById('tenant-status-filter')?.value || 'all';
+    const moduleKey = document.getElementById('tenant-module-filter')?.value || 'all';
+    const filtered = state.tenants.filter((tenant) => {
+        const haystack = [tenant.name, tenant.adminEmail, tenant.whatsappNumber, tenant.wabaId, tenant.id].join(' ').toLowerCase();
+        if (query && !haystack.includes(query)) return false;
+        if (status === 'active' && !tenant.active) return false;
+        if (status === 'paused' && tenant.active) return false;
+        if (moduleKey !== 'all' && !getTenantModules(tenant).some((module) => module.key === moduleKey && module.enabled)) return false;
+        return true;
+    });
+    const resultCount = document.getElementById('tenant-result-count');
+    if (resultCount) resultCount.textContent = `${filtered.length} ${filtered.length === 1 ? 'conta encontrada' : 'contas encontradas'}`;
+    if (!state.tenants.length) {
+        list.innerHTML = `<div class="tenant-empty"><span aria-hidden="true">＋</span><strong>Nenhum estabelecimento cadastrado</strong><p>Crie a primeira conta para começar a configurar os módulos.</p><button class="btn btn-primary" onclick="openTenantModal()">Novo estabelecimento</button></div>`;
+        return;
+    }
+    if (!filtered.length) {
+        list.innerHTML = `<div class="tenant-empty"><span aria-hidden="true">⌕</span><strong>Nenhuma conta corresponde aos filtros</strong><p>Revise a busca ou limpe os filtros para ver todas as contas.</p><button class="btn btn-secondary" onclick="clearTenantFilters()">Limpar filtros</button></div>`;
+        return;
+    }
+    list.innerHTML = filtered.map(renderTenantCard).join('');
+}
+
+function clearTenantFilters() {
+    const search = document.getElementById('tenant-search');
+    const status = document.getElementById('tenant-status-filter');
+    const moduleFilter = document.getElementById('tenant-module-filter');
+    if (search) search.value = '';
+    if (status) status.value = 'all';
+    if (moduleFilter) moduleFilter.value = 'all';
+    renderTenantWorkspace();
+}
+
+let toastTimer;
+function showAppToast(message) {
+    const toast = document.getElementById('app-toast');
+    if (!toast) return;
+    toast.textContent = message;
+    toast.classList.add('is-visible');
+    window.clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(() => toast.classList.remove('is-visible'), 2400);
+}
+
+async function copyTenantValue(value, label) {
+    try {
+        await navigator.clipboard.writeText(String(value || ''));
+        showAppToast(`${label} copiado`);
+    } catch (_error) {
+        showAppToast('Não foi possível copiar automaticamente');
     }
 }
 
