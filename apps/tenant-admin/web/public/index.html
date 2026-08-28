@@ -10,6 +10,7 @@
     <link rel="stylesheet" href="/css/delivery.css">
     <link rel="stylesheet" href="/css/fleet.css?v=20260822-payments1">
     <link rel="stylesheet" href="/css/retail.css?v=20260825-retail1">
+    <link rel="stylesheet" href="/css/appointments.css?v=20260827-appointments1">
 </head>
 
 <body>
@@ -33,6 +34,10 @@
             </button>
             <button class="nav-item" data-page="extratoMensagens">
                 <span class="nav-icon">🧾</span> Extrato de Mensagens
+            </button>
+            <button class="nav-item" data-page="appointments" data-route-group="appointments_read">
+                <span class="nav-icon">◷</span> Agenda & Serviços
+                <span class="badge red" id="badge-appointments"></span>
             </button>
             <button class="nav-item" data-page="retailOverview" data-business-profile="retail">
                 <span class="nav-icon">▦</span> Visão da loja
@@ -139,6 +144,7 @@
         <div id="page-dashboard" class="page active"></div>
         <div id="page-wallet" class="page"></div>
         <div id="page-extratoMensagens" class="page"></div>
+        <div id="page-appointments" class="page"></div>
         <div id="page-retailOverview" class="page"></div>
         <div id="page-retailProducts" class="page"></div>
         <div id="page-retailInventory" class="page"></div>
@@ -210,6 +216,7 @@
     <script src="/js/pages/wallet.js"></script>
     <script src="/js/pages/extrato-mensagens.js"></script>
     <script src="/js/pages/dashboard.js"></script>
+    <script src="/js/pages/appointments.js?v=20260827-appointments1"></script>
     <script src="/js/pages/pedidos.js"></script>
     <script src="/js/pages/delivery.js?v=20260819-payment-auto3"></script>
     <script src="/js/pages/fleet.js?v=20260822-payments1"></script>

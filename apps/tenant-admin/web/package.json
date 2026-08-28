@@ -9,7 +9,8 @@
     "test:delivery-ux": "playwright test tests/delivery-ux.spec.js",
     "test:fleet-ux": "playwright test tests/fleet-ux.spec.js",
     "test:menu-ux": "playwright test tests/menu-public.spec.js",
-    "test:retail-ux": "playwright test tests/retail-frontend.spec.js"
+    "test:retail-ux": "playwright test tests/retail-frontend.spec.js",
+    "test:appointments-ux": "playwright test tests/appointments-frontend.spec.js"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0"

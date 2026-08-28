@@ -1,0 +1,12 @@
+DROP TABLE IF EXISTS appointment_access_credentials;
+DROP TABLE IF EXISTS appointment_notification_jobs;
+DROP TABLE IF EXISTS appointment_automation_versions;
+DROP TABLE IF EXISTS appointment_events;
+DROP TABLE IF EXISTS appointments;
+DROP TABLE IF EXISTS appointment_slot_holds;
+DROP TABLE IF EXISTS appointment_calendar_blocks;
+DROP TABLE IF EXISTS appointment_availability_rules;
+DROP TABLE IF EXISTS appointment_service_professionals;
+DROP TABLE IF EXISTS appointment_professionals;
+DROP TABLE IF EXISTS appointment_services;
+DROP TABLE IF EXISTS appointment_service_categories;

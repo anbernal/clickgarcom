@@ -283,6 +283,18 @@ export class SuperAdminController {
         }, actor);
     }
 
+    @Patch('tenants/:id/appointments')
+    async updateTenantAppointments(
+        @Request() req,
+        @Headers('authorization') authorization: string | undefined,
+        @Param('id') id: string,
+        @Body() body: { enabled?: boolean; expires_at?: string | null; permanent?: boolean; industry_profile?: string },
+    ) {
+        const actor = await this.superAdminService.requireAuthenticatedSession({ authorization, sourceIp: this.resolveSourceIp(req), userAgent: this.resolveUserAgent(req), sensitiveOperation: true });
+        if (typeof body?.enabled !== 'boolean') throw new BadRequestException('Informe enabled como booleano.');
+        return this.superAdminService.setTenantAppointmentsEnabled(id, { enabled: body.enabled, expiresAt: body.expires_at, permanent: body.permanent, industryProfile: body.industry_profile }, actor);
+    }
+
     @Patch('tenants/:id/attendance')
     async updateTenantAttendance(
         @Request() req,

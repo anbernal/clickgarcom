@@ -97,6 +97,7 @@
                             <th>Acesso Admin</th>
                             <th>Métricas</th>
                             <th>Módulo Atendimento</th>
+                            <th>Agenda & Serviços</th>
                             <th>Loja de comidas</th>
                             <th>Loja de produtos</th>
                             <th>Módulo Delivery</th>
@@ -105,7 +106,7 @@
                     </thead>
                     <tbody>
                         <tr>
-                            <td colspan="10" style="text-align:center">Carregando estabelecimentos...</td>
+                            <td colspan="11" style="text-align:center">Carregando estabelecimentos...</td>
                         </tr>
                     </tbody>
                 </table>
@@ -529,6 +530,18 @@
             </div>
             <div class="modal-body" id="am-body"></div>
             <div class="modal-footer" id="am-footer"></div>
+        </div>
+    </div>
+
+    <!-- MODAL: Agenda & Serviços -->
+    <div class="modal-overlay" id="appointments-module-modal">
+        <div class="modal-content" style="max-width:720px">
+            <div class="modal-header">
+                <h3 id="agm-title">Agenda & Serviços</h3>
+                <button onclick="closeAppointmentsModuleModal()" style="background:transparent;border:none;color:var(--text-muted);cursor:pointer;font-size:20px">✕</button>
+            </div>
+            <div class="modal-body" id="agm-body"></div>
+            <div class="modal-footer" id="agm-footer"></div>
         </div>
     </div>
 

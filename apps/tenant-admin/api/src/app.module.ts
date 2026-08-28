@@ -43,6 +43,10 @@ import { DeliveryDriverIncident } from './entities/delivery-driver-incident.enti
 import { DeliveryDriverEvent } from './entities/delivery-driver-event.entity';
 import { DeliveryDriverPaymentBatch } from './entities/delivery-driver-payment-batch.entity';
 import { DeliveryDriverPaymentItem } from './entities/delivery-driver-payment-item.entity';
+import { AppointmentService } from './entities/appointment-service.entity';
+import { AppointmentProfessional } from './entities/appointment-professional.entity';
+import { Appointment } from './entities/appointment.entity';
+import { AppointmentAutomationVersion } from './entities/appointment-automation-version.entity';
 
 import { MenuModule } from './modules/menu/menu.module';
 import { CategoriesModule } from './modules/categories/categories.module';
@@ -56,6 +60,7 @@ import { BotConfigModule } from './modules/bot-config/bot-config.module';
 import { PurchasesModule } from './modules/purchases/purchases.module';
 import { RetailModule } from './modules/retail/retail.module';
 import { DeliveryModule } from './modules/delivery/delivery.module';
+import { AppointmentsModule } from './modules/appointments/appointments.module';
 import { RolesGuard } from './modules/auth/roles.guard';
 import { AppController } from './app.controller';
 
@@ -69,7 +74,7 @@ import { AppController } from './app.controller';
             username: process.env.DATABASE_USER || 'postgres',
             password: process.env.DATABASE_PASSWORD || 'postgres123',
             database: process.env.DATABASE_NAME || 'clickgarcom_db',
-            entities: [MenuCategory, MenuItem, Order, OrderItem, OrderBatch, Table, Tab, TableRequest, User, Tenant, MessageLog, BotFlowDefinition, UserAccessAuditLog, WalletBillingCycle, PurchaseEntry, Delivery, DeliveryEvent, DeliveryTrackingCredential, DeliveryLocationSample, DeliveryPinChallenge, DeliveryCommandIdempotency, DomainOutboxEvent, Customer, CustomerAddress, DeliveryProviderConfig, DeliveryProviderCredential, DeliveryQuote, DeliveryFulfillment, DeliveryProviderAttempt, DeliveryOwnCapacityReservation, DeliveryProviderWebhookInbox, DeliveryCheckout, DeliveryDriverProfile, DeliveryDriverAssignment, DeliveryDriverAccessLink, DeliveryDriverSession, DeliveryDriverIncident, DeliveryDriverEvent, DeliveryDriverPaymentBatch, DeliveryDriverPaymentItem],
+            entities: [MenuCategory, MenuItem, Order, OrderItem, OrderBatch, Table, Tab, TableRequest, User, Tenant, MessageLog, BotFlowDefinition, UserAccessAuditLog, WalletBillingCycle, PurchaseEntry, Delivery, DeliveryEvent, DeliveryTrackingCredential, DeliveryLocationSample, DeliveryPinChallenge, DeliveryCommandIdempotency, DomainOutboxEvent, Customer, CustomerAddress, DeliveryProviderConfig, DeliveryProviderCredential, DeliveryQuote, DeliveryFulfillment, DeliveryProviderAttempt, DeliveryOwnCapacityReservation, DeliveryProviderWebhookInbox, DeliveryCheckout, DeliveryDriverProfile, DeliveryDriverAssignment, DeliveryDriverAccessLink, DeliveryDriverSession, DeliveryDriverIncident, DeliveryDriverEvent, DeliveryDriverPaymentBatch, DeliveryDriverPaymentItem, AppointmentService, AppointmentProfessional, Appointment, AppointmentAutomationVersion],
             synchronize: false,
         }),
         AmqpModule,
@@ -84,6 +89,7 @@ import { AppController } from './app.controller';
         PurchasesModule,
         RetailModule,
         DeliveryModule,
+        AppointmentsModule,
     ],
     controllers: [AppController],
     providers: [

@@ -113,6 +113,9 @@ function resolveRouteFile(pathname) {
   if (/^\/entregador\/[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?\/?$/i.test(pathname)) {
     return safeJoin(PUBLIC_DIR, '/driver.html');
   }
+  if (/^\/agendar\/[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?\/?$/i.test(pathname)) {
+    return safeJoin(PUBLIC_DIR, '/booking.html');
+  }
 
   const normalizedPath = pathname === '/' ? '/index.html' : pathname;
   const candidate = safeJoin(PUBLIC_DIR, normalizedPath);
@@ -166,6 +169,12 @@ function sendFile(req, res, filename, headOnly, requestBasePath) {
       responseHeaders['X-Content-Type-Options'] = 'nosniff';
       responseHeaders['X-Frame-Options'] = 'SAMEORIGIN';
       responseHeaders['Content-Security-Policy'] = "default-src 'self'; connect-src 'self' https://api.mercadopago.com https://*.mercadopago.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; script-src 'self' 'unsafe-inline' https://sdk.mercadopago.com; frame-src https://*.mercadopago.com; base-uri 'none'; frame-ancestors 'self'; form-action 'none'; object-src 'none'";
+    }
+    if (path.basename(filename) === 'booking.html') {
+      responseHeaders['Referrer-Policy'] = 'strict-origin-when-cross-origin';
+      responseHeaders['X-Content-Type-Options'] = 'nosniff';
+      responseHeaders['X-Frame-Options'] = 'SAMEORIGIN';
+      responseHeaders['Content-Security-Policy'] = "default-src 'self'; connect-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; script-src 'self' 'unsafe-inline'; base-uri 'none'; frame-ancestors 'self'; form-action 'none'; object-src 'none'";
     }
     if (path.basename(filename) === 'driver.html') {
       responseHeaders['Referrer-Policy'] = 'no-referrer';

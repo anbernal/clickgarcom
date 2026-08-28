@@ -54,6 +54,21 @@ export interface TenantSettings {
         enabled_at?: string | null;
         disabled_at?: string | null;
     };
+    /** Agenda & Serviços is a standalone capability for salons, clinics and service businesses. */
+    appointments?: {
+        enabled?: boolean;
+        enabled_at?: string | null;
+        disabled_at?: string | null;
+        expires_at?: string | null;
+        permanent?: boolean;
+        industry_profile?: 'SALON' | 'SPA' | 'CLINIC' | 'GENERIC';
+        timezone?: string;
+        min_notice_hours?: number;
+        max_advance_days?: number;
+        allow_customer_cancellation?: boolean;
+        cancellation_limit_hours?: number;
+        default_reminder_hours?: number;
+    };
     service_mode?: 'COM_MESA' | 'SEM_MESA';
     service_fee_percent?: number;
     split_enabled?: boolean;

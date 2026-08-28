@@ -76,6 +76,10 @@ const TENANT_ROUTE_GROUPS = {
     retail_read: ['ADMIN', 'MANAGER', 'WAITER', 'CASHIER', 'DISPATCHER'],
     retail_write: ['ADMIN', 'MANAGER'],
     retail_fulfillment: ['ADMIN', 'MANAGER', 'WAITER', 'DISPATCHER'],
+    appointments_read: ['ADMIN', 'MANAGER', 'WAITER', 'CASHIER'],
+    appointments_operate: ['ADMIN', 'MANAGER', 'WAITER'],
+    appointments_config: ['ADMIN', 'MANAGER'],
+    appointments_automation_publish: ['ADMIN', 'MANAGER'],
 };
 
 const TENANT_PAGE_ACCESS = {
@@ -99,6 +103,7 @@ const TENANT_PAGE_ACCESS = {
     retailInventory: TENANT_ROUTE_GROUPS.retail_read,
     retailPicking: TENANT_ROUTE_GROUPS.retail_fulfillment,
     retailOrders: TENANT_ROUTE_GROUPS.retail_read,
+    appointments: TENANT_ROUTE_GROUPS.appointments_read,
 };
 
 // Visibility is not enough: an old browser tab, bookmark or cached session may
@@ -108,6 +113,7 @@ const ATTENDANCE_PAGES = new Set(['dashboard', 'pedidos', 'comandas', 'mesas']);
 const FOOD_STORE_PAGES = new Set(['cardapio', 'categorias']);
 const RETAIL_PAGES = new Set(['retailOverview', 'retailProducts', 'retailInventory', 'retailPicking', 'retailOrders']);
 const DELIVERY_PAGES = new Set(['delivery', 'fleet']);
+const APPOINTMENTS_PAGES = new Set(['appointments']);
 
 function normalizeTenantUserRole(role) {
     const normalized = String(role || '').trim().toUpperCase();
@@ -146,6 +152,7 @@ function buildFallbackPermissions(role) {
     const deliveryActionEnabled = getCurrentUser()?.delivery_enabled === true;
     const attendanceActionEnabled = getCurrentUser()?.attendance_enabled !== false;
     const foodStoreActionEnabled = isFoodStoreModuleEnabledForNavigation(getCurrentUser());
+    const appointmentsActionEnabled = isAppointmentsModuleEnabledForNavigation(getCurrentUser());
 
     return {
         pages,
@@ -176,6 +183,10 @@ function buildFallbackPermissions(role) {
             manageRetailCatalog: routeGroups.includes('retail_write'),
             manageRetailInventory: routeGroups.includes('retail_write'),
             manageRetailFulfillment: routeGroups.includes('retail_fulfillment'),
+            viewAppointments: appointmentsActionEnabled && routeGroups.includes('appointments_read'),
+            operateAppointments: appointmentsActionEnabled && routeGroups.includes('appointments_operate'),
+            configureAppointments: appointmentsActionEnabled && routeGroups.includes('appointments_config'),
+            publishAppointmentAutomations: appointmentsActionEnabled && routeGroups.includes('appointments_automation_publish'),
         },
     };
 }
@@ -226,6 +237,11 @@ function getCurrentUserPermissions() {
                 .filter((key) => key.toLowerCase().includes('menu'))
                 .forEach((key) => { merged.actions[key] = false; });
         }
+        if (!isAppointmentsModuleEnabledForNavigation(getCurrentUser())) {
+            Object.keys(merged.actions || {})
+                .filter((key) => key.toLowerCase().includes('appointment'))
+                .forEach((key) => { merged.actions[key] = false; });
+        }
         return merged;
     }
 
@@ -248,6 +264,9 @@ function canAccessPage(pageId) {
         return false;
     }
     if (DELIVERY_PAGES.has(pageId) && user.delivery_enabled !== true) {
+        return false;
+    }
+    if (APPOINTMENTS_PAGES.has(pageId) && !isAppointmentsModuleEnabledForNavigation(user)) {
         return false;
     }
     // The delivery driver uses the dedicated mobile workflow; a stale session
@@ -274,6 +293,11 @@ function isFoodStoreModuleEnabledForNavigation(user) {
     // Keep their current Retail-only navigation until an administrator enables
     // the food storefront deliberately.
     return !isRetailModuleEnabledForNavigation(user) || user?.attendance_enabled !== false;
+}
+
+function isAppointmentsModuleEnabledForNavigation(user) {
+    if (typeof user?.appointments_enabled === 'boolean') return user.appointments_enabled;
+    return new URLSearchParams(window.location.search).has('appointments-preview');
 }
 
 function canPerformAction(actionKey) {

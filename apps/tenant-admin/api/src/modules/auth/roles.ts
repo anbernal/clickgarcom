@@ -151,6 +151,15 @@ export const TENANT_DELIVERY_DRIVER_ROLES = [TenantUserRole.Driver] as const;
 
 export const TENANT_DELIVERY_REPORT_ROLES = [...TENANT_REPORT_ROLES] as const;
 
+/** Agenda & Serviços keeps operational use separate from configuration. */
+export const TENANT_APPOINTMENTS_READ_ROLES = [
+    TenantUserRole.Admin, TenantUserRole.Manager, TenantUserRole.Waiter, TenantUserRole.Cashier,
+] as const;
+export const TENANT_APPOINTMENTS_OPERATE_ROLES = [
+    TenantUserRole.Admin, TenantUserRole.Manager, TenantUserRole.Waiter,
+] as const;
+export const TENANT_APPOINTMENTS_CONFIG_ROLES = [...TENANT_FULL_ACCESS_ROLES] as const;
+
 export function normalizeTenantRole(role: unknown): string {
     const rawRole = String(role || '')
         .trim()
@@ -201,6 +210,10 @@ export function buildTenantRoleMetadata() {
             delivery_override: [...TENANT_DELIVERY_OVERRIDE_ROLES],
             delivery_driver: [...TENANT_DELIVERY_DRIVER_ROLES],
             delivery_reports: [...TENANT_DELIVERY_REPORT_ROLES],
+            appointments_read: [...TENANT_APPOINTMENTS_READ_ROLES],
+            appointments_operate: [...TENANT_APPOINTMENTS_OPERATE_ROLES],
+            appointments_config: [...TENANT_APPOINTMENTS_CONFIG_ROLES],
+            appointments_automation_publish: [...TENANT_APPOINTMENTS_CONFIG_ROLES],
         },
     };
 }

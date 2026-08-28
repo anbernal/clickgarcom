@@ -15,11 +15,31 @@ const state = {
     session: null,
 };
 const RETAIL_PROFILE_DRAFT_KEY = 'clickgarcom_super_admin_retail_profiles_v1';
+const APPOINTMENTS_MODULE_DRAFT_KEY = 'clickgarcom_super_admin_appointments_v1';
 // Nome amigável exibido no Super Admin. RETAIL continua sendo o identificador técnico.
 const RETAIL_DISPLAY_NAME = 'Loja de produtos';
 
 function readRetailProfileDrafts() {
     try { return JSON.parse(localStorage.getItem(RETAIL_PROFILE_DRAFT_KEY) || '{}') || {}; } catch (_) { return {}; }
+}
+
+function readAppointmentsDrafts() {
+    try { return JSON.parse(localStorage.getItem(APPOINTMENTS_MODULE_DRAFT_KEY) || '{}') || {}; } catch (_) { return {}; }
+}
+
+function getTenantAppointmentsModule(tenant) {
+    const draft = readAppointmentsDrafts()[tenant?.id] || {};
+    return {
+        enabled: typeof tenant?.appointmentsEnabled === 'boolean' ? tenant.appointmentsEnabled : draft.enabled === true,
+        profile: String(tenant?.appointmentsIndustryProfile || tenant?.appointments_industry_profile || draft.profile || 'SALON').toUpperCase(),
+        permanent: tenant?.appointmentsPermanent === true || draft.permanent === true,
+        enabledAt: tenant?.appointmentsEnabledAt || draft.enabledAt || null,
+        expiresAt: tenant?.appointmentsExpiresAt || draft.expiresAt || null,
+    };
+}
+
+function appointmentProfileLabel(value) {
+    return { SALON: 'Salão / Cabeleireiro', SPA: 'Spa e bem-estar', CLINIC: 'Clínica', GENERIC: 'Serviços em geral' }[String(value || '').toUpperCase()] || 'Serviços em geral';
 }
 
 function getTenantEstablishmentType(tenant) {
@@ -150,6 +170,12 @@ const api = {
         return request(`/tenants/${encodeURIComponent(String(id))}/attendance`, {
             method: 'PATCH',
             body: JSON.stringify({ enabled: !!enabled }),
+        });
+    },
+    setTenantAppointmentsEnabled(id, payload) {
+        return request(`/tenants/${encodeURIComponent(String(id))}/appointments`, {
+            method: 'PATCH',
+            body: JSON.stringify(payload || {}),
         });
     },
     setTenantRetailEnabled(id, enabled) {
@@ -458,11 +484,13 @@ async function loadTenants() {
 
         const tbody = document.querySelector('#tenants-table tbody');
         if (!state.tenants.length) {
-            tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; color:var(--text-muted)">Nenhum estabelecimento cadastrado.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="11" style="text-align:center; color:var(--text-muted)">Nenhum estabelecimento cadastrado.</td></tr>';
             return;
         }
 
-        tbody.innerHTML = state.tenants.map((t) => `
+        tbody.innerHTML = state.tenants.map((t) => {
+            const appointments = getTenantAppointmentsModule(t);
+            return `
             <tr>
                 <td style="font-family:monospace; color:var(--text-muted)">${escapeHtml(t.id)}</td>
                 <td>
@@ -474,12 +502,14 @@ async function loadTenants() {
                 <td>${escapeHtml(t.adminEmail || '-')}</td>
                 <td>${formatNumber(t.msgs)} msgs</td>
                 <td><span class="badge ${t.attendanceEnabled !== false ? 'active' : 'inactive'}">${t.attendanceEnabled !== false ? 'Ativo' : 'Desativado'}</span></td>
+                <td><span class="badge ${appointments.enabled ? 'active' : 'inactive'}">${appointments.enabled ? 'Ativo' : 'Desativado'}</span><br><small style="color:var(--text-muted)">${escapeHtml(appointmentProfileLabel(appointments.profile))}</small></td>
                 <td><span class="badge ${t.foodStoreEnabled ? 'active' : 'inactive'}">${t.foodStoreEnabled ? 'Ativo' : 'Desativado'}</span></td>
                 <td><span class="badge ${t.retailEnabled ? 'active' : 'inactive'}">${t.retailEnabled ? 'Ativo' : 'Desativado'}</span></td>
                 <td><span class="badge ${t.deliveryEnabled ? 'active' : 'inactive'}">${t.deliveryEnabled ? 'Ativo' : 'Desativado'}</span></td>
                 <td>
                     <button class="btn" style="padding:6px 12px; background:var(--border)" onclick="openTenantModal('${escapeHtml(t.id)}')">Editar</button>
                     <button class="btn" style="padding:6px 12px; background:${t.attendanceEnabled !== false ? 'rgba(239,68,68,.16)' : 'rgba(59,130,246,.2)'}; color:${t.attendanceEnabled !== false ? '#fca5a5' : '#93c5fd'}" onclick="openAttendanceModuleModal('${escapeHtml(t.id)}')">${t.attendanceEnabled !== false ? 'Desativar Atendimento' : 'Ativar Atendimento'}</button>
+                    <button class="btn" style="padding:6px 12px; background:${appointments.enabled ? 'rgba(239,68,68,.16)' : 'rgba(59,130,246,.2)'}; color:${appointments.enabled ? '#fca5a5' : '#93c5fd'}" onclick="openAppointmentsModuleModal('${escapeHtml(t.id)}')">${appointments.enabled ? 'Configurar Agenda' : 'Ativar Agenda'}</button>
                     <button class="btn" style="padding:6px 12px; background:${t.foodStoreEnabled ? 'rgba(239,68,68,.16)' : 'rgba(59,130,246,.2)'}; color:${t.foodStoreEnabled ? '#fca5a5' : '#93c5fd'}" onclick="openFoodStoreModuleModal('${escapeHtml(t.id)}')">${t.foodStoreEnabled ? 'Desativar Loja de comidas' : 'Ativar Loja de comidas'}</button>
                     <button class="btn" style="padding:6px 12px; background:${t.retailEnabled ? 'rgba(239,68,68,.16)' : 'rgba(59,130,246,.2)'}; color:${t.retailEnabled ? '#fca5a5' : '#93c5fd'}" onclick="openRetailModuleModal('${escapeHtml(t.id)}')">${t.retailEnabled ? `Desativar ${RETAIL_DISPLAY_NAME}` : `Ativar ${RETAIL_DISPLAY_NAME}`}</button>
                     <button class="btn" style="padding:6px 12px; background:${t.deliveryEnabled ? 'rgba(239,68,68,.16)' : 'rgba(59,130,246,.2)'}; color:${t.deliveryEnabled ? '#fca5a5' : '#93c5fd'}" onclick="openDeliveryModuleModal('${escapeHtml(t.id)}')">${t.deliveryEnabled ? 'Desativar Delivery' : 'Ativar Delivery'}</button>
@@ -487,7 +517,7 @@ async function loadTenants() {
                     <button class="btn" style="padding:6px 12px; background:${t.active ? 'rgba(239, 68, 68, 0.2)' : 'rgba(16, 185, 129, 0.2)'}; color:${t.active ? 'var(--danger)' : '#22c55e'}" onclick="toggleTenantActive('${escapeHtml(t.id)}', ${t.active ? 'false' : 'true'})">${t.active ? 'Pausar' : 'Ativar'}</button>
                 </td>
             </tr>
-        `).join('');
+        `; }).join('');
     } catch (error) {
         console.error(error);
         setTableLoading('#tenants-table tbody', 10, `Falha ao carregar estabelecimentos: ${error.message}`);
@@ -1162,6 +1192,65 @@ function closeDeliveryModuleModal() {
 
 function closeAttendanceModuleModal() {
     document.getElementById('attendance-module-modal')?.classList.remove('active');
+}
+
+function closeAppointmentsModuleModal() {
+    document.getElementById('appointments-module-modal')?.classList.remove('active');
+}
+
+function toggleAppointmentsExpiryField(permanent) {
+    const field = document.getElementById('agm-expires-at');
+    if (!field) return;
+    field.disabled = !!permanent;
+    if (permanent) field.value = '';
+}
+
+function openAppointmentsModuleModal(tenantId) {
+    const tenant = state.tenants.find((item) => item.id === tenantId);
+    if (!tenant) return;
+    const module = getTenantAppointmentsModule(tenant);
+    const permanent = module.permanent || (module.enabled && !module.expiresAt);
+    document.getElementById('agm-title').textContent = `Agenda & Serviços · ${module.enabled ? 'Ativo' : 'Desativado'}`;
+    document.getElementById('agm-body').innerHTML = `<div class="card" style="margin:0;border-color:${module.enabled ? 'rgba(16,185,129,.35)' : 'rgba(96,165,250,.35)'}">
+        <div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">Tenant</div>
+        <h3 style="margin-bottom:10px">${escapeHtml(tenant.name)}</h3>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px"><span class="badge ${module.enabled ? 'active' : 'inactive'}">${module.enabled ? 'ATIVO' : 'DESATIVADO'}</span><strong>Agenda & Serviços</strong></div>
+        <p class="page-sub" style="margin:0">${module.enabled ? 'Catálogo de serviços, profissionais, agenda online e automações estão disponíveis sem alterar os outros módulos.' : 'Ative este módulo para operações com horário marcado. Atendimento, lojas e Delivery continuam independentes.'}</p>
+        <div style="margin-top:18px;padding:14px 16px;border-radius:12px;background:var(--surface-2);border:1px solid var(--border)"><strong style="display:block;font-size:13px;margin-bottom:8px">O que o módulo libera</strong><ul style="margin:0;padding-left:18px;color:var(--text-muted);font-size:12px;line-height:1.7"><li>Serviços, equipe, disponibilidade e bloqueios</li><li>Página mobile para escolher dia e horário</li><li>Confirmação, lembrete, reagendamento e cancelamento</li><li>Editor visual de mensagens do WhatsApp</li></ul></div>
+        <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:20px"><label><span style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:6px">Perfil de linguagem</span><select id="agm-profile" class="input"><option value="SALON" ${module.profile === 'SALON' ? 'selected' : ''}>Salão / Cabeleireiro</option><option value="SPA" ${module.profile === 'SPA' ? 'selected' : ''}>Spa e bem-estar</option><option value="CLINIC" ${module.profile === 'CLINIC' ? 'selected' : ''}>Clínica</option><option value="GENERIC" ${module.profile === 'GENERIC' ? 'selected' : ''}>Serviços em geral</option></select></label><div><span style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:6px">Ativo desde</span><strong>${escapeHtml(formatModuleDate(module.enabledAt))}</strong></div></div>
+        <div style="margin-top:20px;padding-top:18px;border-top:1px solid var(--border)"><div style="font-size:13px;font-weight:700;margin-bottom:10px">Validade do módulo</div><label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:12px"><input id="agm-permanent" type="checkbox" ${permanent ? 'checked' : ''} onchange="toggleAppointmentsExpiryField(this.checked)"> Ativação permanente</label><input id="agm-expires-at" class="input" type="datetime-local" value="${escapeHtml(toDateTimeLocal(module.expiresAt))}" ${permanent ? 'disabled' : ''}><small style="display:block;color:var(--text-muted);margin-top:7px">A validade controla novos agendamentos; o histórico é preservado.</small></div>
+    </div>`;
+    document.getElementById('agm-footer').innerHTML = module.enabled
+        ? `<button class="btn" onclick="setTenantAppointments('${escapeHtml(tenant.id)}', true)">Salvar configuração</button><button class="btn" style="background:rgba(239,68,68,.18);color:#fca5a5" onclick="setTenantAppointments('${escapeHtml(tenant.id)}', false)">Desativar Agenda</button><button class="btn" onclick="closeAppointmentsModuleModal()">Fechar</button>`
+        : `<button class="btn" onclick="setTenantAppointments('${escapeHtml(tenant.id)}', true)">Ativar Agenda & Serviços</button><button class="btn" style="background:transparent;border:1px solid var(--border);color:var(--text-main)" onclick="closeAppointmentsModuleModal()">Cancelar</button>`;
+    document.getElementById('appointments-module-modal').classList.add('active');
+}
+
+async function setTenantAppointments(tenantId, enabled) {
+    const tenant = state.tenants.find((item) => item.id === tenantId);
+    if (!tenant) return;
+    const permanent = document.getElementById('agm-permanent')?.checked === true;
+    const expiryValue = String(document.getElementById('agm-expires-at')?.value || '').trim();
+    const payload = { enabled: !!enabled, industry_profile: document.getElementById('agm-profile')?.value || 'GENERIC', permanent, expires_at: null };
+    if (enabled && !permanent) {
+        const expiry = expiryValue ? new Date(expiryValue) : null;
+        if (!expiry || Number.isNaN(expiry.getTime()) || expiry.getTime() <= Date.now()) { alert('Informe uma data limite futura ou marque a ativação como permanente.'); return; }
+        payload.expires_at = expiry.toISOString();
+    }
+    if (!confirm(`Deseja ${enabled ? 'ativar/salvar' : 'desativar'} Agenda & Serviços de ${tenant.name}?`)) return;
+    try {
+        if (new URLSearchParams(window.location.search).has('appointments-preview')) {
+            const drafts = readAppointmentsDrafts();
+            drafts[tenantId] = { enabled:!!enabled,profile:payload.industry_profile,permanent:payload.permanent,expiresAt:payload.expires_at,enabledAt:enabled?(getTenantAppointmentsModule(tenant).enabledAt||new Date().toISOString()):null };
+            localStorage.setItem(APPOINTMENTS_MODULE_DRAFT_KEY, JSON.stringify(drafts));
+            await loadTenants();
+        } else {
+            await api.setTenantAppointmentsEnabled(tenantId, payload);
+            await loadTenants();
+        }
+        closeAppointmentsModuleModal();
+        alert(`Agenda & Serviços ${enabled ? 'configurado' : 'desativado'} com sucesso.`);
+    } catch (error) { alert(`Não foi possível atualizar Agenda & Serviços: ${error.message}`); }
 }
 
 function closeRetailModuleModal() {

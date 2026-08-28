@@ -36,6 +36,9 @@ import {
     TENANT_DELIVERY_OVERRIDE_ROLES,
     TENANT_DELIVERY_DRIVER_ROLES,
     TENANT_DELIVERY_REPORT_ROLES,
+    TENANT_APPOINTMENTS_READ_ROLES,
+    TENANT_APPOINTMENTS_OPERATE_ROLES,
+    TENANT_APPOINTMENTS_CONFIG_ROLES,
     TenantUserRole,
     normalizeTenantRole,
 } from './roles';
@@ -724,6 +727,7 @@ export class AuthService {
         const establishmentType = user.tenant?.establishmentType || 'RESTAURANT';
         const retailEnabled = this.isRetailEnabled(settings, establishmentType);
         const foodStoreEnabled = this.isFoodStoreEnabled(settings, establishmentType);
+        const appointmentsEnabled = this.isAppointmentsEnabledNow(settings);
 
         return {
             id: user.id,
@@ -741,6 +745,8 @@ export class AuthService {
             delivery_enabled: this.isDeliveryEnabledNow(settings),
             retail_enabled: retailEnabled,
             food_store_enabled: foodStoreEnabled,
+            appointments_enabled: appointmentsEnabled,
+            appointments_industry_profile: settings.appointments?.industry_profile || 'GENERIC',
             // Existing tenants do not have this key yet; preserve their
             // current presencial behavior until the Super Admin explicitly
             // disables the module.
@@ -758,6 +764,7 @@ export class AuthService {
                 settings.attendance?.enabled !== false,
                 retailEnabled,
                 foodStoreEnabled,
+                appointmentsEnabled,
             ),
         };
     }
@@ -798,7 +805,7 @@ export class AuthService {
         }));
     }
 
-    private buildFrontendPermissions(role: string, deliveryEnabled = false, attendanceEnabled = true, retailEnabled = false, foodStoreEnabled = true) {
+    private buildFrontendPermissions(role: string, deliveryEnabled = false, attendanceEnabled = true, retailEnabled = false, foodStoreEnabled = true, appointmentsEnabled = false) {
         const normalizedRole = normalizeTenantRole(role);
         const routeGroupAccessors = [
             { key: 'full_access', roles: TENANT_FULL_ACCESS_ROLES },
@@ -824,6 +831,10 @@ export class AuthService {
             { key: 'retail_read', roles: TENANT_MENU_READ_ROLES },
             { key: 'retail_write', roles: TENANT_MENU_WRITE_ROLES },
             { key: 'retail_fulfillment', roles: TENANT_ORDER_WRITE_ROLES },
+            { key: 'appointments_read', roles: TENANT_APPOINTMENTS_READ_ROLES },
+            { key: 'appointments_operate', roles: TENANT_APPOINTMENTS_OPERATE_ROLES },
+            { key: 'appointments_config', roles: TENANT_APPOINTMENTS_CONFIG_ROLES },
+            { key: 'appointments_automation_publish', roles: TENANT_APPOINTMENTS_CONFIG_ROLES },
         ];
         const routeGroups = routeGroupAccessors
             .filter((group) => this.isRoleAllowed(normalizedRole, group.roles))
@@ -845,6 +856,7 @@ export class AuthService {
         // every screen allowed by the user's role becomes available; when it
         // is off, it is not exposed as an operational page.
         if (deliveryEnabled && routeGroups.includes('delivery_read')) pages.push('delivery', 'fleet');
+        if (appointmentsEnabled && routeGroups.includes('appointments_read')) pages.push('appointments');
         if (routeGroups.includes('full_access')) pages.push('meuRestaurante', 'configuracoes', 'equipe');
 
         return {
@@ -873,6 +885,9 @@ export class AuthService {
                 overrideDelivery: deliveryEnabled && this.isRoleAllowed(normalizedRole, TENANT_DELIVERY_OVERRIDE_ROLES),
                 driverDelivery: deliveryEnabled && this.isRoleAllowed(normalizedRole, TENANT_DELIVERY_DRIVER_ROLES),
                 viewDeliveryReports: deliveryEnabled && this.isRoleAllowed(normalizedRole, TENANT_DELIVERY_REPORT_ROLES),
+                viewAppointments: appointmentsEnabled && this.isRoleAllowed(normalizedRole, TENANT_APPOINTMENTS_READ_ROLES),
+                manageAppointments: appointmentsEnabled && this.isRoleAllowed(normalizedRole, TENANT_APPOINTMENTS_OPERATE_ROLES),
+                manageAppointmentSettings: appointmentsEnabled && this.isRoleAllowed(normalizedRole, TENANT_APPOINTMENTS_CONFIG_ROLES),
             },
         };
     }
@@ -882,6 +897,14 @@ export class AuthService {
         if (!delivery?.enabled) return false;
         if (delivery.permanent === true || !delivery.expires_at) return true;
         const expiresAt = new Date(delivery.expires_at);
+        return !Number.isNaN(expiresAt.getTime()) && expiresAt.getTime() > now.getTime();
+    }
+
+    private isAppointmentsEnabledNow(settings: TenantSettings, now = new Date()) {
+        const appointments = settings?.appointments;
+        if (!appointments?.enabled) return false;
+        if (appointments.permanent === true || !appointments.expires_at) return true;
+        const expiresAt = new Date(appointments.expires_at);
         return !Number.isNaN(expiresAt.getTime()) && expiresAt.getTime() > now.getTime();
     }
 

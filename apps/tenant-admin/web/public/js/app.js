@@ -7,6 +7,7 @@ const pages = {
         sub: 'Cada linha representa uma mensagem contabilizada no consumo do WhatsApp',
         loader: loadExtratoMensagens,
     },
+    appointments: { title: 'Agenda & Serviços', sub: 'Horários, equipe e experiência do cliente', loader: loadAppointmentsPage },
     retailOverview: { title: 'Painel da loja', sub: 'Vendas, pedidos e estoque em um único lugar', loader: loadRetailOverview },
     retailProducts: { title: 'Produtos', sub: 'Catálogo, preços e disponibilidade para venda', loader: loadRetailProductsPage },
     retailInventory: { title: 'Estoque', sub: 'Saldo físico, reservas e movimentações', loader: loadRetailInventoryPage },
@@ -43,6 +44,7 @@ function getDefaultPageId() {
     const retailEnabled = typeof window.isRetailProfile === 'function' && window.isRetailProfile();
     const foodStoreEnabled = typeof window.isFoodStoreModuleEnabledForNavigation === 'function' && window.isFoodStoreModuleEnabledForNavigation(user);
     const deliveryEnabled = user.delivery_enabled === true;
+    const appointmentsEnabled = typeof window.isAppointmentsModuleEnabledForNavigation === 'function' && window.isAppointmentsModuleEnabledForNavigation(user);
 
     // A tenant focused on products must open in the store operation, not in a
     // restaurant dashboard that is unavailable to it. The same principle makes
@@ -55,6 +57,9 @@ function getDefaultPageId() {
     }
     if (!attendanceEnabled && deliveryEnabled && canAccessPage('delivery')) {
         return 'delivery';
+    }
+    if (!attendanceEnabled && appointmentsEnabled && canAccessPage('appointments')) {
+        return 'appointments';
     }
     return Object.keys(pages).find((pageId) => canAccessPage(pageId)) || 'dashboard';
 }
@@ -111,13 +116,14 @@ function getModuleStatusModel() {
         foodStoreEnabled: typeof window.isFoodStoreModuleEnabledForNavigation === 'function' && window.isFoodStoreModuleEnabledForNavigation(user),
         deliveryEnabled: user.delivery_enabled === true,
         retailEnabled: user.retail_enabled === true,
+        appointmentsEnabled: typeof window.isAppointmentsModuleEnabledForNavigation === 'function' && window.isAppointmentsModuleEnabledForNavigation(user),
     };
 }
 
 function renderModuleStatusSidebar() {
     const status = getModuleStatusModel();
     const module = (icon, label, enabled) => `<div class="module-status-item ${enabled ? 'module-status-item--on' : 'module-status-item--off'}"><span><i aria-hidden="true">${icon}</i>${label}</span><strong>${enabled ? 'Ativo' : 'Desativado'}</strong></div>`;
-    return `<div class="module-status-panel"><div class="module-status-panel__title">Módulos da conta</div>${module('⚡', 'Atendimento', status.attendanceEnabled)}${module('🍔', 'Loja de comidas', status.foodStoreEnabled)}${module('▦', 'Loja de produtos', status.retailEnabled)}${module('🚚', 'Delivery', status.deliveryEnabled)}</div>`;
+    return `<div class="module-status-panel"><div class="module-status-panel__title">Módulos da conta</div>${module('⚡', 'Atendimento', status.attendanceEnabled)}${module('◷', 'Agenda & Serviços', status.appointmentsEnabled)}${module('🍔', 'Loja de comidas', status.foodStoreEnabled)}${module('▦', 'Loja de produtos', status.retailEnabled)}${module('🚚', 'Delivery', status.deliveryEnabled)}</div>`;
 }
 
 function renderModuleStatusDashboard() {
@@ -127,6 +133,7 @@ function renderModuleStatusDashboard() {
     if (!status.foodStoreEnabled) disabled.push('Loja de comidas');
     if (!status.retailEnabled) disabled.push('Loja de produtos');
     if (!status.deliveryEnabled) disabled.push('Delivery');
+    if (!status.appointmentsEnabled) disabled.push('Agenda & Serviços');
     if (!disabled.length) return '';
     return `<section class="module-status-dashboard" aria-live="polite"><div class="module-status-dashboard__icon">!</div><div><strong>Módulos desabilitados</strong><p>${escapeHTML(disabled.join(' e '))} não está disponível para esta conta. A ativação é feita pelo Super Admin.</p></div></section>`;
 }

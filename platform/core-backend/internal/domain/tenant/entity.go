@@ -68,7 +68,27 @@ type TenantSettings struct {
 	Attendance        AttendanceSettings     `json:"attendance"`
 	FoodStore         StorefrontSettings     `json:"food_store"`
 	Retail            StorefrontSettings     `json:"retail"`
+	Appointments      AppointmentSettings    `json:"appointments"`
 	Messages          MessageTemplates       `json:"messages"` // FASE 16
+}
+
+// AppointmentSettings activates the generic scheduling experience without
+// coupling it to dining room, catalog or Delivery capabilities.
+type AppointmentSettings struct {
+	Enabled   bool   `json:"enabled,omitempty"`
+	ExpiresAt string `json:"expires_at,omitempty"`
+	Permanent bool   `json:"permanent,omitempty"`
+}
+
+func (s AppointmentSettings) IsActive(now time.Time) bool {
+	if !s.Enabled {
+		return false
+	}
+	if s.Permanent || strings.TrimSpace(s.ExpiresAt) == "" {
+		return true
+	}
+	expiresAt, err := time.Parse(time.RFC3339, s.ExpiresAt)
+	return err == nil && expiresAt.After(now)
 }
 
 // StorefrontSettings activates a customer-facing commercial catalog. Delivery

@@ -35,6 +35,13 @@ type DigitalMenuAccessGateway interface {
 	Create(ctx context.Context, tenantID uuid.UUID, phone, requestedExperience string) (slug string, capability string, experience string, err error)
 }
 
+// AppointmentAccessGateway creates the authenticated web scheduling link.
+// It remains separate from digital-menu capabilities because neither catalog
+// nor Delivery activation should expose appointments accidentally.
+type AppointmentAccessGateway interface {
+	Create(ctx context.Context, tenantID uuid.UUID, phone string) (slug string, capability string, err error)
+}
+
 type HandleWhatsAppMessageUseCase struct {
 	sessionRepo           session.Repository
 	tenantRepo            tenant.Repository
@@ -48,6 +55,7 @@ type HandleWhatsAppMessageUseCase struct {
 	sender                WhatsAppSender
 	portalAccess          PortalAccessIssuer
 	digitalMenuAccess     DigitalMenuAccessGateway
+	appointmentAccess     AppointmentAccessGateway
 	deliveryCheckout      *DeliveryCheckoutCoordinator
 	deliveryCustomer      DeliveryCustomerGateway
 	deliveryQuote         DeliveryQuoteGateway
@@ -72,6 +80,10 @@ func (uc *HandleWhatsAppMessageUseCase) SetDeliveryOrderBatchGateway(gateway Del
 
 func (uc *HandleWhatsAppMessageUseCase) SetDigitalMenuAccessGateway(gateway DigitalMenuAccessGateway) {
 	uc.digitalMenuAccess = gateway
+}
+
+func (uc *HandleWhatsAppMessageUseCase) SetAppointmentAccessGateway(gateway AppointmentAccessGateway) {
+	uc.appointmentAccess = gateway
 }
 
 type WhatsAppSender interface {
@@ -629,6 +641,11 @@ func (uc *HandleWhatsAppMessageUseCase) processMessage(
 			return "", "", tenantErr
 		}
 		value := strings.ToLower(strings.TrimSpace(text))
+		if tenantObj.Settings.Appointments.IsActive(time.Now()) && isAppointmentStartChoice(value) && uc.shouldSendAppointmentLink(tenantObj) {
+			if handled, sendErr := uc.sendAppointmentLink(ctx, sess.UserPhone, tenantObj); handled {
+				return "", session.StateWelcome, sendErr
+			}
+		}
 		canSelectStorefront := isDeliveryStartChoice(text) || value == foodStoreStartActionID || value == retailStoreStartActionID || value == welcomeFoodStoreActionID || value == welcomeRetailStoreActionID || value == "comidas" || value == "produtos" || ((sess.State == session.StateWelcome || sess.State == session.StateDeliveryMenu) && (value == "1" || value == "2"))
 		if canSelectStorefront {
 			experience, needsChoice := uc.resolveStorefrontChoice(tenantObj, text)
@@ -1529,6 +1546,12 @@ func (uc *HandleWhatsAppMessageUseCase) sendWelcomeMenu(
 
 	body := uc.composeWelcomeMenuBody(tenantObj, definition, prefix)
 	body = uc.deliveryWelcomeBody(body, tenantObj, false)
+	if tenantObj.Settings.Appointments.IsActive(time.Now()) && len(buttons) < 3 {
+		buttons = append(buttons, appointmentWelcomeButton())
+		body += "\n\nTambém oferecemos agendamento online."
+	} else if tenantObj.Settings.Appointments.IsActive(time.Now()) {
+		body += "\n\nPara agendar um horário, envie *AGENDAR*."
+	}
 	if len(buttons) == 0 {
 		return uc.sender.SendText(whatsapp.WithTenantID(ctx, tenantObj.ID), to, whatsapp.WithRestaurantHeader(tenantObj.Name, "No momento nenhum canal de pedidos está ativo. Fale com o restaurante para continuar."))
 	}
@@ -1563,6 +1586,12 @@ func (uc *HandleWhatsAppMessageUseCase) sendDefaultWelcomeMenu(
 	buttons := buildDefaultWelcomeButtonsForModules(tenantObj.Settings.AttendanceEnabled(), food, retail, legacyDelivery)
 	if strings.TrimSpace(prefix) != "" {
 		body = strings.TrimSpace(prefix) + "\n\n" + body
+	}
+	if tenantObj.Settings.Appointments.IsActive(time.Now()) && len(buttons) < 3 {
+		buttons = append(buttons, appointmentWelcomeButton())
+		body += "\n\nTambém oferecemos agendamento online."
+	} else if tenantObj.Settings.Appointments.IsActive(time.Now()) {
+		body += "\n\nPara agendar um horário, envie *AGENDAR*."
 	}
 	if len(buttons) == 0 {
 		return uc.sender.SendText(whatsapp.WithTenantID(ctx, tenantObj.ID), to, whatsapp.WithRestaurantHeader(tenantObj.Name, "No momento nenhum canal de pedidos está ativo. Fale com o restaurante para continuar."))
@@ -1617,6 +1646,12 @@ func (uc *HandleWhatsAppMessageUseCase) sendWelcomeChannelMenu(ctx context.Conte
 			Title string `json:"title"`
 		}{ID: welcomeRetailStoreActionID, Title: retailStoreActionButtonTitle}})
 	}
+	if tenantObj.Settings.Appointments.IsActive(time.Now()) && len(buttons) < 3 {
+		buttons = append(buttons, appointmentWelcomeButton())
+		body += "\n\nOu agende um horário online."
+	} else if tenantObj.Settings.Appointments.IsActive(time.Now()) {
+		body += "\n\nPara agendar um horário, envie *AGENDAR*."
+	}
 	if len(buttons) == 0 {
 		return uc.sender.SendText(whatsapp.WithTenantID(ctx, tenantObj.ID), to, whatsapp.WithRestaurantHeader(tenantObj.Name, "No momento nenhum canal de pedidos está ativo. Fale com o restaurante para continuar."))
 	}
@@ -1669,6 +1704,45 @@ func (uc *HandleWhatsAppMessageUseCase) sendDigitalMenuLink(ctx context.Context,
 		buttonLabel,
 		targetURL,
 	)
+	return true, err
+}
+
+func isAppointmentStartChoice(value string) bool {
+	value = strings.ToLower(strings.TrimSpace(value))
+	return value == "agenda:start" || value == "agendar" || value == "agendamento" || value == "agenda" || value == "marcar horario" || value == "marcar horário" || value == "quero agendar" || value == "agendar horário" || value == "agendar horario"
+}
+
+func appointmentWelcomeButton() whatsapp.InteractiveButton {
+	return whatsapp.InteractiveButton{Type: "reply", Reply: struct {
+		ID    string `json:"id"`
+		Title string `json:"title"`
+	}{ID: "agenda:start", Title: "📅 Agendar horário"}}
+}
+
+func (uc *HandleWhatsAppMessageUseCase) shouldSendAppointmentLink(tenantObj *tenant.Tenant) bool {
+	if tenantObj == nil || !tenantObj.IsOpen || !tenantObj.Settings.Appointments.IsActive(time.Now()) || uc.appointmentAccess == nil || uc.sender == nil {
+		return false
+	}
+	_, supported := uc.sender.(WhatsAppURLButtonSender)
+	return supported
+}
+
+func (uc *HandleWhatsAppMessageUseCase) sendAppointmentLink(ctx context.Context, to string, tenantObj *tenant.Tenant) (bool, error) {
+	sender, ok := uc.sender.(WhatsAppURLButtonSender)
+	if !ok {
+		return false, nil
+	}
+	slug, capability, err := uc.appointmentAccess.Create(ctx, tenantObj.ID, to)
+	if err != nil || strings.TrimSpace(slug) == "" || strings.TrimSpace(capability) == "" {
+		return false, err
+	}
+	base := strings.TrimRight(strings.TrimSpace(uc.publicCheckoutBaseURL), "/")
+	if base == "" {
+		return false, nil
+	}
+	targetURL := base + "/agendar/" + strings.TrimSpace(slug) + "#access=" + url.QueryEscape(strings.TrimSpace(capability))
+	body := fmt.Sprintf("Olá! 😊\n\nA agenda de *%s* está aberta. Escolha o serviço, o profissional e o melhor horário em uma única tela.", tenantObj.Name)
+	_, err = sender.SendInteractiveURLButton(whatsapp.WithTenantID(ctx, tenantObj.ID), to, whatsapp.WithRestaurantHeader(tenantObj.Name, body), "Agendar horário", targetURL)
 	return true, err
 }
 

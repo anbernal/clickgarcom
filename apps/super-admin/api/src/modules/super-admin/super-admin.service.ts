@@ -416,6 +416,11 @@ export class SuperAdminService {
                 attendanceEnabled: this.parseTenantSettings(row.settings).attendance?.enabled !== false,
                 foodStoreEnabled: this.isFoodStoreEnabled(this.parseTenantSettings(row.settings), row.establishment_type),
                 retailEnabled: this.isRetailEnabledNow(this.parseTenantSettings(row.settings), row.establishment_type),
+                appointmentsEnabled: this.isAppointmentsEnabledNow(this.parseTenantSettings(row.settings)),
+                appointmentsEnabledAt: this.parseTenantSettings(row.settings).appointments?.enabled_at || null,
+                appointmentsExpiresAt: this.parseTenantSettings(row.settings).appointments?.expires_at || null,
+                appointmentsPermanent: this.parseTenantSettings(row.settings).appointments?.permanent === true,
+                appointmentsIndustryProfile: this.parseTenantSettings(row.settings).appointments?.industry_profile || 'GENERIC',
                 establishmentType: row.establishment_type || 'RESTAURANT',
                 webhook: webhookUrl,
                 msgsIn: msgIn,
@@ -2126,11 +2131,49 @@ export class SuperAdminService {
         };
     }
 
+    async setTenantAppointmentsEnabled(
+        id: string,
+        input: { enabled: boolean; expiresAt?: string | null; permanent?: boolean; industryProfile?: string },
+        actor: SuperAdminActorContext,
+    ) {
+        const tenant = await this.tenantRepo.findOne({ where: { id } });
+        if (!tenant) throw new NotFoundException('Tenant nao encontrado.');
+        const settings = this.parseTenantSettings(tenant.settings);
+        const current = settings.appointments || {};
+        const previousEnabled = this.isAppointmentsEnabledNow(settings);
+        const enabled = input.enabled === true;
+        const now = new Date();
+        const permanent = enabled ? (typeof input.permanent === 'boolean' ? input.permanent : current.permanent === true) : current.permanent === true;
+        let expiresAt: string | null = permanent ? null : (input.expiresAt !== undefined ? input.expiresAt : current.expires_at || null);
+        if (enabled && !permanent) {
+            if (!expiresAt) throw new BadRequestException('Informe uma data limite ou marque o módulo como permanente.');
+            const parsed = new Date(expiresAt);
+            if (Number.isNaN(parsed.getTime()) || parsed.getTime() <= now.getTime()) throw new BadRequestException('A data limite do módulo deve ser futura.');
+            expiresAt = parsed.toISOString();
+        }
+        const allowedProfiles = ['SALON', 'SPA', 'CLINIC', 'GENERIC'];
+        const industryProfile = allowedProfiles.includes(String(input.industryProfile || '').toUpperCase()) ? String(input.industryProfile).toUpperCase() as any : (current.industry_profile || 'GENERIC');
+        const enabledAt = enabled ? (previousEnabled && current.enabled_at ? current.enabled_at : now.toISOString()) : (current.enabled_at || null);
+        const nextSettings: TenantSettings = { ...settings, appointments: { ...current, enabled, enabled_at: enabledAt, disabled_at: enabled ? null : now.toISOString(), expires_at: expiresAt, permanent, industry_profile: industryProfile } };
+        tenant.settings = nextSettings;
+        await this.tenantRepo.save(tenant);
+        await this.recordAuditLog({ action: 'TENANT_APPOINTMENTS_STATUS_CHANGED', entityType: 'TENANT', entityId: tenant.id, tenantId: tenant.id, actor, details: { summary: `Agenda & Serviços de ${tenant.name} foi ${enabled ? 'ativada' : 'desativada'} pelo Super Admin.`, before_enabled: previousEnabled, after_enabled: this.isAppointmentsEnabledNow(nextSettings), enabled_at: enabledAt, expires_at: expiresAt, permanent, industry_profile: industryProfile } });
+        return { id: tenant.id, enabled: this.isAppointmentsEnabledNow(nextSettings), enabledAt, expiresAt, permanent, industryProfile, updatedAt: tenant.updatedAt };
+    }
+
     private isDeliveryEnabledNow(settings: TenantSettings, now = new Date()) {
         const delivery = settings.delivery;
         if (!delivery?.enabled) return false;
         if (delivery.permanent === true || !delivery.expires_at) return true;
         const expiresAt = new Date(delivery.expires_at);
+        return !Number.isNaN(expiresAt.getTime()) && expiresAt.getTime() > now.getTime();
+    }
+
+    private isAppointmentsEnabledNow(settings: TenantSettings, now = new Date()) {
+        const appointments = settings.appointments;
+        if (!appointments?.enabled) return false;
+        if (appointments.permanent === true || !appointments.expires_at) return true;
+        const expiresAt = new Date(appointments.expires_at);
         return !Number.isNaN(expiresAt.getTime()) && expiresAt.getTime() > now.getTime();
     }
 

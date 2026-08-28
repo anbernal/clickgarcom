@@ -53,6 +53,14 @@ export interface TenantSettings {
         enabled_at?: string | null;
         disabled_at?: string | null;
     };
+    appointments?: {
+        enabled?: boolean;
+        enabled_at?: string | null;
+        disabled_at?: string | null;
+        expires_at?: string | null;
+        permanent?: boolean;
+        industry_profile?: 'SALON' | 'SPA' | 'CLINIC' | 'GENERIC';
+    };
 }
 
 export interface PaymentGatewaySettings {

@@ -157,6 +157,11 @@ func main() {
 		resolveInternalServiceToken(),
 		logger.Log,
 	)
+	appointmentAccessClient := adminclient.NewAppointmentAccessClient(
+		resolveNodeAdminInternalBaseURL(),
+		resolveInternalServiceToken(),
+		logger.Log,
+	)
 	deliveryPaymentCoordinator := application.NewDeliveryPaymentCoordinator(deliveryCheckoutCoordinator, deliveryOrderBatchClient)
 
 	// 7. Use Cases
@@ -191,6 +196,7 @@ func main() {
 	handleWhatsAppMsg.SetDeliveryQuoteGateway(deliveryQuoteClient)
 	handleWhatsAppMsg.SetDeliveryOrderBatchGateway(deliveryOrderBatchClient)
 	handleWhatsAppMsg.SetDigitalMenuAccessGateway(digitalMenuAccessGatewayAdapter{client: digitalMenuAccessClient})
+	handleWhatsAppMsg.SetAppointmentAccessGateway(appointmentAccessGatewayAdapter{client: appointmentAccessClient})
 	deliveryNotificationAdapter.SetDeliverySessionFinalizer(handleWhatsAppMsg)
 	processWhatsAppMsg := application.NewProcessWhatsAppMessageUseCase(
 		inboxRepo,
@@ -375,6 +381,18 @@ func main() {
 
 type digitalMenuAccessGatewayAdapter struct {
 	client *adminclient.DigitalMenuAccessClient
+}
+
+type appointmentAccessGatewayAdapter struct {
+	client *adminclient.AppointmentAccessClient
+}
+
+func (a appointmentAccessGatewayAdapter) Create(ctx context.Context, tenantID uuid.UUID, phone string) (string, string, error) {
+	access, err := a.client.Create(ctx, tenantID, phone)
+	if err != nil {
+		return "", "", err
+	}
+	return access.Slug, access.Capability, nil
 }
 
 func (a digitalMenuAccessGatewayAdapter) Create(ctx context.Context, tenantID uuid.UUID, phone, experience string) (string, string, string, error) {
