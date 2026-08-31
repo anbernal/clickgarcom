@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, feature/delivery-v2]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Build e testes de contrato
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Baixar código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            apps/tenant-admin/api/package-lock.json
+            apps/tenant-admin/web/package-lock.json
+            apps/super-admin/api/package-lock.json
+
+      - name: Configurar Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: platform/core-backend/go.mod
+          cache: true
+
+      - name: Instalar e compilar API do tenant
+        working-directory: apps/tenant-admin/api
+        run: npm ci && npm run build
+
+      - name: Instalar e compilar API do super admin
+        working-directory: apps/super-admin/api
+        run: npm ci && npm run build
+
+      - name: Instalar dependências web e validar testes de agenda
+        working-directory: apps/tenant-admin/web
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          KDS_TEST_BROWSER_CHANNEL=chromium npm run test:appointments-ux
+
+      - name: Testes do backend Go
+        working-directory: platform/core-backend
+        run: go test ./...

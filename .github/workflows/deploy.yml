@@ -1,0 +1,77 @@
+name: Deploy produção
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Publicar no servidor
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    environment: production
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
+      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+      DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+      DEPLOY_HEALTH_URL: ${{ secrets.DEPLOY_HEALTH_URL }}
+      DEPLOY_REF: ${{ github.ref_name }}
+    steps:
+      - name: Validar configuração de deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$DEPLOY_HOST" || { echo "Secret DEPLOY_HOST não configurado"; exit 1; }
+          test -n "$DEPLOY_USER" || { echo "Secret DEPLOY_USER não configurado"; exit 1; }
+          test -n "$DEPLOY_PATH" || { echo "Secret DEPLOY_PATH não configurado"; exit 1; }
+          test -n "$DEPLOY_HEALTH_URL" || { echo "Secret DEPLOY_HEALTH_URL não configurado"; exit 1; }
+          test -n "${{ secrets.DEPLOY_SSH_KEY }}" || { echo "Secret DEPLOY_SSH_KEY não configurado"; exit 1; }
+
+      - name: Preparar acesso SSH
+        shell: bash
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$HOME/.ssh/id_ed25519"
+          chmod 600 "$HOME/.ssh/id_ed25519"
+          if [ -n "${DEPLOY_KNOWN_HOSTS:-}" ]; then
+            printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          else
+            ssh-keyscan -p "$DEPLOY_PORT" -H "$DEPLOY_HOST" > "$HOME/.ssh/known_hosts"
+          fi
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      - name: Atualizar código e serviços Docker
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
+            "DEPLOY_PATH='$DEPLOY_PATH' DEPLOY_REF='$DEPLOY_REF' bash -se" <<'REMOTE'
+          set -euo pipefail
+          cd "$DEPLOY_PATH"
+          git fetch origin "$DEPLOY_REF"
+          git checkout --detach FETCH_HEAD
+          docker compose up -d --build --force-recreate \
+            go-migrate go-setup-rabbitmq go-api go-worker go-outbox \
+            node-admin web-admin super-admin-api super-admin
+          docker compose ps
+          REMOTE
+
+      - name: Verificar saúde pública
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --retry 8 --retry-delay 5 --retry-all-errors \
+            "$DEPLOY_HEALTH_URL"
