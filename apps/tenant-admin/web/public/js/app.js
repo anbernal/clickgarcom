@@ -108,11 +108,19 @@ function configureBusinessProfileNavigation() {
     const retail = typeof window.isRetailProfile === 'function' && window.isRetailProfile() && user.retail_enabled === true;
     const attendance = user.attendance_enabled !== false;
     const foodStore = typeof window.isFoodStoreModuleEnabledForNavigation === 'function' && window.isFoodStoreModuleEnabledForNavigation(user);
+    const delivery = user.delivery_enabled === true;
     const standaloneRetail = retail && !attendance;
     document.body.classList.toggle('is-retail-profile', standaloneRetail);
     document.querySelectorAll('[data-business-profile]').forEach((item) => {
         const target = item.dataset.businessProfile;
-        const profileMatches = target === 'retail' ? retail : target === 'food-store' ? foodStore : attendance;
+        // The operational KDS is also the dispatch queue for Delivery. A
+        // tenant may intentionally disable presencial Atendimento while
+        // keeping Delivery active, so the KDS link must remain visible for
+        // that combination instead of being hidden by the food-service
+        // profile marker.
+        const profileMatches = item.id === 'nav-kds-link'
+            ? (attendance || foodStore || delivery)
+            : target === 'retail' ? retail : target === 'food-store' ? foodStore : attendance;
         const pageId = item.dataset.page;
         // Profile labels define the visual context, but access is always driven
         // by the enabled module. Without this second check, a market profile
@@ -181,11 +189,26 @@ function configureKdsNavigation() {
 
     const role = getCurrentUserRole();
 
-    if (!['ADMIN', 'MANAGER', 'WAITER', 'KITCHEN', 'BAR'].includes(role)) {
+    if (!['ADMIN', 'MANAGER', 'WAITER', 'KITCHEN', 'BAR', 'DISPATCHER'].includes(role)) {
         kdsLink.style.display = 'none';
         if (atendimentoLink) {
             atendimentoLink.style.display = 'none';
         }
+        return;
+    }
+
+    const deliveryEnabled = getCurrentUser()?.delivery_enabled === true;
+    const attendanceEnabled = getCurrentUser()?.attendance_enabled !== false;
+
+    // Delivery-only tenants should land directly in the dispatch queue. This
+    // removes the ambiguity of opening the kitchen station first when the
+    // order is intentionally not routed to the kitchen KDS.
+    if (deliveryEnabled && !attendanceEnabled && ['ADMIN', 'MANAGER', 'DISPATCHER'].includes(role)) {
+        kdsLink.style.display = '';
+        kdsLink.href = buildAppPath('/kds.html?panel=delivery');
+        if (atendimentoLink) atendimentoLink.style.display = 'none';
+        kdsIcon.textContent = '🛵';
+        kdsLabel.textContent = 'KDS (Delivery)';
         return;
     }
 

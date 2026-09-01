@@ -10,6 +10,7 @@ function adminSession() {
       tenant_name: 'Mercado Modelo',
       attendance_enabled: false,
       delivery_enabled: true,
+      retail_enabled: true,
     },
   };
 }
@@ -34,6 +35,8 @@ test('Admin RETAIL exibe navegação própria e mantém módulos de restaurante 
   await expect(page.getByRole('button', { name: /Estoque/ })).toBeVisible();
   await expect(page.getByRole('button', { name: /Separação/ })).toBeVisible();
   await expect(page.getByRole('button', { name: /Compras online/ })).toBeVisible();
+  await expect(page.locator('#nav-kds-link')).toBeVisible();
+  await expect(page.locator('#nav-kds-link')).toHaveAttribute('href', /kds\.html\?panel=delivery/);
   await expect(page.getByRole('button', { name: /^Dashboard$/ })).toBeHidden();
   await expect(page.getByRole('button', { name: /^Pedidos/ })).toBeHidden();
   await expect(page.getByRole('button', { name: /Cardápio/ })).toBeHidden();
