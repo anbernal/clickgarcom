@@ -41,30 +41,18 @@ async function prepareKds(page, options = {}) {
   });
 }
 
-test('KDS atribui entrega pronta à frota identificada e mostra capacidade', async ({ page }) => {
-  const delivery = {
-    id: 'delivery-fleet-ready', batch_id: 'batch-fleet-ready', display_code: '814205',
-    status: 'READY_FOR_DISPATCH', version: 4, created_at: minutesAgo(18),
-    customer_name: 'Mariana', formatted_address: 'Rua das Flores, 120, Osasco/SP',
-    neighborhood: 'Centro', eta_seconds: 1200, default_fulfillment_mode: 'OWN',
-    orders: [{ id: 'order-fleet-ready', batch_id: 'batch-fleet-ready', status: 'READY', items: [{ id: 'item-fleet', quantity: 1, unit_price: 32, item_name_snapshot: 'Smash' }] }],
-  };
-  const fleetPreview = {
-    config: { mode: 'IDENTIFIED_DRIVERS', version: 2 },
-    drivers: [{ id: 'driver-fleet-1', name: 'Rafael Souza', plate: 'FRT4A21', active: true, availability: 'AVAILABLE', active_deliveries: 0, delivery_limit: 2, version: 1 }],
-    assignments: [],
-  };
-  await prepareKds(page, { role: 'DISPATCHER', deliveries: [delivery], fleetPreview });
+test('KDS é exclusivo do Atendimento e ignora links antigos da fila de Delivery', async ({ page }) => {
+  await prepareKds(page, { role: 'ADMIN' });
   await page.goto('/kds.html?panel=delivery');
-  await expect(page.getByRole('button', { name: '🛵 Atribuir motoboy' })).toBeVisible();
-  await page.getByRole('button', { name: '🛵 Atribuir motoboy' }).click();
-  await expect(page.locator('#kds-fleet-driver')).toContainText('Rafael Souza · 0/2');
-  await page.locator('#kds-fleet-driver').selectOption('driver-fleet-1');
-  await page.getByRole('button', { name: 'Confirmar atribuição' }).click();
-  await expect(page.locator('#col-d-route .delivery-driver-badge')).toContainText('Rafael Souza');
+
+  await expect(page.locator('#panel-kitchen')).toHaveClass(/active/);
+  await expect(page.locator('[data-panel="delivery"]')).toHaveCount(2);
+  expect(await page.locator('[data-panel="delivery"]').evaluateAll((items) => items.every((item) => getComputedStyle(item).display === 'none'))).toBe(true);
+  await expect(page.locator('#panel-delivery')).toBeHidden();
+  await expect(page.locator('#topbar-title')).toHaveText('Estação da Cozinha');
 });
 
-test('Delivery recarrega pelo websocket e usa os itens da própria projeção', async ({ page }) => {
+test.skip('Delivery recarrega pelo websocket e usa os itens da própria projeção', async ({ page }) => {
   const delivery = {
     id: '485971f1-e914-4de3-9d34-c4d69ca42470', batch_id: '1a876ad4-9f6b-4d11-8ea4-04fd2c4cda31',
     display_code: '482193', status: 'PENDING_RESTAURANT_ACCEPTANCE', version: 1,
@@ -105,7 +93,7 @@ test('Delivery recarrega pelo websocket e usa os itens da própria projeção', 
   await expect(preparingCard).not.toContainText('5511999999999');
 });
 
-test('Delivery reconcilia mudanças mesmo com websocket conectado', async ({ page }) => {
+test.skip('Delivery reconcilia mudanças mesmo com websocket conectado', async ({ page }) => {
   const delivery = {
     id: 'delivery-reconcile', batch_id: 'batch-reconcile', display_code: '900101',
     status: 'PENDING_RESTAURANT_ACCEPTANCE', version: 1, created_at: minutesAgo(1),
@@ -123,7 +111,7 @@ test('Delivery reconcilia mudanças mesmo com websocket conectado', async ({ pag
   await expect(page.locator('#col-d-preparing .delivery-card')).toHaveCount(1, { timeout: 6500 });
 });
 
-test('Delivery aceito automaticamente entra em preparo e alerta apenas uma vez', async ({ page }) => {
+test.skip('Delivery aceito automaticamente entra em preparo e alerta apenas uma vez', async ({ page }) => {
   const delivery = {
     id: 'delivery-auto-accepted', batch_id: 'batch-auto', display_code: '900202',
     status: 'PREPARING', acceptance_mode: 'AUTO', version: 2,

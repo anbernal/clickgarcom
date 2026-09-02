@@ -108,19 +108,11 @@ function configureBusinessProfileNavigation() {
     const retail = typeof window.isRetailProfile === 'function' && window.isRetailProfile() && user.retail_enabled === true;
     const attendance = user.attendance_enabled !== false;
     const foodStore = typeof window.isFoodStoreModuleEnabledForNavigation === 'function' && window.isFoodStoreModuleEnabledForNavigation(user);
-    const delivery = user.delivery_enabled === true;
     const standaloneRetail = retail && !attendance;
     document.body.classList.toggle('is-retail-profile', standaloneRetail);
     document.querySelectorAll('[data-business-profile]').forEach((item) => {
         const target = item.dataset.businessProfile;
-        // The operational KDS is also the dispatch queue for Delivery. A
-        // tenant may intentionally disable presencial Atendimento while
-        // keeping Delivery active, so the KDS link must remain visible for
-        // that combination instead of being hidden by the food-service
-        // profile marker.
-        const profileMatches = item.id === 'nav-kds-link'
-            ? (attendance || foodStore || delivery)
-            : target === 'retail' ? retail : target === 'food-store' ? foodStore : attendance;
+        const profileMatches = target === 'retail' ? retail : target === 'food-store' ? foodStore : attendance;
         const pageId = item.dataset.page;
         // Profile labels define the visual context, but access is always driven
         // by the enabled module. Without this second check, a market profile
@@ -149,27 +141,37 @@ function getModuleStatusModel() {
 
 function renderModuleStatusSidebar() {
     const status = getModuleStatusModel();
-    const module = (icon, label, enabled) => `<div class="module-status-item ${enabled ? 'module-status-item--on' : 'module-status-item--off'}"><span><i aria-hidden="true">${icon}</i>${label}</span><strong>${enabled ? 'Ativo' : 'Desativado'}</strong></div>`;
-    return `<div class="module-status-panel"><div class="module-status-panel__title">Módulos da conta</div>${module('⚡', 'Atendimento', status.attendanceEnabled)}${module('◷', 'Agenda & Serviços', status.appointmentsEnabled)}${module('🍔', 'Loja de comidas', status.foodStoreEnabled)}${module('▦', 'Loja de produtos', status.retailEnabled)}${module('🚚', 'Delivery', status.deliveryEnabled)}</div>`;
+    const activeModules = [
+        ['⚡', 'Atendimento presencial', status.attendanceEnabled],
+        ['◷', 'Agenda & Serviços', status.appointmentsEnabled],
+        ['🍔', 'Venda de comidas', status.foodStoreEnabled],
+        ['▦', 'Venda de produtos', status.retailEnabled],
+        ['🚚', 'Delivery', status.deliveryEnabled],
+    ].filter(([, , enabled]) => enabled);
+    if (!activeModules.length) return '';
+    return `<div class="module-status-panel"><div class="module-status-panel__title">Módulos ativos</div>${activeModules.map(([icon, label]) => `<div class="module-status-item module-status-item--on"><span><i aria-hidden="true">${icon}</i>${label}</span><strong>Ativo</strong></div>`).join('')}</div>`;
 }
 
 function renderModuleStatusDashboard() {
-    const status = getModuleStatusModel();
-    const disabled = [];
-    if (!status.attendanceEnabled) disabled.push('Atendimento presencial');
-    if (!status.foodStoreEnabled) disabled.push('Loja de comidas');
-    if (!status.retailEnabled) disabled.push('Loja de produtos');
-    if (!status.deliveryEnabled) disabled.push('Delivery');
-    if (!status.appointmentsEnabled) disabled.push('Agenda & Serviços');
-    if (!disabled.length) return '';
-    return `<section class="module-status-dashboard" aria-live="polite"><div class="module-status-dashboard__icon">!</div><div><strong>Módulos desabilitados</strong><p>${escapeHTML(disabled.join(' e '))} não está disponível para esta conta. A ativação é feita pelo Super Admin.</p></div></section>`;
+    // A conta deve enxergar somente o que contratou. O Super Admin controla
+    // ativações; avisos de módulos indisponíveis não fazem parte da operação
+    // diária do tenant.
+    return '';
 }
 
 function refreshModuleStatusIndicators() {
     const sidebar = document.getElementById('sidebar-module-status');
-    if (sidebar) sidebar.innerHTML = renderModuleStatusSidebar();
+    if (sidebar) {
+        const content = renderModuleStatusSidebar();
+        sidebar.innerHTML = content;
+        sidebar.hidden = !content;
+    }
     const dashboard = document.getElementById('dashboard-module-status');
-    if (dashboard) dashboard.innerHTML = renderModuleStatusDashboard();
+    if (dashboard) {
+        const content = renderModuleStatusDashboard();
+        dashboard.innerHTML = content;
+        dashboard.hidden = !content;
+    }
 }
 
 function collapseEmptyNavigationSections() {
@@ -189,26 +191,12 @@ function configureKdsNavigation() {
 
     const role = getCurrentUserRole();
 
-    if (!['ADMIN', 'MANAGER', 'WAITER', 'KITCHEN', 'BAR', 'DISPATCHER'].includes(role)) {
+    const attendanceEnabled = getCurrentUser()?.attendance_enabled !== false;
+    if (!attendanceEnabled || !['ADMIN', 'MANAGER', 'WAITER', 'KITCHEN', 'BAR'].includes(role)) {
         kdsLink.style.display = 'none';
         if (atendimentoLink) {
             atendimentoLink.style.display = 'none';
         }
-        return;
-    }
-
-    const deliveryEnabled = getCurrentUser()?.delivery_enabled === true;
-    const attendanceEnabled = getCurrentUser()?.attendance_enabled !== false;
-
-    // Delivery-only tenants should land directly in the dispatch queue. This
-    // removes the ambiguity of opening the kitchen station first when the
-    // order is intentionally not routed to the kitchen KDS.
-    if (deliveryEnabled && !attendanceEnabled && ['ADMIN', 'MANAGER', 'DISPATCHER'].includes(role)) {
-        kdsLink.style.display = '';
-        kdsLink.href = buildAppPath('/kds.html?panel=delivery');
-        if (atendimentoLink) atendimentoLink.style.display = 'none';
-        kdsIcon.textContent = '🛵';
-        kdsLabel.textContent = 'KDS (Delivery)';
         return;
     }
 

@@ -173,7 +173,7 @@ const pendingOrderTransitions = new Set();
 const stationPresentationByPanel = { kitchen: 'orders', bar: 'orders' };
 const stationSummaryStageByPanel = { kitchen: 'ACCEPTED', bar: 'ACCEPTED' };
 let currentKdsDensity = 'comfortable';
-const PANEL_ORDER = ['kitchen', 'bar', 'salao', 'delivery'];
+const PANEL_ORDER = ['kitchen', 'bar', 'salao'];
 const SALAO_STATS_CARD_DEFINITIONS = [
   {
     key: 'availableTables',
@@ -262,14 +262,12 @@ function resolveRequestedPanel(panel) {
   if (normalized === 'attendance' || normalized === 'atendimento' || normalized === 'salao' || normalized === 'salão') return 'salao';
   if (normalized === 'kitchen' || normalized === 'cozinha') return 'kitchen';
   if (normalized === 'bar') return 'bar';
-  if (normalized === 'delivery' || normalized === 'entregas' || normalized === 'entrega') return 'delivery';
   return null;
 }
 
 function getPanelsAllowedForRole(role) {
   if (role === 'KITCHEN') return ['kitchen'];
   if (role === 'BAR') return ['bar'];
-  if (role === 'DISPATCHER') return ['delivery'];
   if (role === 'WAITER' || role === 'ADMIN' || role === 'MANAGER') return [...PANEL_ORDER];
   return [];
 }
@@ -281,21 +279,27 @@ function buildKdsAccess() {
   const requestedMode = String(searchParams.get('mode') || '').trim().toLowerCase();
   const rolePanels = getPanelsAllowedForRole(role);
   const hasFullKdsAccess = ['ADMIN', 'MANAGER'].includes(role);
-  const deliveryEnabled = authSession?.user?.delivery_enabled === true;
   const attendanceEnabled = authSession?.user?.attendance_enabled !== false;
-  // Keep Delivery discoverable for eligible stations. When it is not active,
-  // the panel renders an activation experience and never loads the queue.
+  // Entregas são operadas no painel administrativo de Delivery. O KDS fica
+  // exclusivo para a operação presencial (cozinha, bar e salão).
+  const deliveryEnabled = false;
   const entitledPanels = rolePanels;
-  const availablePanels = hasFullKdsAccess
+  const operationalPanels = hasFullKdsAccess
     ? entitledPanels
     : (requestedPanel && entitledPanels.includes(requestedPanel)
       ? [requestedPanel]
       : entitledPanels);
-  const roleDefaultPanel = role === 'WAITER' && entitledPanels.includes('salao') ? 'salao' : (availablePanels[0] || 'kitchen');
-  const defaultPanel = requestedPanel && entitledPanels.includes(requestedPanel)
+  // KDS is a presencial operation. A tenant without Atendimento keeps the
+  // page safe for stale bookmarks, but sees only the unavailable state; food
+  // delivery is operated from the Admin Delivery board instead.
+  const availablePanels = attendanceEnabled && operationalPanels.length ? operationalPanels : ['salao'];
+  const roleDefaultPanel = role === 'WAITER' && entitledPanels.includes('salao') ? 'salao' : (operationalPanels[0] || 'kitchen');
+  const defaultPanel = !attendanceEnabled
+    ? 'salao'
+    : requestedPanel && entitledPanels.includes(requestedPanel)
     ? requestedPanel
     : roleDefaultPanel;
-  const isDedicatedStationRole = role === 'KITCHEN' || role === 'BAR' || role === 'DISPATCHER';
+  const isDedicatedStationRole = role === 'KITCHEN' || role === 'BAR';
   const stationMode = isDedicatedStationRole
     || (hasFullKdsAccess && requestedMode === 'station' && ['kitchen', 'bar'].includes(defaultPanel));
 
@@ -307,12 +311,12 @@ function buildKdsAccess() {
     defaultPanel,
     stationMode,
     canExitStationMode: stationMode && hasFullKdsAccess,
-    canOpenSalao: rolePanels.includes('salao'),
+    canOpenSalao: attendanceEnabled && rolePanels.includes('salao'),
     attendanceEnabled,
     canViewSalao: attendanceEnabled && rolePanels.includes('salao'),
     deliveryEnabled,
-    canOpenDelivery: rolePanels.includes('delivery'),
-    canViewDelivery: deliveryEnabled && rolePanels.includes('delivery'),
+    canOpenDelivery: false,
+    canViewDelivery: false,
     canLoadTables: ['ADMIN', 'MANAGER', 'WAITER'].includes(role),
   };
 }
@@ -460,7 +464,7 @@ function handleKdsSyncEvent(event) {
 }
 
 function refreshKdsRealtimeState() {
-  if (activePanel !== 'delivery' && (activePanel !== 'salao' || KDS_ACCESS.attendanceEnabled)) loadOrders();
+  if (KDS_ACCESS.attendanceEnabled && activePanel !== 'delivery') loadOrders();
   if (KDS_ACCESS.canViewDelivery) loadDeliveries();
   if (KDS_ACCESS.canViewSalao) {
     loadPendingRequests();
@@ -491,10 +495,9 @@ document.addEventListener('DOMContentLoaded', () => {
   connectWebSocket();
   startDeliveryReconciliation();
   startTimerUpdates();
-  // Orders and deliveries are independent critical paths. A Delivery card
-  // already contains its compact order-items projection, so a slow kitchen
-  // query is deferred until its panel is opened.
-  if (activePanel !== 'delivery') loadOrders();
+  // O KDS atende somente a operação presencial. A fila de Delivery é
+  // carregada no painel administrativo de Entregas.
+  if (KDS_ACCESS.attendanceEnabled && activePanel !== 'delivery') loadOrders();
   loadMenuItems().then(renderAll);
   const startupTasks = [];
   if (KDS_ACCESS.canViewDelivery) startupTasks.push(loadDeliveries());
@@ -557,14 +560,23 @@ function applySidebarTenantName() {
 async function loadTenantPrintProfile() {
   try {
     const profile = await apiGet('/auth/me');
-    const rolePanels = getPanelsAllowedForRole(KDS_ACCESS.role);
-    const deliveryEnabled = profile?.delivery_enabled === true;
     const attendanceEnabled = profile?.attendance_enabled !== false;
+    const rolePanels = getPanelsAllowedForRole(KDS_ACCESS.role);
+    const deliveryEnabled = false;
     KDS_ACCESS.deliveryEnabled = deliveryEnabled;
     KDS_ACCESS.attendanceEnabled = attendanceEnabled;
-    KDS_ACCESS.canOpenSalao = rolePanels.includes('salao');
+    const availablePanels = attendanceEnabled
+      ? (['ADMIN', 'MANAGER'].includes(KDS_ACCESS.role)
+        ? rolePanels
+        : (KDS_ACCESS.requestedPanel && rolePanels.includes(KDS_ACCESS.requestedPanel) ? [KDS_ACCESS.requestedPanel] : rolePanels))
+      : ['salao'];
+    KDS_ACCESS.availablePanels = availablePanels.length ? availablePanels : ['salao'];
+    KDS_ACCESS.defaultPanel = KDS_ACCESS.availablePanels.includes(KDS_ACCESS.defaultPanel)
+      ? KDS_ACCESS.defaultPanel
+      : KDS_ACCESS.availablePanels[0];
+    KDS_ACCESS.canOpenSalao = attendanceEnabled && rolePanels.includes('salao');
     KDS_ACCESS.canViewSalao = attendanceEnabled && KDS_ACCESS.canOpenSalao;
-    KDS_ACCESS.canOpenDelivery = rolePanels.includes('delivery');
+    KDS_ACCESS.canOpenDelivery = false;
     KDS_ACCESS.canViewDelivery = deliveryEnabled && KDS_ACCESS.canOpenDelivery;
     if (KDS_ACCESS.canViewDelivery) startDeliveryReconciliation();
     else if (deliveryReconcileTimer) {

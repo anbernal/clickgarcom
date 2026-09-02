@@ -33,10 +33,13 @@ test('Admin RETAIL exibe navegação própria e mantém módulos de restaurante 
   await expect(page.getByRole('button', { name: /Visão da loja/ })).toBeVisible();
   await expect(page.getByRole('button', { name: /Produtos/ })).toBeVisible();
   await expect(page.getByRole('button', { name: /Estoque/ })).toBeVisible();
-  await expect(page.getByRole('button', { name: /Separação/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Controle de separação/ })).toBeVisible();
   await expect(page.getByRole('button', { name: /Compras online/ })).toBeVisible();
-  await expect(page.locator('#nav-kds-link')).toBeVisible();
-  await expect(page.locator('#nav-kds-link')).toHaveAttribute('href', /kds\.html\?panel=delivery/);
+  await expect(page.locator('#nav-kds-link')).toBeHidden();
+  await expect(page.locator('#sidebar-module-status')).toContainText('Venda de produtos');
+  await expect(page.locator('#sidebar-module-status')).toContainText('Delivery');
+  await expect(page.locator('#sidebar-module-status')).not.toContainText('Desativado');
+  await expect(page.locator('#dashboard-module-status')).toBeHidden();
   await expect(page.getByRole('button', { name: /^Dashboard$/ })).toBeHidden();
   await expect(page.getByRole('button', { name: /^Pedidos/ })).toBeHidden();
   await expect(page.getByRole('button', { name: /Cardápio/ })).toBeHidden();
@@ -55,19 +58,24 @@ test('Tenant híbrido mantém Atendimento e RETAIL ativos sem misturar as opera�
   await page.addInitScript((session) => {
     localStorage.setItem('clickgarcom_auth', JSON.stringify(session));
   }, hybridSession);
-  await page.route('**/admin/api/auth/me**', (route) => route.fulfill({
-    status: 200,
-    contentType: 'application/json',
-    body: JSON.stringify(hybridSession.user),
-  }));
-  await page.goto('/?retail-reset=1');
+  await page.route('**/admin/api/**', (route) => {
+    const isCurrentUser = new URL(route.request().url()).pathname.endsWith('/auth/me');
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(isCurrentUser ? hybridSession.user : {}),
+    });
+  });
+  // index.html evita a regra de redirecionamento da raiz durante o bootstrap
+  // isolado do Playwright, mantendo este caso focado na navegação híbrida.
+  await page.goto('/index.html?retail-reset=1');
 
   await expect(page.getByRole('button', { name: /Dashboard/ })).toBeVisible();
   await expect(page.getByRole('button', { name: /Pedidos/ })).toBeVisible();
   await expect(page.getByRole('button', { name: /Cardápio/ })).toBeVisible();
   await expect(page.getByRole('button', { name: /Visão da loja/ })).toBeVisible();
   await expect(page.getByRole('button', { name: /Produtos/ })).toBeVisible();
-  await expect(page.getByRole('button', { name: /Separação/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Controle de separação/ })).toBeVisible();
 });
 
 test('Compras online reúne operação e histórico sem usar a fila da cozinha', async ({ page }) => {
@@ -111,7 +119,7 @@ test('Produtos e estoque funcionam no protótipo sem depender do backend', async
 test('Central de Separação avança somente compras pagas entre etapas', async ({ page }) => {
   await prepareAdmin(page);
   await page.goto('/?retail-preview=market&retail-reset=1');
-  await page.getByRole('button', { name: /Separação/ }).click();
+  await page.getByRole('button', { name: /Controle de separação/ }).click();
 
   const newColumn = page.locator('.retail-board-column').filter({ hasText: 'Novos' });
   await expect(newColumn.locator('.retail-order-card')).toHaveCount(2);
