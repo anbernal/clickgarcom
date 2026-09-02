@@ -30,7 +30,7 @@ test('Admin RETAIL exibe navegação própria e mantém módulos de restaurante 
   await prepareAdmin(page);
   await page.goto('/?retail-preview=market&retail-reset=1');
 
-  await expect(page.getByRole('button', { name: /Visão da loja/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Painel de produtos/ })).toBeVisible();
   await expect(page.getByRole('button', { name: /Produtos/ })).toBeVisible();
   await expect(page.getByRole('button', { name: /Estoque/ })).toBeVisible();
   await expect(page.getByRole('button', { name: /Controle de separação/ })).toBeVisible();
@@ -40,14 +40,14 @@ test('Admin RETAIL exibe navegação própria e mantém módulos de restaurante 
   await expect(page.locator('#sidebar-module-status')).toContainText('Delivery');
   await expect(page.locator('#sidebar-module-status')).not.toContainText('Desativado');
   await expect(page.locator('#dashboard-module-status')).toBeHidden();
-  await expect(page.getByRole('button', { name: /^Dashboard$/ })).toBeHidden();
+  await expect(page.getByRole('button', { name: /Painel de atendimento/ })).toBeHidden();
   await expect(page.getByRole('button', { name: /^Pedidos/ })).toBeHidden();
   await expect(page.getByRole('button', { name: /Cardápio/ })).toBeHidden();
   await expect(page.getByRole('button', { name: /Mesas/ })).toBeHidden();
   await expect(page.getByRole('heading', { name: 'Da prateleira até a entrega, sem perder o controle.' })).toBeVisible();
   expect(await page.evaluate(() => window.canAccessPage('comandas'))).toBe(false);
   await page.evaluate(() => window.navigate('comandas', { silent: true }));
-  await expect(page.locator('#page-title')).toHaveText('Painel da loja');
+  await expect(page.locator('#page-title')).toHaveText('Painel de produtos');
 });
 
 test('Tenant híbrido mantém Atendimento e RETAIL ativos sem misturar as operações', async ({ page }) => {
@@ -70,12 +70,43 @@ test('Tenant híbrido mantém Atendimento e RETAIL ativos sem misturar as opera�
   // isolado do Playwright, mantendo este caso focado na navegação híbrida.
   await page.goto('/index.html?retail-reset=1');
 
-  await expect(page.getByRole('button', { name: /Dashboard/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Painel de atendimento/ })).toBeVisible();
   await expect(page.getByRole('button', { name: /Pedidos/ })).toBeVisible();
   await expect(page.getByRole('button', { name: /Cardápio/ })).toBeVisible();
-  await expect(page.getByRole('button', { name: /Visão da loja/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Painel de produtos/ })).toBeVisible();
   await expect(page.getByRole('button', { name: /Produtos/ })).toBeVisible();
   await expect(page.getByRole('button', { name: /Controle de separação/ })).toBeVisible();
+});
+
+test('Venda de comidas possui painel próprio e não exibe operações desativadas', async ({ page }) => {
+  const foodSession = {
+    token: 'header.e30.signature',
+    user: {
+      id: 'user-food-preview', name: 'Caio Gestor', role: 'ADMIN', tenant_name: 'Lanches Modelo',
+      attendance_enabled: false, food_store_enabled: true, retail_enabled: false, delivery_enabled: false,
+    },
+  };
+  await page.addInitScript((session) => localStorage.setItem('clickgarcom_auth', JSON.stringify(session)), foodSession);
+  await page.route('**/admin/api/**', (route) => {
+    const path = new URL(route.request().url()).pathname;
+    const response = path.endsWith('/auth/me')
+      ? foodSession.user
+      : path.endsWith('/menu')
+        ? [{ id: 'food-1', name: 'Smash', available: true, itemType: 'ITEM' }, { id: 'food-2', name: 'Combo', available: false, itemType: 'COMBO' }]
+        : path.endsWith('/categories')
+          ? [{ id: 'cat-1', name: 'Lanches', active: true }]
+          : {};
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(response) });
+  });
+  await page.goto('/index.html');
+
+  await expect(page.getByRole('button', { name: /Painel de comidas/ })).toBeVisible();
+  await expect(page.locator('#page-title')).toHaveText('Painel de comidas');
+  await expect(page.getByRole('heading', { name: 'Cardápio pronto para vender' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Painel de atendimento/ })).toBeHidden();
+  await expect(page.getByRole('button', { name: /Painel de produtos/ })).toBeHidden();
+  await expect(page.getByRole('button', { name: /Painel de Entregas/ })).toBeHidden();
+  await expect(page.locator('#nav-kds-link')).toBeHidden();
 });
 
 test('Compras online reúne operação e histórico sem usar a fila da cozinha', async ({ page }) => {

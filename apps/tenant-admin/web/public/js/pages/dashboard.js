@@ -188,16 +188,27 @@ function buildTableNumbersByTabId(tablesData) {
 
 function getDashboardVisibleOrders(orders, role) {
     const normalizedRole = String(role || '').toUpperCase();
+    const attendanceOrders = (orders || []).filter(isAttendanceDashboardOrder);
 
     if (normalizedRole === 'KITCHEN') {
-        return orders.filter((order) => String(order?.destination || '').toUpperCase() === 'KITCHEN');
+        return attendanceOrders.filter((order) => String(order?.destination || '').toUpperCase() === 'KITCHEN');
     }
 
     if (normalizedRole === 'BAR') {
-        return orders.filter((order) => String(order?.destination || '').toUpperCase() === 'BAR');
+        return attendanceOrders.filter((order) => String(order?.destination || '').toUpperCase() === 'BAR');
     }
 
-    return orders;
+    return attendanceOrders;
+}
+
+function isAttendanceDashboardOrder(order) {
+    const serviceType = String(order?.serviceType || order?.service_type || order?.orderType || order?.order_type || '').toUpperCase();
+    const channel = String(order?.channel || order?.source || '').toUpperCase();
+    return serviceType !== 'DELIVERY'
+        && serviceType !== 'DELIVERY_ORDER'
+        && channel !== 'DELIVERY'
+        && !order?.deliveryId
+        && !order?.delivery_id;
 }
 
 function getDashboardRecentOrdersContent(role) {

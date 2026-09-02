@@ -1,21 +1,22 @@
 // ClickGarçom Admin — App Router
 const pages = {
-    dashboard: { title: 'Dashboard', sub: 'Visão geral do seu restaurante hoje', loader: loadDashboard },
+    dashboard: { title: 'Painel de atendimento', sub: 'Operação presencial, mesas e comandas', loader: loadDashboard },
     wallet: { title: 'Carteira & Assinatura', sub: 'Faturamento e recarga de créditos TaaS', loader: loadWallet },
     extratoMensagens: {
         title: 'Extrato de Mensagens',
         sub: 'Cada linha representa uma mensagem contabilizada no consumo do WhatsApp',
         loader: loadExtratoMensagens,
     },
-    appointments: { title: 'Agenda & Serviços', sub: 'Horários, equipe e experiência do cliente', loader: loadAppointmentsPage },
-    retailOverview: { title: 'Painel da loja', sub: 'Vendas, pedidos e estoque em um único lugar', loader: () => runOptionalPageLoader('loadRetailOverview', 'retailOverview') },
+    appointments: { title: 'Painel de agendamentos', sub: 'Agenda, equipe, confirmações e serviços', loader: loadAppointmentsPage },
+    retailOverview: { title: 'Painel de produtos', sub: 'Vendas, pedidos e estoque em um único lugar', loader: () => runOptionalPageLoader('loadRetailOverview', 'retailOverview') },
     retailProducts: { title: 'Produtos', sub: 'Catálogo, preços e disponibilidade para venda', loader: () => runOptionalPageLoader('loadRetailProductsPage', 'retailProducts') },
     retailInventory: { title: 'Estoque', sub: 'Saldo físico, reservas e movimentações', loader: () => runOptionalPageLoader('loadRetailInventoryPage', 'retailInventory') },
     retailPicking: { title: 'Central de Separação', sub: 'Separe, confira e libere compras pagas', loader: () => runOptionalPageLoader('loadRetailPickingPage', 'retailPicking') },
     retailOrders: { title: 'Compras online', sub: 'Acompanhe compras atuais e histórico de conclusão', loader: () => runOptionalPageLoader('loadRetailOrdersPage', 'retailOrders') },
     pedidos: { title: 'Pedidos', sub: 'Fila de pedidos recebidos', loader: loadPedidos },
-    delivery: { title: 'Entregas', sub: 'Despacho, acompanhamento e experiência do cliente', loader: loadDeliveryPage },
+    delivery: { title: 'Painel de Delivery', sub: 'Aceite, preparo, despacho e acompanhamento', loader: loadDeliveryPage },
     fleet: { title: 'Frota própria', sub: 'Motoboys, acessos, capacidade e desempenho', loader: () => runOptionalPageLoader('loadFleetPage', 'fleet') },
+    foodOverview: { title: 'Painel de comidas', sub: 'Cardápio, categorias e disponibilidade para venda', loader: loadFoodOverview },
     cardapio: { title: 'Cardápio', sub: 'Gerencie os itens do seu menu', loader: loadCardapio },
     categorias: { title: 'Categorias', sub: 'Organize o cardápio em categorias', loader: loadCategorias },
     comandas: { title: 'Comandas', sub: 'Abra e acompanhe as comandas do restaurante', loader: loadComandas },
@@ -65,8 +66,8 @@ function getDefaultPageId() {
     if (!attendanceEnabled && retailEnabled && canAccessPage('retailOverview')) {
         return 'retailOverview';
     }
-    if (!attendanceEnabled && foodStoreEnabled && canAccessPage('cardapio')) {
-        return 'cardapio';
+    if (!attendanceEnabled && foodStoreEnabled && canAccessPage('foodOverview')) {
+        return 'foodOverview';
     }
     if (!attendanceEnabled && deliveryEnabled && canAccessPage('delivery')) {
         return 'delivery';

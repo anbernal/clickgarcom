@@ -34,7 +34,7 @@ test('módulo Agenda abre como operação principal e oculta operações não co
   await prepareAdmin(page);
   await page.goto('/?appointments-preview=salon&appointments-reset=1');
 
-  await expect(page.getByRole('button', { name: /Agenda & Serviços/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Painel de agendamentos/ })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Sua agenda, leve e organizada' })).toBeVisible();
   await expect(page.getByRole('button', { name: /^Pedidos/ })).toBeHidden();
   await expect(page.getByRole('button', { name: /^Produtos/ })).toBeHidden();

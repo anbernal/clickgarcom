@@ -87,6 +87,7 @@ const TENANT_PAGE_ACCESS = {
     wallet: TENANT_ROUTE_GROUPS.wallet,
     extratoMensagens: TENANT_ROUTE_GROUPS.wallet,
     pedidos: TENANT_ROUTE_GROUPS.order_read_write,
+    foodOverview: TENANT_ROUTE_GROUPS.menu_read,
     cardapio: TENANT_ROUTE_GROUPS.menu_read,
     categorias: TENANT_ROUTE_GROUPS.menu_read,
     comandas: TENANT_ROUTE_GROUPS.table_read,
@@ -110,7 +111,7 @@ const TENANT_PAGE_ACCESS = {
 // still call navigate('comandas'). Keep the module boundary at the client API
 // layer as well, while the backend remains the authorization source of truth.
 const ATTENDANCE_PAGES = new Set(['dashboard', 'pedidos', 'comandas', 'mesas']);
-const FOOD_STORE_PAGES = new Set(['cardapio', 'categorias']);
+const FOOD_STORE_PAGES = new Set(['foodOverview', 'cardapio', 'categorias']);
 const RETAIL_PAGES = new Set(['retailOverview', 'retailProducts', 'retailInventory', 'retailPicking', 'retailOrders']);
 const DELIVERY_PAGES = new Set(['delivery', 'fleet']);
 const APPOINTMENTS_PAGES = new Set(['appointments']);
