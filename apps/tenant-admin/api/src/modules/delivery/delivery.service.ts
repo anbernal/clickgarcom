@@ -978,7 +978,9 @@ export class DeliveryService {
                     if (!fulfillment || fulfillment.mode !== 'OWN') throw new UnprocessableEntityException('A entrega não está configurada para operação própria.');
                     if (delivery.status === DeliveryStatus.InTransit && fulfillment.status === 'IN_TRANSIT') return this.toSnapshot(delivery);
                     if (delivery.version !== command.expected_version) throw new ConflictException('A entrega foi alterada. Atualize e tente novamente.');
-                    if (delivery.assignedDriverId) throw new ConflictException('Entrega própria não permite entregador individual.');
+                    if (delivery.assignedDriverId || delivery.assignedDriverProfileId) {
+                        throw new ConflictException('Remova a atribuição do motoboy antes de iniciar sem um entregador individual.');
+                    }
                     if (delivery.status !== DeliveryStatus.ReadyForDispatch || !['WAITING_DISPATCH', 'WAITING_PREPARATION'].includes(fulfillment.status)) {
                         throw new UnprocessableEntityException('A entrega própria ainda não está aguardando saída.');
                     }

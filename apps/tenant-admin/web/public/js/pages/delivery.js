@@ -452,11 +452,16 @@ function renderDeliveryActions(item, canDispatch, canOverride) {
         actions.push(`<button class="delivery-btn delivery-btn--danger" onclick="openDeliveryReasonModal('reject','${item.id}')">Recusar</button>`);
     }
     const identifiedOwnFleet = own && window.deliveryUsesIdentifiedFleet?.();
+    const hasAssignedDriver = Boolean(item.assigned_driver_id || item.assigned_driver_profile_id);
     if ((!own || identifiedOwnFleet) && ['READY_FOR_DISPATCH','ASSIGNED','DELIVERY_FAILED'].includes(item.status)) {
         const assignLabel = item.status === 'DELIVERY_FAILED' ? '↻ Nova tentativa' : (item.assigned_driver_id ? '↻ Reatribuir' : '↗ Atribuir entregador');
         actions.push(`<button class="delivery-btn delivery-btn--primary" onclick="openDeliveryAssign('${item.id}')">${assignLabel}</button>`);
     }
-    if (own && item.status === 'READY_FOR_DISPATCH' && !identifiedOwnFleet) actions.push(`<button class="delivery-btn delivery-btn--primary" onclick="runDeliveryOwnOperation('${item.id}','start',${Number(item.version || 1)})">↗ Marcar como saiu</button>`);
+    if (own && item.status === 'READY_FOR_DISPATCH' && (!identifiedOwnFleet || !hasAssignedDriver)) {
+        const actionLabel = identifiedOwnFleet && !hasAssignedDriver ? '🏪 Continuar sem motoboy' : '↗ Marcar como saiu';
+        const action = identifiedOwnFleet && !hasAssignedDriver ? `openDeliveryNoDriverStart('${item.id}',${Number(item.version || 1)})` : `runDeliveryOwnOperation('${item.id}','start',${Number(item.version || 1)})`;
+        actions.push(`<button class="delivery-btn delivery-btn--primary" onclick="${action}">${actionLabel}</button>`);
+    }
     if (own && ['IN_TRANSIT','ARRIVED'].includes(item.status)) actions.push(`<button class="delivery-btn delivery-btn--primary" onclick="openDeliveryPinCompletion('${item.id}',${Number(item.version || 1)})">✓ Finalizar entrega</button>`);
     if (['IN_TRANSIT','ARRIVED','DELIVERY_FAILED'].includes(item.status)) actions.push(`<button class="delivery-btn delivery-btn--neutral" onclick="openDeliveryReturn('${item.id}',false)">↩ Iniciar retorno</button>`);
     if (item.status === 'RETURNING') actions.push(`<button class="delivery-btn delivery-btn--primary" onclick="openDeliveryReturn('${item.id}',true)">✓ Confirmar devolução</button>`);
@@ -474,9 +479,18 @@ function renderDeliveryActions(item, canDispatch, canOverride) {
     return actions.join('');
 }
 
-async function runDeliveryOwnOperation(id, operation, version) {
+async function runDeliveryOwnOperation(id, operation, version, withoutDriver = false) {
     const label = operation === 'start' ? 'saída' : 'atualização';
-    await runDeliveryCommand(id, `own/${operation}`, { expected_version: version }, `Entrega própria marcada como ${label}.`);
+    const successMessage = withoutDriver
+        ? 'Saída registrada sem atribuir motoboy. A confirmação por código continua obrigatória.'
+        : `Entrega própria marcada como ${label}.`;
+    await runDeliveryCommand(id, `own/${operation}`, { expected_version: version }, successMessage);
+}
+
+function openDeliveryNoDriverStart(id, version) {
+    const item = deliveryState.deliveries.find((delivery) => delivery.id === id);
+    if (!item) return;
+    openModal(`<div class="modal-header"><div><h3>Continuar sem motoboy?</h3><div class="modal-header-subtitle">Entrega #${escapeHTML(item.display_code || id)} · operação própria</div></div><button class="modal-close" onclick="closeModal()" aria-label="Fechar">✕</button></div><div class="modal-body delivery-form"><div class="delivery-alert" style="margin:0"><span>🏪</span><div><strong>O restaurante assumirá esta saída</strong><span>Use quando a equipe fará a entrega ou quando o cliente veio retirar no local. Nenhum motoboy será atribuído e a confirmação por código continua obrigatória.</span></div></div></div><div class="modal-footer"><button class="delivery-btn delivery-btn--neutral" onclick="closeModal()">Cancelar</button><button class="delivery-btn delivery-btn--primary" onclick="runDeliveryOwnOperation('${id}','start',${Number(version)},true)">Continuar sem motoboy</button></div>`);
 }
 
 function openDeliveryPinCompletion(id, version) {

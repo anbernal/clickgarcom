@@ -119,6 +119,23 @@ test('tenant Admin não exibe o controle de ativação do módulo', async ({ pag
   await expect(page.locator('.delivery-form-section').first()).toContainText('Módulo e capacidade');
 });
 
+test('frota identificada permite iniciar a operação sem atribuir motoboy', async ({ page }) => {
+  const ready = deliveryFixture({ status: 'READY_FOR_DISPATCH', version: 3, default_fulfillment_mode: 'OWN' });
+  await prepareAdmin(page, [ready]);
+  const commandRequests = [];
+  page.on('request', (request) => { if (request.url().endsWith('/own/start')) commandRequests.push(request); });
+  await page.goto('/');
+  await page.evaluate(() => { window.deliveryUsesIdentifiedFleet = () => true; });
+  await page.getByRole('button', { name: /Entregas/ }).click();
+  await page.getByRole('button', { name: /Abrir entrega 482193/ }).click();
+  await expect(page.getByRole('button', { name: 'Continuar sem motoboy' })).toBeVisible();
+  await page.getByRole('button', { name: 'Continuar sem motoboy' }).click();
+  await expect(page.getByRole('heading', { name: 'Continuar sem motoboy?' })).toBeVisible();
+  await page.getByRole('button', { name: 'Continuar sem motoboy' }).click();
+  await expect.poll(() => commandRequests.length).toBe(1);
+  expect(commandRequests[0].postDataJSON()).toMatchObject({ expected_version: 3 });
+});
+
 test('tracking troca o fragmento, permite confirmação autenticada e não revela o código', async ({ page }) => {
   const snapshot = { display_code: '482193', status: 'IN_TRANSIT', version: 4, destination: { city: 'São Paulo', state: 'SP', lat: -23.5565, lng: -46.692 }, tracking_active: true, receipt_confirmation_available: true, eta_seconds: 840, eta_updated_at: new Date().toISOString(), driver_location: { lat: -23.55, lng: -46.68, accuracy_m: 12, recorded_at: new Date().toISOString() }, updated_at: new Date().toISOString() };
   let exchangedToken = '';
