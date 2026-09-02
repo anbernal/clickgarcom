@@ -413,8 +413,9 @@ function renderDeliveryTimeline(item, events = []) {
         return `<div class="delivery-timeline">${events.map((event) => {
             const status = DELIVERY_STATUS[event.current_status] || DELIVERY_STATUS[item.status] || { label: 'Atualização', icon: '•' };
             const actor = event.actor?.name ? ` · ${event.actor.name}` : '';
+            const operation = event.without_driver === true || event.operation_mode === 'WITHOUT_DRIVER' ? ' · sem motoboy' : '';
             const reason = event.reason ? ` — ${event.reason}` : (event.reason_code ? ` — ${deliveryReasonLabel(event.reason_code)}` : '');
-            return `<div class="delivery-timeline-item delivery-timeline-item--done"><span class="delivery-timeline-dot"></span><div class="delivery-timeline-copy"><strong>${escapeHTML(status.icon)} ${escapeHTML(status.label)}${escapeHTML(actor)}${escapeHTML(reason)}</strong><time>${deliveryDateTime(event.occurred_at)}</time></div></div>`;
+            return `<div class="delivery-timeline-item delivery-timeline-item--done"><span class="delivery-timeline-dot"></span><div class="delivery-timeline-copy"><strong>${escapeHTML(status.icon)} ${escapeHTML(status.label)}${escapeHTML(actor)}${escapeHTML(operation)}${escapeHTML(reason)}</strong><time>${deliveryDateTime(event.occurred_at)}</time></div></div>`;
         }).join('')}</div>`;
     }
     const milestones = [
@@ -484,7 +485,7 @@ async function runDeliveryOwnOperation(id, operation, version, withoutDriver = f
     const successMessage = withoutDriver
         ? 'Saída registrada sem atribuir motoboy. A confirmação por código continua obrigatória.'
         : `Entrega própria marcada como ${label}.`;
-    await runDeliveryCommand(id, `own/${operation}`, { expected_version: version }, successMessage);
+    await runDeliveryCommand(id, `own/${operation}`, { expected_version: version, ...(withoutDriver ? { without_driver: true } : {}) }, successMessage);
 }
 
 function openDeliveryNoDriverStart(id, version) {

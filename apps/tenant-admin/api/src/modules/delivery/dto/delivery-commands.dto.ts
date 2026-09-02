@@ -378,6 +378,11 @@ export class DeliveryOwnOperationDto {
     @IsString()
     @MaxLength(500)
     notes?: string;
+
+    /** Starts the restaurant-owned operation without assigning an individual courier. */
+    @IsOptional()
+    @IsBoolean()
+    without_driver?: boolean;
 }
 
 export class DeliveryCompleteOwnDto extends DeliveryOwnOperationDto {

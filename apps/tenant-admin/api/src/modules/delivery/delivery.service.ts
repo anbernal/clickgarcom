@@ -996,6 +996,8 @@ export class DeliveryService {
                     await this.appendEvent(manager, saved, DeliveryEventType.StatusChanged, actor, saved.status, {
                         previous_status: previousStatus,
                         fulfillment_mode: 'OWN',
+                        operation_mode: command.without_driver === true ? 'WITHOUT_DRIVER' : 'OWN_OPERATION',
+                        without_driver: command.without_driver === true,
                         reason: command.notes || null,
                     }, 'OWN_OPERATION');
                     const issued = await this.pinService.issueChallenge(manager, tenantId, id);
@@ -1920,6 +1922,8 @@ export class DeliveryService {
                 name: event.actorName,
             },
             source: event.source,
+            operation_mode: typeof metadata.operation_mode === 'string' ? metadata.operation_mode : null,
+            without_driver: metadata.without_driver === true,
             reason_code: reasonCode,
             reason,
             occurred_at: event.createdAt,

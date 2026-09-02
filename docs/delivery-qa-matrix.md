@@ -14,7 +14,7 @@ Esta matriz separa o que pode ser validado localmente com o provider fake do que
 | QA-DEL-008 | Cinco tentativas em 15 minutos | `DELIVERY_FAKE_PROVIDER_MODE=FAIL_FIRST_N` | política real de rate limit |
 | QA-DEL-009 | Tracking e código externo | outbox de notificação, sem código na API Admin | código/tracking real do operador |
 | QA-DEL-010 | Fallback para OWN ou novo ciclo | board Admin + auditoria + versão otimista | decisão operacional do tenant |
-| QA-DEL-011 | OWN sai sem motorista individual (por exemplo, retirada no local ou equipe própria) e só conclui com código pelo Admin ou cliente | `own/start`, `own/complete`, tracking autenticado e WhatsApp URL button | No modo de motoboys cadastrados, use **Continuar sem motoboy** na entrega pronta; a atribuição continua opcional para essa operação. |
+| QA-DEL-011 | OWN sai sem motorista individual (por exemplo, retirada no local ou equipe própria), registra a decisão na timeline e só conclui com código pelo Admin ou cliente | `own/start`, `own/complete`, tracking autenticado e WhatsApp URL button | No modo de motoboys cadastrados, use **Continuar sem motoboy** na entrega pronta; a atribuição continua opcional e o histórico exibe “sem motoboy”. |
 | QA-DEL-012 | Financeiro e exportação | `/deliveries/reports/summary` e `.csv`, filtros por modalidade/operador/status | conciliação financeira real |
 | QA-DEL-013 | Privacidade, RBAC, replay e idempotência | testes Core/Nest + Playwright Delivery (19/19) | scanner de segurança/infra |
 | QA-DEL-014 | Regressão DINE_IN/TAKEOUT | `go test ./...` + KDS UX (9/9) | validação pré-piloto |

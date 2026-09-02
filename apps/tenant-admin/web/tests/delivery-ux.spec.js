@@ -133,7 +133,7 @@ test('frota identificada permite iniciar a operação sem atribuir motoboy', asy
   await expect(page.getByRole('heading', { name: 'Continuar sem motoboy?' })).toBeVisible();
   await page.getByRole('button', { name: 'Continuar sem motoboy' }).click();
   await expect.poll(() => commandRequests.length).toBe(1);
-  expect(commandRequests[0].postDataJSON()).toMatchObject({ expected_version: 3 });
+  expect(commandRequests[0].postDataJSON()).toMatchObject({ expected_version: 3, without_driver: true });
 });
 
 test('tracking troca o fragmento, permite confirmação autenticada e não revela o código', async ({ page }) => {
