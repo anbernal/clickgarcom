@@ -410,6 +410,15 @@ const api = {
         return handleResponse(res);
     },
 
+    async upload(path, formData, options = {}) {
+        const res = await fetch(API_BASE + path, {
+            method: 'POST',
+            headers: { 'Authorization': getAuthHeaders().Authorization, ...(options.headers || {}) },
+            body: formData,
+        });
+        return handleResponse(res);
+    },
+
     async put(path, body, options = {}) {
         const res = await fetch(API_BASE + path, {
             method: 'PUT',

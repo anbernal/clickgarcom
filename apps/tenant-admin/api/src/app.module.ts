@@ -61,6 +61,7 @@ import { PurchasesModule } from './modules/purchases/purchases.module';
 import { RetailModule } from './modules/retail/retail.module';
 import { DeliveryModule } from './modules/delivery/delivery.module';
 import { AppointmentsModule } from './modules/appointments/appointments.module';
+import { MediaModule } from './modules/media/media.module';
 import { RolesGuard } from './modules/auth/roles.guard';
 import { AppController } from './app.controller';
 
@@ -90,6 +91,7 @@ import { AppController } from './app.controller';
         RetailModule,
         DeliveryModule,
         AppointmentsModule,
+        MediaModule,
     ],
     controllers: [AppController],
     providers: [

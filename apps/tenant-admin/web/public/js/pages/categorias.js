@@ -10,6 +10,52 @@ const CATEGORIAS_ICONS = {
 
 let categoriasData = [];
 
+function renderCategoryImageUpload(currentUrl = '') {
+    const image = String(currentUrl || '').trim();
+    return `<div class="catalog-image-upload">
+      <input type="hidden" id="cat-image-url" value="${escapeHTML(image)}">
+      <label class="catalog-image-upload__drop" for="cat-image-file">
+        <input id="cat-image-file" type="file" accept="image/jpeg,image/png,image/webp" onchange="previewCategoryImage(this)">
+        <span class="catalog-image-upload__icon">▧</span>
+        <span><strong>Escolher imagem do computador</strong><small>JPG, PNG ou WEBP · até 5 MB</small></span>
+      </label>
+      <div class="catalog-image-upload__preview" id="cat-image-preview">${image ? `<img src="${escapeHTML(image)}" alt="Prévia da imagem atual">` : '<span>Nenhuma imagem selecionada</span>'}</div>
+      <details class="catalog-image-upload__url"><summary>Usar link externo em vez de enviar arquivo</summary><input type="url" id="cat-image-url-manual" value="${escapeHTML(image)}" placeholder="https://exemplo.com/imagem.jpg" oninput="syncCategoryImageUrl(this.value)"></details>
+    </div>`;
+}
+
+function previewCategoryImage(input) {
+    const file = input?.files?.[0];
+    if (!file) return;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024) {
+        input.value = '';
+        showToast('Escolha uma imagem JPG, PNG ou WEBP de até 5 MB.', 'error');
+        return;
+    }
+    const preview = document.getElementById('cat-image-preview');
+    if (preview) preview.innerHTML = `<img src="${URL.createObjectURL(file)}" alt="Prévia da imagem selecionada">`;
+}
+
+function syncCategoryImageUrl(url) {
+    const normalized = String(url || '').trim();
+    const hidden = document.getElementById('cat-image-url');
+    const preview = document.getElementById('cat-image-preview');
+    if (hidden) hidden.value = normalized;
+    if (preview) preview.innerHTML = normalized ? `<img src="${escapeHTML(normalized)}" alt="Prévia da imagem">` : '<span>Nenhuma imagem selecionada</span>';
+}
+
+async function uploadCategoryImageIfNeeded() {
+    const file = document.getElementById('cat-image-file')?.files?.[0];
+    if (!file) return String(document.getElementById('cat-image-url')?.value || '').trim() || null;
+    const payload = new FormData();
+    payload.append('file', file);
+    const uploaded = await api.upload('/media/menu-image', payload);
+    const url = String(uploaded?.url || '').trim();
+    if (!url) throw new Error('O envio da imagem não retornou um endereço válido.');
+    syncCategoryImageUrl(url);
+    return url;
+}
+
 async function loadCategorias() {
     const container = document.getElementById('page-categorias');
     const canManageMenu = canPerformAction('manageMenu');
@@ -44,7 +90,7 @@ async function loadCategorias() {
                 <div style="font-size:12px;color:var(--muted)">${escapeHTML(cat.description || 'Sem descrição')}</div>
               </div>
               <div style="flex:1;font-size:12px;color:var(--muted)">
-                ${cat.imageUrl ? 'Banner configurado' : 'Sem banner'}
+                ${cat.imageUrl ? '<span style="display:inline-flex;align-items:center;gap:7px"><img src="' + escapeHTML(cat.imageUrl) + '" alt="" style="width:28px;height:28px;border-radius:8px;object-fit:cover;border:1px solid var(--border)">Banner configurado</span>' : 'Sem banner'}
               </div>
               <div style="flex:1">${cat.itemCount || 0} itens</div>
               <div style="flex:1">
@@ -89,7 +135,7 @@ function openCategoryModal(id = '') {
       </div>
       <div class="form-group">
         <label>Imagem da Categoria</label>
-        <input type="url" id="cat-image-url" value="${escapeHTML(category?.imageUrl || '')}" placeholder="https://...">
+        ${renderCategoryImageUpload(category?.imageUrl || '')}
         <div style="font-size:12px;color:var(--muted);margin-top:6px">Usada como banner ilustrativo antes da lista de itens no WhatsApp.</div>
       </div>
       <div class="form-row-2">
@@ -118,20 +164,25 @@ async function saveCategory(id) {
         showToast('Seu perfil nao pode alterar categorias.', 'error');
         return;
     }
-    const data = {
-        name: document.getElementById('cat-name').value,
-        description: document.getElementById('cat-description').value,
-        image_url: document.getElementById('cat-image-url').value.trim() || null,
-        display_order: parseInt(document.getElementById('cat-order').value) || 0,
-        active: document.getElementById('cat-active').value === 'true',
-    };
-
-    if (!data.name) {
-        showToast('Nome é obrigatório', 'error');
-        return;
+    const saveButton = document.querySelector('.modal-footer .btn-sm.btn-primary');
+    if (saveButton) {
+        saveButton.disabled = true;
+        saveButton.textContent = 'Salvando…';
     }
 
     try {
+        const imageUrl = await uploadCategoryImageIfNeeded();
+        const data = {
+            name: document.getElementById('cat-name').value.trim(),
+            description: document.getElementById('cat-description').value.trim(),
+            image_url: imageUrl,
+            display_order: parseInt(document.getElementById('cat-order').value, 10) || 0,
+            active: document.getElementById('cat-active').value === 'true',
+        };
+        if (!data.name) {
+            showToast('Nome é obrigatório', 'error');
+            return;
+        }
         if (id) {
             await api.put(`/categories/${id}`, data);
             showToast('Categoria atualizada');
@@ -143,6 +194,11 @@ async function saveCategory(id) {
         loadCategorias();
     } catch (err) {
         showToast('Erro: ' + err.message, 'error');
+    } finally {
+        if (saveButton) {
+            saveButton.disabled = false;
+            saveButton.textContent = id ? 'Salvar' : 'Criar';
+        }
     }
 }
 

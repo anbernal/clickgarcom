@@ -33,6 +33,52 @@ let cardapioOptionGroupCounter = 0;
 let cardapioOptionRowCounter = 0;
 let cardapioComboRowCounter = 0;
 
+function renderCardapioImageUpload(currentUrl = '') {
+  const image = String(currentUrl || '').trim();
+  return `<div class="catalog-image-upload">
+    <input type="hidden" id="mi-image-url" value="${escapeHTML(image)}">
+    <label class="catalog-image-upload__drop" for="mi-image-file">
+      <input id="mi-image-file" type="file" accept="image/jpeg,image/png,image/webp" onchange="previewCardapioImage(this)">
+      <span class="catalog-image-upload__icon">▧</span>
+      <span><strong>Escolher imagem do computador</strong><small>JPG, PNG ou WEBP · até 5 MB</small></span>
+    </label>
+    <div class="catalog-image-upload__preview" id="mi-image-preview">${image ? `<img src="${escapeHTML(image)}" alt="Prévia da imagem atual">` : '<span>Nenhuma imagem selecionada</span>'}</div>
+    <details class="catalog-image-upload__url"><summary>Usar link externo em vez de enviar arquivo</summary><input type="url" id="mi-image-url-manual" value="${escapeHTML(image)}" placeholder="https://exemplo.com/imagem.jpg" oninput="syncCardapioImageUrl(this.value)"></details>
+  </div>`;
+}
+
+function previewCardapioImage(input) {
+  const file = input?.files?.[0];
+  if (!file) return;
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024) {
+    input.value = '';
+    showToast('Escolha uma imagem JPG, PNG ou WEBP de até 5 MB.', 'error');
+    return;
+  }
+  const preview = document.getElementById('mi-image-preview');
+  if (preview) preview.innerHTML = `<img src="${URL.createObjectURL(file)}" alt="Prévia da imagem selecionada">`;
+}
+
+function syncCardapioImageUrl(url) {
+  const normalized = String(url || '').trim();
+  const hidden = document.getElementById('mi-image-url');
+  const preview = document.getElementById('mi-image-preview');
+  if (hidden) hidden.value = normalized;
+  if (preview) preview.innerHTML = normalized ? `<img src="${escapeHTML(normalized)}" alt="Prévia da imagem">` : '<span>Nenhuma imagem selecionada</span>';
+}
+
+async function uploadCardapioImageIfNeeded() {
+  const file = document.getElementById('mi-image-file')?.files?.[0];
+  if (!file) return String(document.getElementById('mi-image-url')?.value || '').trim() || null;
+  const payload = new FormData();
+  payload.append('file', file);
+  const uploaded = await api.upload('/media/menu-image', payload);
+  const url = String(uploaded?.url || '').trim();
+  if (!url) throw new Error('O envio da imagem não retornou um endereço válido.');
+  syncCardapioImageUrl(url);
+  return url;
+}
+
 async function loadCardapio() {
   const container = document.getElementById('page-cardapio');
   container.innerHTML = '<div class="loading"><div class="spinner"></div> Carregando cardapio...</div>';
@@ -234,11 +280,11 @@ function openMenuItemModal(itemId) {
         </div>
         <div class="form-group">
           <div class="field-label-row">
-            <label>Imagem do item (URL)</label>
+            <label>Imagem do item</label>
             <span class="field-badge field-badge--optional">Opcional</span>
           </div>
-          <input type="url" id="mi-image-url" value="${item ? escapeHTML(item.imageUrl || '') : ''}" placeholder="https://exemplo.com/foto-do-item.jpg">
-          <div class="field-hint">Aparece no preview ilustrativo enviado pelo WhatsApp. Use links públicos (não funciona com arquivos locais).</div>
+          ${renderCardapioImageUpload(item?.imageUrl || '')}
+          <div class="field-hint">A imagem é guardada com segurança e pode aparecer no cardápio digital e no WhatsApp.</div>
         </div>
       </div>
 
@@ -662,6 +708,14 @@ async function saveMenuItem(itemId) {
 
   const stockQuantityRaw = document.getElementById('mi-stock-quantity').value;
   const lowStockThresholdRaw = document.getElementById('mi-low-stock-threshold').value;
+  const saveButton = document.querySelector('.modal-footer .btn-sm.btn-primary');
+  if (saveButton) {
+    saveButton.disabled = true;
+    saveButton.textContent = 'Salvando…';
+  }
+
+  try {
+  const imageUrl = await uploadCardapioImageIfNeeded();
   const data = {
     name: document.getElementById('mi-name').value.trim(),
     description: document.getElementById('mi-description').value.trim() || null,
@@ -670,7 +724,7 @@ async function saveMenuItem(itemId) {
     category_id: document.getElementById('mi-category').value || null,
     destination: document.getElementById('mi-destination').value,
     prep_time_minutes: parseInt(document.getElementById('mi-prep').value, 10) || 15,
-    image_url: document.getElementById('mi-image-url').value.trim() || null,
+    image_url: imageUrl,
     whatsapp_short_name: document.getElementById('mi-whatsapp-short-name').value.trim() || null,
     whatsapp_short_description: document.getElementById('mi-whatsapp-short-description').value.trim() || null,
     available: document.getElementById('mi-available').checked,
@@ -686,25 +740,28 @@ async function saveMenuItem(itemId) {
 
   if (!data.name || Number.isNaN(data.price)) {
     showToast('Nome e preco sao obrigatorios', 'error');
+    if (saveButton) { saveButton.disabled = false; saveButton.textContent = itemId ? 'Salvar alterações' : 'Criar item'; }
     return;
   }
 
   if (data.cost_price !== null && Number.isNaN(data.cost_price)) {
     showToast('Custo base invalido', 'error');
+    if (saveButton) { saveButton.disabled = false; saveButton.textContent = itemId ? 'Salvar alterações' : 'Criar item'; }
     return;
   }
 
   if (trackStock && (Number.isNaN(data.stock_quantity) || data.stock_quantity < 0)) {
     showToast('Quantidade em estoque invalida', 'error');
+    if (saveButton) { saveButton.disabled = false; saveButton.textContent = itemId ? 'Salvar alterações' : 'Criar item'; }
     return;
   }
 
   if (trackStock && data.low_stock_threshold !== null && (Number.isNaN(data.low_stock_threshold) || data.low_stock_threshold < 0)) {
     showToast('Alerta de estoque baixo invalido', 'error');
+    if (saveButton) { saveButton.disabled = false; saveButton.textContent = itemId ? 'Salvar alterações' : 'Criar item'; }
     return;
   }
 
-  try {
     if (itemId) {
       await api.put(`/menu/${itemId}`, data);
       showToast('Item atualizado com sucesso');
@@ -716,6 +773,8 @@ async function saveMenuItem(itemId) {
     loadCardapio();
   } catch (err) {
     showToast('Erro: ' + err.message, 'error');
+  } finally {
+    if (saveButton) { saveButton.disabled = false; saveButton.textContent = itemId ? 'Salvar alterações' : 'Criar item'; }
   }
 }
 
