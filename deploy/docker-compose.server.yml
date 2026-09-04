@@ -245,7 +245,7 @@ services:
       NGROK_PUBLIC_URL: ""
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-clickgarcom-internal-token}
       ADMIN_API_WATCH_MODE: "false"
-      MEDIA_STORAGE_ENDPOINT: ${MEDIA_STORAGE_ENDPOINT:-http://minio:9000}
+      MEDIA_STORAGE_ENDPOINT: ${MEDIA_STORAGE_ENDPOINT:-http://clickgarcom-media-store:9000}
       MEDIA_STORAGE_BUCKET: ${MEDIA_STORAGE_BUCKET:-clickgarcom-media}
       MEDIA_STORAGE_ACCESS_KEY: ${MEDIA_STORAGE_ACCESS_KEY:-}
       MEDIA_STORAGE_SECRET_KEY: ${MEDIA_STORAGE_SECRET_KEY:-}
@@ -304,7 +304,9 @@ services:
       - minio_data:/data
     restart: unless-stopped
     networks:
-      - clickgarcom-network
+      clickgarcom-network:
+        aliases:
+          - clickgarcom-media-store
 
   web-admin:
     build:
