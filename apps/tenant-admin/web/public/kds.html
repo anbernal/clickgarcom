@@ -237,6 +237,16 @@
             padding: 0;
         }
 
+        /* A operação de entregas é uma estação própria: a mesma fila madura
+           do KDS, sem expor cozinha, bar ou salão. */
+        body.delivery-station-mode .station-late-indicator {
+            display: none;
+        }
+
+        body.delivery-station-mode .delivery-grid {
+            min-height: calc(100vh - 180px);
+        }
+
         .nav-item {
             display: flex;
             align-items: center;
@@ -3947,7 +3957,7 @@
                 <!-- DELIVERY: expedição é separada do salão e das bancadas. -->
                 <div id="panel-delivery" class="screen-panel">
                     <div class="salao-view-heading">
-                        <div><h2>Fila operacional de Delivery</h2><p>Inicie o preparo, imprima a expedição e confirme a entrega própria.</p></div>
+                        <div><h2>Operação de entregas</h2><p>Aceite, preparo, expedição e rota em uma única fila operacional.</p></div>
                         <span class="live-dot">Atualização ao vivo</span>
                     </div>
                     <div class="orders-grid delivery-grid">

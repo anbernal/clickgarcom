@@ -277,12 +277,38 @@ function buildKdsAccess() {
   const searchParams = new URLSearchParams(window.location.search);
   const requestedPanel = resolveRequestedPanel(searchParams.get('panel'));
   const requestedMode = String(searchParams.get('mode') || '').trim().toLowerCase();
+  // Delivery has its own operational screen. It deliberately reuses the
+  // mature KDS delivery board, but is not part of the presencial KDS.
+  const deliveryStation = requestedMode === 'delivery';
+  const canOperateDelivery = ['ADMIN', 'MANAGER', 'DISPATCHER'].includes(role);
   const rolePanels = getPanelsAllowedForRole(role);
   const hasFullKdsAccess = ['ADMIN', 'MANAGER'].includes(role);
   const attendanceEnabled = authSession?.user?.attendance_enabled !== false;
-  // Entregas são operadas no painel administrativo de Delivery. O KDS fica
-  // exclusivo para a operação presencial (cozinha, bar e salão).
-  const deliveryEnabled = false;
+  const deliveryEnabled = authSession?.user?.delivery_enabled === true;
+
+  if (deliveryStation) {
+    return {
+      role,
+      requestedPanel: 'delivery',
+      requestedMode,
+      deliveryStation,
+      canOperateDelivery,
+      availablePanels: ['delivery'],
+      defaultPanel: 'delivery',
+      stationMode: false,
+      canExitStationMode: false,
+      canOpenSalao: false,
+      attendanceEnabled: false,
+      canViewSalao: false,
+      deliveryEnabled,
+      canOpenDelivery: canOperateDelivery,
+      canViewDelivery: deliveryEnabled && canOperateDelivery,
+      canLoadTables: false,
+    };
+  }
+
+  // O KDS presencial fica exclusivo para cozinha, bar e salão. A operação
+  // de Delivery é aberta somente pelo acesso "Operação de entregas".
   const entitledPanels = rolePanels;
   const operationalPanels = hasFullKdsAccess
     ? entitledPanels
@@ -307,6 +333,8 @@ function buildKdsAccess() {
     role,
     requestedPanel,
     requestedMode,
+    deliveryStation,
+    canOperateDelivery,
     availablePanels,
     defaultPanel,
     stationMode,
@@ -325,6 +353,7 @@ function applyKdsPanelAccess() {
   const allowedPanels = new Set(KDS_ACCESS.availablePanels);
 
   document.body.classList.toggle('station-mode', KDS_ACCESS.stationMode);
+  document.body.classList.toggle('delivery-station-mode', KDS_ACCESS.deliveryStation === true);
   document.body.dataset.kdsRole = KDS_ACCESS.role || 'UNKNOWN';
   const exitStationButton = document.getElementById('exit-station-mode');
   if (exitStationButton) {
@@ -338,10 +367,20 @@ function applyKdsPanelAccess() {
   const attendanceDisabled = !KDS_ACCESS.attendanceEnabled;
   const status = document.getElementById('kds-module-status');
   if (status) {
-    status.className = `kds-module-status${attendanceDisabled ? ' kds-module-status--disabled' : ''}`;
-    status.innerHTML = attendanceDisabled
-      ? '<strong>Atendimento</strong><span>Desativado para esta conta</span>'
-      : '<strong>Atendimento</strong><span>Ativo</span>';
+    const deliveryDisabled = !KDS_ACCESS.deliveryEnabled || !KDS_ACCESS.canOperateDelivery;
+    status.className = `kds-module-status${(KDS_ACCESS.deliveryStation ? deliveryDisabled : attendanceDisabled) ? ' kds-module-status--disabled' : ''}`;
+    status.innerHTML = KDS_ACCESS.deliveryStation
+      ? (deliveryDisabled
+        ? '<strong>Delivery</strong><span>Indisponível para este acesso</span>'
+        : '<strong>Delivery</strong><span>Operação ativa</span>')
+      : (attendanceDisabled
+        ? '<strong>Atendimento</strong><span>Desativado para esta conta</span>'
+        : '<strong>Atendimento</strong><span>Ativo</span>');
+  }
+
+  if (KDS_ACCESS.deliveryStation) {
+    const sectionLabel = document.querySelector('.nav-section-label');
+    if (sectionLabel) sectionLabel.textContent = 'Operação de entregas';
   }
 
   document.querySelectorAll('.screen-panel').forEach((panel) => {
@@ -562,10 +601,12 @@ async function loadTenantPrintProfile() {
     const profile = await apiGet('/auth/me');
     const attendanceEnabled = profile?.attendance_enabled !== false;
     const rolePanels = getPanelsAllowedForRole(KDS_ACCESS.role);
-    const deliveryEnabled = false;
+    const deliveryEnabled = profile?.delivery_enabled === true;
     KDS_ACCESS.deliveryEnabled = deliveryEnabled;
     KDS_ACCESS.attendanceEnabled = attendanceEnabled;
-    const availablePanels = attendanceEnabled
+    const availablePanels = KDS_ACCESS.deliveryStation
+      ? ['delivery']
+      : attendanceEnabled
       ? (['ADMIN', 'MANAGER'].includes(KDS_ACCESS.role)
         ? rolePanels
         : (KDS_ACCESS.requestedPanel && rolePanels.includes(KDS_ACCESS.requestedPanel) ? [KDS_ACCESS.requestedPanel] : rolePanels))
@@ -574,9 +615,9 @@ async function loadTenantPrintProfile() {
     KDS_ACCESS.defaultPanel = KDS_ACCESS.availablePanels.includes(KDS_ACCESS.defaultPanel)
       ? KDS_ACCESS.defaultPanel
       : KDS_ACCESS.availablePanels[0];
-    KDS_ACCESS.canOpenSalao = attendanceEnabled && rolePanels.includes('salao');
+    KDS_ACCESS.canOpenSalao = !KDS_ACCESS.deliveryStation && attendanceEnabled && rolePanels.includes('salao');
     KDS_ACCESS.canViewSalao = attendanceEnabled && KDS_ACCESS.canOpenSalao;
-    KDS_ACCESS.canOpenDelivery = false;
+    KDS_ACCESS.canOpenDelivery = KDS_ACCESS.deliveryStation && KDS_ACCESS.canOperateDelivery;
     KDS_ACCESS.canViewDelivery = deliveryEnabled && KDS_ACCESS.canOpenDelivery;
     if (KDS_ACCESS.canViewDelivery) startDeliveryReconciliation();
     else if (deliveryReconcileTimer) {
@@ -1224,6 +1265,14 @@ function renderDeliveryPanel() {
 }
 
 function renderKdsDeliveryUnavailable() {
+  if (!KDS_ACCESS.canOperateDelivery) {
+    return `<section class="kds-delivery-unavailable" aria-labelledby="kds-delivery-unavailable-title">
+      <div class="kds-delivery-unavailable-icon" aria-hidden="true">🔒</div>
+      <span class="kds-delivery-unavailable-eyebrow">OPERAÇÃO DE ENTREGAS</span>
+      <h2 id="kds-delivery-unavailable-title">Seu perfil não possui acesso a esta operação.</h2>
+      <p>Peça a um administrador para liberar a permissão de Delivery para o seu usuário.</p>
+    </section>`;
+  }
   const tenantName = String(authSession?.user?.tenant_name || CONFIG.TENANT_NAME || 'seu restaurante').trim();
   const subject = encodeURIComponent(`Ativar Delivery - ${tenantName}`);
   return `<section class="kds-delivery-unavailable" aria-labelledby="kds-delivery-unavailable-title">
@@ -3644,7 +3693,7 @@ const TITLES = {
   kitchen: ['Estação da Cozinha', '— aceite e gerencie os pedidos da cozinha'],
   bar: ['Estação do Bar', '— aceite e gerencie os pedidos do bar'],
   salao: ['Painel do Salão', '— gerencie clientes, entregas, contas e conversas'],
-  delivery: ['Fila operacional de Delivery', '— inicie o preparo, imprima a expedição e confirme a entrega própria'],
+  delivery: ['Operação de entregas', '— aceite, prepare, despache e acompanhe cada entrega'],
 };
 
 function switchPanel(name) {
