@@ -858,7 +858,7 @@ function kdsFleetDriver(driverId) {
 function renderKdsDriverBadge(delivery) {
   if (!kdsUsesIdentifiedFleet() || String(delivery.default_fulfillment_mode || 'OWN').toUpperCase() !== 'OWN') return '';
   const driver = kdsFleetDriver(delivery.assigned_driver_id);
-  return `<div class="delivery-driver-badge ${driver ? '' : 'is-unassigned'}"><span aria-hidden="true">🛵</span><div><small>Motoboy</small><strong>${escapeHTML(driver?.name || 'Ainda não atribuído')}</strong>${driver ? `<em>${escapeHTML(driver.plate || '')} · ${Number(driver.active_deliveries || 0)}/${Number(driver.delivery_limit || 1)} entrega(s)</em>` : '<em>Escolha antes da retirada</em>'}</div></div>`;
+  return `<div class="delivery-driver-badge ${driver ? '' : 'is-unassigned'}"><span aria-hidden="true">🛵</span><div><small>Motoboy</small><strong>${escapeHTML(driver?.name || 'Ainda não atribuído')}</strong>${driver ? `<em>${escapeHTML(driver.plate || '')} · ${Number(driver.active_deliveries || 0)}/${Number(driver.delivery_limit || 1)} entrega(s)</em>` : '<em>Atribuição opcional para esta saída</em>'}</div></div>`;
 }
 
 function startDeliveryReconciliation() {
@@ -1145,7 +1145,7 @@ function deliveryActionButtons(delivery) {
   if (status === 'READY_FOR_DISPATCH') {
     const dispatch = own
       ? (kdsUsesIdentifiedFleet()
-        ? `<button class="action-btn accept" onclick="openKdsFleetAssign('${id}')">${delivery.assigned_driver_id ? '↻ Reatribuir motoboy' : '🛵 Atribuir motoboy'}</button>`
+        ? `${!delivery.assigned_driver_id ? `<button class="action-btn secondary" onclick="openKdsNoDriverStart('${id}')">🏪 Continuar sem motoboy</button>` : ''}<button class="action-btn accept" onclick="openKdsFleetAssign('${id}')">${delivery.assigned_driver_id ? '↻ Reatribuir motoboy' : '🛵 Atribuir motoboy'}</button>`
         : `<button class="action-btn accept" onclick="startOwnDelivery('${id}')">🛵 Registrar saída</button>`)
       : '<span class="delivery-external-note">Aguardando operador externo</span>';
     return `<button class="action-btn secondary" onclick="printDeliveryDispatch('${id}')">🖨️ Imprimir expedição</button>${dispatch}`;
@@ -3073,15 +3073,38 @@ async function startDeliveryPreparation(deliveryId, estimateMinutes) {
   }
 }
 
-async function startOwnDelivery(deliveryId) {
+function openKdsNoDriverStart(deliveryId) {
+  const delivery = allDeliveries[deliveryId];
+  if (!delivery || document.getElementById('kdsNoDriverStartModal')) return;
+  const overlay = document.createElement('div');
+  overlay.id = 'kdsNoDriverStartModal';
+  overlay.className = 'modal-overlay open';
+  overlay.innerHTML = `<div class="modal" style="width:min(460px,94vw)">
+    <div class="modal-header"><div><div class="modal-title">Continuar sem motoboy?</div><div style="font-size:12px;color:var(--muted);margin-top:4px">Pedido ${escapeHTML(delivery.display_code || delivery.id)} · entrega própria</div></div><button class="modal-close" type="button" onclick="closeKdsNoDriverStart()" aria-label="Fechar">✕</button></div>
+    <div class="modal-body"><div class="delivery-stage-callout delivery-stage-callout--ready"><strong>O restaurante assumirá esta saída</strong><span>Use quando a equipe fará a entrega ou quando o cliente retirar no local. Nenhum motoboy será atribuído.</span></div><p style="margin:14px 0 0;color:var(--text-2);font-size:13px;line-height:1.45">A confirmação por código continua obrigatória no final da entrega.</p></div>
+    <div class="modal-actions"><button class="btn btn-ghost" type="button" onclick="closeKdsNoDriverStart()">Cancelar</button><button class="btn btn-green" type="button" onclick="startOwnDelivery('${escapeHTML(deliveryId)}', true)">Continuar sem motoboy</button></div>
+  </div>`;
+  overlay.addEventListener('click', (event) => { if (event.target === overlay) closeKdsNoDriverStart(); });
+  document.body.appendChild(overlay);
+}
+
+function closeKdsNoDriverStart() {
+  document.getElementById('kdsNoDriverStartModal')?.remove();
+}
+
+async function startOwnDelivery(deliveryId, withoutDriver = false) {
   const delivery = allDeliveries[deliveryId];
   if (!delivery) return;
   try {
     const response = await apiPost(`/deliveries/${encodeURIComponent(deliveryId)}/own/start`, {
       expected_version: Number(delivery.version),
+      ...(withoutDriver ? { without_driver: true } : {}),
     });
     applyDeliveryMutation(deliveryId, response, 'IN_TRANSIT');
-    toast('t-success', '🛵 Saída registrada', 'O cliente foi avisado que o pedido está a caminho.');
+    closeKdsNoDriverStart();
+    toast('t-success', '🛵 Saída registrada', withoutDriver
+      ? 'Saída registrada sem motoboy. A confirmação por código continua obrigatória.'
+      : 'O cliente foi avisado que o pedido está a caminho.');
     loadDeliveries({ silent: true });
   } catch (error) {
     console.error('Failed to start own delivery:', error);
